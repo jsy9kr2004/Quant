@@ -22,29 +22,25 @@ if __name__ == '__main__':
     if not os.path.isfile("./NASDAQ.csv"):
         df_NASDAQ = fdr.StockListing('NASDAQ')
         df_NASDAQ.to_csv("NASDAQ.csv")
-
     symbol = 'GOOGL'
-    web = 'yahoo'
-    start_date = '2004-08-19'
-    end_date = '2020-04-17'
-
-    google_data = data.DataReader(symbol, web, start_date, end_date)
-    print(google_data.head(9))
-
-    google_data['Close'].plot()
-
-    #nasdaq_ticker = si.tickers_nasdaq()
-    #print(si.get_balance_sheet(symbol))
-
-    df = stock.get_market_fundamental("20220104", "20220206", "005930", freq="m")
-    print(df.head(2))
+#    sp500_ticker = si.tickers_sp500()
+    print(si.get_balance_sheet(symbol))
 
     print_hi('PyCharm')
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
 
-
 #from multiprocessing import Pool
-#poool = Pool(8)  # 컴퓨터 자원에 알맞게 주시면 될 것 같습니다.!
-# return = pool.map(method, parameters)
+#poool = Pool(8)
+#return = pool.map(method, parameters)
 #sp500_info = pool.map(get_stockinfo, sp500_tickers)
+
+#    symbol = 'GOOGL'
+#    web = 'yahoo'
+#    start_date = '2004-08-19'
+#    end_date = '2020-04-17'
+#    google_data = data.DataReader(symbol, web, start_date, end_date)
+#    print(google_data.head(9))
+#    google_data['Close'].plot()
+
+#df = stock.get_market_fundamental("20220104", "20220206", "005930", freq="m")
