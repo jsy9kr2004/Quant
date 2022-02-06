@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 from pandas_datareader import data
 import pandas as pd
 import yahoo_fin.stock_info as si
+from pykrx import stock
+from pykrx import bond
 
 
 def print_hi(name):
@@ -25,13 +27,17 @@ if __name__ == '__main__':
     web = 'yahoo'
     start_date = '2004-08-19'
     end_date = '2020-04-17'
+
     google_data = data.DataReader(symbol, web, start_date, end_date)
     print(google_data.head(9))
+
     google_data['Close'].plot()
 
-    nasdaq_ticker = si.tickers_nasdaq()
+    #nasdaq_ticker = si.tickers_nasdaq()
+    #print(si.get_balance_sheet(symbol))
 
-
+    df = stock.get_market_fundamental("20220104", "20220206", "005930", freq="m")
+    print(df.head(2))
 
     print_hi('PyCharm')
 
