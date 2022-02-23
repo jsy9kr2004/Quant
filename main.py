@@ -5,6 +5,8 @@
 
 import sys
 import mariadb
+from sqlalchemy import create_engine
+import pymysql
 import os
 import pandas as pd
 # import json.decoder
@@ -32,19 +34,31 @@ def create_folder(path):
             return False
 
 
-def create_mariadb():
-    try:
-        conn = mariadb.connect(
-            user="quant",
-            password="0710",
-            host="127.0.0.1",
-            port=710,
-            database="quantdb"
-        )
-    except mariadb.Error as e:
-        print("Error connecting to MariaDB Platform: {}".format(e))
-        sys.exit(1)
-    return conn
+def create_database():
+    # maria DB 첫 설치 시 아래의 SQL문으로 db와 user를 만들어줘야함
+    # use mysql;
+    # create database quantdb
+    # create user quant@localhost identified by '0710';
+    # grant privileges on quantdb.* to quant@localhost;
+    # flush privileges
+    # try:
+    #    conn = mariadb.connect(
+    #        user="quant",
+    #        password="0710",
+    #        host="127.0.0.1",
+    #        port=710,
+    #        database="quantdb"
+    #    )
+    # except mariadb.Error as e:
+    #    print("Error connecting to MariaDB Platform: {}".format(e))
+    #    sys.exit(1)
+    pymysql.install_as_MySQLdb()
+    engine = create_engine("mysql+pymysql://{}:{}@localhost/{}".format("quant", "0710", "quantdb"))
+
+    # 읽어왔던 URL의 이름과 동일하게 테이블명을 만듦
+    # fmp_url + "available-traded/list?apikey={}".format(api_key)
+    listed_stock = pd.read_csv("./data/listed_stock.csv")
+    listed_stock.to_sql('available_traded', engine, if_exists='replace', index=False, index_label=None, chunksize=512)
 
 
 def get_fmp_data_by_stock(stock_list, parent_path, url_1, url_2):
@@ -163,7 +177,7 @@ def get_fmp():
 if __name__ == '__main__':
 
     get_fmp()
-    create_mariadb()
+    create_database()
 
     ################################################################################################
     # (1) tickers를 이용한 재무재표 예제
