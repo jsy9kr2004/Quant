@@ -17,7 +17,7 @@ import pandas as pd
 # from pykrx import stock
 # from pykrx import bond
 
-api_key = '3e87de43bcb95f9ea6ee8710ade908b7'
+api_key = '52a6facc9bba04d228d0babd4c98156c'
 fmp_url = "https://financialmodelingprep.com/api/v3/"
 
 
@@ -30,6 +30,13 @@ def create_folder(path):
         except OSError:
             print('Error: Creating "{}" directory.'.format(path))
             return False
+
+
+def get_fmp_es():
+    available_traded = pd.read_csv("./data/available-traded.csv")
+    delisted_stock = pd.read_csv("./data/delisted_stock.csv")
+    stock = pd.concat([available_traded, delisted_stock], ignore_index=True)
+    symbol = stock["symbol"]
 
 
 def create_mariadb():
@@ -47,86 +54,50 @@ def create_mariadb():
     return conn
 
 
-def get_fmp_data_by_stock(stock_list, parent_path, url_1, url_2):
-    path = parent_path + url_1
+def get_fmp_data_by_list(parent_path, main_url, data_list, extra_url):
+    # brief : 순차적으로 넣고자 하는 값을 url에 포함시켜서 돌려줌
+    # input : parent_path(나의 상위 폴더), main_url(url의 main 값), data_list (url에 넣고자하는 list), extra_url(뒤에 나머지)
+    # output : none
+    # example 1 : /api/v3/discounted-cash-flow/AAPL?apikey=***
+    #               get_fmp_data_by_list("./data". "dicounted-cash-flow", symbol_list, "")
+    #               ./data 폴더 아래에 discounted-cash-flow 폴더를 만들고, list element별 csv를 만듦
+    # example 2 : /api/v3/etf-holder/SPY?apikey=***
+    #               get_fmp_data_by_list("./data", "etf-holder", etf_list, "")
+    # example 3 : /api/v3/income-statement-as-reported/AAPL?period=quarter&limit=50&apikey=***
+    #               get_fmp_data_by_list("./data/financial-statement", "income-statement-as-reported",
+    #                                                                     symbol_list, "period=quarter&limit=50&")
+    # [주의] extra_url을 확인해서 필요하다면 &를 넣어주어야 함
+    path = parent_path + main_url
     cre_flag = create_folder(path)
-    # TODO FMP의 Free 버젼은 250 req per day
-    # for i in range(len(stock_list["symbol"])):
+    # TODO FMP의 Free 버젼은 250 req per day / 일부만 돌리기 위해 i로 range를 살짝 줘서 돌림 (for test)
+    # for elem in data_list:
     for i in range(4, 7):
-        symbol = stock_list["symbol"][i]
-        if not os.path.isfile(path + "/{}.csv".format(symbol)):
-            print('Creating File "{}/{}.csv" ...'.format(path, symbol))
-            json_profile = pd.read_json(fmp_url + "{}/{}?{}apikey={}".format(url_1, symbol, url_2, api_key))
-            json_profile.to_csv(path+"/{}.csv".format(symbol), na_rep='NaN')
+        elem = data_list[i]
+        if not os.path.isfile(path + "/{}.csv".format(elem)):
+            print('Creating File "{}/{}.csv" ...'.format(path, elem))
+            json_profile = pd.read_json(fmp_url + "{}/{}?{}apikey={}".format(main_url, elem, extra_url, api_key))
+            json_profile.to_csv(path+"/{}.csv".format(elem), na_rep='NaN')
         else:
             if cre_flag is True:
                 # 새로 만드는 경우, 이미 csv가 있다는 건 stock list와 delisted list에 중복 값이 있는 상황 (Duplicate)
                 # 리스트에 중복값이 왜 들어가게 되었는지 반드시 확인이 필요함. (가정이 깨짐)
-                print('[ERROR] Already Exist "{}/{}.csv"'.format(path, symbol))
-
-
-def get_fmp_financial_statement(symbol_list_path, new_fs_):
-    symbol_list = pd.read_csv(symbol_list_path)
-    # for i in range(len(stock_list["symbol"])):
-    for i in range(3, 4):
-        symbol = symbol_list["symbol"][i]
-        if not os.path.isfile("./data/fs/{}.csv".format(symbol)):
-            print("Creating [ {} ] Financial Statements File...".format(symbol))
-            # TODO limt 내용을 fmp 유료 결제 후 분기 재무제표로 바꿔야 함
-            url_is = fmp_url + "income-statement/{}?limit=120&apikey={}".format(symbol, api_key)
-            pd_is = pd.read_json(url_is)
-            url_bs = fmp_url + "balance-sheet-statement/{}?limit=120&apikey={}".format(symbol, api_key)
-            pd_bs = pd.read_json(url_bs)
-            url_cf = fmp_url + "cash-flow-statement/{}?limit=120&apikey={}".format(symbol, api_key)
-            pd_cf = pd.read_json(url_cf)
-            # 재무재표가 income, balance sheet, cash flow 로 나눠서 제공하고 있어 merge 해주는 작업을 해야함
-            pd_mg = pd_is.merge(pd_bs, left_on=['date', 'symbol'], right_on=['date', 'symbol'], how='inner',
-                                suffixes=('', '_del'))
-            pd_mg = pd_mg.merge(pd_cf, left_on=['date', 'symbol'], right_on=['date', 'symbol'], how='inner',
-                                suffixes=('', '_del'))
-            pd_mg = pd_mg[[c for c in pd_mg.columns if not c.endswith('_del')]]
-            pd_mg.to_csv("./data/fs/{}.csv".format(symbol), index=False, na_rep='NaN')
-        else:
-            if new_fs_ is True:
-                # 새로 만드는 경우, 이미 csv가 있다는 건 stock list와 delisted list에 중복 값이 있는 상황
-                # 리스트에 중복값이 왜 들어가게 되었는지 반드시 확인이 필요함. (가정이 깨짐)
-                print("[ERROR] Already Exist {}.csv".format(symbol))
-
-
-def get_fmp_stock_info(symbol_list_path):
-    symbol_list = pd.read_csv(symbol_list_path)
-    # TODO FMP의 Free 버젼은 250 req per day
-    # for i in range(len(stock_list["symbol"])):
-    for i in range(4, 5):
-        # FIXME yahoo finance를 이용해서 stock info를 가져옴. api 사용량 제한으로 2일 이상 돌려야해서 시간 날 때 해야함
-        # df_stock_info = pd.DataFrame()
-        # for i in range(len(stock_list["symbol"])) :
-        # for i in range(3, 4) :
-        #    print("{} ({}/{})".format(stock_list["symbol"][i], i, len(stock_list["symbol"])))
-        #    df_stock_info = pd.concat([df_stock_info, pd.DataFrame([yf.Ticker(stock_list["symbol"][i]).info])])
-        # df_stock_info.to_csv("test.csv", index=False, na_rep='NaN')
-
-        symbol = symbol_list["symbol"][i]
-        # TODO yahoo 대신에 FMP에서 가져와도 될 듯. 필요했던 데이터인 ipoDate와 Sector 정보를 아래에서 얻어올 수 있음
-        url_profile = fmp_url + "profile/{}?apikey={}".format(symbol, api_key)
-        json_profile = pd.read_json(url_profile)
-        json_profile.to_csv("./data/profile", index=False, na_rep='NaN')
+                print('[ERROR] Already Exist "{}/{}.csv"'.format(path, elem))
 
 
 def get_fmp():
     create_folder("./data")
 
-    if not os.path.isfile("./data/listed_stock.csv"):
+    if not os.path.isfile("./data/available-traded.csv"):
         print("Creating Stock File...")
-        url_stock = fmp_url + "available-traded/list?apikey={}".format(api_key)
-        listed_stock = pd.read_json(url_stock)
-        listed_stock.to_csv("./data/listed_stock.csv", na_rep='NaN')
-        # FIXME finance-datareader를 이용해서 NASDAQ stock list 받음
+        url_symbol = fmp_url + "available-traded/list?apikey={}".format(api_key)
+        available_traded = pd.read_json(url_symbol)
+        available_traded.to_csv("./data/available-traded.csv", na_rep='NaN')
+        # FIXME finance-datareader를 이용해서 NASDAQ stock list 받음 (필요할까?)
         # if not os.path.isfile("./NASDAQ.csv"):
         #       df_NASDAQ = fdr.StockListing('NASDAQ')
         #       df_NASDAQ.to_csv("NASDAQ.csv")
     else:
-        listed_stock = pd.read_csv("./data/listed_stock.csv")
+        available_traded = pd.read_csv("./data/available-traded.csv")
 
     if not os.path.isfile("./data/delisted_stock.csv"):
         print("Creating Delisted Stock File...")
@@ -146,24 +117,36 @@ def get_fmp():
     else:
         delisted_stock = pd.read_csv("./data/delisted_stock.csv")
 
-    stock = pd.concat([listed_stock, delisted_stock], ignore_index=True)
+    stock = pd.concat([available_traded, delisted_stock], ignore_index=True)
 
-    # Create Stock Info Folder & Files
-    get_fmp_data_by_stock(stock, "./data/", "profile", "")
+
+def get_fmp_sy():
+    available_traded = pd.read_csv("./data/available-traded.csv")
+    delisted_stock = pd.read_csv("./data/delisted_stock.csv")
+    stock = pd.concat([available_traded, delisted_stock], ignore_index=True)
+    symbol = stock["symbol"]
 
     # Create Financial Statement Folder & Files (income, balance-sheet, cash-flow)
     create_folder("./data/financial-statement/")
 
     # TODO FMP 유료 결제 후 분기에서 연간 데이터를 분기 데이터로 바꾸기 위해 url_2 값(limit=120&)을 변경해주어야 함
-    get_fmp_data_by_stock(stock, "./data/financial-statement/", "income-statement", "limit=120&")
-    get_fmp_data_by_stock(stock, "./data/financial-statement/", "balance-sheet-statement", "limit=120&")
-    get_fmp_data_by_stock(stock, "./data/financial-statement/", "cash-flow-statement", "limit=120&")
+    # Income Statement
+    get_fmp_data_by_list("./data/financial-statement/", "income-statement", symbol, "limit=120&")
+    # Balance Sheet Statement
+    get_fmp_data_by_list("./data/financial-statement/", "balance-sheet-statement", symbol, "limit=120&")
+    # Cash Flow Statement
+    get_fmp_data_by_list("./data/financial-statement/", "cash-flow-statement", symbol, "limit=120&")
+
+    # 이 사이에 많은 함수들이 들어와야 함 (by RULE)
+    # Company Profile
+    get_fmp_data_by_list("./data/", "profile", symbol, "")
 
 
 if __name__ == '__main__':
-
     get_fmp()
-    create_mariadb()
+    get_fmp_sy()
+    get_fmp_es()
+    # create_mariadb()
 
     ################################################################################################
     # (1) tickers를 이용한 재무재표 예제
@@ -186,4 +169,20 @@ if __name__ == '__main__':
     # print(google_data.head(9))
     # google_data['Close'].plot()
     # df = stock.get_market_fundamental("20220104", "20220206", "005930", freq="m")
+
+    # (4) dataframe을 이용한 merge 예시
+    # url_is = fmp_url + "income-statement/{}?limit=120&apikey={}".format(symbol, api_key)
+    # pd_is = pd.read_json(url_is)
+    # url_bs = fmp_url + "balance-sheet-statement/{}?limit=120&apikey={}".format(symbol, api_key)
+    # pd_bs = pd.read_json(url_bs)
+    # url_cf = fmp_url + "cash-flow-statement/{}?limit=120&apikey={}".format(symbol, api_key)
+    # pd_cf = pd.read_json(url_cf)
+    # 재무재표가 income, balance sheet, cash flow 로 나눠서 제공하고 있어 merge 해주는 작업을 해야함
+    # pd_mg = pd_is.merge(pd_bs, left_on=['date', 'symbol'], right_on=['date', 'symbol'], how='inner',
+    #                    suffixes=('', '_del'))
+    # pd_mg = pd_mg.merge(pd_cf, left_on=['date', 'symbol'], right_on=['date', 'symbol'], how='inner',
+    #                    suffixes=('', '_del'))
+    # pd_mg = pd_mg[[c for c in pd_mg.columns if not c.endswith('_del')]]
+    # pd_mg.to_csv("./data/fs/{}.csv".format(symbol), index=False, na_rep='NaN')
+
     ################################################################################################
