@@ -16,7 +16,7 @@ List of dates and links,X,-,,/api/v4/financial-reports-dates?symbol=AAPL,,
 Annual Reports on Form 10-K,X,0,,/api/v4/financial-reports-json?symbol=AAPL&year=2020&period=FY,,
 Quarterly Earnings Reports,X,0,,/api/v4/financial-reports-json?symbol=AAPL&year=2020&period=Q1,,
 Shares Float,0,0,,/api/v4/shares_float?symbol=AAPL,유동주식수,
-SEC RSS Feeds,-,-,,/api/v4/rss_feed?limit=100&type=10&from=2021-03-10&to=2021-05-04&isDone=true,,"SEC == 미국 금융감독원, SEC에 올라온 파일 접근 주소"
+SEC RSS Feeds,-,-,,,/api/v4/rss_feed?limit=100&type=10&from=2021-03-10&to=2021-05-04&isDone=true,"SEC == 미국 금융감독원, SEC에 올라온 파일 접근 주소"
 Earning Call Transcript,X,-,,/api/v3/earning_call_transcript/AAPL?quarter=3&year=2020,,
 SEC Filings,0,0,,/api/v3/sec_filings/AAPL?type=10-K&page=0,,
 Rss feed 8K (Important Events),0,0,,"/api/v4/rss_feed_8k?page=0 

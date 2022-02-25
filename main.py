@@ -19,8 +19,11 @@ import numpy as np
 
 API_KEY = '52a6facc9bba04d228d0babd4c98156c'
 FMP_URL = "https://financialmodelingprep.com"
-EX_SYMBOL = "APPL"
+EX_SYMBOL = "AAPL"
 ROOT_PATH = "./data"
+SYMBOL = pd.DataFrame()
+START_YEAR = 2021
+END_YEAR = 2022
 
 
 def create_folder(path):
@@ -34,120 +37,139 @@ def create_folder(path):
             return False
 
 
-def get_fmp_data(main_url, data_list, extra_url, need_symbol, is_v4):
+def get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix=""):
     # brief : 순차적으로 넣고자 하는 값을 url에 포함시켜서 돌려줌
-    # input : main_url(url의 main 값), data_list (url에 넣고자하는 list), extra_url(뒤에 나머지)
+    # input : main_url(url의 main 값), data_list (url에 넣고자하는 list), extra_url(뒤에 나머지),
+    #            file_list(main_url로 file 명이 정해지지 않는 from-to 처리 때문에 생긴 parameter)
+    #            need_symbol(url에 symbol 값이 들어가지는에 대한 boolean. v4 주소 처리때문에 필요)
     #            v4_flag(v4 url 형식을 사용할지에 대한 flag)
     # output : none
     # example 1 : /api/v3/discounted-cash-flow/AAPL?apikey=***
-    #               get_fmp_data_by_list("./data". "dicounted-cash-flow", symbol_list, "")
+    #               get_fmp_data_by_list("dicounted-cash-flow", symbol_list, "", symbol_list, True, False)
     #               ./data 폴더 아래에 discounted-cash-flow 폴더를 만들고, list element별 csv를 만듦
-    # example 2 : /api/v3/etf-holder/SPY?apikey=***
-    #               get_fmp_data_by_list("./data", "etf-holder", etf_list, "")
-    # example 3 : /api/v3/income-statement-as-reported/AAPL?period=quarter&limit=50&apikey=***
-    #               get_fmp_data_by_list("./data/financial-statement", "income-statement-as-reported",
-    #                                                                     symbol_list, "period=quarter&limit=50&")
-    # [주의] extra_url을 확인해서 필요하다면 &를 넣어주어야 함
-    if is_v4 is True:
-        api_url = FMP_URL + "/api/v4/"
-    else:
-        api_url = FMP_URL + "/api/v3/"
+    # example 2 : /api/v3/income-statement-as-reported/AAPL?period=quarter&limit=50&apikey=***
+    #               get_fmp_data_by_list("income-statement-as-reported", symbol_list,
+    #                                    "period=quarter&limit=50&", symbol_list, True, False)
 
-    # file 한개만 만들고 나가면 되는 애들부터 처리
-    if len(data_list) == 0:
-        if main_url.rfind("/") != -1:
-            create_folder(ROOT_PATH + "/" + main_url[:main_url.rfind("/")])
-        if not os.path.isfile("{}/{}.csv".format(ROOT_PATH, main_url)):
-            api_url += "{}?{}apikey={}".format(main_url, extra_url, API_KEY)
-            print('Creating File "{}/{}.csv" <- "{}"'.format(ROOT_PATH, main_url, api_url))
-            try:
-                json_data = pd.read_json(api_url)
-            except ValueError:
-                print("[Warning] No Data. Or Different Data Type")
-                return
-            json_data.to_csv("{}/{}.csv".format(ROOT_PATH, main_url), na_rep='NaN')
+    if need_symbol is False:
+        get_fmp_data_only_one(main_url, extra_url, is_v4, file_postfix)
         return
 
     path = ROOT_PATH + "/" + main_url
     cre_flag = create_folder(path)
 
     # TODO FMP의 Free 버젼은 250 req per day / 일부만 돌리기 위해 i로 range를 살짝 줘서 돌림 (for test)
-    # for elem in data_list:
-    for i in range(0, 1):
-        elem = data_list[i]
-        if not os.path.isfile(path + "/{}.csv".format(elem)):
+    # for elem in SYMBOL:
+    for i in range(0, 2):
+        elem = SYMBOL[i]
+        if not os.path.isfile(path + "/{}.csv".format(elem + file_postfix)):
             if is_v4 is True:
                 if need_symbol is True:
-                    api_url += "{}?symbol={}&{}apikey={}".format(main_url, elem, extra_url, API_KEY)
+                    api_url = FMP_URL + "/api/v4/{}?symbol={}&{}apikey={}".format(main_url, elem, extra_url, API_KEY)
                 else:
-                    api_url += "{}/{}?{}apikey={}".format(main_url, elem, extra_url, API_KEY)
+                    api_url = FMP_URL + "/api/v4/{}?{}apikey={}".format(main_url, extra_url, API_KEY)
             else:
-                api_url += "{}/{}?{}apikey={}".format(main_url, elem, extra_url, API_KEY)
-            print('Creating File "{}/{}.csv" <- "{}"'.format(path, elem, api_url))
+                api_url = FMP_URL + "/api/v3/{}/{}?{}apikey={}".format(main_url, elem, extra_url, API_KEY)
+            print('Creating File "{}/{}.csv" <- "{}"'.format(path, elem + file_postfix, api_url))
             try:
                 json_data = pd.read_json(api_url)
             except ValueError:
                 print("[Warning] No Data. Or Different Data Type")
                 continue
-            json_data.to_csv(path+"/{}.csv".format(elem), na_rep='NaN')
+            json_data.to_csv(path+"/{}.csv".format(elem + file_postfix), na_rep='NaN')
         else:
             if cre_flag is True:
                 # 새로 만드는 경우, 이미 csv가 있다는 건 stock list와 delisted list에 중복 값이 있는 상황 (Duplicate)
                 # 리스트에 중복값이 왜 들어가게 되었는지 반드시 확인이 필요함. (가정이 깨짐)
-                print('[ERROR] Already Exist "{}/{}.csv"'.format(path, elem))
+                print('[ERROR] Already Exist "{}/{}.csv"'.format(path, elem + file_postfix))
 
 
-def get_fmp_data_only_one(path, main_url, v4_flag=False):
+def get_fmp_data_only_one(main_url, extra_url, is_v4, file_postfix):
     # brief : 하나의 값만 읽어오고자 할 때 사용됨
-    # input : path(저장하고자 하는 폴더 폴더), main_url(url의 main 값), extra_url(뒤에 나머지 url)
+    # input : main_url(url의 main 값), data_list (url에 넣고자하는 list), extra_url(뒤에 나머지),
     #            v4_flag(v4 url 형식을 사용할지에 대한 flag)
     # output : none
     # example 1 :  /api/v3/financial-statement-symbol-lists
-    #                   get_fmp_data_only_one("./data", "financial-statement-symbol-lists", "")
+    #                   get_fmp_data_only_one("financial-statement-symbol-lists", "", False)
     #                   ./data 폴더 아래에 financial-statement-symbol-lists.csv 파일을 만듦
-    if not os.path.isfile("{}/{}.csv".format(path, main_url)):
-        print('Creating File "{}/{}.csv" ...'.format(path, main_url))
-        json_data = pd.read_json(fmp_url + "{}?apikey={}".format(main_url, api_key))
-        json_data.to_csv("{}/{}.csv".format(path, main_url), na_rep='NaN')
+    if is_v4 is True:
+        api_url = FMP_URL + "/api/v4/"
+    else:
+        api_url = FMP_URL + "/api/v3/"
+
+    if main_url.rfind("/") != -1:
+        create_folder(ROOT_PATH + "/" + main_url[:main_url.rfind("/")])
+    if not os.path.isfile("{}/{}.csv".format(ROOT_PATH, main_url + file_postfix)):
+        api_url += "{}?{}apikey={}".format(main_url, extra_url, API_KEY)
+        print('Creating File "{}/{}.csv" <- "{}"'.format(ROOT_PATH, main_url + file_postfix, api_url))
+        try:
+            json_data = pd.read_json(api_url)
+        except ValueError:
+            print("[Warning] No Data. Or Different Data Type")
+            return
+        json_data.to_csv("{}/{}.csv".format(ROOT_PATH, main_url + file_postfix), na_rep='NaN')
+
+
+def get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4):
+    if extra_url.find("year") != -1:
+        for year in range(START_YEAR, END_YEAR + 1):
+            extra_url = re.sub('year=[0-9]{4}', "[YEAR]", extra_url)
+            file_postfix = "_" + str(year)
+            extra_url = extra_url.replace("[YEAR]", "year={}".format(year))
+            get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
+
+    elif extra_url.find("from") != -1:
+        for year in range(START_YEAR, END_YEAR + 1):
+            for month in range(1, 13):
+                extra_url = re.sub('from=[0-9]{4}-[0-9]{2}-[0-9]{2}&to=[0-9]{4}-[0-9]{2}-[0-9]{2}', "[FT]", extra_url)
+                file_postfix = "_" + str(year) + "_" + str(month)
+                extra_url = extra_url.replace("[FT]", "from={0}-{1:02d}-01&to={0}-{1:02d}-31".format(year, month))
+                get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
+
+    # elif extra_url.find("page") != -1:
+    # get_fmp_data_page(main_url, extra_url, need_symbol, is_v4)
+    #    print(1)
+
+    else:
+        get_fmp_data(main_url, extra_url, need_symbol, is_v4)
+
+
+def set_symbol():
+    if os.path.isfile(ROOT_PATH + "/available-traded/list.csv") is True \
+            and os.path.isfile(ROOT_PATH + "/delisted-companies.csv") is True:
+        available_traded = pd.read_csv(ROOT_PATH + "/available-traded/list.csv")
+        delisted_stock = pd.read_csv(ROOT_PATH + "/delisted-companies.csv")
+        stock = pd.concat([available_traded, delisted_stock], ignore_index=True)
+        global SYMBOL
+        SYMBOL = stock["symbol"]
 
 
 def get_fmp(api_list):
-    create_folder("./data")
+    create_folder(ROOT_PATH)
+    set_symbol()
 
-    if not os.path.isfile("./data/available-traded.csv"):
-        print("Creating Stock File...")
-        url_symbol = FMP_URL + "available-traded/list?apikey={}".format(API_KEY)
-        available_traded = pd.read_json(url_symbol)
-        available_traded.to_csv("./data/available-traded.csv", na_rep='NaN')
-        # FIXME finance-datareader를 이용해서 NASDAQ stock list 받음 (필요할까?)
-        # if not os.path.isfile("./NASDAQ.csv"):
-        #       df_NASDAQ = fdr.StockListing('NASDAQ')
-        #       df_NASDAQ.to_csv("NASDAQ.csv")
-    else:
-        available_traded = pd.read_csv("./data/available-traded.csv")
-
-    if not os.path.isfile("./data/delisted_stock.csv"):
-        print("Creating Delisted Stock File...")
-        i = 1
-        delisted_stock = pd.DataFrame()
-        while True:
-            url_del_stock = FMP_URL + "delisted-companies?page={}&apikey={}".format(i, API_KEY)
-            json_del_stock = pd.read_json(url_del_stock)
-            print("Get Delisted Stock File - {} page".format(i))
-            if json_del_stock.empty is True:
-                delisted_stock.to_csv("./data/delisted_stock.csv", na_rep='NaN')
-                break
-            else:
-                # FIXME ignore_index 들어가야하는지 직접 데이터 확인해봐야 함
-                delisted_stock = pd.concat([delisted_stock, json_del_stock])
-            i += 1
-    else:
-        delisted_stock = pd.read_csv("./data/delisted_stock.csv")
-
-    stock = pd.concat([available_traded, delisted_stock], ignore_index=True)
+    #if not os.path.isfile("./data/delisted_stock.csv"):
+    #    print("Creating Delisted Stock File...")
+    #    i = 1
+    #    delisted_stock = pd.DataFrame()
+    #    while True:
+    #        url_del_stock = FMP_URL + "delisted-companies?page={}&apikey={}".format(i, API_KEY)
+    #        json_del_stock = pd.read_json(url_del_stock)
+    #        print("Get Delisted Stock File - {} page".format(i))
+    #        if json_del_stock.empty is True:
+    #            delisted_stock.to_csv("./data/delisted_stock.csv", na_rep='NaN')
+    #            break
+    #        else:
+    #            FIXME ignore_index 들어가야하는지 직접 데이터 확인해봐야 함
+    #            delisted_stock = pd.concat([delisted_stock, json_del_stock])
+    #        i += 1
+    #else:
 
     for i in range(len(api_list)):
-        need_symbol = True if api_list[i].find("AAPL") != -1 else False
+        need_symbol = True if api_list[i].find(EX_SYMBOL) != -1 else False
+        # SYMBOL 이 없는 건, SYMBOL을 만들기 위한 file도 만들어지기 전이기 때문에 두번 돌려서 SYMBOL 안쓰는 것부터 만듦
+        if need_symbol is True and SYMBOL.empty is True:
+            continue
         is_v4 = True if api_list[i].split('/')[2] == "v4" else False
         # Code에 박아 넣은 값인 8은 url의 앞부분인 /api/v4/ 의 길이. v3와 v4 코드 통합을 위해 박아넣음
         main_url = api_list[i].split('?')[0][8:]
@@ -157,12 +179,14 @@ def get_fmp(api_list):
                 extra_url = "" if len(extra_url) == 10 else extra_url[12:]
             else:
                 main_url = main_url[:-5]
+        # limit 제거
+        extra_url = re.sub('[&]{0,1}limit=[0-9]{2,3}[&]{0,1}', "", extra_url)
         if extra_url != "":
             extra_url = extra_url + "&"
-        #    print("{}\nextra_url : {}".format(api_list[i], extra_url))
+            #print("{}\nextra_url : {}".format(api_list[i], extra_url))
         # FIXME 디버깅용 로그라 120칸 넘김 나중에 수정 예정
-        print("{}\nmain_url : {} / extra_url : {} / need_symbol : {}".format(api_list[i], main_url, extra_url, need_symbol))
-        get_fmp_data(main_url, "" if need_symbol is False else stock["symbol"], extra_url, need_symbol, is_v4)
+        print("{}\nmain_url : {} / extra_url : {} / need_symbol : {} / is_v4 : {}".format(api_list[i], main_url, extra_url, need_symbol, is_v4))
+        get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4)
 
 
 def get_api_list():
@@ -170,8 +194,11 @@ def get_api_list():
     api_df = api_df.dropna()
     api_list = api_df.values.tolist()
     for i in range(len(api_list)):
+        api_list[i] = str(api_list[i]).replace(" ","")
+        # https 부터 적은 경우에 대한 처리
         if str(api_list[i]).find(FMP_URL) != -1:
-            api_list[i] = str(api_list[i])[2: str(api_list[i]).find("apikey") - 1].replace(FMP_URL, "").strip()
+            api_list[i] = str(api_list[i])[2: str(api_list[i]).find("apikey") - 1].replace(FMP_URL, "")
+        # 여러줄이 들어간 경우, 가장 앞에 써진 url 만을 돌린다. \n을 찾아서 뒤를 전부 지워주는 작업
         elif str(api_list[i]).find('\\') != -1:
             api_list[i] = str(api_list[i])[2: str(api_list[i]).find('\\')]
         else:
@@ -181,6 +208,8 @@ def get_api_list():
 
 if __name__ == '__main__':
     api_list = get_api_list()
+    # 굳이 symbol을 채우기 위해 별도의 작업을 하는 것보다 2번 돌리는게 효율적
+    get_fmp(api_list)
     get_fmp(api_list)
     # get_fmp_es()
     # create_mariadb()
