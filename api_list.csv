@@ -36,7 +36,7 @@ Company DCF,0,0,,"/api/v3/discounted-cash-flow/AAPL
 /api/v3/historical-discounted-cash-flow-statement/AAPL?period=quarter
 /api/v3/historical-daily-discounted-cash-flow/AAPL?limit=100",,
 ,,,,,,
-Institutional Stock Ownership,0,0,,/api/v4/institutional-ownership/symbol-ownership?symbol=AAPL&includeCurrentQuarter=false,종목별 기관 매수 정보,
+Institutional Stock Ownership,0,0,,,/api/v4/institutional-ownership/symbol-ownership?symbol=AAPL&includeCurrentQuarter=false,더 상위 플랜으로 해야함
 Stock Ownership by Holders,X,X,,,,
 Institutional Holdings Portfolio Positions Summary,X,X,,,,
 Institutional Holder Rss Feed,X,X,,,,
@@ -66,13 +66,13 @@ Market Capitalization,X,0,,"/api/v3/market-capitalization/AAPL
 /api/v3/historical-market-capitalization/AAPL?limit=100",,
 Company Outlook,X,0,,/api/v4/company-outlook?symbol=AAPL,,
 Stock Peers,0,-,,/api/v4/stock_peers?symbol=AAPL,,
-NYSE Holidays and Trading Hours,X,X,,/api/v3/is-the-market-open,,
+NYSE Holidays and Trading Hours,X,X,,,,
 Delisted Companies,0,0,,/api/v3/delisted-companies?page=0,,
 Company core information,0,0,,/api/v4/company-core-information?symbol=AAPL,,
 ,,,,,,
-FMP Articles,X,-,,/api/v3/fmp/articles?page=0&size=5,,이건 정말 나중에.. 완성 다 되도 이 계획은 별도로 세워야 할듯 -> 동의
-Stock News,X,-,,/api/v3/stock_news?tickers=AAPL&limit=50,,
-Press Releases,X,-,,/api/v3/press-releases/AAPL?page=0,,
+FMP Articles,X,-,,,/api/v3/fmp/articles?page=0&size=5,이건 정말 나중에.. 완성 다 되도 이 계획은 별도로 세워야 할듯 -> 동의
+Stock News,X,-,,,/api/v3/stock_news?tickers=AAPL&limit=50,
+Press Releases,X,-,,,/api/v3/press-releases/AAPL?page=0,
 ,,,,,,
 Sectors PE Ratio,0,0,,/api/v4/sector_price_earning_ratio?date=2021-05-07&exchange=NYSE,,
 Industries PE Ratio,0,0,,/api/v4/industry_price_earning_ratio?date=2021-05-07&exchange=NYSE,,

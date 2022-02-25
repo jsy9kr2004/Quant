@@ -34,16 +34,9 @@ def create_folder(path):
             return False
 
 
-def get_fmp_es():
-    available_traded = pd.read_csv("./data/available-traded.csv")
-    delisted_stock = pd.read_csv("./data/delisted_stock.csv")
-    stock = pd.concat([available_traded, delisted_stock], ignore_index=True)
-    symbol = stock["symbol"]
-
-
-def get_fmp_data_by_list(parent_path, main_url, data_list, extra_url, v4_flag=False, is_symbol=True):
+def get_fmp_data(main_url, data_list, extra_url, need_symbol, is_v4):
     # brief : 순차적으로 넣고자 하는 값을 url에 포함시켜서 돌려줌
-    # input : parent_path(나의 상위 폴더), main_url(url의 main 값), data_list (url에 넣고자하는 list), extra_url(뒤에 나머지)
+    # input : main_url(url의 main 값), data_list (url에 넣고자하는 list), extra_url(뒤에 나머지)
     #            v4_flag(v4 url 형식을 사용할지에 대한 flag)
     # output : none
     # example 1 : /api/v3/discounted-cash-flow/AAPL?apikey=***
@@ -55,18 +48,47 @@ def get_fmp_data_by_list(parent_path, main_url, data_list, extra_url, v4_flag=Fa
     #               get_fmp_data_by_list("./data/financial-statement", "income-statement-as-reported",
     #                                                                     symbol_list, "period=quarter&limit=50&")
     # [주의] extra_url을 확인해서 필요하다면 &를 넣어주어야 함
-    path = parent_path + main_url
+    if is_v4 is True:
+        api_url = FMP_URL + "/api/v4/"
+    else:
+        api_url = FMP_URL + "/api/v3/"
+
+    # file 한개만 만들고 나가면 되는 애들부터 처리
+    if len(data_list) == 0:
+        if main_url.rfind("/") != -1:
+            create_folder(ROOT_PATH + "/" + main_url[:main_url.rfind("/")])
+        if not os.path.isfile("{}/{}.csv".format(ROOT_PATH, main_url)):
+            api_url += "{}?{}apikey={}".format(main_url, extra_url, API_KEY)
+            print('Creating File "{}/{}.csv" <- "{}"'.format(ROOT_PATH, main_url, api_url))
+            try:
+                json_data = pd.read_json(api_url)
+            except ValueError:
+                print("[Warning] No Data. Or Different Data Type")
+                return
+            json_data.to_csv("{}/{}.csv".format(ROOT_PATH, main_url), na_rep='NaN')
+        return
+
+    path = ROOT_PATH + "/" + main_url
     cre_flag = create_folder(path)
+
     # TODO FMP의 Free 버젼은 250 req per day / 일부만 돌리기 위해 i로 range를 살짝 줘서 돌림 (for test)
     # for elem in data_list:
-    for i in range(4, 7):
+    for i in range(0, 1):
         elem = data_list[i]
         if not os.path.isfile(path + "/{}.csv".format(elem)):
-            print('Creating File "{}/{}.csv" ...'.format(path, elem))
-            if v4_flag is True:
-                json_data = pd.read_json(fmp_url + "{}/{}?{}apikey={}".format(main_url, elem, extra_url, api_key))
+            if is_v4 is True:
+                if need_symbol is True:
+                    api_url += "{}?symbol={}&{}apikey={}".format(main_url, elem, extra_url, API_KEY)
+                else:
+                    api_url += "{}/{}?{}apikey={}".format(main_url, elem, extra_url, API_KEY)
             else:
-                json_data = pd.read_json(fmp_url + "{}/{}?{}apikey={}".format(main_url, elem, extra_url, api_key))
+                api_url += "{}/{}?{}apikey={}".format(main_url, elem, extra_url, API_KEY)
+            print('Creating File "{}/{}.csv" <- "{}"'.format(path, elem, api_url))
+            try:
+                json_data = pd.read_json(api_url)
+            except ValueError:
+                print("[Warning] No Data. Or Different Data Type")
+                continue
             json_data.to_csv(path+"/{}.csv".format(elem), na_rep='NaN')
         else:
             if cre_flag is True:
@@ -124,101 +146,23 @@ def get_fmp(api_list):
 
     stock = pd.concat([available_traded, delisted_stock], ignore_index=True)
 
-    # v3/v4
-    print(api_list[0].split('/')[2])
-
     for i in range(len(api_list)):
-        if api_list[i].split('/')[2] == "v3":
-            print(api_list[i])
-            main_url = api_list[i].split('/')[3]
-        else:
-            main_url = api_list[i].split('/')[3].split('?')[0]
-
-    #    str(api_list[i])
-    # print(api_list[0].split('/')[2])
-    #for i in range(len(api_list)):
-    #    str(api_list[i])
-
-
-
-def get_fmp_sy():
-    available_traded = pd.read_csv("./data/available-traded.csv")
-    delisted_stock = pd.read_csv("./data/delisted_stock.csv")
-    stock = pd.concat([available_traded, delisted_stock], ignore_index=True)
-    symbol = stock["symbol"]
-
-    # Financial Statements List
-    get_fmp_data_only_one("./data", "financial-statement-symbol-lists")
-    # Create Financial Statement Folder & Files (income, balance-sheet, cash-flow)
-    create_folder("./data/financial-statement/")
-    # TODO FMP 유료 결제 후 분기에서 연간 데이터를 분기 데이터로 바꾸기 위해 url_2 값(limit=120&)을 변경해주어야 함
-    # Income Statement
-    get_fmp_data_by_list("./data/financial-statement/", "income-statement", symbol, "limit=120&")
-    # Balance Sheet Statement
-    get_fmp_data_by_list("./data/financial-statement/", "balance-sheet-statement", symbol, "limit=120&")
-    # Cash Flow Statement
-    get_fmp_data_by_list("./data/financial-statement/", "cash-flow-statement", symbol, "limit=120&")
-    # Income Statement as reported
-    get_fmp_data_by_list("./data/", "income-statement-as-reported", symbol, "period=quarter&limit=50&")
-    # Balance Sheet Statement as reported
-    get_fmp_data_by_list("./data/", "balance-sheet-statement-as-reported", symbol, "period=quarter&limit=50&")
-    # Cash Flow Statement as reported
-    get_fmp_data_by_list("./data/", "cash-flow-statement-as-reported", symbol, "period=quarter&limit=50&")
-    # Full Financial Statement as reported
-    get_fmp_data_by_list("./data/", "financial-statement-full-as-reported", symbol, "period=quarter&")
-    # International Filings
-    # TODO 여기에 올 내용은 미국장 이외의 장의 symbol이 필요. list만 넣어주면 돌아가나 아직 필요성 의문
-    # get_fmp_data_by_list("./data/", "income-statement", symbol, "limit=100&")
-    # List of dates and links
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # Annual Reports on Form 10-K
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # Quarterly Earnings Reports
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # Shares Float
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # SEC RSS Feeds
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # Earning Call Transcript
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # SEC Filings
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # Rss feed 8K (Important Events)
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # Company Notes due New
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # Company Financial Ratios
-    get_fmp_data_by_list("./data/", "ratios", symbol, "period=quarter&limit=140&")
-    # Stock Financial scores
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # Company Enterprise Value
-    get_fmp_data_by_list("./data/", "enterprise-values", symbol, "period=quarter&limit=130&")
-    # Financial Statements Growth
-    get_fmp_data_by_list("./data/", "income-statement-growth", symbol, "limit=40&")
-    get_fmp_data_by_list("./data/", "balance-sheet-statement-growth", symbol, "limit=40&")
-    get_fmp_data_by_list("./data/", "cash-flow-statement-growth", symbol, "limit=40&")
-    # Company Key Metrics
-    get_fmp_data_by_list("./data/", "key-metrics", symbol, "period=quarter&limit=130&")
-    # Company Financial Growth
-    get_fmp_data_by_list("./data/", "financial-growth", symbol, "period=quarter&limit=80&")
-    # Company Rating
-    get_fmp_data_by_list("./data/", "historical-rating", symbol, "limit=140&")
-    # Company DCF
-    get_fmp_data_by_list("./data/", "discounted-cash-flow", symbol, "")
-    # Institutional Stock Ownership
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # Earnings Calendar
-    get_fmp_data_by_list("./data/", "earning_calendar", symbol, "limit=80&")
-    # Earnings Calendar Confirmed
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # Stock Split Calendar
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # Dividend Calendar
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # Economic Calendar
-    get_fmp_data_by_list("./data/", "", symbol, "")
-    # Company Profile
-    get_fmp_data_by_list("./data/", "profile", symbol, "")
+        need_symbol = True if api_list[i].find("AAPL") != -1 else False
+        is_v4 = True if api_list[i].split('/')[2] == "v4" else False
+        # Code에 박아 넣은 값인 8은 url의 앞부분인 /api/v4/ 의 길이. v3와 v4 코드 통합을 위해 박아넣음
+        main_url = api_list[i].split('?')[0][8:]
+        extra_url = "" if api_list[i].find("?") == -1 else api_list[i].split('?')[1]
+        if need_symbol is True:
+            if is_v4 is True:
+                extra_url = "" if len(extra_url) == 10 else extra_url[12:]
+            else:
+                main_url = main_url[:-5]
+        if extra_url != "":
+            extra_url = extra_url + "&"
+        #    print("{}\nextra_url : {}".format(api_list[i], extra_url))
+        # FIXME 디버깅용 로그라 120칸 넘김 나중에 수정 예정
+        print("{}\nmain_url : {} / extra_url : {} / need_symbol : {}".format(api_list[i], main_url, extra_url, need_symbol))
+        get_fmp_data(main_url, "" if need_symbol is False else stock["symbol"], extra_url, need_symbol, is_v4)
 
 
 def get_api_list():
@@ -238,7 +182,6 @@ def get_api_list():
 if __name__ == '__main__':
     api_list = get_api_list()
     get_fmp(api_list)
-    # get_fmp_sy()
     # get_fmp_es()
     # create_mariadb()
     # create_database()
