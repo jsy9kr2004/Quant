@@ -2,23 +2,25 @@
 
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-
 import sys
 import mariadb
+import re
 import os
 import pandas as pd
 # import json.decoder
 # import FinanceDataReader as fdr
 # import matplotlib.pyplot as plt
 # from pandas_datareader import data
-# import numpy as np
+import numpy as np
 # import yfinance as yf
 # import yahoo_fin.stock_info as si
 # from pykrx import stock
 # from pykrx import bond
 
-api_key = '52a6facc9bba04d228d0babd4c98156c'
-fmp_url = "https://financialmodelingprep.com/api/v3/"
+API_KEY = '52a6facc9bba04d228d0babd4c98156c'
+FMP_URL = "https://financialmodelingprep.com"
+EX_SYMBOL = "APPL"
+ROOT_PATH = "./data"
 
 
 def create_folder(path):
@@ -87,12 +89,12 @@ def get_fmp_data_only_one(path, main_url, v4_flag=False):
         json_data.to_csv("{}/{}.csv".format(path, main_url), na_rep='NaN')
 
 
-def get_fmp():
+def get_fmp(api_list):
     create_folder("./data")
 
     if not os.path.isfile("./data/available-traded.csv"):
         print("Creating Stock File...")
-        url_symbol = fmp_url + "available-traded/list?apikey={}".format(api_key)
+        url_symbol = FMP_URL + "available-traded/list?apikey={}".format(API_KEY)
         available_traded = pd.read_json(url_symbol)
         available_traded.to_csv("./data/available-traded.csv", na_rep='NaN')
         # FIXME finance-datareader를 이용해서 NASDAQ stock list 받음 (필요할까?)
@@ -107,7 +109,7 @@ def get_fmp():
         i = 1
         delisted_stock = pd.DataFrame()
         while True:
-            url_del_stock = fmp_url + "delisted-companies?page={}&apikey={}".format(i, api_key)
+            url_del_stock = FMP_URL + "delisted-companies?page={}&apikey={}".format(i, API_KEY)
             json_del_stock = pd.read_json(url_del_stock)
             print("Get Delisted Stock File - {} page".format(i))
             if json_del_stock.empty is True:
@@ -121,6 +123,22 @@ def get_fmp():
         delisted_stock = pd.read_csv("./data/delisted_stock.csv")
 
     stock = pd.concat([available_traded, delisted_stock], ignore_index=True)
+
+    # v3/v4
+    print(api_list[0].split('/')[2])
+
+    for i in range(len(api_list)):
+        if api_list[i].split('/')[2] == "v3":
+            print(api_list[i])
+            main_url = api_list[i].split('/')[3]
+        else:
+            main_url = api_list[i].split('/')[3].split('?')[0]
+
+    #    str(api_list[i])
+    # print(api_list[0].split('/')[2])
+    #for i in range(len(api_list)):
+    #    str(api_list[i])
+
 
 
 def get_fmp_sy():
@@ -203,10 +221,25 @@ def get_fmp_sy():
     get_fmp_data_by_list("./data/", "profile", symbol, "")
 
 
+def get_api_list():
+    api_df = pd.read_csv("./api_list.csv", header=0, usecols=["URL"])
+    api_df = api_df.dropna()
+    api_list = api_df.values.tolist()
+    for i in range(len(api_list)):
+        if str(api_list[i]).find(FMP_URL) != -1:
+            api_list[i] = str(api_list[i])[2: str(api_list[i]).find("apikey") - 1].replace(FMP_URL, "").strip()
+        elif str(api_list[i]).find('\\') != -1:
+            api_list[i] = str(api_list[i])[2: str(api_list[i]).find('\\')]
+        else:
+            api_list[i] = str(api_list[i])[2:-2]
+    return api_list
+
+
 if __name__ == '__main__':
-    get_fmp()
-    get_fmp_sy()
-    get_fmp_es()
+    api_list = get_api_list()
+    get_fmp(api_list)
+    # get_fmp_sy()
+    # get_fmp_es()
     # create_mariadb()
     # create_database()
 
