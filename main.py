@@ -1,17 +1,13 @@
-# This is a sample Python script.
-
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 import sys
 import mariadb
 import re
 import os
 import pandas as pd
+import numpy as np
 # import json.decoder
 # import FinanceDataReader as fdr
 # import matplotlib.pyplot as plt
 # from pandas_datareader import data
-import numpy as np
 # import yfinance as yf
 # import yahoo_fin.stock_info as si
 # from pykrx import stock
@@ -39,31 +35,34 @@ def create_folder(path):
 
 def get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix=""):
     # brief : 순차적으로 넣고자 하는 값을 url에 포함시켜서 돌려줌
-    # input : main_url(url의 main 값), data_list (url에 넣고자하는 list), extra_url(뒤에 나머지),
-    #            file_list(main_url로 file 명이 정해지지 않는 from-to 처리 때문에 생긴 parameter)
-    #            need_symbol(url에 symbol 값이 들어가지는에 대한 boolean. v4 주소 처리때문에 필요)
-    #            v4_flag(v4 url 형식을 사용할지에 대한 flag)
+    # input : main_url(url의 main 값), extra_url(뒤에 나머지),
+    #         need_symbol(url에 symbol 값이 들어가지는에 대한 boolean. v3는 불필요. v4 주소 처리때문에 필요)
+    #           TODO data_list를 완전히 없앤 이유는 나중에는 need_symbol을 data_type flag로 바꿔서 필요한 리스트를
+    #                이 함수 내에서 알아서 넣는 것이 더 효율적이기에 list 자체는 완전히 받지 않을 예정  예) SYMBOL이 글로벌로 바뀜
+    #         v4_flag(v4 url 형식을 사용할지에 대한 flag)
+    #         file_postfix(csv 파일 뒤에 붙는 다른 구분자를 넣고 싶은 경우 사용 예) AAPL_2022_1.csv)
     # output : none
     # example 1 : /api/v3/discounted-cash-flow/AAPL?apikey=***
-    #               get_fmp_data_by_list("dicounted-cash-flow", symbol_list, "", symbol_list, True, False)
+    #               get_fmp_data_by_list("dicounted-cash-flow", "", True, False)
     #               ./data 폴더 아래에 discounted-cash-flow 폴더를 만들고, list element별 csv를 만듦
     # example 2 : /api/v3/income-statement-as-reported/AAPL?period=quarter&limit=50&apikey=***
-    #               get_fmp_data_by_list("income-statement-as-reported", symbol_list,
+    #               get_fmp_data_by_list("income-statement-as-reported",
     #                                    "period=quarter&limit=50&", symbol_list, True, False)
 
     if need_symbol is False:
-        get_fmp_data_only_one(main_url, extra_url, is_v4, file_postfix)
-        return
+        return get_fmp_data_only_one(main_url, extra_url, is_v4, file_postfix)
 
     path = ROOT_PATH + "/" + main_url
     cre_flag = create_folder(path)
 
-    # TODO FMP의 Free 버젼은 250 req per day / 일부만 돌리기 위해 i로 range를 살짝 줘서 돌림 (for test)
+    # TODO 일부만 돌리기 위해 i로 range를 살짝 줘서 돌림 (for test)
     # for elem in SYMBOL:
     for i in range(0, 2):
         elem = SYMBOL[i]
         if not os.path.isfile(path + "/{}.csv".format(elem + file_postfix)):
             if is_v4 is True:
+                # TODO symbol 이 외에 list가 올 것이기에 need_symbol flag를 두고 있으나, symbol 이외에는 아직 당장 필요한 것이
+                #       없어서 이대로 두었으나 이 loop는 symbol 이외의 list에 대한 대비가 아래 if 문 이외에는 되어 있지 않음
                 if need_symbol is True:
                     api_url = FMP_URL + "/api/v4/{}?symbol={}&{}apikey={}".format(main_url, elem, extra_url, API_KEY)
                 else:
@@ -76,22 +75,27 @@ def get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix=""):
             except ValueError:
                 print("[Warning] No Data. Or Different Data Type")
                 continue
+            # 읽어왔는데 비어 있을 수 있음. ValueError는 Format이 안맞는 경우고 이 경우는 page=50 과 같은 extra_url 처리 때문
             json_data.to_csv(path+"/{}.csv".format(elem + file_postfix), na_rep='NaN')
+            if json_data.empty is True:
+                return False
         else:
             if cre_flag is True:
                 # 새로 만드는 경우, 이미 csv가 있다는 건 stock list와 delisted list에 중복 값이 있는 상황 (Duplicate)
                 # 리스트에 중복값이 왜 들어가게 되었는지 반드시 확인이 필요함. (가정이 깨짐)
                 print('[ERROR] Already Exist "{}/{}.csv"'.format(path, elem + file_postfix))
+    return True
 
 
 def get_fmp_data_only_one(main_url, extra_url, is_v4, file_postfix):
     # brief : 하나의 값만 읽어오고자 할 때 사용됨
-    # input : main_url(url의 main 값), data_list (url에 넣고자하는 list), extra_url(뒤에 나머지),
-    #            v4_flag(v4 url 형식을 사용할지에 대한 flag)
+    # input : main_url(url의 main 값), extra_url(뒤에 나머지 url), v4_flag(v5 url 형식을 사용할지에 대한 flag),
+    #        file_postfix(csv 파일 뒤에 붙는 다른 구분자를 넣고 싶은 경우 사용 예) AAPL_2022_1.csv)
     # output : none
     # example 1 :  /api/v3/financial-statement-symbol-lists
-    #                   get_fmp_data_only_one("financial-statement-symbol-lists", "", False)
+    #                   get_fmp_data_only_one("financial-statement-symbol-lists", "", False, "")
     #                   ./data 폴더 아래에 financial-statement-symbol-lists.csv 파일을 만듦
+    # FIXME get_fmp_data 함수랑 이쁘게 잘 합쳐보고 싶은데 결국 한번 합쳤다 다시 때어냄
     if is_v4 is True:
         api_url = FMP_URL + "/api/v4/"
     else:
@@ -106,17 +110,34 @@ def get_fmp_data_only_one(main_url, extra_url, is_v4, file_postfix):
             json_data = pd.read_json(api_url)
         except ValueError:
             print("[Warning] No Data. Or Different Data Type")
-            return
+            return False
+        # 읽어왔는데 비어 있을 수 있음. ValueError는 Format이 안맞는 경우고 이 경우는 page=50 과 같은 extra_url 처리 때문
         json_data.to_csv("{}/{}.csv".format(ROOT_PATH, main_url + file_postfix), na_rep='NaN')
+        if json_data.empty is True:
+            return False
+    return True
 
 
 def get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4):
     if extra_url.find("year") != -1:
         for year in range(START_YEAR, END_YEAR + 1):
-            extra_url = re.sub('year=[0-9]{4}', "[YEAR]", extra_url)
-            file_postfix = "_" + str(year)
-            extra_url = extra_url.replace("[YEAR]", "year={}".format(year))
-            get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
+            if re.match("year=[0-9]{4}&period=Q[0-9]{1}", extra_url):
+                for quater in range(1, 5):
+                    extra_url = re.sub('year=[0-9]{4}&period=Q[0-9]{1}', "[Y_P]", extra_url)
+                    file_postfix = "_" + str(year) + "_P" + str(quater)
+                    extra_url = extra_url.replace("[Y_P]", "year={}&period=Q{}".format(year, quater))
+                    get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
+            elif re.match("quarter=[0-9]{1}&year=[0-9]{4}", extra_url):
+                for quater in range(1, 5):
+                    extra_url = re.sub('quarter=[0-9]{1}&year=[0-9]{4}', "[Y_Q]", extra_url)
+                    file_postfix = "_" + str(year) + "_Q" + str(quater)
+                    extra_url = extra_url.replace("[Y_Q]", "quarter={}&year={}".format(quater, year))
+                    get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
+            else:
+                extra_url = re.sub('year=[0-9]{4}', "[YEAR]", extra_url)
+                file_postfix = "_" + str(year)
+                extra_url = extra_url.replace("[YEAR]", "year={}".format(year))
+                get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
 
     elif extra_url.find("from") != -1:
         for year in range(START_YEAR, END_YEAR + 1):
@@ -126,9 +147,28 @@ def get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4):
                 extra_url = extra_url.replace("[FT]", "from={0}-{1:02d}-01&to={0}-{1:02d}-31".format(year, month))
                 get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
 
-    # elif extra_url.find("page") != -1:
-    # get_fmp_data_page(main_url, extra_url, need_symbol, is_v4)
-    #    print(1)
+    elif extra_url.find("page") != -1:
+        i = 0
+        while True:
+            extra_url = re.sub('page=[0-9]{1,2}', "[PAGE]", extra_url)
+            file_postfix = "_" + str(i)
+            extra_url = extra_url.replace("[PAGE]", "page={}".format(i))
+            if get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix) is False:
+                break;
+            # FIXME ignore_index 들어가야하는지 직접 데이터 확인해봐야 함
+            #       성용아 주석 좀 정확히 쓰자 얼마나 됐다고 이게 먼말인지 이해를 못하게 썼니..
+            #       page 처리와 delisted_stock 처리의 문제로 보이는데 이해해서 필요 없으면 지우자
+            # delisted_stock = pd.concat([delisted_stock, json_del_stock])
+            i += 1
+
+    elif extra_url.find("date") != -1:
+        for year in range(START_YEAR, END_YEAR + 1):
+            for month in range(1, 13):
+                for day in range (1, 32):
+                    extra_url = re.sub('date=[0-9]{4}-[0-9]{2}-[0-9]{2}', "[DATE]", extra_url)
+                    file_postfix = "_" + str(year) + "_" + str(month) + "_"+ str(day)
+                    extra_url = extra_url.replace("[DATE]", "date={0}-{1:02d}-{2:02d}".format(year, month, day))
+                    get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
 
     else:
         get_fmp_data(main_url, extra_url, need_symbol, is_v4)
@@ -148,23 +188,6 @@ def get_fmp(api_list):
     create_folder(ROOT_PATH)
     set_symbol()
 
-    #if not os.path.isfile("./data/delisted_stock.csv"):
-    #    print("Creating Delisted Stock File...")
-    #    i = 1
-    #    delisted_stock = pd.DataFrame()
-    #    while True:
-    #        url_del_stock = FMP_URL + "delisted-companies?page={}&apikey={}".format(i, API_KEY)
-    #        json_del_stock = pd.read_json(url_del_stock)
-    #        print("Get Delisted Stock File - {} page".format(i))
-    #        if json_del_stock.empty is True:
-    #            delisted_stock.to_csv("./data/delisted_stock.csv", na_rep='NaN')
-    #            break
-    #        else:
-    #            FIXME ignore_index 들어가야하는지 직접 데이터 확인해봐야 함
-    #            delisted_stock = pd.concat([delisted_stock, json_del_stock])
-    #        i += 1
-    #else:
-
     for i in range(len(api_list)):
         need_symbol = True if api_list[i].find(EX_SYMBOL) != -1 else False
         # SYMBOL 이 없는 건, SYMBOL을 만들기 위한 file도 만들어지기 전이기 때문에 두번 돌려서 SYMBOL 안쓰는 것부터 만듦
@@ -183,9 +206,9 @@ def get_fmp(api_list):
         extra_url = re.sub('[&]{0,1}limit=[0-9]{2,3}[&]{0,1}', "", extra_url)
         if extra_url != "":
             extra_url = extra_url + "&"
-            #print("{}\nextra_url : {}".format(api_list[i], extra_url))
-        # FIXME 디버깅용 로그라 120칸 넘김 나중에 수정 예정
-        print("{}\nmain_url : {} / extra_url : {} / need_symbol : {} / is_v4 : {}".format(api_list[i], main_url, extra_url, need_symbol, is_v4))
+            print("{}\nextra_url : {}".format(api_list[i], extra_url))
+        # FIXME 디버깅용 로그라 120칸 넘김 나중에 수정 예정. 두 줄이면 뺐더 넣다 하기 귀찮
+        # print("\n{}\nmain_url : {} / extra_url : {} / need_symbol : {} / is_v4 : {}".format(api_list[i], main_url, extra_url, need_symbol, is_v4))
         get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4)
 
 
