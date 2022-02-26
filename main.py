@@ -155,10 +155,6 @@ def get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4):
             extra_url = extra_url.replace("[PAGE]", "page={}".format(i))
             if get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix) is False:
                 break;
-            # FIXME ignore_index 들어가야하는지 직접 데이터 확인해봐야 함
-            #       성용아 주석 좀 정확히 쓰자 얼마나 됐다고 이게 먼말인지 이해를 못하게 썼니..
-            #       page 처리와 delisted_stock 처리의 문제로 보이는데 이해해서 필요 없으면 지우자
-            # delisted_stock = pd.concat([delisted_stock, json_del_stock])
             i += 1
 
     elif extra_url.find("date") != -1:
@@ -208,7 +204,7 @@ def get_fmp(api_list):
             extra_url = extra_url + "&"
             print("{}\nextra_url : {}".format(api_list[i], extra_url))
         # FIXME 디버깅용 로그라 120칸 넘김 나중에 수정 예정. 두 줄이면 뺐더 넣다 하기 귀찮
-        # print("\n{}\nmain_url : {} / extra_url : {} / need_symbol : {} / is_v4 : {}".format(api_list[i], main_url, extra_url, need_symbol, is_v4))
+        print("\n{}\nmain_url : {} / extra_url : {} / need_symbol : {} / is_v4 : {}".format(api_list[i], main_url, extra_url, need_symbol, is_v4))
         get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4)
 
 
