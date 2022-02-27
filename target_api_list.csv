@@ -64,7 +64,7 @@ Stock Screener,X,-,,"/api/v3/stock-screener?marketCapLowerThan=10000000000000&be
 Company Profile,0,0,0,/api/v3/profile/AAPL,/api/v3/profile/AAPL,,
 Key Executives,X,X,0,/api/v3/key-executives/AAPL,,,
 Market Capitalization,X,0,0,"/api/v3/market-capitalization/AAPL
-/api/v3/historical-market-capitalization/AAPL?limit=100",/api/v3/market-capitalization/AAPL,,
+/api/v3/historical-market-capitalization/AAPL?limit=100",/api/v3/historical-market-capitalization/AAPL,,
 Company Outlook,X,0,x,/api/v4/company-outlook?symbol=AAPL,,,
 Stock Peers,0,-,,/api/v4/stock_peers?symbol=AAPL,,,
 NYSE Holidays and Trading Hours,X,X,,,,,
