@@ -1,8 +1,10 @@
 import sys
-import mariadb
+# import mariadb
 import re
 import os
 import pandas as pd
+import sqlalchemy
+import pymysql
 import numpy as np
 # import json.decoder
 # import FinanceDataReader as fdr
@@ -20,6 +22,26 @@ ROOT_PATH = "./data"
 SYMBOL = pd.DataFrame()
 START_YEAR = 2021
 END_YEAR = 2022
+
+
+def create_database():
+    # maria DB 첫 설치 시 아래의 SQL문으로 db와 user를 만들어줘야함
+    # use mysql;
+    # create database quantdb
+    # create user 'quant'@'%' identified by '1234';
+    # grant privileges on quantdb.* to 'quant'@'localhost';
+    # flush privileges
+
+    # AWS MariaDB 데이터베이스 접속 엔진 생성.
+    aws_mariadb_url = 'mysql+pymysql://quant:1234@ec2-3-82-109-250.compute-1.amazonaws.com:3306/quantdb'
+    engine_mariadb = sqlalchemy.create_engine(aws_mariadb_url)
+
+    # FIXME example 코드
+    query = "show global variables like 'PORT';"
+    result = pd.read_sql_query(sql=query, con=engine_mariadb)
+    # listed_stock = pd.read_csv("./data/listed_stock.csv")
+    # listed_stock.to_sql('available_traded', engine, if_exists='replace', index=False, index_label=None, chunksize=512)
+    print(result)
 
 
 def create_folder(path):
@@ -228,11 +250,11 @@ def get_api_list():
 if __name__ == '__main__':
     api_list = get_api_list()
     # 굳이 symbol을 채우기 위해 별도의 작업을 하는 것보다 2번 돌리는게 효율적
-    get_fmp(api_list)
-    get_fmp(api_list)
+    # get_fmp(api_list)
+    # get_fmp(api_list)
     # get_fmp_es()
     # create_mariadb()
-    # create_database()
+    create_database()
 
     ################################################################################################
     # (1) tickers를 이용한 재무재표 예제
@@ -270,31 +292,4 @@ if __name__ == '__main__':
     #                    suffixes=('', '_del'))
     # pd_mg = pd_mg[[c for c in pd_mg.columns if not c.endswith('_del')]]
     # pd_mg.to_csv("./data/fs/{}.csv".format(symbol), index=False, na_rep='NaN')
-
-    # def create_database():
-    # maria DB 첫 설치 시 아래의 SQL문으로 db와 user를 만들어줘야함
-    # use mysql;
-    # create database quantdb
-    # create user quant@localhost identified by '0710';
-    # grant privileges on quantdb.* to quant@localhost;
-    # flush privileges
-    # try:
-    #    conn = mariadb.connect(
-    #        user="quant",
-    #        password="0710",
-    #        host="127.0.0.1",
-    #        port=710,
-    #        database="quantdb"
-    #    )
-    # except mariadb.Error as e:
-    #    print("Error connecting to MariaDB Platform: {}".format(e))
-    #    sys.exit(1)
-    # pymysql.install_as_MySQLdb()
-    # engine = create_engine("mysql+pymysql://{}:{}@localhost/{}".format("quant", "0710", "quantdb"))
-
-    # 읽어왔던 URL의 이름과 동일하게 테이블명을 만듦
-    # fmp_url + "available-traded/list?apikey={}".format(api_key)
-    # listed_stock = pd.read_csv("./data/listed_stock.csv")
-    # listed_stock.to_sql('available_traded', engine, if_exists='replace', index=False, index_label=None, chunksize=512)
-
     ################################################################################################
