@@ -38,7 +38,7 @@ def create_database():
     aws_mariadb_url = 'mysql+pymysql://quant:1234@ec2-3-82-109-250.compute-1.amazonaws.com:3306/quantdb'
     engine_mariadb = sqlalchemy.create_engine(aws_mariadb_url)
 
-    # FIXME example 코드
+    # aws 안 mariadb port 확인
     query = "show global variables like 'PORT';"
     result = pd.read_sql_query(sql=query, con=engine_mariadb)
     # listed_stock = pd.read_csv("./data/listed_stock.csv")
@@ -79,6 +79,41 @@ def create_database():
     # "exchange": "NYSE",
     # "ipoDate": "2004-12-14",
     # "delistedDate": "2022-02-25"
+
+
+    set_symbol()
+    # table 생성 : stock
+    target_stock = pd.read_csv('target_stock_list.csv', index_col=None)
+    #drop index column
+    target_stock = target_stock.drop( target_stock.columns[0], axis=1)
+    target_stock.to_sql('stock', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)
+
+    # table 생성 : profile_SYMBOL
+    # profile 은 stock 별 row 1개라 별도 table로 안넣고 row 들 합쳐서 profile이란 table 로 넣음
+    profile = pd.DataFrame()
+    for i in range(0, 10):
+        elem = SYMBOL[i]
+        profile=pd.concat( [profile,  pd.read_csv(ROOT_PATH+'/profile/{}.csv'.format(elem), index_col=None)], ignore_index=True)
+    #drop index column
+    profile = profile.drop( profile.columns[0], axis=1)
+    profile.to_sql('profile', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)
+
+    # table 생성 : delist
+    delisted_companies = pd.DataFrame()
+    i = 0
+    while True:
+        csv_path = ROOT_PATH+'/delisted-companies_' + str(i) + '.csv'
+        try:
+            delisted_tmp = pd.read_csv(csv_path, index_col=None)
+            delisted_companies=pd.concat( [delisted_companies,  delisted_tmp])
+        except FileNotFoundError :
+            break
+        i=i+1
+    #drop index column
+    delisted_companies = delisted_companies.drop( delisted_companies.columns[0], axis=1)
+    delisted_companies = delisted_companies.reset_index(drop=True)
+    delisted_companies.to_sql('delisted_companies', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)
+
 
 
 def create_folder(path):
@@ -295,7 +330,7 @@ def get_api_list():
 if __name__ == '__main__':
     api_list = get_api_list()
     # 굳이 symbol을 채우기 위해 별도의 작업을 하는 것보다 2번 돌리는게 효율적
-    # get_fmp(api_list)
+    #get_fmp(api_list)
     # get_fmp(api_list)
     # get_fmp_es()
     # create_mariadb()
