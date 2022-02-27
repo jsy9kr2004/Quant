@@ -6,6 +6,8 @@ import pandas as pd
 import sqlalchemy
 import pymysql
 import numpy as np
+import time
+import urllib
 # import json.decoder
 # import FinanceDataReader as fdr
 # import matplotlib.pyplot as plt
@@ -20,7 +22,7 @@ FMP_URL = "https://financialmodelingprep.com"
 EX_SYMBOL = "AAPL"
 ROOT_PATH = "./data"
 SYMBOL = pd.DataFrame()
-START_YEAR = 2021
+START_YEAR = 2020
 END_YEAR = 2022
 
 
@@ -79,7 +81,7 @@ def get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix=""):
 
     # TODO 일부만 돌리기 위해 i로 range를 살짝 줘서 돌림 (for test)
     # for elem in SYMBOL:
-    for i in range(0, 2):
+    for i in range(0, 10):
         elem = SYMBOL[i]
         if not os.path.isfile(path + "/{}.csv".format(elem + file_postfix)):
             if is_v4 is True:
@@ -96,6 +98,9 @@ def get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix=""):
                 json_data = pd.read_json(api_url)
             except ValueError:
                 print("[Warning] No Data. Or Different Data Type")
+                continue
+            except urllib.error.HTTPError:
+                print("[Warning] HTTP Error 400, API_URL : ", api_url)
                 continue
             # 읽어왔는데 비어 있을 수 있음. ValueError는 Format이 안맞는 경우고 이 경우는 page=50 과 같은 extra_url 처리 때문
             json_data.to_csv(path+"/{}.csv".format(elem + file_postfix), na_rep='NaN')
@@ -132,6 +137,9 @@ def get_fmp_data_only_one(main_url, extra_url, is_v4, file_postfix):
             json_data = pd.read_json(api_url)
         except ValueError:
             print("[Warning] No Data. Or Different Data Type")
+            return False
+        except urllib.error.HTTPError:
+            print("[Warning] HTTP Error 400, API_URL : ", api_url)
             return False
         # 읽어왔는데 비어 있을 수 있음. ValueError는 Format이 안맞는 경우고 이 경우는 page=50 과 같은 extra_url 처리 때문
         json_data.to_csv("{}/{}.csv".format(ROOT_PATH, main_url + file_postfix), na_rep='NaN')
@@ -193,14 +201,16 @@ def get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4):
 
 
 def set_symbol():
-    if os.path.isfile(ROOT_PATH + "/available-traded/list.csv") is True \
-            and os.path.isfile(ROOT_PATH + "/delisted-companies.csv") is True:
-        available_traded = pd.read_csv(ROOT_PATH + "/available-traded/list.csv")
-        delisted_stock = pd.read_csv(ROOT_PATH + "/delisted-companies.csv")
-        stock = pd.concat([available_traded, delisted_stock], ignore_index=True)
+    # if os.path.isfile(ROOT_PATH + "/available-traded/list.csv") is True \
+    #         and os.path.isfile(ROOT_PATH + "/delisted-companies_0.csv") is True:
+    #     available_traded = pd.read_csv(ROOT_PATH + "/available-traded/list.csv")
+    #     delisted_stock = pd.read_csv(ROOT_PATH + "/delisted-companies_0.csv")
+    #     stock = pd.concat([available_traded, delisted_stock], ignore_index=True)
+    if os.path.isfile("./target_stock_list.csv") is True:
+        stock = pd.read_csv("./target_stock_list.csv")
         global SYMBOL
         SYMBOL = stock["symbol"]
-
+    print("in set_symbol() list=", SYMBOL)
 
 def get_fmp(api_list):
     create_folder(ROOT_PATH)
@@ -231,7 +241,7 @@ def get_fmp(api_list):
 
 
 def get_api_list():
-    api_df = pd.read_csv("./api_list.csv", header=0, usecols=["URL"])
+    api_df = pd.read_csv("./target_api_list.csv", header=0, usecols=["URL"])
     api_df = api_df.dropna()
     api_list = api_df.values.tolist()
     for i in range(len(api_list)):
@@ -250,8 +260,8 @@ def get_api_list():
 if __name__ == '__main__':
     api_list = get_api_list()
     # 굳이 symbol을 채우기 위해 별도의 작업을 하는 것보다 2번 돌리는게 효율적
-    # get_fmp(api_list)
-    # get_fmp(api_list)
+    get_fmp(api_list)
+    get_fmp(api_list)
     # get_fmp_es()
     # create_mariadb()
     create_database()
