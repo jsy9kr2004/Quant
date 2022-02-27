@@ -44,6 +44,41 @@ def create_database():
     # listed_stock = pd.read_csv("./data/listed_stock.csv")
     # listed_stock.to_sql('available_traded', engine, if_exists='replace', index=False, index_label=None, chunksize=512)
     print(result)
+    # query = "CREATE VIEW stock_info_view" \
+    #        " AS SELECT ord_num, ord_amount, a.agent_code, agent_name, cust_name" \
+    #        " FROM orders a, customer b, agents c" \
+    #        " WHERE a.cust_code=b.cust_code" \
+    #        " AND a.agent_code=c.agent_code;"
+    # query = "SELECT c.symbol, c.exchangeShortName, c.type, d.delistedDate," \
+    #        " CASE c.ipoDate" \
+    #        " IS NULL THEN d.ipoDate" \
+    #        " ELSE c.ipoDate" \
+    #        " END as Date" \
+    #        " FROM (SELECT a.symbol, a.exchangeShortName, a.type, b.industry, b.ipoDate" \
+    #        " FROM stock a LEFT OUTER JOIN profile b on a.symbol = b.symbol) c" \
+    #        " LEFT OUTER JOIN delisted_companiese d on c.symbol = d.symbol;"
+    # query = "SELECT a.symbol, a.exchangeShortName, a.type, b.industry, b.ipoDate" \
+    #        " FROM stock a LEFT OUTER JOIN profile b on a.symbol = b.symbol;"
+    #        # CASE WHEN table3.col3 IS NULL THEN table2.col3 ELSE table3.col3 END as col4
+    # result = pd.read_sql_query(sql=query, con=engine_mariadb)
+    # result.to_csv(ROOT_PATH + "/test.csv", na_rep='NaN')
+    # print(result)
+    # profile
+    # "symbol": "AAPL",
+    # "exchangeShortName": "NASDAQ",
+    # "industry": "Consumer Electronics",
+    # "ipoDate": "1980-12-12",
+
+    # stock
+    # "symbol": "SPY",
+    # "exchangeShortName": "AMEX",
+    # "type": "etf"
+
+    # delisted-companies
+    # "symbol": "KNL",
+    # "exchange": "NYSE",
+    # "ipoDate": "2004-12-14",
+    # "delistedDate": "2022-02-25"
 
 
 def create_folder(path):
@@ -260,8 +295,8 @@ def get_api_list():
 if __name__ == '__main__':
     api_list = get_api_list()
     # 굳이 symbol을 채우기 위해 별도의 작업을 하는 것보다 2번 돌리는게 효율적
-    get_fmp(api_list)
-    get_fmp(api_list)
+    # get_fmp(api_list)
+    # get_fmp(api_list)
     # get_fmp_es()
     # create_mariadb()
     create_database()
