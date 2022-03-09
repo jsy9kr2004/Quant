@@ -35,7 +35,7 @@ def create_database():
     # flush privileges
 
     # AWS MariaDB 데이터베이스 접속 엔진 생성.
-    aws_mariadb_url = 'mysql+pymysql://quant:1234@ec2-3-82-109-250.compute-1.amazonaws.com:3306/quantdb'
+    aws_mariadb_url = 'mysql+pymysql://quant:1234@ec2-34-239-132-90.compute-1.amazonaws.com:3306/quantdb'
     engine_mariadb = sqlalchemy.create_engine(aws_mariadb_url)
 
     # aws 안 mariadb port 확인
@@ -82,11 +82,16 @@ def create_database():
 
 
     set_symbol()
+
+    #@@@@@@@@#
+    # table#1
+    #@@@@@@@@#
     # table 생성 : stock
     target_stock = pd.read_csv('target_stock_list.csv', index_col=None)
     #drop index column
     target_stock = target_stock.drop( target_stock.columns[0], axis=1)
     target_stock.to_sql('stock', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)
+    print("complete creation of stock&etf symbol table")
 
     # table 생성 : profile_SYMBOL
     # profile 은 stock 별 row 1개라 별도 table로 안넣고 row 들 합쳐서 profile이란 table 로 넣음
@@ -97,6 +102,7 @@ def create_database():
     #drop index column
     profile = profile.drop( profile.columns[0], axis=1)
     profile.to_sql('profile', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)
+    print("complete creation of profile table")
 
     # table 생성 : delist
     delisted_companies = pd.DataFrame()
@@ -113,7 +119,103 @@ def create_database():
     delisted_companies = delisted_companies.drop( delisted_companies.columns[0], axis=1)
     delisted_companies = delisted_companies.reset_index(drop=True)
     delisted_companies.to_sql('delisted_companies', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)
+    print("complete creation of delisted table")
 
+
+    #@@@@@@@@#
+    # table#2
+    #@@@@@@@@#
+
+    #table 생성 : market_capitalization
+    market_cap = pd.DataFrame()
+    for i in range(0, 10):
+        elem = SYMBOL[i]
+        market_cap=pd.concat( [market_cap,  pd.read_csv(ROOT_PATH+'/historical-market-capitalization/{}.csv'.format(elem), index_col=None)], ignore_index=True)
+    #drop index column
+    market_cap = market_cap.drop( market_cap.columns[0], axis=1)
+    market_cap.to_sql('market_capitalization', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)    
+    print("complete creation of market_capitalization table")
+
+    #table 생성 : historical_price   
+    historical_price = pd.DataFrame()
+    for i in range(0, 10):
+        elem = SYMBOL[i]
+        for year in range(START_YEAR, END_YEAR + 1):
+            for month in range(1, 13):
+                historical_price=pd.concat( [historical_price,  pd.read_csv(ROOT_PATH+'/historical-price-full/{}_{}_{}.csv'.format(elem, year, month), index_col=None)], ignore_index=True)
+    #drop index column
+    historical_price = historical_price.drop( historical_price.columns[0], axis=1)
+    historical_price.to_sql('historical_price', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)  
+    print("complete creation of price table")
+
+    #@@@@@@@@#
+    # table#3
+    #@@@@@@@@#
+    #table 생성 : income_statement
+    income_statement = pd.DataFrame()
+    for i in range(0, 10):
+        elem = SYMBOL[i]
+        income_statement=pd.concat( [income_statement,  pd.read_csv(ROOT_PATH+'/income-statement/{}.csv'.format(elem), index_col=None)], ignore_index=True)
+    #drop index column
+    income_statement = income_statement.drop( income_statement.columns[0], axis=1)
+    income_statement.to_sql('income_statement', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)    
+    print("complete creation of income table")
+
+    #table 생성 : balance_statement
+    balance_statement = pd.DataFrame()
+    for i in range(0, 10):
+        elem = SYMBOL[i]
+        balance_statement=pd.concat( [balance_statement,  pd.read_csv(ROOT_PATH+'/balance-sheet-statement/{}.csv'.format(elem), index_col=None)], ignore_index=True)
+    #drop index column
+    balance_statement = balance_statement.drop( balance_statement.columns[0], axis=1)
+    balance_statement.to_sql('balance_statement', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)    
+    print("complete creation of balance table")
+
+    #table 생성 : cashflow_statement
+    cashflow_statement = pd.DataFrame()
+    for i in range(0, 10):
+        elem = SYMBOL[i]
+        cashflow_statement=pd.concat( [cashflow_statement,  pd.read_csv(ROOT_PATH+'/cash-flow-statement/{}.csv'.format(elem), index_col=None)], ignore_index=True)
+    #drop index column
+    cashflow_statement = cashflow_statement.drop( cashflow_statement.columns[0], axis=1)
+    cashflow_statement.to_sql('cashflow_statement', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)    
+    print("complete creation of cashflow table")
+
+
+
+    #@@@@@@@@#
+    # table#4
+    #@@@@@@@@#
+
+    #table 생성 : key_metrics
+    key_metrics=pd.DataFrame()
+    for i in range(0, 10):
+        elem = SYMBOL[i]
+        key_metrics=pd.concat( [key_metrics,  pd.read_csv(ROOT_PATH+'/key-metrics/{}.csv'.format(elem), index_col=None)], ignore_index=True)
+    #drop index column
+    key_metrics = key_metrics.drop( key_metrics.columns[0], axis=1)
+    key_metrics.to_sql('key_metrics', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)    
+    print("complete creation of key metrics table")
+
+    #table 생성 : financial_growth
+    financial_growth = pd.DataFrame()
+    for i in range(0, 10):
+        elem = SYMBOL[i]
+        financial_growth=pd.concat( [financial_growth,  pd.read_csv(ROOT_PATH+'/financial-growth/{}.csv'.format(elem), index_col=None)], ignore_index=True)
+    #drop index column
+    financial_growth = financial_growth.drop( financial_growth.columns[0], axis=1)
+    financial_growth.to_sql('financial_growth', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)    
+    print("complete creation of growth table")
+
+    #table 생성 : historical_daily_discounted_cash_flow
+    historical_daily_discounted_cash_flow = pd.DataFrame()
+    for i in range(0, 10):
+        elem = SYMBOL[i]
+        historical_daily_discounted_cash_flow=pd.concat( [historical_daily_discounted_cash_flow,  pd.read_csv(ROOT_PATH+'/historical-daily-discounted-cash-flow/{}.csv'.format(elem), index_col=None)], ignore_index=True)
+    #drop index column
+    historical_daily_discounted_cash_flow = historical_daily_discounted_cash_flow.drop( historical_daily_discounted_cash_flow.columns[0], axis=1)
+    historical_daily_discounted_cash_flow.to_sql('historical_daily_discounted_cash_flow', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)   
+    print("complete creation of dcf table")
 
 
 def create_folder(path):
@@ -331,9 +433,8 @@ if __name__ == '__main__':
     api_list = get_api_list()
     # 굳이 symbol을 채우기 위해 별도의 작업을 하는 것보다 2번 돌리는게 효율적
     #get_fmp(api_list)
-    # get_fmp(api_list)
+    #get_fmp(api_list)
     # get_fmp_es()
-    # create_mariadb()
     create_database()
 
     ################################################################################################

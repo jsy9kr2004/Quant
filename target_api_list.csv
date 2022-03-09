@@ -6,7 +6,7 @@ Income Statement,0,0,0,"/api/v3/income-statement/AAPL?period=quarter&limit=400
 Balance Sheet Statement,0,0,0,"/api/v3/balance-sheet-statement/AAPL?period=quarter&limit=400
 /api/v3/balance-sheet-statement/AAPL?datatype=csv",/api/v3/balance-sheet-statement/AAPL?period=quarter&limit=400,,
 Cash Flow Statement,0,0,0,"/api/v3/cash-flow-statement/AAPL?period=quarter&limit=400
-/api/v3/cash-flow-statement/AAPL?datatype=csv",,,
+/api/v3/cash-flow-statement/AAPL?datatype=csv",/api/v3/cash-flow-statement/AAPL?period=quarter&limit=400,,
 Income Statement as reported,0,0,0,/api/v3/income-statement-as-reported/AAPL?period=quarter&limit=50,,,"as reported 붙은거랑 안붙은게 어떤 차이지? 이건 key, value 비교해봐야 할듯"
 Balance Sheet Statement as reported,0,0,0,/api/v3/balance-sheet-statement-as-reported/AAPL?period=quarter&limit=50,,,
 Cash Flow Statement as reported,0,0,0,/api/v3/cash-flow-statement-as-reported/AAPL?period=quarter&limit=50,,,
@@ -136,7 +136,8 @@ ETF List,0,0,0,https://financialmodelingprep.com/api/v3/etf/list?apikey=3e87de43
 Batch Request Stock Companies Price,X,X,,,,,
 Bulk Endpoint,X,0,,,,,이건...너무 좋은데 못써 ㅠ 돈 없어 ㅠ 아.. 프로는 더위? ㅠㅠ
 ,,,,,,,
-Most of the Majors Indexes,0,0,0,https://financialmodelingprep.com/api/v3/quotes/index?apikey=3e87de43bcb95f9ea6ee8710ade908b7,https://financialmodelingprep.com/api/v3/quotes/index?apikey=3e87de43bcb95f9ea6ee8710ade908b7,,
+Most of the Majors Indexes,0,0,0,https://financialmodelingprep.com/api/v3/quotes/index?apikey=3e87de43bcb95f9ea6ee8710ade908b7,,,
+List of Indexes,0,0,0,https://financialmodelingprep.com/api/v3/symbol/available-indexes?apikey=52a6facc9bba04d228d0babd4c98156c,https://financialmodelingprep.com/api/v3/symbol/available-indexes?apikey=52a6facc9bba04d228d0babd4c98156c,,
 List of S&P 500 companies,0,0,0,https://financialmodelingprep.com/api/v3/sp500_constituent?apikey=3e87de43bcb95f9ea6ee8710ade908b7,,,
 Historical S&P 500,0,0,0,https://financialmodelingprep.com/api/v3/historical/sp500_constituent?apikey=3e87de43bcb95f9ea6ee8710ade908b7,,,
 List of Nasdaq 100 companies,0,0,0,https://financialmodelingprep.com/api/v3/nasdaq_constituent?apikey=3e87de43bcb95f9ea6ee8710ade908b7,,,
