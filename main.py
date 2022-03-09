@@ -35,7 +35,8 @@ def create_database():
     # flush privileges
 
     # AWS MariaDB 데이터베이스 접속 엔진 생성.
-    aws_mariadb_url = 'mysql+pymysql://quant:1234@ec2-34-239-132-90.compute-1.amazonaws.com:3306/quantdb'
+    # aws_mariadb_url = 'mysql+pymysql://quant:1234@ec2-34-239-132-90.compute-1.amazonaws.com:3306/quantdb'
+    aws_mariadb_url = 'mysql+pymysql://quant:1234@localhost:3306/quantdb'
     engine_mariadb = sqlalchemy.create_engine(aws_mariadb_url)
 
     # aws 안 mariadb port 확인
