@@ -48,8 +48,21 @@ def create_table_view():
     #        # CASE WHEN table3.col3 IS NULL THEN table2.col3 ELSE table3.col3 END as col4
     # result = pd.read_sql_query(sql=query, con=engine_mariadb)
 
-    query = "ALTER TABLE key_metrics MODIFY date DATETIME;"
-    DB_ENGINE.execute(query)
+    # query = "ALTER TABLE key_metrics MODIFY date DATETIME;"
+    params = [
+              ['income_statement', 'date'], ['income_statement', 'fillingDate'], ['income_statement', 'acceptedDate'],
+              ['balance_sheet_statement', 'date'], ['balance_sheet_statement', 'fillingDate'],
+              ['balance_sheet_statement', 'acceptedDate'],
+              ['cash_flow_statement', 'date'], ['cash_flow_statement', 'fillingDate'],
+              ['cash_flow_statement', 'acceptedDate'],
+              ['key_metrics', 'date'], ['financial_growth', 'date'], ['historical_daily_discounted_cash_flow', 'date'],
+              ['earning_calendar', 'date'], ['profile', 'ipoDate'], ['historical_market_capitalization', 'date'],
+              ['delisted_companies', 'ipoDate'], ['delisted_companies', 'delistedDate']
+    ]
+    for param in params:
+        query = "ALTER TABLE {} MODIFY {} DATETIME;".format(str(param[0]), str(param[1]))
+        print(query)
+        DB_ENGINE.execute(query)
 
     # 2번 Table
     query = "CREATE TABLE PRICE " \
@@ -295,10 +308,10 @@ if __name__ == '__main__':
     get_config()
     api_list = get_api_list()
     # 굳이 symbol을 채우기 위해 별도의 작업을 하는 것보다 2번 돌리는게 효율적
-    get_fmp(api_list)
-    get_fmp(api_list)
+    #get_fmp(api_list)
+    #get_fmp(api_list)
     create_database()
-    insert_new_csv()
+    #insert_new_csv()
     create_table_view()
 
     ################################################################################################
