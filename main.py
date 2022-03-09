@@ -29,7 +29,7 @@ DB_ENGINE = None
 
 
 def create_table_view():
-    # 1번 Table (제일 마지막에 작업할 예정)
+    # TODO 1번 Table (제일 마지막에 작업할 예정 - 이유는 ipoDate 채워주는 작업이 좀 복잡합)
     # query = "CREATE VIEW stock_info_view" \
     #        " AS SELECT ord_num, ord_amount, a.agent_code, agent_name, cust_name" \
     #        " FROM orders a, customer b, agents c" \
@@ -48,28 +48,24 @@ def create_table_view():
     #        # CASE WHEN table3.col3 IS NULL THEN table2.col3 ELSE table3.col3 END as col4
     # result = pd.read_sql_query(sql=query, con=engine_mariadb)
 
-    # query = "ALTER TABLE key_metrics MODIFY date DATETIME;"
-    params = [
-              ['income_statement', 'date'], ['income_statement', 'fillingDate'], ['income_statement', 'acceptedDate'],
-              ['balance_sheet_statement', 'date'], ['balance_sheet_statement', 'fillingDate'],
-              ['balance_sheet_statement', 'acceptedDate'],
-              ['cash_flow_statement', 'date'], ['cash_flow_statement', 'fillingDate'],
-              ['cash_flow_statement', 'acceptedDate'],
-              ['key_metrics', 'date'], ['financial_growth', 'date'], ['historical_daily_discounted_cash_flow', 'date'],
-              ['earning_calendar', 'date'], ['profile', 'ipoDate'], ['historical_market_capitalization', 'date'],
-              ['delisted_companies', 'ipoDate'], ['delisted_companies', 'delistedDate']
-    ]
-    for param in params:
-        query = "ALTER TABLE {} MODIFY {} DATETIME;".format(str(param[0]), str(param[1]))
-        print(query)
-        DB_ENGINE.execute(query)
-
-    # 2번 Table
-    query = "CREATE TABLE PRICE " \
-            " AS SELECT a.*, b."
+    # TODO 2번 Table (histtorical_price_full 의 text column의 정상 처리 후 작업 필요)
+    # query = "CREATE TABLE PRICE " \
+    #        " AS SELECT a.*, "
 
     # 3번 Table
-    query = "CREATE TABLE FINANCIAL_STATEMENT"
+    query = "CREATE VIEW FINANCIAL_STATEMENT" \
+            " AS SELECT a.date, a.symbol, a.reportedCurrency, a.fillingDate, a.acceptedDate, a.calendarYear," \
+            " a.period, a.revenue, a.grossProfit, a.ebitda, a.operatingIncome, a.netIncome, a.eps, a.epsdiluted," \
+            " a.weightedAverageShsOut, a.weightedAverageShsOutDil, b.inventory AS bs_inventory, b.totalCurrentAssets," \
+            " b.totalNonCurrentAssets, b.totalAssets, b.accountPayables as bs_accountPayables," \
+            " b.totalCurrentLiabilities, b.totalNonCurrentLiabilities, b.totalLiabilities, b.totalEquity," \
+            " b.totalDebt, b.netDebt, c.inventory as cf_inventory, c.accountsPayables as cf_accountsPayables," \
+            " c.commonStockIssued, c.commonStockRepurchased, c.dividendsPaid, c.netChangeInCash," \
+            " c.cashAtEndOfPeriod, c.operatingCashFlow, c.capitalExpenditure, c.freeCashFlow, a.link, a.finalLink"\
+            " FROM income_statement a, balance_sheet_statement b, cash_flow_statement c " \
+            " WHERE a.symbol = b.symbol AND b.symbol = c.symbol" \
+            " AND a.date = b.date AND b.date = c.date"
+    DB_ENGINE.execute(query)
 
     # 4번 Table
     query = "CREATE TABLE METRICS"
@@ -95,6 +91,21 @@ def insert_new_csv():
             target = target.reset_index(drop=True)
             target.to_sql(directory, DB_ENGINE, if_exists='append', index=False, index_label=None, chunksize=512)
             print("Complete creation of {} table".format(directory))
+
+    params = [
+              ['income_statement', 'date'], ['income_statement', 'fillingDate'], ['income_statement', 'acceptedDate'],
+              ['balance_sheet_statement', 'date'], ['balance_sheet_statement', 'fillingDate'],
+              ['balance_sheet_statement', 'acceptedDate'],
+              ['cash_flow_statement', 'date'], ['cash_flow_statement', 'fillingDate'],
+              ['cash_flow_statement', 'acceptedDate'],
+              ['key_metrics', 'date'], ['financial_growth', 'date'], ['historical_daily_discounted_cash_flow', 'date'],
+              ['earning_calendar', 'date'], ['profile', 'ipoDate'], ['historical_market_capitalization', 'date'],
+              ['delisted_companies', 'ipoDate'], ['delisted_companies', 'delistedDate']
+    ]
+    for param in params:
+        query = "ALTER TABLE {} MODIFY {} DATETIME;".format(str(param[0]), str(param[1]))
+        print(query)
+        DB_ENGINE.execute(query)
 
 
 def create_database():
@@ -308,10 +319,10 @@ if __name__ == '__main__':
     get_config()
     api_list = get_api_list()
     # 굳이 symbol을 채우기 위해 별도의 작업을 하는 것보다 2번 돌리는게 효율적
-    get_fmp(api_list)
-    get_fmp(api_list)
+    # get_fmp(api_list)
+    # get_fmp(api_list)
     create_database()
-    insert_new_csv()
+    # insert_new_csv()
     create_table_view()
 
     ################################################################################################
