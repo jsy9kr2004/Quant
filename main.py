@@ -308,10 +308,10 @@ if __name__ == '__main__':
     get_config()
     api_list = get_api_list()
     # 굳이 symbol을 채우기 위해 별도의 작업을 하는 것보다 2번 돌리는게 효율적
-    #get_fmp(api_list)
-    #get_fmp(api_list)
+    get_fmp(api_list)
+    get_fmp(api_list)
     create_database()
-    #insert_new_csv()
+    insert_new_csv()
     create_table_view()
 
     ################################################################################################
