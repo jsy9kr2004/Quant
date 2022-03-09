@@ -9,6 +9,10 @@ import pymysql
 import numpy as np
 import time
 import urllib
+import urllib.error
+import urllib.request
+import requests
+import json
 # import json.decoder
 # import FinanceDataReader as fdr
 # import matplotlib.pyplot as plt
@@ -134,6 +138,18 @@ def create_dir(path):
             return False
 
 
+def flatten_json(js, expand_all=False):
+    df = pd.json_normalize(json.loads(js) if type(js)==str else js)
+    # get first column that contains lists
+    col = df.applymap(type).astype(str).eq("<class 'list'>").all().idxmax()
+    # explode list and expand embedded dictionaries
+    df = df.explode(col).reset_index(drop=True)
+    df = df.drop(columns=[col]).join(df[col].apply(pd.Series), rsuffix=f".{col}")
+    # any lists left?
+    if expand_all and df.applymap(type).astype(str).eq("<class 'list'>").any(axis=1).all():
+        df = flatten_json(df.to_dict("records"))
+    return df
+
 def get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix=""):
     # brief : 순차적으로 넣고자 하는 값을 url에 포함시켜서 돌려줌
     # input : main_url(url의 main 값), extra_url(뒤에 나머지),
@@ -179,7 +195,8 @@ def get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix=""):
                     api_url = FMP_URL + "/api/v3/{}?{}apikey={}".format(main_url, extra_url, CONF['API_KEY'])
             print('Creating File "{}/{}.csv" <- "{}"'.format(path, elem + file_postfix, api_url))
             try:
-                json_data = pd.read_json(api_url)
+                #json_data = pd.read_json(api_url)
+                url_data = requests.get(api_url)
             except ValueError:
                 print("[Warning] No Data. Or Different Data Type")
                 continue
@@ -187,6 +204,14 @@ def get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix=""):
                 print("[Warning] HTTP Error 400, API_URL : ", api_url)
                 continue
             # 읽어왔는데 비어 있을 수 있음. ValueError는 Format이 안맞는 경우고 이 경우는 page=50 과 같은 extra_url 처리 때문
+            json_text = url_data.text
+            try:
+                json_data = json.loads(json_text)
+            except json.decoder.JSONDecodeError:
+                return False
+            if json_data == [] or json_data == {}:
+                return False
+            json_data = flatten_json(json_data, expand_all=True)
             json_data.to_csv(path+"/{}.csv".format(elem + file_postfix), na_rep='NaN')
             if json_data.empty is True:
                 return False
