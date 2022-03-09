@@ -29,11 +29,12 @@ DB_ENGINE = None
 
 
 def create_table_view():
-    query = "CREATE VIEW stock_info_view" \
-            " AS SELECT ord_num, ord_amount, a.agent_code, agent_name, cust_name" \
-            " FROM orders a, customer b, agents c" \
-            " WHERE a.cust_code=b.cust_code" \
-            " AND a.agent_code=c.agent_code;"
+    # 1번 Table (제일 마지막에 작업할 예정)
+    # query = "CREATE VIEW stock_info_view" \
+    #        " AS SELECT ord_num, ord_amount, a.agent_code, agent_name, cust_name" \
+    #        " FROM orders a, customer b, agents c" \
+    #        " WHERE a.cust_code=b.cust_code" \
+    #        " AND a.agent_code=c.agent_code;"
     # query = "SELECT c.symbol, c.exchangeShortName, c.type, d.delistedDate," \
     #        " CASE c.ipoDate" \
     #        " IS NULL THEN d.ipoDate" \
@@ -46,32 +47,25 @@ def create_table_view():
     #        " FROM stock a LEFT OUTER JOIN profile b on a.symbol = b.symbol;"
     #        # CASE WHEN table3.col3 IS NULL THEN table2.col3 ELSE table3.col3 END as col4
     # result = pd.read_sql_query(sql=query, con=engine_mariadb)
-    # result.to_csv(ROOT_PATH + "/test.csv", na_rep='NaN')
-    # print(result)
-    # profile
-    # "symbol": "AAPL",
-    # "exchangeShortName": "NASDAQ",
-    # "industry": "Consumer Electronics",
-    # "ipoDate": "1980-12-12",
 
-    # stock
-    # "symbol": "SPY",
-    # "exchangeShortName": "AMEX",
-    # "type": "etf"
+    query = "ALTER TABLE key_metrics MODIFY date DATETIME;"
+    DB_ENGINE.execute(query)
 
-    # delisted-companies
-    # "symbol": "KNL",
-    # "exchange": "NYSE",
-    # "ipoDate": "2004-12-14",
-    # "delistedDate": "2022-02-25"
+    # 2번 Table
+    query = "CREATE TABLE PRICE " \
+            " AS SELECT a.*, b."
 
-    # SQL 예시
-    # query = "show global variables like 'PORT';"
-    # result = pd.read_sql_query(sql=query, con=engine_mariadb)
+    # 3번 Table
+    query = "CREATE TABLE FINANCIAL_STATEMENT"
+
+    # 4번 Table
+    query = "CREATE TABLE METRICS"
+
+    # 5번 Table
+    # query = "CREATE TABLE INDEX"
 
 
 def insert_new_csv():
-
     # Drop All Tables
     dir_list = os.listdir(ROOT_PATH)
     for directory in dir_list:
@@ -144,6 +138,7 @@ def get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix=""):
 
     # for elem in SYMBOL:
     for elem in data_list:
+        json_data = ""
         if not os.path.isfile(path + "/{}.csv".format(elem + file_postfix)):
             if is_v4 is True:
                 # TODO symbol 이 외에 list가 올 것이기에 need_symbol flag를 두고 있으나, symbol 이외에는 아직 당장 필요한 것이
@@ -211,7 +206,7 @@ def get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4):
     elif extra_url.find("page") != -1:
         i = 0
         while True:
-            extra_url = re.sub('page=[0-9]{1,2}', "[PAGE]", extra_url)
+            extra_url = re.sub('page=[0-9]{1,4}', "[PAGE]", extra_url)
             file_postfix = "_" + str(i)
             extra_url = extra_url.replace("[PAGE]", "page={}".format(i))
             if get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix) is False:
