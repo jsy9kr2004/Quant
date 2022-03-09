@@ -3,6 +3,7 @@ import sys
 import re
 import os
 import pandas as pd
+import yaml
 import sqlalchemy
 import pymysql
 import numpy as np
@@ -17,39 +18,22 @@ import urllib
 # from pykrx import stock
 # from pykrx import bond
 
-API_KEY = '52a6facc9bba04d228d0babd4c98156c'
 FMP_URL = "https://financialmodelingprep.com"
 EX_SYMBOL = "AAPL"
 ROOT_PATH = "./data"
 SYMBOL = pd.DataFrame()
 START_YEAR = 2020
 END_YEAR = 2022
+CONF = {}
+DB_ENGINE = None
 
 
-def create_database():
-    # maria DB 첫 설치 시 아래의 SQL문으로 db와 user를 만들어줘야함
-    # use mysql;
-    # create database quantdb
-    # create user 'quant'@'%' identified by '1234';
-    # grant privileges on quantdb.* to 'quant'@'localhost';
-    # flush privileges
-
-    # AWS MariaDB 데이터베이스 접속 엔진 생성.
-    # aws_mariadb_url = 'mysql+pymysql://quant:1234@ec2-34-239-132-90.compute-1.amazonaws.com:3306/quantdb'
-    aws_mariadb_url = 'mysql+pymysql://quant:1234@localhost:3306/quantdb'
-    engine_mariadb = sqlalchemy.create_engine(aws_mariadb_url)
-
-    # aws 안 mariadb port 확인
-    query = "show global variables like 'PORT';"
-    result = pd.read_sql_query(sql=query, con=engine_mariadb)
-    # listed_stock = pd.read_csv("./data/listed_stock.csv")
-    # listed_stock.to_sql('available_traded', engine, if_exists='replace', index=False, index_label=None, chunksize=512)
-    print(result)
-    # query = "CREATE VIEW stock_info_view" \
-    #        " AS SELECT ord_num, ord_amount, a.agent_code, agent_name, cust_name" \
-    #        " FROM orders a, customer b, agents c" \
-    #        " WHERE a.cust_code=b.cust_code" \
-    #        " AND a.agent_code=c.agent_code;"
+def create_table_view():
+    query = "CREATE VIEW stock_info_view" \
+            " AS SELECT ord_num, ord_amount, a.agent_code, agent_name, cust_name" \
+            " FROM orders a, customer b, agents c" \
+            " WHERE a.cust_code=b.cust_code" \
+            " AND a.agent_code=c.agent_code;"
     # query = "SELECT c.symbol, c.exchangeShortName, c.type, d.delistedDate," \
     #        " CASE c.ipoDate" \
     #        " IS NULL THEN d.ipoDate" \
@@ -81,145 +65,47 @@ def create_database():
     # "ipoDate": "2004-12-14",
     # "delistedDate": "2022-02-25"
 
-
-    set_symbol()
-
-    #@@@@@@@@#
-    # table#1
-    #@@@@@@@@#
-    # table 생성 : stock
-    target_stock = pd.read_csv('target_stock_list.csv', index_col=None)
-    #drop index column
-    target_stock = target_stock.drop( target_stock.columns[0], axis=1)
-    target_stock.to_sql('stock', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)
-    print("complete creation of stock&etf symbol table")
-
-    # table 생성 : profile_SYMBOL
-    # profile 은 stock 별 row 1개라 별도 table로 안넣고 row 들 합쳐서 profile이란 table 로 넣음
-    profile = pd.DataFrame()
-    for i in range(0, 10):
-        elem = SYMBOL[i]
-        profile=pd.concat( [profile,  pd.read_csv(ROOT_PATH+'/profile/{}.csv'.format(elem), index_col=None)], ignore_index=True)
-    #drop index column
-    profile = profile.drop( profile.columns[0], axis=1)
-    profile.to_sql('profile', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)
-    print("complete creation of profile table")
-
-    # table 생성 : delist
-    delisted_companies = pd.DataFrame()
-    i = 0
-    while True:
-        csv_path = ROOT_PATH+'/delisted-companies_' + str(i) + '.csv'
-        try:
-            delisted_tmp = pd.read_csv(csv_path, index_col=None)
-            delisted_companies=pd.concat( [delisted_companies,  delisted_tmp])
-        except FileNotFoundError :
-            break
-        i=i+1
-    #drop index column
-    delisted_companies = delisted_companies.drop( delisted_companies.columns[0], axis=1)
-    delisted_companies = delisted_companies.reset_index(drop=True)
-    delisted_companies.to_sql('delisted_companies', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)
-    print("complete creation of delisted table")
+    # SQL 예시
+    # query = "show global variables like 'PORT';"
+    # result = pd.read_sql_query(sql=query, con=engine_mariadb)
 
 
-    #@@@@@@@@#
-    # table#2
-    #@@@@@@@@#
+def insert_new_csv():
 
-    #table 생성 : market_capitalization
-    market_cap = pd.DataFrame()
-    for i in range(0, 10):
-        elem = SYMBOL[i]
-        market_cap=pd.concat( [market_cap,  pd.read_csv(ROOT_PATH+'/historical-market-capitalization/{}.csv'.format(elem), index_col=None)], ignore_index=True)
-    #drop index column
-    market_cap = market_cap.drop( market_cap.columns[0], axis=1)
-    market_cap.to_sql('market_capitalization', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)    
-    print("complete creation of market_capitalization table")
+    # Drop All Tables
+    dir_list = os.listdir(ROOT_PATH)
+    for directory in dir_list:
+        query = "DROP TABLE IF EXISTS {};".format(directory)
+        DB_ENGINE.execute(query)
 
-    #table 생성 : historical_price   
-    historical_price = pd.DataFrame()
-    for i in range(0, 10):
-        elem = SYMBOL[i]
-        for year in range(START_YEAR, END_YEAR + 1):
-            for month in range(1, 13):
-                historical_price=pd.concat( [historical_price,  pd.read_csv(ROOT_PATH+'/historical-price-full/{}_{}_{}.csv'.format(elem, year, month), index_col=None)], ignore_index=True)
-    #drop index column
-    historical_price = historical_price.drop( historical_price.columns[0], axis=1)
-    historical_price.to_sql('historical_price', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)  
-    print("complete creation of price table")
-
-    #@@@@@@@@#
-    # table#3
-    #@@@@@@@@#
-    #table 생성 : income_statement
-    income_statement = pd.DataFrame()
-    for i in range(0, 10):
-        elem = SYMBOL[i]
-        income_statement=pd.concat( [income_statement,  pd.read_csv(ROOT_PATH+'/income-statement/{}.csv'.format(elem), index_col=None)], ignore_index=True)
-    #drop index column
-    income_statement = income_statement.drop( income_statement.columns[0], axis=1)
-    income_statement.to_sql('income_statement', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)    
-    print("complete creation of income table")
-
-    #table 생성 : balance_statement
-    balance_statement = pd.DataFrame()
-    for i in range(0, 10):
-        elem = SYMBOL[i]
-        balance_statement=pd.concat( [balance_statement,  pd.read_csv(ROOT_PATH+'/balance-sheet-statement/{}.csv'.format(elem), index_col=None)], ignore_index=True)
-    #drop index column
-    balance_statement = balance_statement.drop( balance_statement.columns[0], axis=1)
-    balance_statement.to_sql('balance_statement', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)    
-    print("complete creation of balance table")
-
-    #table 생성 : cashflow_statement
-    cashflow_statement = pd.DataFrame()
-    for i in range(0, 10):
-        elem = SYMBOL[i]
-        cashflow_statement=pd.concat( [cashflow_statement,  pd.read_csv(ROOT_PATH+'/cash-flow-statement/{}.csv'.format(elem), index_col=None)], ignore_index=True)
-    #drop index column
-    cashflow_statement = cashflow_statement.drop( cashflow_statement.columns[0], axis=1)
-    cashflow_statement.to_sql('cashflow_statement', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)    
-    print("complete creation of cashflow table")
+    # Inster All CSV file
+    for directory in dir_list:
+        file_list = os.listdir(ROOT_PATH + "/" + directory)
+        for file in file_list:
+            target = pd.read_csv(ROOT_PATH + "/" + directory + "/" + file, index_col=None)
+            # drop index column
+            target = target.drop(target.columns[0], axis=1)
+            target = target.reset_index(drop=True)
+            target.to_sql(directory, DB_ENGINE, if_exists='append', index=False, index_label=None, chunksize=512)
+            print("Complete creation of {} table".format(directory))
 
 
+def create_database():
+    # maria DB 첫 설치 시 아래의 SQL문으로 db와 user를 만들어줘야함
+    # use mysql;
+    # create database quantdb
+    # create user 'quant'@'%' identified by '1234';
+    # grant privileges on quantdb.* to 'quant'@'localhost';
+    # flush privileges
 
-    #@@@@@@@@#
-    # table#4
-    #@@@@@@@@#
-
-    #table 생성 : key_metrics
-    key_metrics=pd.DataFrame()
-    for i in range(0, 10):
-        elem = SYMBOL[i]
-        key_metrics=pd.concat( [key_metrics,  pd.read_csv(ROOT_PATH+'/key-metrics/{}.csv'.format(elem), index_col=None)], ignore_index=True)
-    #drop index column
-    key_metrics = key_metrics.drop( key_metrics.columns[0], axis=1)
-    key_metrics.to_sql('key_metrics', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)    
-    print("complete creation of key metrics table")
-
-    #table 생성 : financial_growth
-    financial_growth = pd.DataFrame()
-    for i in range(0, 10):
-        elem = SYMBOL[i]
-        financial_growth=pd.concat( [financial_growth,  pd.read_csv(ROOT_PATH+'/financial-growth/{}.csv'.format(elem), index_col=None)], ignore_index=True)
-    #drop index column
-    financial_growth = financial_growth.drop( financial_growth.columns[0], axis=1)
-    financial_growth.to_sql('financial_growth', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)    
-    print("complete creation of growth table")
-
-    #table 생성 : historical_daily_discounted_cash_flow
-    historical_daily_discounted_cash_flow = pd.DataFrame()
-    for i in range(0, 10):
-        elem = SYMBOL[i]
-        historical_daily_discounted_cash_flow=pd.concat( [historical_daily_discounted_cash_flow,  pd.read_csv(ROOT_PATH+'/historical-daily-discounted-cash-flow/{}.csv'.format(elem), index_col=None)], ignore_index=True)
-    #drop index column
-    historical_daily_discounted_cash_flow = historical_daily_discounted_cash_flow.drop( historical_daily_discounted_cash_flow.columns[0], axis=1)
-    historical_daily_discounted_cash_flow.to_sql('historical_daily_discounted_cash_flow', engine_mariadb, if_exists='replace', index=False, index_label=None, chunksize=512)   
-    print("complete creation of dcf table")
+    # AWS MariaDB 데이터베이스 접속 엔진 생성.
+    aws_mariadb_url = 'mysql+pymysql://' + CONF['MARIA_DB_USER'] + ":" + CONF['MARIA_DB_PASSWD'] + "@"\
+                    + CONF['MARIA_DB_ADDR'] + ":" + CONF['MARIA_DB_PORT'] + "/" + CONF['MARIA_DB_NAME']
+    global DB_ENGINE
+    DB_ENGINE = sqlalchemy.create_engine(aws_mariadb_url)
 
 
-def create_folder(path):
+def create_dir(path):
     if not os.path.exists(path):
         print('Creating Folder "{}" ...'.format(path))
         try:
@@ -246,26 +132,32 @@ def get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix=""):
     #               get_fmp_data_by_list("income-statement-as-reported",
     #                                    "period=quarter&limit=50&", symbol_list, True, False)
 
+    # [RULE] 모든 File들은 Path가 ./data/* 로 시작해야 함. ./data나 ./data/*/* 와 같은 path는 가질 수 없음
+    path = ROOT_PATH + "/" + main_url.replace("/", "-").replace("-", "_")
+    cre_flag = create_dir(path)
+
     if need_symbol is False:
-        return get_fmp_data_only_one(main_url, extra_url, is_v4, file_postfix)
+        data_list = [path[path.rfind("/") + 1:]]
+    else:
+        # TODO 일부만 돌리기 위해 앞에 5개만 가져옴 (for test) / 나중에 else만 없애면 됨.
+        data_list = SYMBOL.head(5)
 
-    path = ROOT_PATH + "/" + main_url
-    cre_flag = create_folder(path)
-
-    # TODO 일부만 돌리기 위해 i로 range를 살짝 줘서 돌림 (for test)
     # for elem in SYMBOL:
-    for i in range(0, 10):
-        elem = SYMBOL[i]
+    for elem in data_list:
         if not os.path.isfile(path + "/{}.csv".format(elem + file_postfix)):
             if is_v4 is True:
                 # TODO symbol 이 외에 list가 올 것이기에 need_symbol flag를 두고 있으나, symbol 이외에는 아직 당장 필요한 것이
                 #       없어서 이대로 두었으나 이 loop는 symbol 이외의 list에 대한 대비가 아래 if 문 이외에는 되어 있지 않음
                 if need_symbol is True:
-                    api_url = FMP_URL + "/api/v4/{}?symbol={}&{}apikey={}".format(main_url, elem, extra_url, API_KEY)
+                    api_url = FMP_URL + "/api/v4/{}?symbol={}&{}apikey={}".format(main_url, elem, extra_url,
+                                                                                  CONF['API_KEY'])
                 else:
-                    api_url = FMP_URL + "/api/v4/{}?{}apikey={}".format(main_url, extra_url, API_KEY)
+                    api_url = FMP_URL + "/api/v4/{}?{}apikey={}".format(main_url, extra_url, CONF['API_KEY'])
             else:
-                api_url = FMP_URL + "/api/v3/{}/{}?{}apikey={}".format(main_url, elem, extra_url, API_KEY)
+                if need_symbol is True:
+                    api_url = FMP_URL + "/api/v3/{}/{}?{}apikey={}".format(main_url, elem, extra_url, CONF['API_KEY'])
+                else:
+                    api_url = FMP_URL + "/api/v3/{}?{}apikey={}".format(main_url, extra_url, CONF['API_KEY'])
             print('Creating File "{}/{}.csv" <- "{}"'.format(path, elem + file_postfix, api_url))
             try:
                 json_data = pd.read_json(api_url)
@@ -284,40 +176,6 @@ def get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix=""):
                 # 새로 만드는 경우, 이미 csv가 있다는 건 stock list와 delisted list에 중복 값이 있는 상황 (Duplicate)
                 # 리스트에 중복값이 왜 들어가게 되었는지 반드시 확인이 필요함. (가정이 깨짐)
                 print('[ERROR] Already Exist "{}/{}.csv"'.format(path, elem + file_postfix))
-    return True
-
-
-def get_fmp_data_only_one(main_url, extra_url, is_v4, file_postfix):
-    # brief : 하나의 값만 읽어오고자 할 때 사용됨
-    # input : main_url(url의 main 값), extra_url(뒤에 나머지 url), v4_flag(v5 url 형식을 사용할지에 대한 flag),
-    #        file_postfix(csv 파일 뒤에 붙는 다른 구분자를 넣고 싶은 경우 사용 예) AAPL_2022_1.csv)
-    # output : none
-    # example 1 :  /api/v3/financial-statement-symbol-lists
-    #                   get_fmp_data_only_one("financial-statement-symbol-lists", "", False, "")
-    #                   ./data 폴더 아래에 financial-statement-symbol-lists.csv 파일을 만듦
-    # FIXME get_fmp_data 함수랑 이쁘게 잘 합쳐보고 싶은데 결국 한번 합쳤다 다시 때어냄
-    if is_v4 is True:
-        api_url = FMP_URL + "/api/v4/"
-    else:
-        api_url = FMP_URL + "/api/v3/"
-
-    if main_url.rfind("/") != -1:
-        create_folder(ROOT_PATH + "/" + main_url[:main_url.rfind("/")])
-    if not os.path.isfile("{}/{}.csv".format(ROOT_PATH, main_url + file_postfix)):
-        api_url += "{}?{}apikey={}".format(main_url, extra_url, API_KEY)
-        print('Creating File "{}/{}.csv" <- "{}"'.format(ROOT_PATH, main_url + file_postfix, api_url))
-        try:
-            json_data = pd.read_json(api_url)
-        except ValueError:
-            print("[Warning] No Data. Or Different Data Type")
-            return False
-        except urllib.error.HTTPError:
-            print("[Warning] HTTP Error 400, API_URL : ", api_url)
-            return False
-        # 읽어왔는데 비어 있을 수 있음. ValueError는 Format이 안맞는 경우고 이 경우는 page=50 과 같은 extra_url 처리 때문
-        json_data.to_csv("{}/{}.csv".format(ROOT_PATH, main_url + file_postfix), na_rep='NaN')
-        if json_data.empty is True:
-            return False
     return True
 
 
@@ -385,8 +243,9 @@ def set_symbol():
         SYMBOL = stock["symbol"]
     print("in set_symbol() list=", SYMBOL)
 
+
 def get_fmp(api_list):
-    create_folder(ROOT_PATH)
+    create_dir(ROOT_PATH)
     set_symbol()
 
     for i in range(len(api_list)):
@@ -408,8 +267,9 @@ def get_fmp(api_list):
         if extra_url != "":
             extra_url = extra_url + "&"
             print("{}\nextra_url : {}".format(api_list[i], extra_url))
-        # FIXME 디버깅용 로그라 120칸 넘김 나중에 수정 예정. 두 줄이면 뺐더 넣다 하기 귀찮
-        print("\n{}\nmain_url : {} / extra_url : {} / need_symbol : {} / is_v4 : {}".format(api_list[i], main_url, extra_url, need_symbol, is_v4))
+        print("\n{}\nmain_url : {} / extra_url : {} / need_symbol : {} / is_v4 : {}".format(api_list[i],main_url,
+                                                                                            extra_url, need_symbol,
+                                                                                            is_v4))
         get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4)
 
 
@@ -430,13 +290,21 @@ def get_api_list():
     return api_list
 
 
+def get_config():
+    with open('config/conf.yaml') as f:
+        global CONF
+        CONF = yaml.load(f, Loader=yaml.FullLoader)
+
+
 if __name__ == '__main__':
+    get_config()
     api_list = get_api_list()
     # 굳이 symbol을 채우기 위해 별도의 작업을 하는 것보다 2번 돌리는게 효율적
-    #get_fmp(api_list)
-    #get_fmp(api_list)
-    # get_fmp_es()
+    get_fmp(api_list)
+    get_fmp(api_list)
     create_database()
+    insert_new_csv()
+    create_table_view()
 
     ################################################################################################
     # (1) tickers를 이용한 재무재표 예제
