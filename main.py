@@ -24,7 +24,6 @@ import json
 
 FMP_URL = "https://financialmodelingprep.com"
 EX_SYMBOL = "AAPL"
-ROOT_PATH = "./data"
 SYMBOL = pd.DataFrame()
 START_YEAR = 2020
 END_YEAR = 2022
@@ -138,7 +137,7 @@ def create_table_view():
 
 def insert_new_csv():
     # Drop All Tables
-    dir_list = os.listdir(ROOT_PATH)
+    dir_list = os.listdir(CONF['ROOT_PATH'])
     for table in dir_list + CRE_TBL:
         query = "DROP TABLE IF EXISTS {} RESTRICT;".format(table)
         DB_ENGINE.execute(query)
@@ -148,9 +147,9 @@ def insert_new_csv():
 
     # Inster All CSV file
     for directory in dir_list:
-        file_list = os.listdir(ROOT_PATH + "/" + directory)
+        file_list = os.listdir(CONF['ROOT_PATH'] + "/" + directory)
         for file in file_list:
-            target = pd.read_csv(ROOT_PATH + "/" + directory + "/" + file, index_col=None)
+            target = pd.read_csv(CONF['ROOT_PATH'] + "/" + directory + "/" + file, index_col=None)
             # drop index column
             target = target.drop(target.columns[0], axis=1)
             target = target.reset_index(drop=True)
@@ -230,7 +229,7 @@ def get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix=""):
     #                                    "period=quarter&limit=50&", symbol_list, True, False)
 
     # [RULE] 모든 File들은 Path가 ./data/* 로 시작해야 함. ./data나 ./data/*/* 와 같은 path는 가질 수 없음
-    path = ROOT_PATH + "/" + main_url.replace("/", "-").replace("-", "_")
+    path = CONF['ROOT_PATH'] + "/" + main_url.replace("/", "-").replace("-", "_")
     cre_flag = create_dir(path)
 
     if need_symbol is False:
@@ -339,10 +338,10 @@ def get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4):
 
 
 def set_symbol():
-    # if os.path.isfile(ROOT_PATH + "/available-traded/list.csv") is True \
-    #         and os.path.isfile(ROOT_PATH + "/delisted-companies_0.csv") is True:
-    #     available_traded = pd.read_csv(ROOT_PATH + "/available-traded/list.csv")
-    #     delisted_stock = pd.read_csv(ROOT_PATH + "/delisted-companies_0.csv")
+    # if os.path.isfile(CONF['ROOT_PATH'] + "/available-traded/list.csv") is True \
+    #         and os.path.isfile(CONF['ROOT_PATH'] + "/delisted-companies_0.csv") is True:
+    #     available_traded = pd.read_csv(CONF['ROOT_PATH'] + "/available-traded/list.csv")
+    #     delisted_stock = pd.read_csv(CONF['ROOT_PATH'] + "/delisted-companies_0.csv")
     #     stock = pd.concat([available_traded, delisted_stock], ignore_index=True)
     if os.path.isfile("./target_stock_list.csv") is True:
         stock = pd.read_csv("./target_stock_list.csv")
@@ -352,7 +351,7 @@ def set_symbol():
 
 
 def get_fmp(api_list):
-    create_dir(ROOT_PATH)
+    create_dir(CONF['ROOT_PATH'])
     set_symbol()
 
     for i in range(len(api_list)):
