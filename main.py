@@ -24,7 +24,7 @@ import json
 
 FMP_URL = "https://financialmodelingprep.com"
 EX_SYMBOL = "AAPL"
-ROOT_PATH = "./data"
+ROOT_PATH = "/mnt/d/dataset/qt/data"
 SYMBOL = pd.DataFrame()
 START_YEAR = 2020
 END_YEAR = 2022
@@ -39,6 +39,47 @@ def create_table_view():
     #        " FROM orders a, customer b, agents c" \
     #        " WHERE a.cust_code=b.cust_code" \
     #        " AND a.agent_code=c.agent_code;"
+
+    # FULL OUTER JOIN stock_list, delisted_companies 
+    query = "CREATE TABLE tmp_full_list " \
+            " AS SELECT a.symbol, a.exchangeShortName, a.type, b.symbol AS dsymbol, b.ipoDate, b.delistedDate" \
+            " FROM stock_list a" \
+            " LEFT JOIN delisted_companies b ON (a.symbol=b.symbol)"\
+            " UNION"\
+            " SELECT a.symbol, a.exchangeShortName, a.type, b.symbol AS dsymbol, b.ipoDate, b.delistedDate" \
+            " FROM stock_list a" \
+            " RIGHT JOIN delisted_companies b ON (a.symbol=b.symbol);"
+    DB_ENGINE.execute(query)
+
+    # COALESCE symbol
+    query = "CREATE TABLE full_list" \
+            " SELECT COALESCE(a.symbol, a.dsymbol) as symbol, a.exchangeShortName, a.type, a.ipoDate, a.delistedDate"\
+            " FROM tmp_full_list as a;"
+    DB_ENGINE.execute(query)
+
+    query = "DROP TABLE tmp_full_list;"
+    DB_ENGINE.execute(query)
+
+    # LEFT JOIN full_list, profile 
+    query = "CREATE TABLE tmp_full_list " \
+            " AS SELECT a.symbol, a.exchangeShortName, a.type, a.ipoDate, a.delistedDate,"\
+            " b.ipoDate as pipoDate, b.industry" \
+            " FROM full_list a" \
+            " LEFT JOIN profile b ON (a.symbol=b.symbol);"
+    DB_ENGINE.execute(query)
+
+    query = "DROP TABLE full_list;"
+    DB_ENGINE.execute(query)
+
+    # COALESCE ipoDate
+    query = "CREATE TABLE full_list" \
+            " SELECT a.symbol, a.exchangeShortName, a.type, a.delistedDate, COALESCE(a.ipoDate, a.pipoDate) as ipoDate, a.industry"\
+            " FROM tmp_full_list as a;"
+    DB_ENGINE.execute(query)
+
+    query = "DROP TABLE tmp_full_list;"
+    DB_ENGINE.execute(query)
+
     # query = "SELECT c.symbol, c.exchangeShortName, c.type, d.delistedDate," \
     #        " CASE c.ipoDate" \
     #        " IS NULL THEN d.ipoDate" \
@@ -46,15 +87,20 @@ def create_table_view():
     #        " END as Date" \
     #        " FROM (SELECT a.symbol, a.exchangeShortName, a.type, b.industry, b.ipoDate" \
     #        " FROM stock a LEFT OUTER JOIN profile b on a.symbol = b.symbol) c" \
-    #        " LEFT OUTER JOIN delisted_companiese d on c.symbol = d.symbol;"
+    #        " LEFT OUTER JOIN delisted_companies d on c.symbol = d.symbol;"
     # query = "SELECT a.symbol, a.exchangeShortName, a.type, b.industry, b.ipoDate" \
     #        " FROM stock a LEFT OUTER JOIN profile b on a.symbol = b.symbol;"
     #        # CASE WHEN table3.col3 IS NULL THEN table2.col3 ELSE table3.col3 END as col4
     # result = pd.read_sql_query(sql=query, con=engine_mariadb)
 
-    # TODO 2번 Table (histtorical_price_full 의 text column의 정상 처리 후 작업 필요)
-    # query = "CREATE TABLE PRICE " \
-    #        " AS SELECT a.*, "
+    # TODO 2번 Table (historical_price_full 의 text column의 정상 처리 후 작업 필요)
+    query = "CREATE TABLE PRICE " \
+            " AS SELECT a.date, a.symbol, a.open, a.high, a.low, a.close, a.volume, " \
+            " b.marketCap" \
+            " FROM historical_price_full a, historical_market_capitalization b" \
+            " WHERE a.symbol = b.symbol" \
+            " AND a.date = b.date"
+    DB_ENGINE.execute(query)
 
     # 3번 Table
     query = "CREATE VIEW FINANCIAL_STATEMENT" \
@@ -72,7 +118,11 @@ def create_table_view():
     DB_ENGINE.execute(query)
 
     # 4번 Table
-    query = "CREATE TABLE METRICS"
+    query = "CREATE TABLE METRICS" \
+            " AS SELECT a.date, a.symbol," \
+            " FROM key_metrics a, balance_sheet_statement b, cash_flow_statement c " \
+            " WHERE a.symbol = b.symbol AND b.symbol = c.symbol" \
+            " AND a.date = b.date AND b.date = c.date"
 
     # 5번 Table
     # query = "CREATE TABLE INDEX"
@@ -104,7 +154,8 @@ def insert_new_csv():
               ['cash_flow_statement', 'acceptedDate'],
               ['key_metrics', 'date'], ['financial_growth', 'date'], ['historical_daily_discounted_cash_flow', 'date'],
               ['earning_calendar', 'date'], ['profile', 'ipoDate'], ['historical_market_capitalization', 'date'],
-              ['delisted_companies', 'ipoDate'], ['delisted_companies', 'delistedDate']
+              ['delisted_companies', 'ipoDate'], ['delisted_companies', 'delistedDate'],
+              ['historical_price_full', 'date']
     ]
     for param in params:
         query = "ALTER TABLE {} MODIFY {} DATETIME;".format(str(param[0]), str(param[1]))
@@ -347,7 +398,7 @@ if __name__ == '__main__':
     # get_fmp(api_list)
     # get_fmp(api_list)
     create_database()
-    # insert_new_csv()
+    #insert_new_csv()
     create_table_view()
 
     ################################################################################################
