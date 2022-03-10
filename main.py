@@ -212,6 +212,7 @@ def flatten_json(js, expand_all=False):
         df = flatten_json(df.to_dict("records"))
     return df
 
+
 def get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix=""):
     # brief : 순차적으로 넣고자 하는 값을 url에 포함시켜서 돌려줌
     # input : main_url(url의 main 값), extra_url(뒤에 나머지),
@@ -257,7 +258,7 @@ def get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix=""):
                     api_url = FMP_URL + "/api/v3/{}?{}apikey={}".format(main_url, extra_url, CONF['API_KEY'])
             print('Creating File "{}/{}.csv" <- "{}"'.format(path, elem + file_postfix, api_url))
             try:
-                #json_data = pd.read_json(api_url)
+                # json_data = pd.read_json(api_url)
                 url_data = requests.get(api_url)
             except ValueError:
                 print("[Warning] No Data. Or Different Data Type")
