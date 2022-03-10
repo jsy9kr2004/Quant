@@ -30,6 +30,7 @@ START_YEAR = 2020
 END_YEAR = 2022
 CONF = {}
 DB_ENGINE = None
+CRE_TBL = ["FINANCIAL_STATEMENT", "METRICS", "INDEXES"]
 
 
 def create_table_view():
@@ -40,7 +41,7 @@ def create_table_view():
     #        " WHERE a.cust_code=b.cust_code" \
     #        " AND a.agent_code=c.agent_code;"
 
-    # FULL OUTER JOIN stock_list, delisted_companies 
+    # FULL OUTER JOIN stock_list, delisted_companies
     query = "CREATE TABLE tmp_full_list " \
             " AS SELECT a.symbol, a.exchangeShortName, a.type, b.symbol AS dsymbol, b.ipoDate, b.delistedDate" \
             " FROM stock_list a" \
@@ -60,7 +61,7 @@ def create_table_view():
     query = "DROP TABLE tmp_full_list;"
     DB_ENGINE.execute(query)
 
-    # LEFT JOIN full_list, profile 
+    # LEFT JOIN full_list, profile
     query = "CREATE TABLE tmp_full_list " \
             " AS SELECT a.symbol, a.exchangeShortName, a.type, a.ipoDate, a.delistedDate,"\
             " b.ipoDate as pipoDate, b.industry" \
@@ -114,25 +115,35 @@ def create_table_view():
             " c.cashAtEndOfPeriod, c.operatingCashFlow, c.capitalExpenditure, c.freeCashFlow, a.link, a.finalLink"\
             " FROM income_statement a, balance_sheet_statement b, cash_flow_statement c " \
             " WHERE a.symbol = b.symbol AND b.symbol = c.symbol" \
-            " AND a.date = b.date AND b.date = c.date"
+            " AND a.date = b.date AND b.date = c.date;"
     DB_ENGINE.execute(query)
 
     # 4번 Table
-    query = "CREATE TABLE METRICS" \
-            " AS SELECT a.date, a.symbol," \
-            " FROM key_metrics a, balance_sheet_statement b, cash_flow_statement c " \
+    query = "CREATE VIEW METRICS" \
+            " AS SELECT a.date, a.symbol, a.period, a.netIncomePerShare, a.marketCap, a.enterpriseValue, a.peRatio," \
+            " a.priceToSalesRatio, a.pbRatio, a.enterpriseValueOverEBITDA, a.debtToEquity, a.dividendYield," \
+            " a.payoutRatio, a.netCurrentAssetValue, a.roe, a.capexPerShare, b.revenueGrowth, b.grossProfitGrowth," \
+            " b.ebitgrowth, b.operatingIncomeGrowth, b.netIncomeGrowth, b.epsgrowth, b.epsdilutedGrowth," \
+            " b.dividendsperShareGrowth, b.operatingCashFlowGrowth, b.freeCashFlowGrowth, b.assetGrowth," \
+            " b.bookValueperShareGrowth, b.debtGrowth, c.dcf" \
+            " FROM key_metrics a, financial_growth b, historical_daily_discounted_cash_flow c" \
             " WHERE a.symbol = b.symbol AND b.symbol = c.symbol" \
-            " AND a.date = b.date AND b.date = c.date"
+            " AND a.date = b.date AND b.date = c.date;"
+    DB_ENGINE.execute(query)
 
     # 5번 Table
-    # query = "CREATE TABLE INDEX"
+    query = "ALTER TABLE symbol_available_indexes RENAME INDEXES;"
+    DB_ENGINE.execute(query)
 
 
 def insert_new_csv():
     # Drop All Tables
     dir_list = os.listdir(ROOT_PATH)
-    for directory in dir_list:
-        query = "DROP TABLE IF EXISTS {};".format(directory)
+    for table in dir_list + CRE_TBL:
+        query = "DROP TABLE IF EXISTS {} RESTRICT;".format(table)
+        DB_ENGINE.execute(query)
+        # TODO 안예쁘다 바꾸자. VIEW 인지 TABLE인지 몰라서 이렇게 두번 날림
+        query = "DROP VIEW IF EXISTS {} RESTRICT;".format(table)
         DB_ENGINE.execute(query)
 
     # Inster All CSV file
