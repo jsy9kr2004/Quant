@@ -187,7 +187,6 @@ class FMP:
             # drop index column
             delisted = delisted.drop(delisted.columns[0], axis=1)
             delisted = delisted.reset_index(drop=True)
-            print(delisted)
             delisted = delisted[((delisted['exchange'] == 'NASDAQ') | (delisted['exchange'] == 'NYSE'))]
             delisted.rename(columns={'exchange':'exchangeShortName'}, inplace=True)
             delisted = delisted.drop(['companyName'], axis=1)        

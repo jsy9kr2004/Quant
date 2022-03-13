@@ -15,47 +15,52 @@ class Database:
 
     def rebuild_table_view(self):
         # 1번 Table
-        query = "CREATE TABLE tmp_full_list " \
-                " AS SELECT a.symbol, a.exchangeShortName, a.type, b.symbol AS dsymbol, b.ipoDate, b.delistedDate" \
-                " FROM stock_list a LEFT JOIN delisted_companies b ON (a.symbol=b.symbol)" \
-                " UNION" \
-                " SELECT a.symbol, a.exchangeShortName, a.type, b.symbol AS dsymbol, b.ipoDate, b.delistedDate" \
-                " FROM stock_list a RIGHT JOIN delisted_companies b ON (a.symbol=b.symbol);"
-        self.main_ctx.conn.execute(query)
+        dfs_symbol_list = pd.read_sql_query( \
+                                sql = "SELECT symbol, exchangeShortName, type" \
+                                " FROM stock_list", \
+                                con=self.main_ctx.conn, \
+                                chunksize=20480)
+        symbol_list=pd.DataFrame()
+        for df in dfs_symbol_list:
+                symbol_list = pd.concat([symbol_list, df])
+        dfs_delist = pd.read_sql_query( \
+                                sql = "SELECT symbol, exchange, ipoDate, delistedDate" \
+                                " FROM delisted_companies", \
+                                con=self.main_ctx.conn, \
+                                chunksize=20480)
+        delisted=pd.DataFrame()
+        for df in dfs_delist:
+                delisted = pd.concat([delisted, df])
+        dfs_profile = pd.read_sql_query( \
+                                sql = "SELECT symbol, ipoDate, industry, exchangeShortName" \
+                                " FROM profile", \
+                                con=self.main_ctx.conn, \
+                                chunksize=20480)                                
+        profile=pd.DataFrame()
+        for df in dfs_profile:
+                profile = pd.concat([profile, df])
 
-        # COALESCE symbol
-        query = "CREATE TABLE full_list" \
-                " SELECT COALESCE(a.symbol, a.dsymbol) as symbol, a.exchangeShortName," \
-                " a.type, a.ipoDate, a.delistedDate" \
-                " FROM tmp_full_list as a;"
-        self.main_ctx.conn.execute(query)
+        delisted.rename(columns={'exchange':'exchangeShortName'}, inplace=True)
+        # concat (symbol_list, delisted companies)
+        all_symbol = pd.concat([symbol_list, delisted])
+        all_symbol = all_symbol.drop_duplicates('symbol', keep='last')
 
-        query = "DROP TABLE tmp_full_list;"
-        self.main_ctx.conn.execute(query)
+        # merge ((symbol_list, delisted companies), profile)
+        all_symbol = all_symbol.merge(profile, \
+                                how='left', on=['symbol', 'exchangeShortName'])
+        all_symbol['ipoDate'] = all_symbol['ipoDate_x'].combine_first(all_symbol['ipoDate_y'])
+        all_symbol = all_symbol.drop(['ipoDate_x', 'ipoDate_y'], axis=1)
+        all_symbol = all_symbol.drop_duplicates('symbol', keep='last')
+        all_symbol = all_symbol[ \
+                        (all_symbol['exchangeShortName'] == 'NASDAQ') | \
+                        (all_symbol['exchangeShortName'] == 'NYSE')] 
+        all_symbol = all_symbol.reset_index(drop=True)
+        all_symbol.to_sql("symbol_list", self.main_ctx.conn,
+                              if_exists='append', index=False, index_label=None, chunksize=512)
 
-        # LEFT JOIN full_list, profile
-        query = "CREATE TABLE tmp_full_list " \
-                " AS SELECT a.symbol, a.exchangeShortName, a.type, a.ipoDate, a.delistedDate," \
-                " b.ipoDate as pipoDate, b.industry" \
-                " FROM full_list a LEFT JOIN profile b ON (a.symbol=b.symbol);"
-        self.main_ctx.conn.execute(query)
-
-        query = "DROP TABLE full_list;"
-        self.main_ctx.conn.execute(query)
-
-        # COALESCE ipoDate
-        query = "CREATE TABLE full_list" \
-                " SELECT a.symbol, a.exchangeShortName, a.type, a.delistedDate," \
-                " COALESCE(a.ipoDate, a.pipoDate) as ipoDate, a.industry" \
-                " FROM tmp_full_list as a;"
-        self.main_ctx.conn.execute(query)
-
-        query = "DROP TABLE tmp_full_list;"
-        self.main_ctx.conn.execute(query)
 
         # query = "ALTER TABLE full_list ADD PRIMARY KEY (symbol);"
         # self.main_ctx.conn.execute(query)
-
         # query = "SELECT c.symbol, c.exchangeShortName, c.type, d.delistedDate," \
         #        " CASE c.ipoDate" \
         #        " IS NULL THEN d.ipoDate" \
