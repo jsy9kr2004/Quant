@@ -165,14 +165,36 @@ class FMP:
             self.get_fmp_data(main_url, extra_url, need_symbol, is_v4)
 
     def set_symbol(self):
-        # if os.path.isfile(CONF['ROOT_PATH'] + "/available-traded/list.csv") is True \
-        #         and os.path.isfile(CONF['ROOT_PATH'] + "/delisted-companies_0.csv") is True:
-        #     available_traded = pd.read_csv(CONF['ROOT_PATH'] + "/available-traded/list.csv")
-        #     delisted_stock = pd.read_csv(CONF['ROOT_PATH'] + "/delisted-companies_0.csv")
-        #     stock = pd.concat([available_traded, delisted_stock], ignore_index=True)
-        if os.path.isfile(self.target_stock_path) is True:
-            stock = pd.read_csv(self.target_stock_path)
-            self.symbol_list = stock["symbol"]
+        """fmp api 로 얻어온 stock_list 와 delisted companies 에서 exchange 가 NASDAQ, NYSE인 symbol들의 list 를 만드는 함수"""
+        # fmp api로 얻어온 stock_list 불러오기 
+        path = self.main_ctx.root_path + "/stock_list/stock_list.csv"
+        if os.path.isfile(path) is True:
+            symbol_list = pd.read_csv(path)
+        
+        # stock_list에서 type "stock", exchange "NASDQA", "NYSE" 만 가져오기 이를 filtered_symbol에 저장
+        symbol_list = symbol_list.drop( symbol_list.columns[0], axis=1)
+        filtered_symbol = symbol_list[(symbol_list['type'] == "stock")  & \
+        ((symbol_list['exchangeShortName'] == 'NASDAQ') | (symbol_list['exchangeShortName'] == 'NYSE'))] 
+        filtered_symbol = filtered_symbol.reset_index(drop=True)
+        filtered_symbol = filtered_symbol.drop(['price', 'exchange', 'name'], axis=1)        
+        all_symbol = filtered_symbol
+        # target_stock_symbol 과 delisted stock symbol 합쳐 필요한 symbol list 완성
+        file_list = os.listdir(self.main_ctx.root_path + "/delisted_companies/")
+        for file in file_list:
+            delisted = pd.read_csv(self.main_ctx.root_path + "/delisted_companies/" + file, index_col=None)
+            if delisted.empty == True:
+                continue    
+            # drop index column
+            delisted = delisted.drop(delisted.columns[0], axis=1)
+            delisted = delisted.reset_index(drop=True)
+            print(delisted)
+            delisted = delisted[((delisted['exchange'] == 'NASDAQ') | (delisted['exchange'] == 'NYSE'))]
+            delisted.rename(columns={'exchange':'exchangeShortName'}, inplace=True)
+            delisted = delisted.drop(['companyName'], axis=1)        
+            all_symbol = pd.concat([all_symbol, delisted])
+        all_symbol.drop_duplicates('symbol', keep='first')
+        all_symbol = all_symbol.reset_index(drop=True)
+        self.symbol_list = all_symbol["symbol"]
         print("in set_symbol() list=", self.symbol_list)
 
     def get_fmp(self, api_list):

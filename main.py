@@ -30,7 +30,7 @@ if __name__ == '__main__':
         fmp = FMP(conf, main_ctx)
         fmp.get_new()
 
-    if conf['NEED_NEW_CREATE_DB'] == "Y":
+    if conf['NEED_NEW_CREATE_DB'] == "N":
         db = Database(main_ctx)
         db.insert_csv()
         db.rebuild_table_view()
