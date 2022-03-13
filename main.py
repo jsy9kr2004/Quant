@@ -1,6 +1,7 @@
 import sqlalchemy
 import yaml
 
+from backtest import Backtest, PlanHandler
 from database import Database
 from fmp import FMP
 
@@ -34,6 +35,14 @@ if __name__ == '__main__':
         db = Database(main_ctx)
         db.insert_csv()
         db.rebuild_table_view()
+
+    plan_handler = PlanHandler()
+    plan = [
+        {"f_name": plan_handler.pbr, "params": {"weight": 1, "diff": 2, "base": 3}},
+        {"f_name": plan_handler.per, "params": {"w": 4, "d": 5, "b": 6}}
+    ]
+    plan_handler.plan_list = plan
+    bt = Backtest(main_ctx, plan_handler, rebalance_period=3)
 
     ################################################################################################
     # (1) tickers를 이용한 재무재표 예제
