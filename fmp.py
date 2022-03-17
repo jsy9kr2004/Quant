@@ -29,7 +29,7 @@ class FMP:
             except OSError:
                 print('Error: Creating "{}" directory.'.format(path))
                 return False
-    #TODO: nested json 아닌 경우 첫 column이 날아서 '0' 이란 column으로 생김. 
+
     def flatten_json(self, js, expand_all=False):
         df = pd.json_normalize(json.loads(js) if type(js) == str else js)
         # get first column that contains lists
