@@ -29,18 +29,23 @@ class FMP:
             except OSError:
                 print('Error: Creating "{}" directory.'.format(path))
                 return False
-
+    #TODO: nested json 아닌 경우 첫 column이 날아서 '0' 이란 column으로 생김. 
     def flatten_json(self, js, expand_all=False):
         df = pd.json_normalize(json.loads(js) if type(js) == str else js)
         # get first column that contains lists
-        col = df.applymap(type).astype(str).eq("<class 'list'>").all().idxmax()
-        # explode list and expand embedded dictionaries
-        df = df.explode(col).reset_index(drop=True)
-        df = df.drop(columns=[col]).join(df[col].apply(pd.Series), rsuffix=f".{col}")
-        # any lists left?
-        if expand_all and df.applymap(type).astype(str).eq("<class 'list'>").any(axis=1).all():
-            df = self.flatten_json(df.to_dict("records"))
-        return df
+        ex = df.applymap(type).astype(str).eq("<class 'list'>").all().to_frame(name='bool')
+        isin_classlist = (ex['bool'] == True).any()
+        if isin_classlist == True:
+            col = df.applymap(type).astype(str).eq("<class 'list'>").all().idxmax()
+            # explode list and expand embedded dictionaries
+            df = df.explode(col).reset_index(drop=True)
+            df = df.drop(columns=[col]).join(df[col].apply(pd.Series), rsuffix=f".{col}")
+            # any lists left?
+            if expand_all and df.applymap(type).astype(str).eq("<class 'list'>").any(axis=1).all():
+                df = self.flatten_json(df.to_dict("records"))
+            return df
+        else:
+            return df
 
     def get_fmp_data(self, main_url, extra_url, need_symbol, is_v4, file_postfix=""):
         # brief : 순차적으로 넣고자 하는 값을 url에 포함시켜서 돌려줌
@@ -170,6 +175,8 @@ class FMP:
         path = self.main_ctx.root_path + "/stock_list/stock_list.csv"
         if os.path.isfile(path) is True:
             symbol_list = pd.read_csv(path)
+        else:
+            return
         
         # stock_list에서 type "stock", exchange "NASDQA", "NYSE" 만 가져오기 이를 filtered_symbol에 저장
         symbol_list = symbol_list.drop( symbol_list.columns[0], axis=1)
@@ -191,6 +198,7 @@ class FMP:
             delisted.rename(columns={'exchange':'exchangeShortName'}, inplace=True)
             delisted = delisted.drop(['companyName'], axis=1)        
             all_symbol = pd.concat([all_symbol, delisted])
+        all_symbol.to_csv('./allsymbol.csv')
         all_symbol.drop_duplicates('symbol', keep='first')
         all_symbol = all_symbol.reset_index(drop=True)
         self.symbol_list = all_symbol["symbol"]

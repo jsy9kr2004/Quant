@@ -1,13 +1,13 @@
 import os
 
 import pandas as pd
-
+import sqlalchemy
 
 class Database:
     # maria DB 첫 설치 시 아래의 SQL문으로 db와 user를 만들어줘야함
     # use mysql;
     # create database quantdb
-    # create user 'quant'@'%' identified by '1234';
+    # create user 'quant'@'%' identified by '0710';
     # grant privileges on quantdb.* to 'quant'@'localhost';
     # flush privileges
     def __init__(self, main_ctx):
@@ -121,8 +121,11 @@ class Database:
                 # drop index column
                 target = target.drop(target.columns[0], axis=1)
                 target = target.reset_index(drop=True)
-                target.to_sql(directory, self.main_ctx.conn,
+                try:
+                    target.to_sql(directory, self.main_ctx.conn,
                               if_exists='append', index=False, index_label=None, chunksize=512)
+                except sqlalchemy.exc.DataError:
+                    print("error {} table".format(directory)) 
                 print("Complete creation of {} table".format(directory))
 
         params = [
