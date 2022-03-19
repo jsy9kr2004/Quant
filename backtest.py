@@ -3,6 +3,8 @@ import pandas as pd
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
+CHUNK_SIZE = 20480
+
 
 class Backtest:
     def __init__(self, main_ctx, plan_handler, rebalance_period):
@@ -22,41 +24,40 @@ class Backtest:
         전략 별로 하나의 backtest class, plan_handler (1:1 mapping)가 만들어지며 생성의 주체는 main
         date_handler는 다수 만들어지며 생성 주체는 backtest이며 생성 후 backtest에서 본인에게 mapping되어 있는 plan_handler에게 달아줌.
         """
-
         # table "PRICE" 을 table_price dataframe 으로 땡겨옴
         query = "SELECT * FROM PRICE WHERE date BETWEEN '" \
                 + str(datetime(self.main_ctx.start_year, 1, 1)) + "'" \
                 + " AND '" + str(datetime(self.main_ctx.end_year, 12, 31)) + "'"
-        chunks = pd.read_sql_query(sql=query,
-                                   con=self.main_ctx.conn, chunksize=20480)
-        table_price = pd.DataFrame()
-        for df in chunks:
-            table_price = pd.concat([table_price, df])    
+        self.table_price()
+
+        #chunks = pd.read_sql_query(sql=query,
+        #                           con=self.main_ctx.conn, chunksize=20480)
+        #table_price = pd.DataFrame()
+        #for df in chunks:
+        #    table_price = pd.concat([table_price, df])
 
         # table "symbol_list" 을 table_symbol dataframe 으로 땡겨옴
-        query = "SELECT * FROM symbol_list"
-        chunks = pd.read_sql_query(sql=query,
-                                   con=self.main_ctx.conn, chunksize=20480)
-        table_symbol = pd.DataFrame()
-        for df in chunks:
-            table_symbol = pd.concat([table_symbol, df])    
+        #query = "SELECT * FROM symbol_list"
+        #chunks = pd.read_sql_query(sql=query,
+        #                           con=self.main_ctx.conn, chunksize=20480)
+        #table_symbol = pd.DataFrame()
+        #for df in chunks:
+        #    table_symbol = pd.concat([table_symbol, df])
 
         # table "financial_statment" 을 table_fs dataframe 으로 땡겨옴
-        query = "SELECT * FROM financial_statement"
-        chunks = pd.read_sql_query(sql=query,
-                                   con=self.main_ctx.conn, chunksize=20480)
-        table_fs = pd.DataFrame()
-        for df in chunks:
-            table_fs = pd.concat([table_fs, df])  
+        #query = "SELECT * FROM financial_statement"
+        #chunks = pd.read_sql_query(sql=query,
+        #                           con=self.main_ctx.conn, chunksize=20480)
+        #table_fs = pd.DataFrame()
+        #for df in chunks:
+        #    table_fs = pd.concat([table_fs, df])
 
         # table "METRICS" 을 table_metrics dataframe 으로 땡겨옴
-        query = "SELECT * FROM METRICS"
-        chunks = pd.read_sql_query(sql=query,
-                                   con=self.main_ctx.conn, chunksize=20480)
-        table_metrics = pd.DataFrame()
-        for df in chunks:
-            table_metrics = pd.concat([table_metrics, df])  
-
+        #query = "SELECT * FROM METRICS"
+        #chunks = pd.read_sql_query(sql=query, #                           con=self.main_ctx.conn, chunksize=20480)
+        #table_metrics = pd.DataFrame()
+        #for df in chunks:
+        #    table_metrics = pd.concat([table_metrics, df])
         date = datetime(self.main_ctx.start_year, 1, 1)
         while date <= datetime(self.main_ctx.end_year, 12, 31):
             self.plan_handler.date_handler = DateHandler(table_price, table_symbol, table_fs, table_metrics, date)
@@ -67,8 +68,19 @@ class Backtest:
             # date += relativedelta(days=self.rebalance_period)
             date += relativedelta(months=self.rebalance_period)
         print(self.best_symbol_group)
-
         self.calculate_metrics()
+
+    def data_from_database(self, query):
+        """
+        데이터베이스로부터 chunk 단위로 테이블을 읽어오고 반환함
+        :param query: 데이터베이스에 전송할 쿼리
+        :return: 데이터베이스로부터 읽어온 테이블
+        """
+        chunks = pd.read_sql_query(sql=query, con=self.main_ctx.conn, chunksize=CHUNK_SIZE)
+        table = pd.DataFrame()
+        for df in chunks:
+            table = pd.concat([table, df])
+        return table
 
     def set_best_symbol_group(self):
         """plan_handler.date_handler.symbol_list에 score를 보고 best_symbol_group에 append 해주는 함수."""
@@ -155,6 +167,7 @@ class DateHandler:
         # past_metrics 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
         date_metrics = past_metrics.iloc[0]
         return date_metrics
+
 
 class SymbolHandler:
     def __init__(self, symbol, start_date, end_date):
