@@ -49,10 +49,17 @@ class Backtest:
         for df in chunks:
             table_fs = pd.concat([table_fs, df])  
 
+        # table "METRICS" 을 table_metrics dataframe 으로 땡겨옴
+        query = "SELECT * FROM METRICS"
+        chunks = pd.read_sql_query(sql=query,
+                                   con=self.main_ctx.conn, chunksize=20480)
+        table_metrics = pd.DataFrame()
+        for df in chunks:
+            table_metrics = pd.concat([table_metrics, df])  
 
         date = datetime(self.main_ctx.start_year, 1, 1)
         while date <= datetime(self.main_ctx.end_year, 12, 31):
-            self.plan_handler.date_handler = DateHandler(table_price, table_symbol, table_fs, date)
+            self.plan_handler.date_handler = DateHandler(table_price, table_symbol, table_fs, table_metrics, date)
             print(self.plan_handler.date_handler.date)
             self.plan_handler.run()
             self.set_best_symbol_group()
@@ -96,23 +103,28 @@ class PlanHandler:
 
     def pbr(self, params):
         """PBR에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수."""
+        
         print("[pbr] weight : {}, diff : {}, base : {}".format(params["weight"], params["diff"], params["base"]))
+        print("pbr : ", self.date_handler.metrics['pbRatio'])
 
     def per(self, params):
         """PER에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수."""
         print("[per] weight : {}, diff : {}, base : {}".format(params['w'], params['d'], params['b']))
+        print("per : ", self.date_handler.metrics['peRatio'])
 
 
 class DateHandler:
-    def __init__(self, table_price, table_symbol, table_fs, date):
+    def __init__(self, table_price, table_symbol, table_fs, table_metrics, date):
         self.table_price = table_price
         self.table_symbol = table_symbol
         self.table_fs = table_fs
+        self.table_metrics = table_metrics
         self.date = date
         self.price = self.get_date_price(self.table_price)
         self.symbol_list = self.get_date_symbol_list(self.table_symbol)
-        self.add_score_column()
+        self.metrics = self.get_date_metrics(self.table_metrics)
         self.financial_statement = self.get_date_fs(self.table_fs)
+        self.add_score_column()
 
     def get_date_price(self, table):
         query_str = "date == @self.date"
@@ -127,7 +139,8 @@ class DateHandler:
 
     def add_score_column(self):
         """get_date_symbol_list 함수에서 dataframe 으로 가져온 symbol_list에 score column을 추가해 주는 함수"""
-        return self.date
+        self.symbol_list["score"]=0
+        return
 
     def get_date_fs(self, table):
         query_str = "(date <= @self.date)"
@@ -136,6 +149,12 @@ class DateHandler:
         date_fs = past_fs.iloc[0]
         return date_fs
 
+    def get_date_metrics(self, table):
+        query_str = "(date <= @self.date)"
+        past_metrics = table.query(query_str)
+        # past_metrics 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
+        date_metrics = past_metrics.iloc[0]
+        return date_metrics
 
 class SymbolHandler:
     def __init__(self, symbol, start_date, end_date):
