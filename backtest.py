@@ -135,8 +135,7 @@ class DateHandler:
         self.metrics = self.init_by_query(backtest.metrics_table, query, True)
         # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
         query_str = "(delistedDate >= @self.date) or (delistedDate == 'NaT')"
-        date_symbol = table.query(query_str)
-        return date_symbol
+        self.symbol_list = self.init_by_query(backtest.symbol_table, query)
 
     def add_score_column(self):
         """get_date_symbol_list 함수에서 dataframe 으로 가져온 symbol_list에 score column을 추가해 주는 함수"""
@@ -168,8 +167,6 @@ class DateHandler:
                 # past_fs 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
                 date_metrics = pd.concat([date_metrics, past_metrics.iloc[0]])
         return date_metrics
-        query = "(delistedDate >= @self.date) or (delistedDate == 'NaT')"
-        self.symbol_list = self.init_by_query(backtest.symbol_table, query)
 
     @staticmethod
     def init_by_query(table, query, need_iloc = False):
