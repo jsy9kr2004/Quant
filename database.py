@@ -3,13 +3,15 @@ import os
 import pandas as pd
 import sqlalchemy
 
+
 class Database:
     # maria DB 첫 설치 시 아래의 SQL문으로 db와 user를 만들어줘야함
     # use mysql;
-    # create database quantdb
+    # create database quantdb;
     # create user 'quant'@'%' identified by '0710';
-    # grant privileges on quantdb.* to 'quant'@'localhost';
-    # flush privileges
+    # grant privileges on quantdb.* to 'quant'@'%';
+    # [syntax error 발생 시] grant all privileges on quantdb.* to 'quant'@'%';
+    # flush privileges;
     def __init__(self, main_ctx):
         self.main_ctx = main_ctx
 

@@ -5,14 +5,13 @@ from dateutil.relativedelta import relativedelta
 
 CHUNK_SIZE = 20480
 
+
 class Backtest:
     def __init__(self, main_ctx, plan_handler, rebalance_period):
         self.main_ctx = main_ctx
-        self.best_symbol_group = []
         self.plan_handler = plan_handler
         self.rebalance_period = rebalance_period
-        self.MDD = 0
-        self.sharp = 0
+        self.eval_handler = EvaluationHandler()
         # 아래 값들은 init_bt_from_db 에서 세팅해주나, 가려지는 값이 없도록(init만 봤을 때 calss value가 모두 보이도록) 나열함
         self.price_table = ""
         self.symbol_table = ""
@@ -44,7 +43,6 @@ class Backtest:
                 + " AND '" + str(datetime(self.main_ctx.end_year, 12, 31)) + "'"
         self.price_table = self.data_from_database(query)
         self.symbol_table = self.data_from_database("SELECT * FROM symbol_list")
-        self.symbol_table["score"] = 0
         self.fs_table = self.data_from_database("SELECT * FROM financial_statement")
         self.metrics_table = self.data_from_database("SELECT * FROM METRICS")
 
@@ -56,44 +54,16 @@ class Backtest:
         전략 별로 하나의 backtest class, plan_handler (1:1 mapping)가 만들어지며 생성의 주체는 main
         date_handler는 다수 만들어지며 생성 주체는 backtest이며 생성 후 backtest에서 본인에게 mapping되어 있는 plan_handler에게 달아줌.
         """
-        # table "PRICE" 을 table_price dataframe 으로 땡겨옴
-        query = "SELECT * FROM PRICE WHERE date BETWEEN '" \
-                + str(datetime(self.main_ctx.start_year, 1, 1)) + "'" \
-                + " AND '" + str(datetime(self.main_ctx.end_year, 12, 31)) + "'"
-        table_price = self.data_from_database(query)
-        query = "SELECT * FROM symbol_list"
-        table_symbol = self.data_from_database(query)
-        query = "SELECT * FROM financial_statement"
-        table_fs = self.data_from_database(query)
-        query = "SELECT * FROM METRICS"
-        table_metrics = self.data_from_database(query)
-
         date = datetime(self.main_ctx.start_year, 1, 1)
         while date <= datetime(self.main_ctx.end_year, 12, 31):
             self.plan_handler.date_handler = DateHandler(self, date)
             print(self.plan_handler.date_handler.date)
             self.plan_handler.run()
-            self.set_best_symbol_group()
+            self.eval_handler.set_best_symbol_group(date, self.plan_handler.date_handler.symbol_list)
             # day를 기준으로 하려면 아래를 사용하면 됨. 31일 기준으로 하면 우리가 원한 한달이 아님
             # date += relativedelta(days=self.rebalance_period)
             date += relativedelta(months=self.rebalance_period)
-        print(self.best_symbol_group)
-        self.calculate_metrics()
-
-    def set_best_symbol_group(self):
-        """plan_handler.date_handler.symbol_list에 score를 보고 best_symbol_group에 append 해주는 함수."""
-        self.best_symbol_group.append([self.plan_handler.date_handler.date, ["AAPL", "TESL"]])
-
-    def calculate_metrics(self):
-        """MDD와 샤프지수와 같은 전략 평가를 위한 지표 계산을 위한 함수"""
-        mdd = 0
-        sharp = 0
-        for group in self.best_symbol_group:
-            for symbol in group[1]:
-                symbol_handler = SymbolHandler(symbol, self.main_ctx.start_year, self.main_ctx.end_year)
-                # mdd = self.calcuate_mdd(symbol_handler.price)
-        self.MDD = mdd
-        self.sharp = sharp
+        self.eval_handler.run()
 
 
 class PlanHandler:
@@ -108,6 +78,8 @@ class PlanHandler:
         현재는 plan_list는 main, date_handler는 Backtest 에서 채워줌.
         """
         # TODO plan_list와 date_handler가 차있는지 확인하는 assert 함수가 있어도 좋을 듯
+        assert self.plan_list is not None, "Empty Plan List"
+        assert self.date_handler is not None, "Empty Date Handler"
         for plan in self.plan_list:
             plan["f_name"](plan["params"])
 
@@ -128,18 +100,16 @@ class PlanHandler:
 class DateHandler:
     def __init__(self, backtest, date):
         self.date = date
-        query = "date == @self.date"
+        query = '(date == "{}")'.format(self.date)
+        self.price = backtest.price_table.query(query)
         self.price = self.init_by_query(backtest.price_table, query)
-        query = "(date <= @self.date)"
+        query = '(date <= "{}")'.format(self.date)
         self.fs = self.init_by_query(backtest.fs_table, query, True)
         self.metrics = self.init_by_query(backtest.metrics_table, query, True)
         # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
-        query_str = "(delistedDate >= @self.date) or (delistedDate == 'NaT')"
+        query = '(delistedDate >= "{}") or (delistedDate == "NaT")'.format(self.date)
         self.symbol_list = self.init_by_query(backtest.symbol_table, query)
-
-    def add_score_column(self):
-        """get_date_symbol_list 함수에서 dataframe 으로 가져온 symbol_list에 score column을 추가해 주는 함수"""
-        self.symbol_list["score"]=0
+        self.symbol_list["score"] = 0
 
     def get_date_fs(self, table):
         date_fs = pd.DataFrame()
@@ -169,12 +139,58 @@ class DateHandler:
         return date_metrics
 
     @staticmethod
-    def init_by_query(table, query, need_iloc = False):
+    def init_by_query(table, query, need_iloc=False):
         result = table.query(query)
         if need_iloc is True:
             # 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
             result = result.iloc[0]
         return result
+
+
+class EvaluationHandler:
+    def __init__(self):
+        self.best_symbol_group = []
+        self.member_cnt = self.cal_member_cnt()
+        self.MDD = 0
+        self.sharp = 0
+
+    @staticmethod
+    def cal_member_cnt():
+        """
+        당시 시장 상황을 고려해서 1 period에 상위 몇 개의 주식을 살지(= 몇 달러 투자할지)를 결정하는 함수
+        :return: member cnt
+        """
+        # TODO 현재는 상위 20개의 주식을 매 period 마다 구매하는 것으로 되어 있음
+        return 20
+
+    def set_best_symbol_group(self, date, symbol):
+        """plan_handler.date_handler.symbol_list에 score를 보고 best_symbol_group에 append 해주는 함수."""
+        symbol = symbol.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
+        symbol['price'] = 0
+        self.best_symbol_group.append([date, symbol])
+
+    def cal_price(self):
+        """best_symbol_group 의 ['price'] column을 채워주는 함수"""
+        pass
+
+    def cal_mdd(self):
+        """MDD를 계산해서 채워주는 함수"""
+        mdd = 0
+        for group in self.best_symbol_group:
+            for symbol in group[1]:
+                # symbol_handler = SymbolHandler(symbol, self.main_ctx.start_year, self.main_ctx.end_year)
+                pass
+        self.MDD = mdd
+
+    def cal_sharp(self):
+        """sharp를 계산해서 채워주는 함수"""
+        sharp = 0
+        self.sharp = sharp
+
+    def run(self):
+        self.cal_price()
+        self.cal_mdd()
+        self.cal_sharp()
 
 
 class SymbolHandler:
