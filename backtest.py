@@ -1,6 +1,6 @@
 import pandas as pd
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
 CHUNK_SIZE = 20480
@@ -56,18 +56,6 @@ class Backtest:
         전략 별로 하나의 backtest class, plan_handler (1:1 mapping)가 만들어지며 생성의 주체는 main
         date_handler는 다수 만들어지며 생성 주체는 backtest이며 생성 후 backtest에서 본인에게 mapping되어 있는 plan_handler에게 달아줌.
         """
-        # table "PRICE" 을 table_price dataframe 으로 땡겨옴
-        query = "SELECT * FROM PRICE WHERE date BETWEEN '" \
-                + str(datetime(self.main_ctx.start_year, 1, 1)) + "'" \
-                + " AND '" + str(datetime(self.main_ctx.end_year, 12, 31)) + "'"
-        table_price = self.data_from_database(query)
-        query = "SELECT * FROM symbol_list"
-        table_symbol = self.data_from_database(query)
-        query = "SELECT * FROM financial_statement"
-        table_fs = self.data_from_database(query)
-        query = "SELECT * FROM METRICS"
-        table_metrics = self.data_from_database(query)
-
         date = datetime(self.main_ctx.start_year, 1, 1)
         while date <= datetime(self.main_ctx.end_year, 12, 31):
             self.plan_handler.date_handler = DateHandler(self, date)
@@ -111,65 +99,75 @@ class PlanHandler:
         for plan in self.plan_list:
             plan["f_name"](plan["params"])
 
-    def pbr(self, params):
-        """PBR에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수."""
-        print("[pbr] weight : {}, diff : {}, base : {}".format(params["weight"], params["diff"], params["base"]))
-        print("pbr : ", self.date_handler.metrics['pbRatio'])
-        print("metrics : ", self.date_handler.metrics)
-        prev_score = self.date_handler.symbol_list["score"]
-        self.date_handler.symbol_list["score"] = prev_score + params["weight"] * self.date_handler.metrics['pbRatio']
+    def single_metric_plan(self, params):
+        """single metric(PBR, PER ... )에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수."""
+        print("[pbr] weight : {}, diff : {}, base : {}".format(params["key"], params["weight"], params["diff"], params["base"], params["base_dir"]))
+        key = str(params["key"])
+        topK_df = self.date_handler.metrics.sort_values(by=key, ascending=True)[:20]
+        symbols = topK_df['symbol']
+        delta = 100
+        for sym in symbols:
+            prev_score = self.date_handler.symbol_list[self.date_handler.symbol_list['symbol'] == sym]['score']
+            # TODO: 아래 if 문에서 loc[조건, column명] 으로 조건에 맞는 row의 column 값을 갱신하고자 할 때, 변수인 key로 접근하면 오류 ('pbRatio'로 적으면 정상 작동) 
+            # TOOD: 위 오류를 잡던지, 우회하는 방법으로 base활용은 for문 밖에서 df 자르는 것으로 바꾼다
+            if params["base_dir"] == ">":
+                if self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), key] > params["base"]:
+                    break
+            elif params["base_dir"] == "<":
+                if self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), key] < params["base"]:
+                    break
+            else:
+                print("Wrong params['base'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<' ")
+                break
+            self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), 'score'] = prev_score + params["weight"] * delta
+            delta = delta - params["diff"]
+
 
     def per(self, params):
         """PER에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수."""
         print("[per] weight : {}, diff : {}, base : {}".format(params['w'], params['d'], params['b']))
-        print("per : ", self.date_handler.metrics['peRatio'])
 
 
 class DateHandler:
     def __init__(self, backtest, date):
         self.date = date
-        query = "date == @self.date"
-        self.price = self.init_by_query(backtest.price_table, query)
-        query = "(date <= @self.date)"
-        self.fs = self.init_by_query(backtest.fs_table, query, True)
-        self.metrics = self.init_by_query(backtest.metrics_table, query, True)
+        self.backtest=backtest
+        self.price = self.backtest.price_table.query("date == @self.date")
+        # self.price = self.init_by_query(backtest.price_table, "date == @self.date")
+
         # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
-        query_str = "(delistedDate >= @self.date) or (delistedDate == 'NaT')"
-        self.symbol_list = self.init_by_query(backtest.symbol_table, query)
+        self.symbol_list = self.backtest.symbol_table.query("(delistedDate >= @self.date) or (delistedDate == 'NaT')")
+        # TODO: 왜 symbol 당 row가 2개씩 들어가있나 ?
+        self.symbol_list = self.symbol_list.drop_duplicates('symbol', keep='first')  
+        # self.symbol_list = self.init_by_query(backtest.symbol_table, "(delistedDate >= @self.date) or (delistedDate == 'NaT')")
+
+        self.add_score_column()
+        self.fs=self.get_date_latest_per_symbol(self.backtest.fs_table)
+        self.metrics=self.get_date_latest_per_symbol(self.backtest.metrics_table)
+        # self.fs = self.init_by_query(backtest.fs_table, query, True)
+        # self.metrics = self.init_by_query(backtest.metrics_table, query, True)
 
     def add_score_column(self):
         """get_date_symbol_list 함수에서 dataframe 으로 가져온 symbol_list에 score column을 추가해 주는 함수"""
         self.symbol_list["score"]=0
 
-    def get_date_fs(self, table):
-        date_fs = pd.DataFrame()
-        syms = self.symbol_list['symbol']
-        print(syms)
-        for sym in syms:
-            query_str = "(symbol == @sym) and (date <= @self.date)"
-            past_fs = table.query(query_str)
-            if past_fs.empty:
-                continue
-            else:
-                # past_fs 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
-                date_fs = pd.concat([date_fs, past_fs.iloc[0]])
-        return date_fs
-
-    def get_date_metrics(self, table):
-        date_metrics = pd.DataFrame()
+    def get_date_latest_per_symbol(self, table):
+        date_latest = pd.DataFrame()
         syms = self.symbol_list['symbol']
         for sym in syms:
-            query_str = "(symbol == @sym) and (date <= @self.date)"
-            past_metrics = table.query(query_str)
-            if past_metrics.empty:
+            # TODO: date 기준에 date-3달~date로 넣기
+            prev_Q_date=self.date - relativedelta(months=3)
+            past = table.query("(symbol == @sym) and (date <= @self.date and date >= @prev_Q_date)")
+            if past.empty:
                 continue
             else:
-                # past_fs 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
-                date_metrics = pd.concat([date_metrics, past_metrics.iloc[0]])
-        return date_metrics
+                # past 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
+                date_latest = date_latest.append(past.iloc[0])
+        # TODO: 왜 symbol 당 row가 2개씩 들어가있나 ?
+        date_latest = date_latest.drop_duplicates('symbol', keep='first')
+        return date_latest
 
-    @staticmethod
-    def init_by_query(table, query, need_iloc = False):
+    def init_by_query(self, table, query, need_iloc = False):
         result = table.query(query)
         if need_iloc is True:
             # 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
