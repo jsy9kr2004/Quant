@@ -13,7 +13,40 @@ class Backtest:
         self.rebalance_period = rebalance_period
         self.MDD = 0
         self.sharp = 0
+        # 아래 값들은 init_bt_from_db 에서 세팅해주나, 가려지는 값이 없도록(init만 봤을 때 calss value가 모두 보이도록) 나열함
+        self.price_table = ""
+        self.symbol_table = ""
+        self.fs_table = ""
+        self.metrics_table = ""
+        self.init_bt_from_db()
         self.run()
+
+    def data_from_database(self, query):
+        """
+        데이터베이스로부터 chunk 단위로 테이블을 읽어오고 반환함
+        :param query: 데이터베이스에 전송할 쿼리
+        :return: 데이터베이스로부터 읽어온 테이블
+        """
+        chunks = pd.read_sql_query(sql=query, con=self.main_ctx.conn, chunksize=CHUNK_SIZE)
+        table = pd.DataFrame()
+        for df in chunks:
+            table = pd.concat([table, df])
+        return table
+
+    def init_bt_from_db(self):
+        """
+        추후에 database에서 가져올 데이터가 많을 걸 대비해서 __init__ 함수에서 세팅하지 않고, 해당 함수에서 세팅토록 함
+        일부 필요한 내용한 init하거나 분할해서 가져오려고 한다면 쿼리가 더 복잡해질 수 있기에 따로 빼놓음
+        """
+        # TODO 추후에 database에서 가져올 테이블이 많다면, set_bt_from_db 와 같은 함수 안에서 처리 예정
+        query = "SELECT * FROM PRICE WHERE date BETWEEN '" \
+                + str(datetime(self.main_ctx.start_year, 1, 1)) + "'" \
+                + " AND '" + str(datetime(self.main_ctx.end_year, 12, 31)) + "'"
+        self.price_table = self.data_from_database(query)
+        self.symbol_table = self.data_from_database("SELECT * FROM symbol_list")
+        self.symbol_table["score"] = 0
+        self.fs_table = self.data_from_database("SELECT * FROM financial_statement")
+        self.metrics_table = self.data_from_database("SELECT * FROM METRICS")
 
     def run(self):
         """
@@ -37,7 +70,7 @@ class Backtest:
 
         date = datetime(self.main_ctx.start_year, 1, 1)
         while date <= datetime(self.main_ctx.end_year, 12, 31):
-            self.plan_handler.date_handler = DateHandler(table_price, table_symbol, table_fs, table_metrics, date)
+            self.plan_handler.date_handler = DateHandler(self, date)
             print(self.plan_handler.date_handler.date)
             self.plan_handler.run()
             self.set_best_symbol_group()
@@ -46,18 +79,6 @@ class Backtest:
             date += relativedelta(months=self.rebalance_period)
         print(self.best_symbol_group)
         self.calculate_metrics()
-
-    def data_from_database(self, query):
-        """
-        데이터베이스로부터 chunk 단위로 테이블을 읽어오고 반환함
-        :param query: 데이터베이스에 전송할 쿼리
-        :return: 데이터베이스로부터 읽어온 테이블
-        """
-        chunks = pd.read_sql_query(sql=query, con=self.main_ctx.conn, chunksize=CHUNK_SIZE)
-        table = pd.DataFrame()
-        for df in chunks:
-            table = pd.concat([table, df])
-        return table
 
     def set_best_symbol_group(self):
         """plan_handler.date_handler.symbol_list에 score를 보고 best_symbol_group에 append 해주는 함수."""
@@ -105,24 +126,13 @@ class PlanHandler:
 
 
 class DateHandler:
-    def __init__(self, table_price, table_symbol, table_fs, table_metrics, date):
-        self.table_price = table_price
-        self.table_symbol = table_symbol
-        self.table_fs = table_fs
-        self.table_metrics = table_metrics
+    def __init__(self, backtest, date):
         self.date = date
-        self.price = self.get_date_price(self.table_price)
-        self.symbol_list = self.get_date_symbol_list(self.table_symbol)
-        self.metrics = self.get_date_metrics(self.table_metrics)
-        self.financial_statement = self.get_date_fs(self.table_fs)
-        self.add_score_column()
-
-    def get_date_price(self, table):
-        query_str = "date == @self.date"
-        date_price = table.query(query_str)
-        return date_price
-
-    def get_date_symbol_list(self, table):
+        query = "date == @self.date"
+        self.price = self.init_by_query(backtest.price_table, query)
+        query = "(date <= @self.date)"
+        self.fs = self.init_by_query(backtest.fs_table, query, True)
+        self.metrics = self.init_by_query(backtest.metrics_table, query, True)
         # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
         query_str = "(delistedDate >= @self.date) or (delistedDate == 'NaT')"
         date_symbol = table.query(query_str)
@@ -158,6 +168,16 @@ class DateHandler:
                 # past_fs 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
                 date_metrics = pd.concat([date_metrics, past_metrics.iloc[0]])
         return date_metrics
+        query = "(delistedDate >= @self.date) or (delistedDate == 'NaT')"
+        self.symbol_list = self.init_by_query(backtest.symbol_table, query)
+
+    @staticmethod
+    def init_by_query(table, query, need_iloc = False):
+        result = table.query(query)
+        if need_iloc is True:
+            # 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
+            result = result.iloc[0]
+        return result
 
 
 class SymbolHandler:
