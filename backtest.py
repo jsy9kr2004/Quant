@@ -5,7 +5,6 @@ from dateutil.relativedelta import relativedelta
 
 CHUNK_SIZE = 20480
 
-
 class Backtest:
     def __init__(self, main_ctx, plan_handler, rebalance_period):
         self.main_ctx = main_ctx
@@ -28,36 +27,14 @@ class Backtest:
         query = "SELECT * FROM PRICE WHERE date BETWEEN '" \
                 + str(datetime(self.main_ctx.start_year, 1, 1)) + "'" \
                 + " AND '" + str(datetime(self.main_ctx.end_year, 12, 31)) + "'"
-        self.table_price()
+        table_price = self.data_from_database(query)
+        query = "SELECT * FROM symbol_list"
+        table_symbol = self.data_from_database(query)
+        query = "SELECT * FROM financial_statement"
+        table_fs = self.data_from_database(query)
+        query = "SELECT * FROM METRICS"
+        table_metrics = self.data_from_database(query)
 
-        #chunks = pd.read_sql_query(sql=query,
-        #                           con=self.main_ctx.conn, chunksize=20480)
-        #table_price = pd.DataFrame()
-        #for df in chunks:
-        #    table_price = pd.concat([table_price, df])
-
-        # table "symbol_list" 을 table_symbol dataframe 으로 땡겨옴
-        #query = "SELECT * FROM symbol_list"
-        #chunks = pd.read_sql_query(sql=query,
-        #                           con=self.main_ctx.conn, chunksize=20480)
-        #table_symbol = pd.DataFrame()
-        #for df in chunks:
-        #    table_symbol = pd.concat([table_symbol, df])
-
-        # table "financial_statment" 을 table_fs dataframe 으로 땡겨옴
-        #query = "SELECT * FROM financial_statement"
-        #chunks = pd.read_sql_query(sql=query,
-        #                           con=self.main_ctx.conn, chunksize=20480)
-        #table_fs = pd.DataFrame()
-        #for df in chunks:
-        #    table_fs = pd.concat([table_fs, df])
-
-        # table "METRICS" 을 table_metrics dataframe 으로 땡겨옴
-        #query = "SELECT * FROM METRICS"
-        #chunks = pd.read_sql_query(sql=query, #                           con=self.main_ctx.conn, chunksize=20480)
-        #table_metrics = pd.DataFrame()
-        #for df in chunks:
-        #    table_metrics = pd.concat([table_metrics, df])
         date = datetime(self.main_ctx.start_year, 1, 1)
         while date <= datetime(self.main_ctx.end_year, 12, 31):
             self.plan_handler.date_handler = DateHandler(table_price, table_symbol, table_fs, table_metrics, date)
@@ -115,9 +92,11 @@ class PlanHandler:
 
     def pbr(self, params):
         """PBR에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수."""
-        
         print("[pbr] weight : {}, diff : {}, base : {}".format(params["weight"], params["diff"], params["base"]))
         print("pbr : ", self.date_handler.metrics['pbRatio'])
+        print("metrics : ", self.date_handler.metrics)
+        prev_score = self.date_handler.symbol_list["score"]
+        self.date_handler.symbol_list["score"] = prev_score + params["weight"] * self.date_handler.metrics['pbRatio']
 
     def per(self, params):
         """PER에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수."""
@@ -152,20 +131,32 @@ class DateHandler:
     def add_score_column(self):
         """get_date_symbol_list 함수에서 dataframe 으로 가져온 symbol_list에 score column을 추가해 주는 함수"""
         self.symbol_list["score"]=0
-        return
 
     def get_date_fs(self, table):
-        query_str = "(date <= @self.date)"
-        past_fs = table.query(query_str)
-        # past_fs 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
-        date_fs = past_fs.iloc[0]
+        date_fs = pd.DataFrame()
+        syms = self.symbol_list['symbol']
+        print(syms)
+        for sym in syms:
+            query_str = "(symbol == @sym) and (date <= @self.date)"
+            past_fs = table.query(query_str)
+            if past_fs.empty:
+                continue
+            else:
+                # past_fs 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
+                date_fs = pd.concat([date_fs, past_fs.iloc[0]])
         return date_fs
 
     def get_date_metrics(self, table):
-        query_str = "(date <= @self.date)"
-        past_metrics = table.query(query_str)
-        # past_metrics 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
-        date_metrics = past_metrics.iloc[0]
+        date_metrics = pd.DataFrame()
+        syms = self.symbol_list['symbol']
+        for sym in syms:
+            query_str = "(symbol == @sym) and (date <= @self.date)"
+            past_metrics = table.query(query_str)
+            if past_metrics.empty:
+                continue
+            else:
+                # past_fs 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
+                date_metrics = pd.concat([date_metrics, past_metrics.iloc[0]])
         return date_metrics
 
 
