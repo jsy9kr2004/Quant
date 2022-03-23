@@ -57,7 +57,6 @@ class Backtest:
         date = datetime(self.main_ctx.start_year, 1, 1)
         while date <= datetime(self.main_ctx.end_year, 12, 31):
             self.plan_handler.date_handler = DateHandler(self, date)
-            print(self.plan_handler.date_handler.date)
             self.plan_handler.run()
             self.eval_handler.set_best_symbol_group(date, self.plan_handler.date_handler.symbol_list)
             # day를 기준으로 하려면 아래를 사용하면 됨. 31일 기준으로 하면 우리가 원한 한달이 아님
@@ -85,26 +84,28 @@ class PlanHandler:
 
     def single_metric_plan(self, params):
         """single metric(PBR, PER ... )에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수."""
-        print("[pbr] weight : {}, diff : {}, base : {}".format(params["key"], params["weight"], params["diff"], params["base"], params["base_dir"]))
+        print("[pbr] key : {}, weight : {}, diff : {}, base : {}, base_dir : {}".\
+              format(params["key"], params["weight"], params["diff"], params["base"], params["base_dir"]))
         key = str(params["key"])
-        topK_df = self.date_handler.metrics.sort_values(by=key, ascending=True)[:20]
+        topK_df = self.date_handler.metrics.sort_values(by=[key], ascending=True)[:20]
+        # TODO: 아래 if 문에서 loc[조건, column명] 으로 조건에 맞는 row의 column 값을 갱신하고자 할 때, 변수인 key로 접근하면 오류 ('pbRatio'로 적으면 정상 작동)
+        # TOOD: 위 오류를 잡던지, 우회하는 방법으로 base활용은 for문 밖에서 df 자르는 것으로 바꾼다
+        if params["base_dir"] == ">":
+            topK_df[topK_df[key] > params["base"]]
+        elif params["base_dir"] == "<":
+            topK_df[topK_df[key] < params["base"]]
+            #if self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), key] < params["base"]:
+        else:
+            print("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<' ")
+            return    
+        print(topK_df[['symbol', params["key"]]])
         symbols = topK_df['symbol']
         delta = 100
         for sym in symbols:
             prev_score = self.date_handler.symbol_list[self.date_handler.symbol_list['symbol'] == sym]['score']
-            # TODO: 아래 if 문에서 loc[조건, column명] 으로 조건에 맞는 row의 column 값을 갱신하고자 할 때, 변수인 key로 접근하면 오류 ('pbRatio'로 적으면 정상 작동)
-            # TOOD: 위 오류를 잡던지, 우회하는 방법으로 base활용은 for문 밖에서 df 자르는 것으로 바꾼다
-            if params["base_dir"] == ">":
-                if self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), key] > params["base"]:
-                    break
-            elif params["base_dir"] == "<":
-                if self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), key] < params["base"]:
-                    break
-            else:
-                print("Wrong params['base'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<' ")
-                break
             self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), 'score'] = prev_score + params["weight"] * delta
             delta = delta - params["diff"]
+        print(self.date_handler.symbol_list[['symbol', 'score']])
 
 
     def per(self, params):
@@ -116,23 +117,24 @@ class DateHandler:
     def __init__(self, backtest, date):
         self.date = date
         query = '(date == "{}")'.format(self.date)
-        self.price = backtest.price_table.query(query)
         self.price = self.init_by_query(backtest.price_table, query)
-        query = '(date <= "{}")'.format(self.date)
-        self.fs = self.init_by_query(backtest.fs_table, query, True)
-        self.metrics = self.init_by_query(backtest.metrics_table, query, True)
         # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
         query = '(delistedDate >= "{}") or (delistedDate == "NaT")'.format(self.date)
         self.symbol_list = self.init_by_query(backtest.symbol_table, query)
         self.symbol_list["score"] = 0
+        print(self.symbol_list)
 
-    def get_date_latest_per_symbol(self, table):
+        self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
+        self.metrics = self.get_date_latest_per_symbol(backtest.metrics_table, self.date)
+
+    def get_date_latest_per_symbol(self, table, date):
         date_latest = pd.DataFrame()
         syms = self.symbol_list['symbol']
-        for sym in syms:
+        # TODO: 모든 symbol 다 돌면 오래걸려서 10개로 줄임. 나중에 삭제
+        for sym in syms[:10]:
             # TODO: date 기준에 date-3달~date로 넣기
-            prev_Q_date=self.date - relativedelta(months=3)
-            past = table.query("(symbol == @sym) and (date <= @self.date and date >= @prev_Q_date)")
+            prev_Q_date = date - relativedelta(months=3)
+            past = table.query("(symbol == @sym) and (date <= @date and date >= @prev_Q_date)")
             if past.empty:
                 continue
             else:
