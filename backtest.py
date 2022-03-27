@@ -49,10 +49,12 @@ class Backtest:
     def run(self):
         """
         main에서 전달받은 plan list에 따른 backtest를 진행하는 함수로 크게 2개의 파트로 구분되어 있음
-        [1] date 별로 plan list에 따라 plan_handler.date_handler.score를 계산해넣고, 상위권 symbol을 self.best_symbol_group에 추가
+        [1] date 별로 plan list에 따라 plan_handler.date_handler.score를 계산해넣고,
+            상위권 symbol을 self.best_symbol_group에 추가
         [2] best_symbol_group 에서 가져와서 MDD나 샤프지수와 같은 전략 전체에 필요한 계산값들을 계산해서 채워 넣음
         전략 별로 하나의 backtest class, plan_handler (1:1 mapping)가 만들어지며 생성의 주체는 main
-        date_handler는 다수 만들어지며 생성 주체는 backtest이며 생성 후 backtest에서 본인에게 mapping되어 있는 plan_handler에게 달아줌.
+        date_handler는 다수 만들어지며 생성 주체는 backtest이며 생성 후
+        backtest에서 본인에게 mapping되어 있는 plan_handler에게 달아줌.
         """
         date = datetime(self.main_ctx.start_year, 1, 1)
         while date <= datetime(self.main_ctx.end_year, 12, 31):
@@ -76,7 +78,6 @@ class PlanHandler:
         plan_list와 date_handler를 채워주고 불러워줘야 함.
         현재는 plan_list는 main, date_handler는 Backtest 에서 채워줌.
         """
-        # TODO plan_list와 date_handler가 차있는지 확인하는 assert 함수가 있어도 좋을 듯
         assert self.plan_list is not None, "Empty Plan List"
         assert self.date_handler is not None, "Empty Date Handler"
         for plan in self.plan_list:
@@ -87,28 +88,31 @@ class PlanHandler:
         print("[pbr] key : {}, weight : {}, diff : {}, base : {}, base_dir : {}".\
               format(params["key"], params["weight"], params["diff"], params["base"], params["base_dir"]))
         key = str(params["key"])
-        topK_df = self.date_handler.metrics.sort_values(by=[key], ascending=True)[:20]
-        # TODO: 아래 if 문에서 loc[조건, column명] 으로 조건에 맞는 row의 column 값을 갱신하고자 할 때, 변수인 key로 접근하면 오류 ('pbRatio'로 적으면 정상 작동)
-        # TOOD: 위 오류를 잡던지, 우회하는 방법으로 base활용은 for문 밖에서 df 자르는 것으로 바꾼다
-        if params["base_dir"] == ">":
-            topK_df[topK_df[key] > params["base"]]
-        elif params["base_dir"] == "<":
-            topK_df[topK_df[key] < params["base"]]
-            #if self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), key] < params["base"]:
-        else:
-            print("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<' ")
-            return    
-        print(topK_df[['symbol', params["key"]]])
-        symbols = topK_df['symbol']
+        # topK_df = self.date_handler.metrics.sort_values(by=[key], ascending=True)[:20]
+        # FIXME: 아래 if 문에서 loc[조건, column명] 으로 조건에 맞는 row의 column 값을 갱신하고자 할 때,
+        #  변수인 key로 접근하면 오류 ('pbRatio'로 적으면 정상 작동)
+        #  위 오류를 잡던지, 우회하는 방법으로 base활용은 for문 밖에서 df 자르는 것으로 바꾼다
+        # if params["base_dir"] == ">":
+        #    topK_df[topK_df[key] > params["base"]]
+        # elif params["base_dir"] == "<":
+        #    topK_df[topK_df[key] < params["base"]]
+            # if self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), key] < params["base"]:
+        # else:
+        #    print("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<' ")
+        #    return
+        #print(topK_df[['symbol', params["key"]]])
+        #symbols = topK_df['symbol']
+        symbols = None
         delta = 100
-        for sym in symbols:
-            prev_score = self.date_handler.symbol_list[self.date_handler.symbol_list['symbol'] == sym]['score']
-            self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), 'score'] = prev_score + params["weight"] * delta
-            delta = delta - params["diff"]
+        #for sym in symbols:
+        #    prev_score = self.date_handler.symbol_list[self.date_handler.symbol_list['symbol'] == sym]['score']
+        #    self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), 'score']\
+        #        = prev_score + params["weight"] * delta
+        #    delta = delta - params["diff"]
         print(self.date_handler.symbol_list[['symbol', 'score']])
 
-
-    def per(self, params):
+    @staticmethod
+    def per(params):
         """PER에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수."""
         print("[per] weight : {}, diff : {}, base : {}".format(params['w'], params['d'], params['b']))
 
@@ -132,7 +136,7 @@ class DateHandler:
         syms = self.symbol_list['symbol']
         # TODO: 모든 symbol 다 돌면 오래걸려서 10개로 줄임. 나중에 삭제
         for sym in syms[:10]:
-            # TODO: date 기준에 date-3달~date로 넣기
+            # TODO: date 기준에 date - 3달 ~ date로 넣기
             prev_Q_date = date - relativedelta(months=3)
             past = table.query("(symbol == @sym) and (date <= @date and date >= @prev_Q_date)")
             if past.empty:
@@ -140,7 +144,7 @@ class DateHandler:
             else:
                 # past 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
                 date_latest = date_latest.append(past.iloc[0])
-        # TODO: 왜 symbol 당 row가 2개씩 들어가있나 ?
+        # FIXME: 왜 symbol 당 row가 2개씩 들어가있나 ?
         date_latest = date_latest.drop_duplicates('symbol', keep='first')
         return date_latest
 
@@ -172,6 +176,7 @@ class EvaluationHandler:
     def set_best_symbol_group(self, date, symbol):
         """plan_handler.date_handler.symbol_list에 score를 보고 best_symbol_group에 append 해주는 함수."""
         symbol = symbol.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
+        print(symbol)
         symbol['price'] = 0
         self.best_symbol_group.append([date, symbol])
 
