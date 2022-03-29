@@ -202,8 +202,21 @@ class EvaluationHandler:
 
     def cal_earning(self):
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
-        pass
-
+        historical_earning_per_rebalanceday = []
+        prev = -1
+        for idx, (date, best_group) in enumerate(self.best_symbol_group):
+            price_mul_score = best_group['price'] * best_group['score']
+            my_asset_period = price_mul_score.sum()
+            if idx == 0:
+                my_asset_base = my_asset_period
+                print("start asset_base : ", my_asset_base)
+                prev = my_asset_period
+                continue
+            else:
+                period_earning = my_asset_period - prev
+                print("cur idx : ", idx, "prev :  ", idx-1, "earning : ", period_earning)
+                historical_earning_per_rebalanceday.append([date, period_earning])
+                
     def cal_mdd(self):
         """MDD를 계산해서 채워주는 함수"""
         mdd = 0
@@ -220,6 +233,7 @@ class EvaluationHandler:
 
     def run(self, price_table):
         self.cal_price(price_table)
+        self.cal_earning()
         self.cal_mdd()
         self.cal_sharp()
 
