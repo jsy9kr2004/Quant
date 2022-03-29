@@ -43,6 +43,7 @@ class Backtest:
                 + " AND '" + str(datetime(self.main_ctx.end_year, 12, 31)) + "'"
         self.price_table = self.data_from_database(query)
         self.symbol_table = self.data_from_database("SELECT * FROM symbol_list")
+        self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
         self.fs_table = self.data_from_database("SELECT * FROM financial_statement")
         self.metrics_table = self.data_from_database("SELECT * FROM METRICS")
 
@@ -52,19 +53,20 @@ class Backtest:
         [1] date 별로 plan list에 따라 plan_handler.date_handler.score를 계산해넣고,
             상위권 symbol을 self.best_symbol_group에 추가
         [2] best_symbol_group 에서 가져와서 MDD나 샤프지수와 같은 전략 전체에 필요한 계산값들을 계산해서 채워 넣음
-        전략 별로 하나의 backtest class, plan_handler (1:1 mapping)가 만들어지며 생성의 주체는 main
+        전략 별로 하나의 backtest class, plan_handler (1:1 mappinx`g)가 만들어지며 생성의 주체는 main
         date_handler는 다수 만들어지며 생성 주체는 backtest이며 생성 후
         backtest에서 본인에게 mapping되어 있는 plan_handler에게 달아줌.
         """
         date = datetime(self.main_ctx.start_year, 1, 1)
         while date <= datetime(self.main_ctx.end_year, 12, 31):
+            print("in Backtest run() date : ", date)
             self.plan_handler.date_handler = DateHandler(self, date)
             self.plan_handler.run()
             self.eval_handler.set_best_symbol_group(date, self.plan_handler.date_handler.symbol_list)
             # day를 기준으로 하려면 아래를 사용하면 됨. 31일 기준으로 하면 우리가 원한 한달이 아님
             # date += relativedelta(days=self.rebalance_period)
             date += relativedelta(months=self.rebalance_period)
-        self.eval_handler.run()
+        self.eval_handler.run(self.price_table)
 
 
 class PlanHandler:
@@ -84,38 +86,43 @@ class PlanHandler:
             plan["f_name"](plan["params"])
 
     def single_metric_plan(self, params):
-        """single metric(PBR, PER ... )에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수."""
-        print("[pbr] key : {}, weight : {}, diff : {}, base : {}, base_dir : {}".\
-              format(params["key"], params["weight"], params["diff"], params["base"], params["base_dir"]))
+        """single metric(PBR, PER ... )에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수.
+           params에 plan의 parameter들이 아래와 같이 들어옴
+           params["key"]        : plan에서 사용할 종목의 지표(ex: PER, PBR, 영업이익 ...) 
+           params["key_dir"]    : 지표가 낮을수록 좋은지(low) 높을수록 좋은지(high)
+           params["weight"]     : score update시 weight
+           params["diff"]       : 이 지표로 각 종목간 score 차이
+           params["base"]       : 특정 threshold 이상/이하의 종목은 score 주지 않음
+           params["base_dir"]   : "base"로 준 threshold 이상/이하(</>) 선택
+        """
+        print("[pbr] key : {}, key_dir : {}, weight : {}, diff : {}, base : {}, base_dir : {}".\
+              format(params["key"], params["key_dir"], params["weight"], params["diff"], params["base"], params["base_dir"]))
         key = str(params["key"])
-        # topK_df = self.date_handler.metrics.sort_values(by=[key], ascending=True)[:20]
-        # FIXME: 아래 if 문에서 loc[조건, column명] 으로 조건에 맞는 row의 column 값을 갱신하고자 할 때,
-        #  변수인 key로 접근하면 오류 ('pbRatio'로 적으면 정상 작동)
-        #  위 오류를 잡던지, 우회하는 방법으로 base활용은 for문 밖에서 df 자르는 것으로 바꾼다
-        # if params["base_dir"] == ">":
-        #    topK_df[topK_df[key] > params["base"]]
-        # elif params["base_dir"] == "<":
-        #    topK_df[topK_df[key] < params["base"]]
-            # if self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), key] < params["base"]:
-        # else:
-        #    print("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<' ")
-        #    return
-        #print(topK_df[['symbol', params["key"]]])
-        #symbols = topK_df['symbol']
-        symbols = None
+        if params["key_dir"] == "low":
+            topK_df = self.date_handler.metrics.sort_values(by=[key], ascending=True)[:20]
+        elif params["key_dir"] == "high":
+            topK_df = self.date_handler.metrics.sort_values(by=[key], ascending=False)[:20]
+        else:
+            print("Wrong params['key_dir'] : ", params["key_dir"], " params['key_dir'] must be 'low' or 'high'")
+            return
+
+        if params["base_dir"] == ">":
+           topK_df[topK_df[key] > params["base"]]
+        elif params["base_dir"] == "<":
+           topK_df[topK_df[key] < params["base"]]
+        else:
+           print("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<'")
+           return
+
+        print(topK_df[['symbol', params["key"]]])
+        symbols = topK_df['symbol']
         delta = 100
-        #for sym in symbols:
-        #    prev_score = self.date_handler.symbol_list[self.date_handler.symbol_list['symbol'] == sym]['score']
-        #    self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), 'score']\
-        #        = prev_score + params["weight"] * delta
-        #    delta = delta - params["diff"]
-        print(self.date_handler.symbol_list[['symbol', 'score']])
-
-    @staticmethod
-    def per(params):
-        """PER에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수."""
-        print("[per] weight : {}, diff : {}, base : {}".format(params['w'], params['d'], params['b']))
-
+        for sym in symbols:
+            prev_score = self.date_handler.symbol_list[self.date_handler.symbol_list['symbol'] == sym]['score']
+            self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), 'score']\
+                = prev_score + params["weight"] * delta
+            delta = delta - params["diff"]
+        print(self.date_handler.symbol_list.sort_values(by=['score'], ascending=False)[['symbol', 'score']])
 
 class DateHandler:
     def __init__(self, backtest, date):
@@ -126,8 +133,6 @@ class DateHandler:
         query = '(delistedDate >= "{}") or (delistedDate == "NaT")'.format(self.date)
         self.symbol_list = self.init_by_query(backtest.symbol_table, query)
         self.symbol_list["score"] = 0
-        print(self.symbol_list)
-
         self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
         self.metrics = self.get_date_latest_per_symbol(backtest.metrics_table, self.date)
 
@@ -149,11 +154,8 @@ class DateHandler:
         return date_latest
 
     @staticmethod
-    def init_by_query(table, query, need_iloc=False):
+    def init_by_query(table, query):
         result = table.query(query)
-        if need_iloc is True:
-            # 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
-            result = result.iloc[0]
         return result
 
 
@@ -161,6 +163,7 @@ class EvaluationHandler:
     def __init__(self):
         self.best_symbol_group = []
         self.member_cnt = self.cal_member_cnt()
+        self.accumulated_earning = 0
         self.MDD = 0
         self.sharp = 0
 
@@ -175,13 +178,30 @@ class EvaluationHandler:
 
     def set_best_symbol_group(self, date, symbol):
         """plan_handler.date_handler.symbol_list에 score를 보고 best_symbol_group에 append 해주는 함수."""
-        symbol = symbol.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
-        print(symbol)
-        symbol['price'] = 0
-        self.best_symbol_group.append([date, symbol])
+        best_symbol = symbol.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
+        print("set_best_symbol_group()")
+        #print(best_symbol)
+        best_symbol['price'] = 0
+        self.best_symbol_group.append([date, best_symbol])
+        print(self.best_symbol_group[0])
 
-    def cal_price(self):
+    def cal_price(self, price_table):
         """best_symbol_group 의 ['price'] column을 채워주는 함수"""
+        for idx, (date, best_group) in enumerate(self.best_symbol_group):
+            syms = best_group['symbol']
+            for sym in syms:
+                prev_Q_date = date - relativedelta(months=1)
+                past = price_table.query("(symbol == @sym) and (date <= @date and date >= @prev_Q_date)")
+                if past.empty:
+                    continue
+                else:
+                    # past 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
+                    self.best_symbol_group[idx][1].loc[(self.best_symbol_group[idx][1].symbol == sym), 'price']\
+                        = past.iloc[0].close
+            print(idx, " ", date, "\n", self.best_symbol_group[idx][1])
+
+    def cal_earning(self):
+        """backtest로 계산한 plan의 수익률을 계산하는 함수"""
         pass
 
     def cal_mdd(self):
@@ -198,8 +218,8 @@ class EvaluationHandler:
         sharp = 0
         self.sharp = sharp
 
-    def run(self):
-        self.cal_price()
+    def run(self, price_table):
+        self.cal_price(price_table)
         self.cal_mdd()
         self.cal_sharp()
 
