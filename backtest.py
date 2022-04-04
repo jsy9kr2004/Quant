@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
@@ -141,7 +142,6 @@ class DateHandler:
         syms = self.symbol_list['symbol']
         # TODO: 모든 symbol 다 돌면 오래걸려서 10개로 줄임. 나중에 삭제
         for sym in syms[:10]:
-            # TODO: date 기준에 date - 3달 ~ date로 넣기
             prev_Q_date = date - relativedelta(months=3)
             past = table.query("(symbol == @sym) and (date <= @date and date >= @prev_Q_date)")
             if past.empty:
@@ -166,6 +166,7 @@ class EvaluationHandler:
         self.accumulated_earning = 0
         self.MDD = 0
         self.sharp = 0
+        self.total_asset = 100000000
 
     @staticmethod
     def cal_member_cnt():
@@ -173,8 +174,8 @@ class EvaluationHandler:
         당시 시장 상황을 고려해서 1 period에 상위 몇 개의 주식을 살지(= 몇 달러 투자할지)를 결정하는 함수
         :return: member cnt
         """
-        # TODO 현재는 상위 20개의 주식을 매 period 마다 구매하는 것으로 되어 있음
-        return 20
+        # TODO 현재는 상위 4개의 주식을 매 period 마다 구매하는 것으로 되어 있음
+        return 4
 
     def set_best_symbol_group(self, date, symbol):
         """plan_handler.date_handler.symbol_list에 score를 보고 best_symbol_group에 append 해주는 함수."""
@@ -182,6 +183,7 @@ class EvaluationHandler:
         print("set_best_symbol_group()")
         #print(best_symbol)
         best_symbol['price'] = 0
+        best_symbol['count'] = 0
         self.best_symbol_group.append([date, best_symbol])
         print(self.best_symbol_group[0])
 
@@ -190,7 +192,7 @@ class EvaluationHandler:
         for idx, (date, best_group) in enumerate(self.best_symbol_group):
             syms = best_group['symbol']
             for sym in syms:
-                prev_Q_date = date - relativedelta(months=1)
+                prev_Q_date = date - relativedelta(weeks=1)
                 past = price_table.query("(symbol == @sym) and (date <= @date and date >= @prev_Q_date)")
                 if past.empty:
                     continue
@@ -198,43 +200,104 @@ class EvaluationHandler:
                     # past 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
                     self.best_symbol_group[idx][1].loc[(self.best_symbol_group[idx][1].symbol == sym), 'price']\
                         = past.iloc[0].close
-            print(idx, " ", date, "\n", self.best_symbol_group[idx][1])
+            # print(idx, " ", date, "\n", self.best_symbol_group[idx][1])
 
     def cal_earning(self):
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
         historical_earning_per_rebalanceday = []
-        prev = -1
+        base_asset = self.total_asset
+        prev = 0
+        best_asset = 0
+        worst_asset = self.total_asset * 1000
         for idx, (date, best_group) in enumerate(self.best_symbol_group):
-            price_mul_score = best_group['price'] * best_group['score']
-            my_asset_period = price_mul_score.sum()
-            if idx == 0:
-                my_asset_base = my_asset_period
-                print("start asset_base : ", my_asset_base)
-                prev = my_asset_period
+            
+            # TODO: best_symbol_group 맞게 사고 남은 짜투리 금액 처리
+            stock_cnt = (self.total_asset / self.member_cnt) / best_group['price']
+            stock_cnt = stock_cnt.replace([np.inf, -np.inf], 0)
+            stock_cnt = stock_cnt.astype(int)
+            price_mul_stock_cnt = best_group['price'] * stock_cnt
+            my_asset_period = price_mul_stock_cnt.sum()
+            if my_asset_period == 0:
                 continue
-            else:
-                period_earning = my_asset_period - prev
-                print("cur idx : ", idx, "prev :  ", idx-1, "earning : ", period_earning)
-                historical_earning_per_rebalanceday.append([date, period_earning])
+            
+            # MDD 계산을 위해 이 구간에서 각 종목별 구매 개수 저장
+            self.best_symbol_group[idx][1]['count'] = stock_cnt
+            
+            period_earning =  my_asset_period - base_asset
+            print("date : ", date, "\nbest group : \n", best_group[['symbol', 'price', 'count']])
+            print("cur idx : {} prev : {} earning : {:.2f}".format(idx, idx-1, period_earning))
+            prev = my_asset_period
+            historical_earning_per_rebalanceday.append([date, period_earning, best_group])      
+                      
+            # for rebalanced day price based MDD
+            if my_asset_period > best_asset:
+                best_asset = my_asset_period
+            if my_asset_period < worst_asset:
+                worst_asset = my_asset_period
+        print("rebalanced day price based MDD : {:.2f} %".format(((worst_asset / best_asset) - 1) * 100))
                 
-    def cal_mdd(self):
+    def cal_mdd(self, price_table):
         """MDD를 계산해서 채워주는 함수"""
         mdd = 0
-        for group in self.best_symbol_group:
-            for symbol in group[1]:
-                # symbol_handler = SymbolHandler(symbol, self.main_ctx.start_year, self.main_ctx.end_year)
-                pass
+        best_asset = 0
+        worst_asset = self.total_asset * 1000
+        for idx, (date, best_group) in enumerate(self.best_symbol_group):
+            if idx == 0:
+                prev_date = date
+                continue
+            else:
+                # prev_date ~ date 까지 모든 date에 대해 자산 총액 계산
+                allday_price_allsymbol = []
+                syms = best_group['symbol']
+                
+                # symbol 별로 rebalancing day 기준으로 prev_date ~ date 의 price 정보 가져오고, 
+                # rebalancing day에 계산한 symbol 당 구매 수 column인 'count' 와 'close' 가격 곱해서 종목별 일별 자산 구함
+                for sym in syms:
+                    allday_price_per_symbol = price_table.query("(symbol == @sym) and (date <= @date and date >= @prev_date)")
+                    if allday_price_per_symbol.empty:
+                        continue
+                    else:
+                        # FIXME: SettingWithCopyWarning
+                        count_per_sym = best_group.loc[(best_group.symbol == sym), 'count'].values
+                        allday_price_per_symbol['my_asset'] = allday_price_per_symbol['close'] * count_per_sym
+                        allday_price_allsymbol.append(allday_price_per_symbol)
+                
+                # 각 종목별 일별 자산을 모두 더하여 일별 총자산 구함
+                accum_df = pd.DataFrame()
+                for idx, df in enumerate(allday_price_allsymbol):
+                    df = df.reset_index(drop=True)
+                    if idx == 0:
+                        accum_df = df[['date','my_asset']]    
+                    else:
+                        accum_df = accum_df[['my_asset']] + df[['my_asset']]
+                
+                # concat 'date' column
+                accum_df['date'] = df['date']
+                
+                # memory
+                if accum_df['my_asset'].max(axis=0) > best_asset:
+                    best_asset = accum_df['my_asset'].max(axis=0)
+                    best_date = accum_df.loc[accum_df['my_asset'].idxmax(), 'date']
+                if accum_df['my_asset'].min(axis=0) < worst_asset:
+                    worst_asset = accum_df['my_asset'].min(axis=0)
+                    worst_date = accum_df.loc[accum_df['my_asset'].idxmin(), 'date']
+                
+                # update prev_date
+                prev_date = date
+                
+        mdd = ((worst_asset / best_asset) - 1) * 100
+        print ("MDD : {:.2f}%, best date : {}, worst date : {}".format(mdd, best_date, worst_date))
         self.MDD = mdd
 
     def cal_sharp(self):
         """sharp를 계산해서 채워주는 함수"""
         sharp = 0
         self.sharp = sharp
-
+        
     def run(self, price_table):
         self.cal_price(price_table)
         self.cal_earning()
-        self.cal_mdd()
+        self.cal_mdd(price_table)
         self.cal_sharp()
 
 
