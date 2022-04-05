@@ -38,10 +38,10 @@ if __name__ == '__main__':
 
     plan_handler = PlanHandler()
     plan = [
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'pbRatio', "key_dir": 'low', "weight": 1, "diff": 2,
-                                                               "base": 0, "base_dir": '>'}},
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'peRatio', "key_dir": 'low', "weight": 1, "diff": 2,
-                                                               "base": 0, "base_dir": '>'}},
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'pbRatio', "key_dir": 'low', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'peRatio', "key_dir": 'low', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},
     ]
     plan_handler.plan_list = plan
     bt = Backtest(main_ctx, plan_handler, rebalance_period=3)
