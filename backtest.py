@@ -264,7 +264,7 @@ class EvaluationHandler:
             start_datehanler = end_datehandler
             #print(idx, " ", date, "\n", self.best_symbol_group[idx][2])
 
-    def cal_earning(self):
+    def cal_earning(self): 
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
         historical_earning_per_rebalanceday = []
         base_asset = self.total_asset
@@ -289,6 +289,7 @@ class EvaluationHandler:
             
             # rebalance date의 가격으로 구매한 종목들 판매했을 때 자산 계산
             rebalance_day_price_mul_stock_cnt = best_group['rebalance_day_price'] * stock_cnt
+            self.best_symbol_group[idx][2]['period_earning'] = rebalance_day_price_mul_stock_cnt - price_mul_stock_cnt
             period_earning = rebalance_day_price_mul_stock_cnt.sum() - price_mul_stock_cnt.sum()
             
             prev = self.total_asset
