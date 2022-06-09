@@ -1,8 +1,10 @@
-import pandas as pd
-import numpy as np
-
+import csv
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+import os
+
+import pandas as pd
+import numpy as np
 
 CHUNK_SIZE = 20480
 
@@ -18,8 +20,43 @@ class Backtest:
         self.symbol_table = ""
         self.fs_table = ""
         self.metrics_table = ""
+        self.eval_report_path = self.create_report(True)
+        self.rank_report_path = self.create_report(False)
         self.init_bt_from_db()
         self.run()
+
+    def create_report(self, is_eval):
+        if is_eval:
+            path = "./EVAL_REPROT_"
+        else:
+            path = "./RANK_REPROT_"
+        idx = 0
+        while True:
+            if not os.path.exists(path + str(idx) + ".csv"):
+                path = path + str(idx) + ".csv"
+                print('REPORT PATH: "{}" ...'.format(path))
+                break
+            else:
+                idx += 1
+
+        with open(path, 'w') as file:
+            writer = csv.writer(file, delimiter=",")
+            writer.writerow(["COMMON"])
+            writer.writerow(["Report Date", datetime.now().strftime('%m-%d %H:%M')])
+            writer.writerow(["Rebalance Period", str(self.rebalance_period) + " Month",
+                             "Start Year", self.main_ctx.start_year,
+                             "End Year", self.main_ctx.end_year])
+            writer.writerow(["K", self.plan_handler.k_num])
+            writer.writerow("")
+
+            writer.writerow(["PLAN HANDLER"])
+            for plan in self.plan_handler.plan_list:
+                writer.writerow(plan["params"])
+                dict_writer = csv.DictWriter(file, fieldnames=plan["params"])
+                dict_writer.writerow(plan["params"])
+                writer.writerow("")
+        return path
+
 
     def data_from_database(self, query):
         """
@@ -76,7 +113,8 @@ class Backtest:
             print("in Backtest run() date : ", date)
             self.plan_handler.date_handler = DateHandler(self, date)
             self.plan_handler.run()
-            self.eval_handler.set_best_symbol_group(date, date+relativedelta(months=self.rebalance_period), self.plan_handler.date_handler.symbol_list)
+            self.eval_handler.set_best_symbol_group(date, date+relativedelta(months=self.rebalance_period),
+                                                    self.plan_handler.date_handler.symbol_list)
             # day를 기준으로 하려면 아래를 사용하면 됨. 31일 기준으로 하면 우리가 원한 한달이 아님
             # date += relativedelta(days=self.rebalance_period)
             date += relativedelta(months=self.rebalance_period)
@@ -84,9 +122,10 @@ class Backtest:
 
 
 class PlanHandler:
-    def __init__(self):
+    def __init__(self, k_num):
         self.plan_list = None
         self.date_handler = None
+        self.k_num = k_num
 
     def run(self):
         """
@@ -114,9 +153,9 @@ class PlanHandler:
                                                            params["diff"], params["base"], params["base_dir"]))
         key = str(params["key"])
         if params["key_dir"] == "low":
-            top_k_df = self.date_handler.metrics.sort_values(by=[key], ascending=True)[:20]
+            top_k_df = self.date_handler.metrics.sort_values(by=[key], ascending=True)[:self.k_num]
         elif params["key_dir"] == "high":
-            top_k_df = self.date_handler.metrics.sort_values(by=[key], ascending=False)[:20]
+            top_k_df = self.date_handler.metrics.sort_values(by=[key], ascending=False)[:self.k_num]
         else:
             print("Wrong params['key_dir'] : ", params["key_dir"], " params['key_dir'] must be 'low' or 'high'")
             return
@@ -224,7 +263,6 @@ class EvaluationHandler:
                     # past 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
                     self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'rebalance_day_price']\
                        = past.iloc[0].close
-                
             # print(idx, " ", date, "\n", self.best_symbol_group[idx][2])
 
     def cal_earning(self):
@@ -256,7 +294,7 @@ class EvaluationHandler:
             
             prev = self.total_asset
             self.total_asset = remain_asset + rebalance_day_price_mul_stock_cnt.sum()            
-            #print("date : ", date, "\nbest group : \n", best_group[['symbol', 'price', 'rebalance_day_price', 'count']])
+            # print("date : ", date, "\nbest group : \n", best_group[['symbol', 'price', 'rebalance_day_price', 'count']])
             print("cur idx : {} prev : {} earning : {:.2f} asset : {}".format(idx, idx-1, period_earning, self.total_asset))
             
             historical_earning_per_rebalanceday.append([date, period_earning, best_group])

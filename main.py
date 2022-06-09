@@ -36,7 +36,7 @@ if __name__ == '__main__':
         db.insert_csv()
         db.rebuild_table_view()
 
-    plan_handler = PlanHandler()
+    plan_handler = PlanHandler(k_num=20)
     plan = [
         {"f_name": plan_handler.single_metric_plan, "params": {"key": 'pbRatio', "key_dir": 'low', "weight": 1,
                                                                "diff": 2, "base": 0, "base_dir": '>'}},
