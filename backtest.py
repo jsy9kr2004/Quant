@@ -278,7 +278,7 @@ class EvaluationHandler:
                             = end_datehandler.price.loc[ (end_datehandler.price['symbol']==sym), 'close'].values[0]
                 
             start_datehanler = end_datehandler
-            #print(idx, " ", date, "\n", self.best_symbol_group[idx][2])
+            # print(idx, " ", date, "\n", self.best_symbol_group[idx][2])
 
     def cal_earning(self): 
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
@@ -310,8 +310,10 @@ class EvaluationHandler:
             
             prev = self.total_asset
             self.total_asset = remain_asset + rebalance_day_price_mul_stock_cnt.sum()            
-            # print("date : ", date, "\nbest group : \n", best_group[['symbol', 'price', 'rebalance_day_price', 'count']])
-            print("cur idx : {} prev : {} earning : {:.2f} asset : {}".format(idx, idx-1, period_earning, self.total_asset))
+            # print("date : ", date, "\nbest group : \n")
+            # print(best_group[['symbol', 'price', 'rebalance_day_price', 'count']])
+            print("cur idx : {} prev : {} earning : {:.2f} asset : {}".format(idx, idx-1, period_earning,
+                                                                              self.total_asset))
             print("best group : ")
             print(best_group.columns)
             print(best_group)
@@ -385,13 +387,18 @@ class EvaluationHandler:
         sharp = 0
         self.sharp = sharp
 
-    def print_report(self):
-        # columns = ["symbol", "price", "rebalance_day_price", "count"]
-        with open(self.backtest.eval_report_path, 'a') as file:
-            writer = csv.writer(file, delimiter=",")
-            for elem in self.best_symbol_group:
-                writer.writerow(elem)
-                # period.to_csv(self.backtest.eval_report_path, mode="a", column=columns)
+    def print_eval_report(self):
+        columns = ["symbol", "score", "price", "rebalance_day_price", "count", "period_earning",
+                   "pbRatio", "pbRatio_rank", "pbRatio_score", "peRatio", "peRatio_rank", "peRatio_score",
+                   "ipoDate", "delistedDate"]
+        for idx, (date, rebalance_date, elem) in enumerate(self.best_symbol_group):
+            fd = open(self.backtest.eval_report_path, 'a')
+            writer = csv.writer(fd, delimiter=",")
+            writer.writerow("")
+            writer.writerow(["start", date, "end", rebalance_date])
+            fd.close()
+            elem.to_csv(self.backtest.eval_report_path, columns=columns, mode="a")
+            # period.to_csv(self.backtest.eval_report_path, mode="a", column=columns)
 
 
     def run(self, price_table):
@@ -400,7 +407,7 @@ class EvaluationHandler:
             self.cal_earning()
             self.cal_mdd(price_table)
             self.cal_sharp()
-            self.print_report()
+            self.print_rank_report()
         if self.backtest.conf['NEED_RANK_REPORT']=='Y':
             # TODO print rank report
             pass
