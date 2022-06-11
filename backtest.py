@@ -219,6 +219,7 @@ class DateHandler:
 class EvaluationHandler:
     def __init__(self, backtest):
         self.best_symbol_group = []
+        self.historical_earning_per_rebalanceday = []
         self.backtest = backtest
         self.member_cnt = self.cal_member_cnt()
         self.accumulated_earning = 0
@@ -251,16 +252,16 @@ class EvaluationHandler:
             end_datehandler = DateHandler(self.backtest, rebalance_date)
 
             if self.backtest.conf['NEED_EVALUATION'] == 'Y':
-                reference_group = start_datehandler.price
-                reference_group['rebalance_day_price'] = end_datehandler.price.close
-                reference_group['period_price_diff'] = start_datehandler.price.close - end_datehandler.price.close
-                reference_group = pd.merge( reference_group, start_datehandler.metrics, how='outer', on='symbol')
-                reference_group = pd.merge( reference_group, start_datehandler.fs, how='outer', on='symbol' )
-                for feature in reference_group.columns:
+                self.best_symbol_group[idx][3] = start_datehandler.price
+                self.best_symbol_group[idx][3]['rebalance_day_price'] = end_datehandler.price.close
+                self.best_symbol_group[idx][3]['period_price_diff'] = start_datehandler.price.close - end_datehandler.price.close
+                self.best_symbol_group[idx][3] = pd.merge(self.best_symbol_group[idx][3], start_datehandler.metrics, how='outer', on='symbol')
+                self.best_symbol_group[idx][3] = pd.merge(self.best_symbol_group[idx][3], start_datehandler.fs, how='outer', on='symbol' )
+                for feature in self.best_symbol_group[idx][3].columns:
                     feature_rank_col_name = feature + "_rank"
-                    reference_group[feature_rank_col_name] = reference_group[feature].rank(method='min')
-                reference_group = reference_group.sort_values(by=["period_price_diff"], axis=0)
-                print(reference_group)
+                    self.best_symbol_group[idx][3][feature_rank_col_name] = self.best_symbol_group[idx][3][feature].rank(method='min')
+                self.best_symbol_group[idx][3] = self.best_symbol_group[idx][3].sort_values(by=["period_price_diff"], axis=0)
+                print(self.best_symbol_group[idx][3])
 
                 syms = best_group['symbol']
                 for sym in syms:
@@ -281,7 +282,6 @@ class EvaluationHandler:
 
     def cal_earning(self): 
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
-        historical_earning_per_rebalanceday = []
         base_asset = self.total_asset
         prev = 0
         best_asset = 0
@@ -308,7 +308,8 @@ class EvaluationHandler:
             period_earning = rebalance_day_price_mul_stock_cnt.sum() - price_mul_stock_cnt.sum()
             
             prev = self.total_asset
-            self.total_asset = remain_asset + rebalance_day_price_mul_stock_cnt.sum()            
+            self.total_asset = remain_asset + rebalance_day_price_mul_stock_cnt.sum()
+
             # print("date : ", date, "\nbest group : \n")
             # print(best_group[['symbol', 'price', 'rebalance_day_price', 'count']])
             print("cur idx : {} prev : {} earning : {:.2f} asset : {}".format(idx, idx-1, period_earning,
@@ -318,7 +319,7 @@ class EvaluationHandler:
             print(best_group)
             # print(best_group['symbol', 'price', 'rebalance_day_price'])
 
-            historical_earning_per_rebalanceday.append([date, period_earning, best_group])
+            self.historical_earning_per_rebalanceday.append([date, period_earning, prev, self.total_asset, best_group])
 
             # for rebalanced day price based MDD
             if self.total_asset > best_asset:
@@ -405,6 +406,27 @@ class EvaluationHandler:
             if self.backtest.conf['PRINT_RANK_REPORT'] == 'Y':
                 self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem, rank_elem.columns.tolist())
             # period.to_csv(self.backtest.eval_report_path, mode="a", column=columns)
+
+        ref_total_earning_rates = dict()
+        for ref_sym in self.backtest.conf['REFERENCE_SYMBOL']:
+            start_date = self.backtest.get_trade_date(datetime(self.backtest.main_ctx.start_year, 1, 1))
+            end_date = self.backtest.get_trade_date(datetime(self.backtest.main_ctx.end_year, 12, 31))
+            reference_earning_df = self.backtest.price_table.query("(symbol == @ref_sym) and ((date == @start_date) or (date == @end_date))")
+            reference_earning = reference_earning_df.iloc[0]['close'] - reference_earning_df.iloc[1]['close']
+            ref_total_earning_rate = (reference_earning / reference_earning_df.iloc[1]['close']) * 100
+            ref_total_earning_rates[ref_sym] = ref_total_earning_rate
+
+        plan_earning = self.historical_earning_per_rebalanceday [ len(self.historical_earning_per_rebalanceday)-1 ][3]\
+                        - self.historical_earning_per_rebalanceday[0][2]
+        plan_total_earning_rate = (plan_earning / self.historical_earning_per_rebalanceday[0][2]) * 100
+
+        fd = open(self.backtest.eval_report_path, 'a')
+        writer = csv.writer(fd, delimiter=",")
+        writer.writerow("")
+        writer.writerow(["ours", plan_total_earning_rate])
+        for ref_sym, total_earning_rate in ref_total_earning_rates.items():
+            writer.writerow([ref_sym, total_earning_rate])
+        fd.close()
 
     def run(self, price_table):
         self.cal_price()
