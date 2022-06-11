@@ -8,6 +8,7 @@ import numpy as np
 
 CHUNK_SIZE = 20480
 
+
 class Backtest:
     def __init__(self, main_ctx, plan_handler, rebalance_period):
         self.main_ctx = main_ctx
@@ -232,22 +233,34 @@ class EvaluationHandler:
 
     def set_best_symbol_group(self, date, rebalance_date, scored_datehandler):
         """plan_handler.date_handler.symbol_list에 score를 보고 best_symbol_group에 append 해주는 함수."""
-        best_symbol_info = pd.merge ( scored_datehandler.symbol_list, scored_datehandler.metrics, how='outer', on='symbol')
-        best_symbol_info = pd.merge ( best_symbol_info, scored_datehandler.fs, how='outer', on='symbol')
+        best_symbol_info = pd.merge( scored_datehandler.symbol_list, scored_datehandler.metrics, how='outer', on='symbol')
+        best_symbol_info = pd.merge( best_symbol_info, scored_datehandler.fs, how='outer', on='symbol')
         best_symbol = best_symbol_info.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
         # print("set_best_symbol_group()")
         # print(best_symbol)
         # best_symbol = best_symbol.assign(price=0)
         best_symbol = best_symbol.assign(count=0)
-        self.best_symbol_group.append([date, rebalance_date, best_symbol])
+        reference_group = pd.DataFrame()
+        self.best_symbol_group.append([date, rebalance_date, best_symbol, reference_group])
 
     def cal_price(self, backtest):
         """best_symbol_group 의 ['price', 'rebalance_day_price'] column을 채워주는 함수"""
-        for idx, (date, rebalance_date, best_group) in enumerate(self.best_symbol_group):
+        for idx, (date, rebalance_date, best_group, reference_group) in enumerate(self.best_symbol_group):
             if idx == 0:
                 start_datehandler = DateHandler(backtest, date)
             end_datehandler = DateHandler(backtest, rebalance_date)
 
+            reference_group = start_datehandler.price
+            reference_group['rebalance_day_price'] = end_datehandler.price.close
+            reference_group['period_diff'] = start_datehandler.price.close - end_datehandler.price.close
+            reference_group = pd.merge( reference_group, start_datehandler.metrics, how='outer', on='symbol')
+            reference_group = pd.merge( reference_group, start_datehandler.fs, how='outer', on='symbol' )
+
+            for feature in reference_group.columns:
+                feature_rank_col_name = feature + "_rank"
+                reference_group[feature_rank_col_name] = reference_group[feature].rank(method='min')
+
+            print(reference_group)
             syms = best_group['symbol']
             for sym in syms:
                 if start_datehandler.price.loc[ (start_datehandler.price['symbol']==sym), 'close'].empty:
@@ -261,6 +274,7 @@ class EvaluationHandler:
                 else:
                     self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'rebalance_day_price']\
                         = end_datehandler.price.loc[ (end_datehandler.price['symbol']==sym), 'close'].values[0]
+            
             start_datehanler = end_datehandler
             #print(idx, " ", date, "\n", self.best_symbol_group[idx][2])
 
@@ -271,7 +285,7 @@ class EvaluationHandler:
         prev = 0
         best_asset = 0
         worst_asset = self.total_asset * 1000
-        for idx, (date, rebalance_date, best_group) in enumerate(self.best_symbol_group):
+        for idx, (date, rebalance_date, best_group, reference_group) in enumerate(self.best_symbol_group):
             # TODO best_symbol_group 맞게 사고 남은 짜투리 금액 처리
             stock_cnt = (self.total_asset / self.member_cnt) / best_group['price']
             stock_cnt = stock_cnt.replace([np.inf, -np.inf], 0)
@@ -314,7 +328,7 @@ class EvaluationHandler:
         """MDD를 계산해서 채워주는 함수"""
         best_asset = 0
         worst_asset = self.total_asset * 100000
-        for i, (date, rebalance_date, best_group) in enumerate(self.best_symbol_group):
+        for i, (date, rebalance_date, best_group, reference_group) in enumerate(self.best_symbol_group):
             if i == 0:
                 prev_date = date
                 continue
