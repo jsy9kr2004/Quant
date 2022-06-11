@@ -387,13 +387,13 @@ class EvaluationHandler:
         self.sharp = sharp
 
     @staticmethod
-    def print_csv(path, date, rebalance_date, elem, columns=None):
+    def write_csv(path, date, rebalance_date, elem, columns):
         fd = open(path, 'a')
         writer = csv.writer(fd, delimiter=",")
         writer.writerow("")
         writer.writerow(["start", date, "end", rebalance_date])
         fd.close()
-        elem.to_csv(path, mode="a")
+        elem.to_csv(path, columns=columns, mode="a")
 
     def print_report(self):
         eval_columns = ["symbol", "score", "price", "rebalance_day_price", "count", "period_earning",
@@ -401,9 +401,9 @@ class EvaluationHandler:
                         "ipoDate", "delistedDate"]
         for idx, (date, rebalance_date, eval_elem, rank_elem) in enumerate(self.best_symbol_group):
             if self.backtest.conf['PRINT_EVAL_REPORT'] == 'Y' and self.backtest.conf['NEED_EVALUATION'] == 'Y':
-                self.print_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem, eval_columns)
+                self.write_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem, eval_columns)
             if self.backtest.conf['PRINT_RANK_REPORT'] == 'Y':
-                self.print_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem, rank_elem.columns.tolist())
+                self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem, rank_elem.columns.tolist())
             # period.to_csv(self.backtest.eval_report_path, mode="a", column=columns)
 
     def run(self, price_table):
