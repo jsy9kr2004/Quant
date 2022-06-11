@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from time import sleep
 import urllib
 import urllib.error
 import urllib.request
@@ -71,11 +72,15 @@ class FMP:
         if need_symbol is False:
             data_list = [path[path.rfind("/") + 1:]]
         else:
-            # TODO 일부만 돌리기 위해 앞에 5개만 가져옴 (for test) / 나중에 else만 없애면 됨.
-            data_list = self.symbol_list.head(5)
+            # 일부만 돌리기 위해 앞에 5개만 가져옴 (for test) / 나중에 else만 없애면 됨.
+            # data_list = self.symbol_list.head(5)
+            data_list = self.symbol_list
 
         # for elem in SYMBOL:
         for elem in data_list:
+            # TODO 결제 PLAN 더 비싼거 쓰면 sleep 지워도 됨
+            print("sleep 0.2s")
+            sleep(0.2)
             # TODO url_data = "" 와 같은 줄이 필요할 듯? except 후 continue로 들어갈 때 이전 값이 들어있음. 초기화 필요?
             # json_data = ""
             if not os.path.isfile(path + "/{}.csv".format(elem + file_postfix)):
