@@ -112,7 +112,8 @@ class Backtest:
             print("in Backtest run() date : ", date)
             self.plan_handler.date_handler = DateHandler(self, date)
             self.plan_handler.run()
-            self.eval_handler.set_best_symbol_group(date, date+relativedelta(months=self.rebalance_period), self.plan_handler.date_handler)
+            self.eval_handler.set_best_symbol_group(date, date+relativedelta(
+                months=self.rebalance_period), self.plan_handler.date_handler)
             # day를 기준으로 하려면 아래를 사용하면 됨. 31일 기준으로 하면 우리가 원한 한달이 아님
             # date += relativedelta(days=self.rebalance_period)
             date += relativedelta(months=self.rebalance_period)
@@ -179,7 +180,8 @@ class PlanHandler:
                 = params["weight"] * delta
             delta = delta - params["diff"]
         local_rank_name = key + '_rank'
-        self.date_handler.symbol_list[local_rank_name] = self.date_handler.symbol_list[local_score_name].rank(method='min', ascending=False)
+        self.date_handler.symbol_list[local_rank_name] = \
+            self.date_handler.symbol_list[local_score_name].rank(method='min', ascending=False)
         # print(self.date_handler.symbol_list[[local_score_name, local_rank_name]])
         # print(self.date_handler.symbol_list.sort_values(by=['score'], ascending=False)[['symbol', 'score']])
 
@@ -253,29 +255,37 @@ class EvaluationHandler:
 
             if self.backtest.conf['NEED_EVALUATION'] == 'Y':
                 self.best_symbol_group[idx][3] = start_datehandler.price
-                self.best_symbol_group[idx][3]['rebalance_day_price'] = end_datehandler.price.close
-                self.best_symbol_group[idx][3]['period_price_diff'] = start_datehandler.price.close - end_datehandler.price.close
-                self.best_symbol_group[idx][3] = pd.merge(self.best_symbol_group[idx][3], start_datehandler.metrics, how='outer', on='symbol')
-                self.best_symbol_group[idx][3] = pd.merge(self.best_symbol_group[idx][3], start_datehandler.fs, how='outer', on='symbol' )
+                rebalance_date_price_df = end_datehandler.price[['symbol', 'close']]
+                rebalance_date_price_df.rename(columns={'close':'rebalance_day_price'}, inplace=True)
+                self.best_symbol_group[idx][3] = pd.merge(
+                    self.best_symbol_group[idx][3], rebalance_date_price_df, 
+                    how='outer', on='symbol')
+                self.best_symbol_group[idx][3]['period_price_diff'] = \
+                    self.best_symbol_group[idx][3]['rebalance_day_price'] - self.best_symbol_group[idx][3]['close']
+                self.best_symbol_group[idx][3] = pd.merge(
+                    self.best_symbol_group[idx][3], start_datehandler.metrics, how='outer', on='symbol')
+                self.best_symbol_group[idx][3] = pd.merge(
+                    self.best_symbol_group[idx][3], start_datehandler.fs, how='outer', on='symbol' )
                 for feature in self.best_symbol_group[idx][3].columns:
                     feature_rank_col_name = feature + "_rank"
-                    self.best_symbol_group[idx][3][feature_rank_col_name] = self.best_symbol_group[idx][3][feature].rank(method='min')
-                self.best_symbol_group[idx][3] = self.best_symbol_group[idx][3].sort_values(by=["period_price_diff"], axis=0)
-                print(self.best_symbol_group[idx][3])
+                    self.best_symbol_group[idx][3][feature_rank_col_name] = \
+                        self.best_symbol_group[idx][3][feature].rank(method='min')
+                self.best_symbol_group[idx][3] = self.best_symbol_group[idx][3].sort_values(
+                    by=["period_price_diff"], axis=0, ascending=False)
 
                 syms = best_group['symbol']
                 for sym in syms:
-                    if start_datehandler.price.loc[ (start_datehandler.price['symbol']==sym), 'close'].empty:
+                    if start_datehandler.price.loc[(start_datehandler.price['symbol']==sym), 'close'].empty:
                         self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'price'] = 0
                     else:
                         self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'price']\
-                        = start_datehandler.price.loc[ (start_datehandler.price['symbol']==sym), 'close'].values[0]
+                        = start_datehandler.price.loc[(start_datehandler.price['symbol']==sym), 'close'].values[0]
 
-                    if end_datehandler.price.loc[ (end_datehandler.price['symbol']==sym), 'close'].empty:
+                    if end_datehandler.price.loc[(end_datehandler.price['symbol']==sym), 'close'].empty:
                         self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'rebalance_day_price'] = 0
                     else:
                         self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'rebalance_day_price']\
-                            = end_datehandler.price.loc[ (end_datehandler.price['symbol']==sym), 'close'].values[0]
+                            = end_datehandler.price.loc[(end_datehandler.price['symbol']==sym), 'close'].values[0]
                 
             start_datehanler = end_datehandler
             # print(idx, " ", date, "\n", self.best_symbol_group[idx][2])
@@ -314,9 +324,6 @@ class EvaluationHandler:
             # print(best_group[['symbol', 'price', 'rebalance_day_price', 'count']])
             print("cur idx : {} prev : {} earning : {:.2f} asset : {}".format(idx, idx-1, period_earning,
                                                                               self.total_asset))
-            print("best group : ")
-            print(best_group.columns)
-            print(best_group)
             # print(best_group['symbol', 'price', 'rebalance_day_price'])
 
             self.historical_earning_per_rebalanceday.append([date, period_earning, prev, self.total_asset, best_group])
