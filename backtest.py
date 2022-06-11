@@ -10,8 +10,9 @@ CHUNK_SIZE = 20480
 
 
 class Backtest:
-    def __init__(self, main_ctx, plan_handler, rebalance_period):
+    def __init__(self, main_ctx, conf, plan_handler, rebalance_period):
         self.main_ctx = main_ctx
+        self.conf = conf
         self.plan_handler = plan_handler
         self.rebalance_period = rebalance_period
         self.eval_handler = EvaluationHandler(self)
@@ -20,16 +21,15 @@ class Backtest:
         self.symbol_table = ""
         self.fs_table = ""
         self.metrics_table = ""
-        self.eval_report_path = self.create_report(True)
-        self.rank_report_path = self.create_report(False)
+        if conf['NEED_EVAL_REPORT']=='Y':
+            self.eval_report_path = self.create_report("EVAL")
+        if conf['NEED_RANK_REPORT']=='Y':
+            self.rank_report_path = self.create_report("RANK")
         self.init_bt_from_db()
         self.run()
 
-    def create_report(self, is_eval):
-        if is_eval:
-            path = "./EVAL_REPROT_"
-        else:
-            path = "./RANK_REPROT_"
+    def create_report(self, type):
+        path = "./" + type + "_REPORT_"
         idx = 0
         while True:
             if not os.path.exists(path + str(idx) + ".csv"):
@@ -56,7 +56,6 @@ class Backtest:
                 dict_writer.writerow(plan["params"])
                 writer.writerow("")
         return path
-
 
     def data_from_database(self, query):
         """
@@ -117,7 +116,8 @@ class Backtest:
             # day를 기준으로 하려면 아래를 사용하면 됨. 31일 기준으로 하면 우리가 원한 한달이 아님
             # date += relativedelta(days=self.rebalance_period)
             date += relativedelta(months=self.rebalance_period)
-        self.eval_handler.run(self.price_table)
+        if ((self.conf['NEED_RANK_REPORT']=='Y') | (self.conf['NEED_EVAL_REPORT']=='Y')):
+            self.eval_handler.run(self.price_table)
 
 
 class PlanHandler:
@@ -250,31 +250,33 @@ class EvaluationHandler:
                 start_datehandler = DateHandler(backtest, date)
             end_datehandler = DateHandler(backtest, rebalance_date)
 
-            reference_group = start_datehandler.price
-            reference_group['rebalance_day_price'] = end_datehandler.price.close
-            reference_group['period_diff'] = start_datehandler.price.close - end_datehandler.price.close
-            reference_group = pd.merge( reference_group, start_datehandler.metrics, how='outer', on='symbol')
-            reference_group = pd.merge( reference_group, start_datehandler.fs, how='outer', on='symbol' )
+            if backtest.conf['NEED_RANK_REPORT']=='Y':
+                reference_group = start_datehandler.price
+                reference_group['rebalance_day_price'] = end_datehandler.price.close
+                reference_group['period_price_diff'] = start_datehandler.price.close - end_datehandler.price.close
+                reference_group = pd.merge( reference_group, start_datehandler.metrics, how='outer', on='symbol')
+                reference_group = pd.merge( reference_group, start_datehandler.fs, how='outer', on='symbol' )
+                for feature in reference_group.columns:
+                    feature_rank_col_name = feature + "_rank"
+                    reference_group[feature_rank_col_name] = reference_group[feature].rank(method='min')
+                reference_group = reference_group.sort_values(by=["period_price_diff"], axis=0)
+                print(reference_group)
 
-            for feature in reference_group.columns:
-                feature_rank_col_name = feature + "_rank"
-                reference_group[feature_rank_col_name] = reference_group[feature].rank(method='min')
+            if backtest.conf['NEED_EVAL_REPORT']=='Y':
+                syms = best_group['symbol']
+                for sym in syms:
+                    if start_datehandler.price.loc[ (start_datehandler.price['symbol']==sym), 'close'].empty:
+                        self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'price'] = 0
+                    else:
+                        self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'price']\
+                        = start_datehandler.price.loc[ (start_datehandler.price['symbol']==sym), 'close'].values[0]
 
-            print(reference_group)
-            syms = best_group['symbol']
-            for sym in syms:
-                if start_datehandler.price.loc[ (start_datehandler.price['symbol']==sym), 'close'].empty:
-                    self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'price'] = 0
-                else:
-                    self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'price']\
-                     = start_datehandler.price.loc[ (start_datehandler.price['symbol']==sym), 'close'].values[0]
-
-                if end_datehandler.price.loc[ (end_datehandler.price['symbol']==sym), 'close'].empty:
-                    self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'rebalance_day_price'] = 0
-                else:
-                    self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'rebalance_day_price']\
-                        = end_datehandler.price.loc[ (end_datehandler.price['symbol']==sym), 'close'].values[0]
-            
+                    if end_datehandler.price.loc[ (end_datehandler.price['symbol']==sym), 'close'].empty:
+                        self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'rebalance_day_price'] = 0
+                    else:
+                        self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'rebalance_day_price']\
+                            = end_datehandler.price.loc[ (end_datehandler.price['symbol']==sym), 'close'].values[0]
+                
             start_datehanler = end_datehandler
             #print(idx, " ", date, "\n", self.best_symbol_group[idx][2])
 
@@ -391,12 +393,18 @@ class EvaluationHandler:
                 writer.writerow(elem)
                 # period.to_csv(self.backtest.eval_report_path, mode="a", column=columns)
 
+
     def run(self, price_table):
         self.cal_price(self.backtest)
-        self.cal_earning()
-        self.cal_mdd(price_table)
-        self.cal_sharp()
-        self.print_report()
+        if self.backtest.conf['NEED_EVAL_REPORT']=='Y':
+            self.cal_earning()
+            self.cal_mdd(price_table)
+            self.cal_sharp()
+            self.print_report()
+        if self.backtest.conf['NEED_RANK_REPORT']=='Y':
+            # TODO print rank report
+            pass
+        
 
 
 class SymbolHandler:

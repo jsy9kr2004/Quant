@@ -44,7 +44,7 @@ if __name__ == '__main__':
                                                                "diff": 2, "base": 0, "base_dir": '>'}},
     ]
     plan_handler.plan_list = plan
-    bt = Backtest(main_ctx, plan_handler, rebalance_period=3)
+    bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=3)
 
     ################################################################################################
     # (1) tickers를 이용한 재무재표 예제
