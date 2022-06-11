@@ -383,11 +383,20 @@ class EvaluationHandler:
         sharp = 0
         self.sharp = sharp
 
+    def print_report(self):
+        # columns = ["symbol", "price", "rebalance_day_price", "count"]
+        with open(self.backtest.eval_report_path, 'a') as file:
+            writer = csv.writer(file, delimiter=",")
+            for elem in self.best_symbol_group:
+                writer.writerow(elem)
+                # period.to_csv(self.backtest.eval_report_path, mode="a", column=columns)
+
     def run(self, price_table):
         self.cal_price(self.backtest)
         self.cal_earning()
         self.cal_mdd(price_table)
         self.cal_sharp()
+        self.print_report()
 
 
 class SymbolHandler:
