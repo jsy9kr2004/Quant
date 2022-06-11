@@ -35,7 +35,7 @@ class FMP:
         # get first column that contains lists
         ex = df.applymap(type).astype(str).eq("<class 'list'>").all().to_frame(name='bool')
         isin_classlist = (ex['bool'] == True).any()
-        if isin_classlist == True:
+        if isin_classlist is True:
             col = df.applymap(type).astype(str).eq("<class 'list'>").all().idxmax()
             # explode list and expand embedded dictionaries
             df = df.explode(col).reset_index(drop=True)
@@ -48,21 +48,22 @@ class FMP:
             return df
 
     def get_fmp_data(self, main_url, extra_url, need_symbol, is_v4, file_postfix=""):
-        # brief : 순차적으로 넣고자 하는 값을 url에 포함시켜서 돌려줌
-        # input : main_url(url의 main 값), extra_url(뒤에 나머지),
-        #         need_symbol(url에 symbol 값이 들어가지는에 대한 boolean. v3는 불필요. v4 주소 처리때문에 필요)
-        #           TODO data_list를 완전히 없앤 이유는 나중에는 need_symbol을 data_type flag로 바꿔서 필요한 리스트를
-        #                이 함수 내에서 알아서 넣는 것이 더 효율적이기에 list 자체는 완전히 받지 않을 예정  예) SYMBOL이 글로벌로 바뀜
-        #         v4_flag(v4 url 형식을 사용할지에 대한 flag)
-        #         file_postfix(csv 파일 뒤에 붙는 다른 구분자를 넣고 싶은 경우 사용 예) AAPL_2022_1.csv)
-        # output : none
-        # example 1 : /api/v3/discounted-cash-flow/AAPL?apikey=***
-        #               get_fmp_data_by_list("dicounted-cash-flow", "", True, False)
-        #               ./data 폴더 아래에 discounted-cash-flow 폴더를 만들고, list element별 csv를 만듦
-        # example 2 : /api/v3/income-statement-as-reported/AAPL?period=quarter&limit=50&apikey=***
-        #               get_fmp_data_by_list("income-statement-as-reported",
-        #                                    "period=quarter&limit=50&", symbol_list, True, False)
-
+        """
+        brief : 순차적으로 넣고자 하는 값을 url에 포함시켜서 돌려줌
+        input : main_url(url의 main 값), extra_url(뒤에 나머지),
+                need_symbol(url에 symbol 값이 들어가지는에 대한 boolean. v3는 불필요. v4 주소 처리때문에 필요)
+                v4_flag(v4 url 형식을 사용할지에 대한 flag)
+                file_postfix(csv 파일 뒤에 붙는 다른 구분자를 넣고 싶은 경우 사용 예) AAPL_2022_1.csv)
+        TODO data_list를 완전히 없앤 이유는 나중에는 need_symbol을 data_type flag로 바꿔서 필요한 리스트를
+             이 함수 내에서 알아서 넣는 것이 더 효율적이기에 list 자체는 완전히 받지 않을 예정  예) SYMBOL이 글로벌로 바뀜
+        output : none
+        example 1 : /api/v3/discounted-cash-flow/AAPL?apikey=***
+                    get_fmp_data_by_list("dicounted-cash-flow", "", True, False)
+                    ./data 폴더 아래에 discounted-cash-flow 폴더를 만들고, list element별 csv를 만듦
+        example 2 : /api/v3/income-statement-as-reported/AAPL?period=quarter&limit=50&apikey=***
+                   get_fmp_data_by_list("income-statement-as-reported",
+                                        "period=quarter&limit=50&", symbol_list, True, False)
+        """
         # [RULE] 모든 File들은 Path가 ./data/* 로 시작해야 함. ./data나 ./data/*/* 와 같은 path는 가질 수 없음
         path = self.main_ctx.root_path + "/" + main_url.replace("/", "-").replace("-", "_")
         cre_flag = self.create_dir(path)
@@ -189,7 +190,7 @@ class FMP:
         file_list = os.listdir(self.main_ctx.root_path + "/delisted_companies/")
         for file in file_list:
             delisted = pd.read_csv(self.main_ctx.root_path + "/delisted_companies/" + file, index_col=None)
-            if delisted.empty == True:
+            if delisted.empty is True:
                 continue    
             # drop index column
             delisted = delisted.drop(delisted.columns[0], axis=1)

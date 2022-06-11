@@ -125,7 +125,7 @@ class Database:
                 target = target.reset_index(drop=True)
                 try:
                     target.to_sql(directory, self.main_ctx.conn,
-                              if_exists='append', index=False, index_label=None, chunksize=512)
+                                  if_exists='append', index=False, index_label=None, chunksize=512)
                 except sqlalchemy.exc.DataError:
                     print("error {} table".format(directory)) 
                 print("Complete creation of {} table".format(directory))
