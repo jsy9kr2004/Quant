@@ -70,7 +70,9 @@ class Database:
                 " FROM historical_price_full a, historical_market_capitalization b" \
                 " WHERE a.symbol = b.symbol" \
                 " AND a.date = b.date"
+        
         self.main_ctx.conn.execute(query)
+        
 
         # 3번 Table
         query = "CREATE VIEW FINANCIAL_STATEMENT" \
@@ -86,7 +88,9 @@ class Database:
                 " FROM income_statement a, balance_sheet_statement b, cash_flow_statement c " \
                 " WHERE a.symbol = b.symbol AND b.symbol = c.symbol" \
                 " AND a.date = b.date AND b.date = c.date;"
+        
         self.main_ctx.conn.execute(query)
+        
 
         # 4번 Table
         query = "CREATE VIEW METRICS" \
@@ -99,11 +103,15 @@ class Database:
                 " FROM key_metrics a, financial_growth b, historical_daily_discounted_cash_flow c" \
                 " WHERE a.symbol = b.symbol AND b.symbol = c.symbol" \
                 " AND a.date = b.date AND b.date = c.date;"
+        
         self.main_ctx.conn.execute(query)
+        
 
         # 5번 Table
         query = "ALTER TABLE symbol_available_indexes RENAME INDEXES;"
+        
         self.main_ctx.conn.execute(query)
+        
 
     def insert_csv(self):
         # Drop All Tables
@@ -123,12 +131,18 @@ class Database:
                 # drop index column
                 target = target.drop(target.columns[0], axis=1)
                 target = target.reset_index(drop=True)
+                
+                if directory == 'historical_price_full':
+                    if ('date' in target.columns) == False:
+                        print("there is no date column in ", directory + '/' + file)
+                        continue
+                    
                 try:
                     target.to_sql(directory, self.main_ctx.conn,
                                   if_exists='append', index=False, index_label=None, chunksize=512)
                 except sqlalchemy.exc.DataError:
                     print("error {} table".format(directory)) 
-                print("Complete creation of {} table".format(directory))
+            print("Complete creation of {} table".format(directory))
 
         params = [
             ['income_statement', 'date'], ['income_statement', 'fillingDate'], ['income_statement', 'acceptedDate'],
@@ -144,4 +158,7 @@ class Database:
         for param in params:
             query = "ALTER TABLE {} MODIFY {} DATETIME;".format(str(param[0]), str(param[1]))
             print(query)
-            self.main_ctx.conn.execute(query)
+            try:
+                self.main_ctx.conn.execute(query)
+            except:
+                print("in database.py > insert_csv() > query error query : ", query)
