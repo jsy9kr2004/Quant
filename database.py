@@ -1,3 +1,4 @@
+import logging
 import os
 
 import pandas as pd
@@ -61,7 +62,6 @@ class Database:
         #        " LEFT OUTER JOIN delisted_companies d on c.symbol = d.symbol;"
         #        # CASE WHEN table3.col3 IS NULL THEN table2.col3 ELSE table3.col3 END as col4
         # result = pd.read_sql_query(sql=query, con=self.main_ctx.conn)
-        # print(result)
 
         # 2번 Table
         query = "CREATE TABLE PRICE " \
@@ -70,6 +70,7 @@ class Database:
                 " FROM historical_price_full a, historical_market_capitalization b" \
                 " WHERE a.symbol = b.symbol" \
                 " AND a.date = b.date"
+        logging.info(query)
         self.main_ctx.conn.execute(query)
 
         # 3번 Table
@@ -86,6 +87,7 @@ class Database:
                 " FROM income_statement a, balance_sheet_statement b, cash_flow_statement c " \
                 " WHERE a.symbol = b.symbol AND b.symbol = c.symbol" \
                 " AND a.date = b.date AND b.date = c.date;"
+        logging.info(query)
         self.main_ctx.conn.execute(query)
 
         # 4번 Table
@@ -99,10 +101,12 @@ class Database:
                 " FROM key_metrics a, financial_growth b, historical_daily_discounted_cash_flow c" \
                 " WHERE a.symbol = b.symbol AND b.symbol = c.symbol" \
                 " AND a.date = b.date AND b.date = c.date;"
+        logging.info(query)
         self.main_ctx.conn.execute(query)
 
         # 5번 Table
         query = "ALTER TABLE symbol_available_indexes RENAME INDEXES;"
+        logging.info(query)
         self.main_ctx.conn.execute(query)
 
     def insert_csv(self):
@@ -127,8 +131,8 @@ class Database:
                     target.to_sql(directory, self.main_ctx.conn,
                                   if_exists='append', index=False, index_label=None, chunksize=512)
                 except sqlalchemy.exc.DataError:
-                    print("error {} table".format(directory)) 
-                print("Complete creation of {} table".format(directory))
+                    logging.error("error {} table".format(directory))
+                logging.info("Complete Append {} Data on {} table".format(file, directory))
 
         params = [
             ['income_statement', 'date'], ['income_statement', 'fillingDate'], ['income_statement', 'acceptedDate'],
@@ -143,5 +147,5 @@ class Database:
         ]
         for param in params:
             query = "ALTER TABLE {} MODIFY {} DATETIME;".format(str(param[0]), str(param[1]))
-            print(query)
+            logging.info(query)
             self.main_ctx.conn.execute(query)

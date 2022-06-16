@@ -1,6 +1,7 @@
 import csv
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+import logging
 import os
 
 import pandas as pd
@@ -34,7 +35,7 @@ class Backtest:
         while True:
             if not os.path.exists(path + str(idx) + ".csv"):
                 path = path + str(idx) + ".csv"
-                print('REPORT PATH: "{}" ...'.format(path))
+                logging.info('REPORT PATH: "{}" ...'.format(path))
                 break
             else:
                 idx += 1
@@ -88,7 +89,6 @@ class Backtest:
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
         post_date = date + relativedelta(days=4)
         res = self.price_table.query("date <= @post_date and date >=@date")
-        # print(res)
         if res.empty:
             return None
         else:
@@ -109,7 +109,7 @@ class Backtest:
             date = self.get_trade_date(date)
             if date is None:
                 break
-            print("in Backtest run() date : ", date)
+            logging.info("in Backtest run() date : ", date)
             self.plan_handler.date_handler = DateHandler(self, date)
             self.plan_handler.run()
             self.eval_handler.set_best_symbol_group(date, date+relativedelta(
@@ -148,16 +148,16 @@ class PlanHandler:
            params["base"]       : 특정 threshold 이상/이하의 종목은 score 주지 않음
            params["base_dir"]   : "base"로 준 threshold 이상/이하(</>) 선택
         """
-        print("[pbr] key : {}, key_dir : {}, weight : {}, "
-              "diff : {}, base : {}, base_dir : {}".format(params["key"], params["key_dir"], params["weight"],
-                                                           params["diff"], params["base"], params["base_dir"]))
+        logging.info("[pbr] key : {}, key_dir : {}, weight : {}, "
+                     "diff : {}, base : {}, base_dir : {}".format(params["key"], params["key_dir"], params["weight"],
+                                                                  params["diff"], params["base"], params["base_dir"]))
         key = str(params["key"])
         if params["key_dir"] == "low":
             top_k_df = self.date_handler.metrics.sort_values(by=[key], ascending=True)[:self.k_num]
         elif params["key_dir"] == "high":
             top_k_df = self.date_handler.metrics.sort_values(by=[key], ascending=False)[:self.k_num]
         else:
-            print("Wrong params['key_dir'] : ", params["key_dir"], " params['key_dir'] must be 'low' or 'high'")
+            logging.error("Wrong params['key_dir'] : ", params["key_dir"], " params['key_dir'] must be 'low' or 'high'")
             return
 
         if params["base_dir"] == ">":
@@ -165,7 +165,7 @@ class PlanHandler:
         elif params["base_dir"] == "<":
             top_k_df = top_k_df[top_k_df[key] < params["base"]]
         else:
-            print("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<'")
+            logging.error("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<'")
             return
 
         print(top_k_df[['symbol', params["key"]]])

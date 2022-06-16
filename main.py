@@ -1,3 +1,5 @@
+import logging
+import os
 import sqlalchemy
 import yaml
 
@@ -25,6 +27,16 @@ def get_config():
 
 if __name__ == '__main__':
     conf = get_config()
+
+    log_path = "log.txt"
+    if os.path.exists(log_path):
+        os.remove(log_path)
+    logging.basicConfig(level=conf['LOG_LVL'],
+                        format='[%(asctime)s][%(levelname)s] %(message)s (%(filename)s:%(lineno)d) ',
+                        handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
+    # stream_handler = [h for h in logging.root.handlers if isinstance(h, logging.StreamHandler)][0]
+    # stream_handler.setLevel(logging.DEBUG)
+
     main_ctx = MainCtx(conf)
 
     if conf['NEED_NEW_GET_FMP'] == "Y":

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 from time import sleep
@@ -23,12 +24,12 @@ class FMP:
     @staticmethod
     def create_dir(path):
         if not os.path.exists(path):
-            print('Creating Folder "{}" ...'.format(path))
+            logging.info('Creating Folder "{}" ...'.format(path))
             try:
                 os.makedirs(path)
                 return True
             except OSError:
-                print('Error: Creating "{}" directory.'.format(path))
+                logging.error('Cannot Creating "{}" directory.'.format(path))
                 return False
 
     def flatten_json(self, js, expand_all=False):
@@ -78,9 +79,6 @@ class FMP:
 
         # for elem in SYMBOL:
         for elem in data_list:
-            # TODO 결제 PLAN 더 비싼거 쓰면 sleep 지워도 됨
-            print("sleep 0.2s")
-            sleep(0.2)
             # TODO url_data = "" 와 같은 줄이 필요할 듯? except 후 continue로 들어갈 때 이전 값이 들어있음. 초기화 필요?
             # json_data = ""
             if not os.path.isfile(path + "/{}.csv".format(elem + file_postfix)):
@@ -98,15 +96,18 @@ class FMP:
                                                                                     self.api_key)
                     else:
                         api_url = self.fmp_url + "/api/v3/{}?{}apikey={}".format(main_url, extra_url, self.api_key)
-                print('Creating File "{}/{}.csv" <- "{}"'.format(path, elem + file_postfix, api_url))
+                logging.info('Creating File "{}/{}.csv" <- "{}"'.format(path, elem + file_postfix, api_url))
                 try:
+                    # TODO 결제 PLAN 더 비싼거 쓰면 sleep 지워도 됨
+                    logging.info("sleep 0.2s")
+                    sleep(0.2)
                     # json_data = pd.read_json(api_url)
                     url_data = requests.get(api_url)
                 except ValueError:
-                    print("[Warning] No Data. Or Different Data Type")
+                    logging.warning("No Data. Or Different Data Type")
                     continue
                 except urllib.error.HTTPError:
-                    print("[Warning] HTTP Error 400, API_URL : ", api_url)
+                    logging.warning("HTTP Error 400, API_URL : ", api_url)
                     continue
                 # 읽어왔는데 비어 있을 수 있음. ValueError는 Format이 안맞는 경우고 이 경우는 page=50 과 같은 extra_url 처리 때문
                 json_text = url_data.text
@@ -124,7 +125,10 @@ class FMP:
                 if cre_flag is True:
                     # 새로 만드는 경우, 이미 csv가 있다는 건 stock list와 delisted list에 중복 값이 있는 상황 (Duplicate)
                     # 리스트에 중복값이 왜 들어가게 되었는지 반드시 확인이 필요함. (가정이 깨짐)
-                    print('[ERROR] Already Exist "{}/{}.csv"'.format(path, elem + file_postfix))
+                    logging.error('Already Exist "{}/{}.csv"'.format(path, elem + file_postfix))
+                else:
+                    logging.info('Alread Exist File "{}/{}.csv"'.format(path, elem + file_postfix))
+
         return True
 
     def get_fmp_data_preprocessing(self, main_url, extra_url, need_symbol, is_v4):
@@ -208,7 +212,7 @@ class FMP:
         all_symbol.drop_duplicates('symbol', keep='first')
         all_symbol = all_symbol.reset_index(drop=True)
         self.symbol_list = all_symbol["symbol"]
-        print("in set_symbol() list=", self.symbol_list)
+        logging.info("in set_symbol() list=\n", self.symbol_list)
 
     def get_fmp(self, api_list):
         self.create_dir(self.main_ctx.root_path)
@@ -231,10 +235,12 @@ class FMP:
             extra_url = re.sub('[&]{0,1}limit=[0-9]{2,3}[&]{0,1}', "", extra_url)
             if extra_url != "":
                 extra_url = extra_url + "&"
-                print("{}\nextra_url : {}".format(api_list[i], extra_url))
-            print("\n{}\nmain_url : {} / extra_url : {} / need_symbol : {} / is_v4 : {}".format(api_list[i], main_url,
-                                                                                                extra_url, need_symbol,
-                                                                                                is_v4))
+                logging.info("{}\n\textra_url : {}".format(api_list[i], extra_url))
+            logging.info("\n\t{}\n\tmain_url : {} / extra_url : {} / need_symbol : {} / is_v4 : {}".format(api_list[i],
+                                                                                                           main_url,
+                                                                                                           extra_url,
+                                                                                                           need_symbol,
+                                                                                                           is_v4))
             self.get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4)
 
     def get_api_list(self):
