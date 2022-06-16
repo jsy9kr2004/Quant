@@ -37,7 +37,7 @@ class FMP:
         # get first column that contains lists
         ex = df.applymap(type).astype(str).eq("<class 'list'>").all().to_frame(name='bool')
         isin_classlist = (ex['bool'] == True).any()
-        if isin_classlist is True:
+        if isin_classlist == True:
             col = df.applymap(type).astype(str).eq("<class 'list'>").all().idxmax()
             # explode list and expand embedded dictionaries
             df = df.explode(col).reset_index(drop=True)
@@ -70,7 +70,7 @@ class FMP:
         path = self.main_ctx.root_path + "/" + main_url.replace("/", "-").replace("-", "_")
         cre_flag = self.create_dir(path)
 
-        if need_symbol is False:
+        if need_symbol == False:
             data_list = [path[path.rfind("/") + 1:]]
         else:
             # 일부만 돌리기 위해 앞에 5개만 가져옴 (for test) / 나중에 else만 없애면 됨.
@@ -79,19 +79,22 @@ class FMP:
 
         # for elem in SYMBOL:
         for elem in data_list:
+            # TODO 결제 PLAN 더 비싼거 쓰면 sleep 지워도 됨
+            print("sleep 0.4s")
+            sleep(0.4)
             # TODO url_data = "" 와 같은 줄이 필요할 듯? except 후 continue로 들어갈 때 이전 값이 들어있음. 초기화 필요?
             # json_data = ""
             if not os.path.isfile(path + "/{}.csv".format(elem + file_postfix)):
-                if is_v4 is True:
+                if is_v4 == True:
                     # TODO symbol 이 외에 list가 올 것이기에 need_symbol flag를 두고 있으나, symbol 이외에는 아직 당장 필요한 것이
                     #       없어서 이대로 두었으나 이 loop는 symbol 이외의 list에 대한 대비가 아래 if 문 이외에는 되어 있지 않음
-                    if need_symbol is True:
+                    if need_symbol == True:
                         api_url = self.fmp_url + "/api/v4/{}?symbol={}&{}apikey={}".format(main_url, elem, extra_url,
                                                                                            self.api_key)
                     else:
                         api_url = self.fmp_url + "/api/v4/{}?{}apikey={}".format(main_url, extra_url, self.api_key)
                 else:
-                    if need_symbol is True:
+                    if need_symbol == True:
                         api_url = self.fmp_url + "/api/v3/{}/{}?{}apikey={}".format(main_url, elem, extra_url,
                                                                                     self.api_key)
                     else:
@@ -119,10 +122,10 @@ class FMP:
                     return False
                 json_data = self.flatten_json(json_data, expand_all=True)
                 json_data.to_csv(path+"/{}.csv".format(elem + file_postfix), na_rep='NaN')
-                if json_data.empty is True:
+                if json_data.empty == True:
                     return False
             else:
-                if cre_flag is True:
+                if cre_flag == True:
                     # 새로 만드는 경우, 이미 csv가 있다는 건 stock list와 delisted list에 중복 값이 있는 상황 (Duplicate)
                     # 리스트에 중복값이 왜 들어가게 되었는지 반드시 확인이 필요함. (가정이 깨짐)
                     logging.error('Already Exist "{}/{}.csv"'.format(path, elem + file_postfix))
@@ -165,7 +168,7 @@ class FMP:
                 extra_url = re.sub('page=[0-9]{1,4}', "[PAGE]", extra_url)
                 file_postfix = "_" + str(i)
                 extra_url = extra_url.replace("[PAGE]", "page={}".format(i))
-                if self.get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix) is False:
+                if self.get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix) == False:
                     break
                 i += 1
         elif extra_url.find("date") != -1:
@@ -183,7 +186,7 @@ class FMP:
         """fmp api 로 얻어온 stock_list 와 delisted companies 에서 exchange 가 NASDAQ, NYSE인 symbol들의 list 를 만드는 함수"""
         # fmp api로 얻어온 stock_list 불러오기 
         path = self.main_ctx.root_path + "/stock_list/stock_list.csv"
-        if os.path.isfile(path) is True:
+        if os.path.isfile(path) == True:
             symbol_list = pd.read_csv(path)
         else:
             return
@@ -199,7 +202,7 @@ class FMP:
         file_list = os.listdir(self.main_ctx.root_path + "/delisted_companies/")
         for file in file_list:
             delisted = pd.read_csv(self.main_ctx.root_path + "/delisted_companies/" + file, index_col=None)
-            if delisted.empty is True:
+            if delisted.empty == True:
                 continue    
             # drop index column
             delisted = delisted.drop(delisted.columns[0], axis=1)
@@ -220,14 +223,14 @@ class FMP:
         for i in range(len(api_list)):
             need_symbol = True if api_list[i].find(self.ex_symbol) != -1 else False
             # SYMBOL 이 없는 건, SYMBOL을 만들기 위한 file도 만들어지기 전이기 때문에 두번 돌려서 SYMBOL 안쓰는 것부터 만듦
-            if need_symbol is True and self.symbol_list.empty is True:
+            if (need_symbol == True) and (self.symbol_list.empty == True):
                 continue
             is_v4 = True if api_list[i].split('/')[2] == "v4" else False
             # Code에 박아 넣은 값인 8은 url의 앞부분인 /api/v4/ 의 길이. v3와 v4 코드 통합을 위해 박아넣음
             main_url = api_list[i].split('?')[0][8:]
             extra_url = "" if api_list[i].find("?") == -1 else api_list[i].split('?')[1]
-            if need_symbol is True:
-                if is_v4 is True:
+            if need_symbol == True:
+                if is_v4 == True:
                     extra_url = "" if len(extra_url) == 10 else extra_url[12:]
                 else:
                     main_url = main_url[:-5]
