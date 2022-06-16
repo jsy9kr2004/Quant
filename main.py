@@ -25,26 +25,27 @@ def get_config():
         return yaml.load(f, Loader=yaml.FullLoader)
 
 
-if __name__ == '__main__':
-    conf = get_config()
-
+def set_logger(conf):
     log_path = "log.txt"
     if os.path.exists(log_path):
         os.remove(log_path)
     logging.basicConfig(level=conf['LOG_LVL'],
                         format='[%(asctime)s][%(levelname)s] %(message)s (%(filename)s:%(lineno)d) ',
                         handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
-    # stream_handler = [h for h in logging.root.handlers if isinstance(h, logging.StreamHandler)][0]
-    # stream_handler.setLevel(logging.DEBUG)
 
+
+if __name__ == '__main__':
+    conf = get_config()
+    set_logger(conf)
     main_ctx = MainCtx(conf)
 
+    fmp = FMP(conf, main_ctx)
+    fmp.create_dir("./reports")
     if conf['NEED_NEW_GET_FMP'] == "Y":
-        fmp = FMP(conf, main_ctx)
         fmp.get_new()
 
+    db = Database(main_ctx)
     if conf['NEED_NEW_CREATE_DB'] == "Y":
-        db = Database(main_ctx)
         db.insert_csv()
         db.rebuild_table_view()
 

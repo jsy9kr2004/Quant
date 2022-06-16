@@ -30,7 +30,7 @@ class Backtest:
         self.run()
 
     def create_report(self, type):
-        path = "./" + type + "_REPORT_"
+        path = "./reports" + type + "_REPORT_"
         idx = 0
         while True:
             if not os.path.exists(path + str(idx) + ".csv"):

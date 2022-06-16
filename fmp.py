@@ -96,11 +96,11 @@ class FMP:
                                                                                     self.api_key)
                     else:
                         api_url = self.fmp_url + "/api/v3/{}?{}apikey={}".format(main_url, extra_url, self.api_key)
-                logging.info('Creating File "{}/{}.csv" <- "{}"'.format(path, elem + file_postfix, api_url))
                 try:
                     # TODO 결제 PLAN 더 비싼거 쓰면 sleep 지워도 됨
                     logging.info("sleep 0.2s")
                     sleep(0.2)
+                    logging.info('Creating File "{}/{}.csv" <- "{}"'.format(path, elem + file_postfix, api_url))
                     # json_data = pd.read_json(api_url)
                     url_data = requests.get(api_url)
                 except ValueError:
@@ -114,13 +114,25 @@ class FMP:
                 try:
                     json_data = json.loads(json_text)
                 except json.decoder.JSONDecodeError:
-                    return False
+                    logging.error("json.decoder.JSONDecodeError")
+                    if need_symbol == True:
+                        continue
+                    else:
+                        return False
                 if json_data == [] or json_data == {}:
-                    return False
+                    logging.info("No Data in URL")
+                    if need_symbol == True:
+                        continue
+                    else:
+                        return False
                 json_data = self.flatten_json(json_data, expand_all=True)
                 json_data.to_csv(path+"/{}.csv".format(elem + file_postfix), na_rep='NaN')
                 if json_data.empty == True:
-                    return False
+                    logging.info("No Data in CSV")
+                    if need_symbol == True:
+                        continue
+                    else:
+                        return False
             else:
                 if cre_flag == True:
                     # 새로 만드는 경우, 이미 csv가 있다는 건 stock list와 delisted list에 중복 값이 있는 상황 (Duplicate)
@@ -128,7 +140,6 @@ class FMP:
                     logging.error('Already Exist "{}/{}.csv"'.format(path, elem + file_postfix))
                 else:
                     logging.info('Alread Exist File "{}/{}.csv"'.format(path, elem + file_postfix))
-
         return True
 
     def get_fmp_data_preprocessing(self, main_url, extra_url, need_symbol, is_v4):
@@ -212,7 +223,8 @@ class FMP:
         all_symbol.drop_duplicates('symbol', keep='first')
         all_symbol = all_symbol.reset_index(drop=True)
         self.symbol_list = all_symbol["symbol"]
-        logging.info("in set_symbol() list=\n", self.symbol_list)
+        # logging.info("in set_symbol() list=")
+        logging.info(self.symbol_list)
 
     def get_fmp(self, api_list):
         self.create_dir(self.main_ctx.root_path)

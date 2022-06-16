@@ -129,8 +129,8 @@ class Database:
                 target = target.reset_index(drop=True)
 
                 if directory == 'historical_price_full':
-                    if 'date' in target.columns == False:
-                        logging.error("there is no date column in ", directory + '/' + file)
+                    if ('date' in target.columns) == False:
+                        logging.error("there is no date column in " + directory + '/' + file)
                         continue
 
                 try:
