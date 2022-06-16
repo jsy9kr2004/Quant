@@ -79,9 +79,6 @@ class FMP:
 
         # for elem in SYMBOL:
         for elem in data_list:
-            # TODO 결제 PLAN 더 비싼거 쓰면 sleep 지워도 됨
-            print("sleep 0.4s")
-            sleep(0.4)
             # TODO url_data = "" 와 같은 줄이 필요할 듯? except 후 continue로 들어갈 때 이전 값이 들어있음. 초기화 필요?
             # json_data = ""
             if not os.path.isfile(path + "/{}.csv".format(elem + file_postfix)):

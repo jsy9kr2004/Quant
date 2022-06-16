@@ -129,8 +129,8 @@ class Database:
                 target = target.reset_index(drop=True)
 
                 if directory == 'historical_price_full':
-                    if ('date' in target.columns) == False:
-                        print("there is no date column in ", directory + '/' + file)
+                    if 'date' in target.columns == False:
+                        logging.error("there is no date column in ", directory + '/' + file)
                         continue
 
                 try:
@@ -153,8 +153,8 @@ class Database:
         ]
         for param in params:
             query = "ALTER TABLE {} MODIFY {} DATETIME;".format(str(param[0]), str(param[1]))
-            print(query)
+            logging.info(query)
             try:
                 self.main_ctx.conn.execute(query)
             except:
-                print("in database.py > insert_csv() > query error query : ", query)
+                logging.error("insert_csv() > query error query : ", query)
