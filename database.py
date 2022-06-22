@@ -64,14 +64,29 @@ class Database:
         # result = pd.read_sql_query(sql=query, con=self.main_ctx.conn)
 
         # 2번 Table
-        query = "CREATE TABLE PRICE " \
-                " AS SELECT a.date, a.symbol, a.open, a.high, a.low, a.close, a.volume, " \
-                " b.marketCap" \
-                " FROM historical_price_full a, historical_market_capitalization b" \
-                " WHERE a.symbol = b.symbol" \
-                " AND a.date = b.date"
-        logging.info(query)
-        self.main_ctx.conn.execute(query)
+        dfs_price = pd.read_sql_query(sql="SELECT date, symbol, open, high, low, close, volume FROM historical_price_full",
+                                            con=self.main_ctx.conn, chunksize=20480)
+        price = pd.DataFrame()
+        for df in dfs_price:
+            price = pd.concat([price, df])
+        
+        dfs_marketcap = pd.read_sql_query(sql="SELECT date, symbol, marketCap FROM historical_market_capitalization",
+                                            con=self.main_ctx.conn, chunksize=20480)
+        marketcap = pd.DataFrame()
+        for df in dfs_price:
+            marketcap = pd.concat([marketcap, df])
+        price_marketcap = pd.merge(price, marketcap, how='left', on=['symbol', 'date'])
+        price_marketcap.to_sql("PRICE", self.main_ctx.conn,
+                          if_exists='append', index=False, index_label=None, chunksize=512)
+        
+        # query = "CREATE TABLE PRICE " \
+        #         " AS SELECT a.date, a.symbol, a.open, a.high, a.low, a.close, a.volume, " \
+        #         " b.marketCap" \
+        #         " FROM historical_price_full a, historical_market_capitalization b" \
+        #         " WHERE a.symbol = b.symbol" \
+        #         " AND a.date = b.date"
+        # logging.info(query)
+        # self.main_ctx.conn.execute(query)
 
         # 3번 Table
         query = "CREATE VIEW FINANCIAL_STATEMENT" \

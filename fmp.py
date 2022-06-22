@@ -3,6 +3,7 @@ import logging
 import os
 import re
 from time import sleep
+import time
 import urllib
 import urllib.error
 import urllib.request
@@ -78,10 +79,11 @@ class FMP:
             data_list = self.symbol_list
 
         # for elem in SYMBOL:
+        start = time.time()
         for elem in data_list:
             # TODO url_data = "" 와 같은 줄이 필요할 듯? except 후 continue로 들어갈 때 이전 값이 들어있음. 초기화 필요?
             # json_data = ""
-            if not os.path.isfile(path + "/{}.csv".format(elem + file_postfix)):
+            if (not os.path.isfile(path + "/{}.csv".format(elem + file_postfix))) and (not os.path.isfile(path + "/{}.csvx".format(elem + file_postfix))):
                 if is_v4 == True:
                     # TODO symbol 이 외에 list가 올 것이기에 need_symbol flag를 두고 있으나, symbol 이외에는 아직 당장 필요한 것이
                     #       없어서 이대로 두었으나 이 loop는 symbol 이외의 list에 대한 대비가 아래 if 문 이외에는 되어 있지 않음
@@ -98,13 +100,19 @@ class FMP:
                         api_url = self.fmp_url + "/api/v3/{}?{}apikey={}".format(main_url, extra_url, self.api_key)
                 try:
                     # TODO 결제 PLAN 더 비싼거 쓰면 sleep 지워도 됨
-                    logging.info("sleep 0.2s")
-                    sleep(0.2)
+                    # logging.info("sleep 0.2s")
+                    # sleep(0.2)
                     logging.info('Creating File "{}/{}.csv" <- "{}"'.format(path, elem + file_postfix, api_url))
                     # json_data = pd.read_json(api_url)
+                    end = time.time()
+                    remain_sec = (0.2 - (end -start))
+                    if remain_sec > 0:
+                        sleep(remain_sec)
+                    start = time.time()
                     url_data = requests.get(api_url)
+                    
                 except ValueError:
-                    logging.warning("No Data. Or Different Data Type")
+                    # logging.warning("No Data. Or Different Data Type")
                     continue
                 except urllib.error.HTTPError:
                     logging.warning("HTTP Error 400, API_URL : ", api_url)
@@ -121,6 +129,8 @@ class FMP:
                         return False
                 if json_data == [] or json_data == {}:
                     logging.info("No Data in URL")
+                    f = open(path+"/{}.csvx".format(elem + file_postfix), 'w')
+                    f.close()
                     if need_symbol == True:
                         continue
                     else:
@@ -164,12 +174,12 @@ class FMP:
                     self.get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
         elif extra_url.find("from") != -1:
             for year in range(self.main_ctx.start_year, self.main_ctx.end_year + 1):
-                for month in range(1, 13):
-                    extra_url = re.sub('from=[0-9]{4}-[0-9]{2}-[0-9]{2}&to=[0-9]{4}-[0-9]{2}-[0-9]{2}',
-                                       "[FT]", extra_url)
-                    file_postfix = "_" + str(year) + "_" + str(month)
-                    extra_url = extra_url.replace("[FT]", "from={0}-{1:02d}-01&to={0}-{1:02d}-31".format(year, month))
-                    self.get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
+                #for month in range(1, 13):
+                extra_url = re.sub('from=[0-9]{4}-[0-9]{2}-[0-9]{2}&to=[0-9]{4}-[0-9]{2}-[0-9]{2}',
+                                    "[FT]", extra_url)
+                file_postfix = "_" + str(year)# + "_" + str(month)
+                extra_url = extra_url.replace("[FT]", "from={0}-01-01&to={0}-12-31".format(year))
+                self.get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
         elif extra_url.find("page") != -1:
             i = 0
             while True:
