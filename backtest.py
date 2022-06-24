@@ -11,7 +11,8 @@ CHUNK_SIZE = 20480
 
 
 class Backtest:
-    def __init__(self, main_ctx, conf, plan_handler, rebalance_period):
+    def __init__(self, main_ctx, conf, tables, plan_handler, rebalance_period):
+        self.tables = tables
         self.main_ctx = main_ctx
         self.conf = conf
         self.plan_handler = plan_handler
@@ -26,7 +27,11 @@ class Backtest:
             self.eval_report_path = self.create_report("EVAL")
         if conf['PRINT_RANK_REPORT'] == 'Y':
             self.rank_report_path = self.create_report("RANK")
-        self.init_bt_from_db()
+        if conf['USE_DB'] == "Y":
+            self.init_bt_from_db()
+        if conf['USE_DATAFRAME'] == "Y":
+            self.init_bt_from_df()
+
         self.run()
 
     def create_report(self, type):
@@ -85,6 +90,22 @@ class Backtest:
         self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
         self.fs_table = self.data_from_database("SELECT * FROM financial_statement")
         self.metrics_table = self.data_from_database("SELECT * FROM METRICS")
+
+    def init_bt_from_df(self):
+        """
+        추후에 database에서 가져올 데이터가 많을 걸 대비해서 __init__ 함수에서 세팅하지 않고, 해당 함수에서 세팅토록 함
+        일부 필요한 내용한 init하거나 분할해서 가져오려고 한다면 쿼리가 더 복잡해질 수 있기에 따로 빼놓음
+        """
+        # TODO 추후에 database에서 가져올 테이블이 많다면, set_bt_from_db 와 같은 함수 안에서 처리 예정
+        query = "SELECT * FROM PRICE WHERE date BETWEEN '" \
+                + str(datetime(self.main_ctx.start_year, 1, 1)) + "'" \
+                + " AND '" + str(datetime(self.main_ctx.end_year, 12, 31)) + "'"
+                
+        self.price_table = self.tables['price']
+        self.symbol_table = self.tables['symbol_list']
+        self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
+        self.fs_table = self.tables['financial_statement']
+        self.metrics_table = self.tables['metrics']
 
     def get_trade_date(self, date):
         """개장일이 아닐 수도 있기에 보정해주는 함수"""

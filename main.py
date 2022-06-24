@@ -5,6 +5,7 @@ import yaml
 
 from backtest import Backtest, PlanHandler
 from database import Database
+from parquet import Parquet
 from fmp import FMP
 
 
@@ -14,9 +15,9 @@ class MainCtx:
         self.end_year = int(config['END_YEAR'])
         self.root_path = config['ROOT_PATH']
         # 다른 Class와 함수에서 connection이 자주 필요하기에 Databse Class 로 관리하지 않고 main_context로 관리
-        aws_mariadb_url = 'mysql+pymysql://' + config['MARIA_DB_USER'] + ":" + config['MARIA_DB_PASSWD'] + "@" \
-                          + config['MARIA_DB_ADDR'] + ":" + config['MARIA_DB_PORT'] + "/" + config['MARIA_DB_NAME']
-        self.conn = sqlalchemy.create_engine(aws_mariadb_url)
+        # aws_mariadb_url = 'mysql+pymysql://' + config['MARIA_DB_USER'] + ":" + config['MARIA_DB_PASSWD'] + "@" \
+        #                   + config['MARIA_DB_ADDR'] + ":" + config['MARIA_DB_PORT'] + "/" + config['MARIA_DB_NAME']
+        # self.conn = sqlalchemy.create_engine(aws_mariadb_url)
         self.cre_tbl_list = ["FULL_LIST", "TMP_FULL_LIST", "PRICE", "FINANCIAL_STATEMENT", "METRICS", "INDEXES"]
 
 
@@ -44,10 +45,24 @@ if __name__ == '__main__':
     if conf['NEED_NEW_GET_FMP'] == "Y":
         fmp.get_new()
 
-    db = Database(main_ctx)
-    if conf['NEED_NEW_CREATE_DB'] == "Y":
-        db.insert_csv()
-        db.rebuild_table_view()
+    if conf['USE_DB'] == "Y":
+        db = Database(main_ctx)
+        tables = dict()
+        if conf['NEED_INSERT_CSV_TO_DB'] == "Y":
+            db.insert_csv()
+        if conf['NEED_NEW_VIEW_DB'] == "Y":
+            db.rebuild_table_view()
+    elif conf['USE_DATAFRAME'] == 'Y':
+        df_engine = Parquet(main_ctx)
+        tables = df_engine.tables
+        if conf['NEED_INSERT_CSV_TO_PQ'] == "Y":
+            df_engine.insert_csv()
+        if conf['NEED_NEW_VIEW_PQ'] == "Y":
+            if conf['NEED_INSERT_CSV_TO_PQ'] == "N":
+                df_engine.read_from_pq()
+            df_engine.rebuild_table_view()
+    else:
+        logging.error("Check conf.yaml. don't choose db and parquet both")
 
     plan_handler = PlanHandler(k_num=20)
     plan = [
@@ -57,7 +72,7 @@ if __name__ == '__main__':
                                                                "diff": 2, "base": 0, "base_dir": '>'}},
     ]
     plan_handler.plan_list = plan
-    bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=3)
+    bt = Backtest(main_ctx, conf, tables, plan_handler, rebalance_period=3)
 
     ################################################################################################
     # (1) tickers를 이용한 재무재표 예제
