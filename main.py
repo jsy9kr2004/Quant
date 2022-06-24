@@ -45,8 +45,9 @@ if __name__ == '__main__':
         fmp.get_new()
 
     db = Database(main_ctx)
-    if conf['NEED_NEW_CREATE_DB'] == "Y":
+    if conf['NEED_INSERT_CSV_TO_DB'] == "Y":
         db.insert_csv()
+    if conf['NEED_NEW_VIEW_DB'] == "Y":
         db.rebuild_table_view()
 
     plan_handler = PlanHandler(k_num=20)
