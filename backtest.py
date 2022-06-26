@@ -11,8 +11,7 @@ CHUNK_SIZE = 20480
 
 
 class Backtest:
-    def __init__(self, main_ctx, conf, tables, plan_handler, rebalance_period):
-        self.tables = tables
+    def __init__(self, main_ctx, conf, plan_handler, rebalance_period):
         self.main_ctx = main_ctx
         self.conf = conf
         self.plan_handler = plan_handler
@@ -100,11 +99,11 @@ class Backtest:
                 + str(datetime(self.main_ctx.start_year, 1, 1)) + "'" \
                 + " AND '" + str(datetime(self.main_ctx.end_year, 12, 31)) + "'"
                 
-        self.price_table = self.tables['price']
-        self.symbol_table = self.tables['symbol_list']
+        self.price_table =  pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
+        self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
         self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
-        self.fs_table = self.tables['financial_statement']
-        self.metrics_table = self.tables['metrics']
+        self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")
+        self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
 
     def get_trade_date(self, date):
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
