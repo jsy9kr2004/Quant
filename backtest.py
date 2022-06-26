@@ -68,6 +68,7 @@ class Backtest:
         :param query: 데이터베이스에 전송할 쿼리
         :return: 데이터베이스로부터 읽어온 테이블
         """
+        logging.info("Query : " + query)
         chunks = pd.read_sql_query(sql=query, con=self.main_ctx.conn, chunksize=CHUNK_SIZE)
         table = pd.DataFrame()
         for df in chunks:
