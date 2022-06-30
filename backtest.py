@@ -238,6 +238,7 @@ class DateHandler:
 
         trade_date = backtest.get_trade_date(date)
         self.price = backtest.price_table.query("date == @trade_date")
+        self.price = self.price.drop_duplicates('symbol', keep='first')
         # self.price = self.get_date_latest_per_symbol(backtest.price_table, self.date)
         self.symbol_list = pd.merge(self.symbol_list, self.price, how='left', on='symbol')
         logging.info(self.symbol_list.sample(10))
@@ -247,6 +248,8 @@ class DateHandler:
         self.fs = backtest.fs_table.copy()
         self.fs = self.fs[ self.fs.date  <= self.date]
         self.fs = self.fs[ prev  <= self.fs.date]
+        self.fs = self.fs.drop_duplicates('symbol', keep='first')
+
 
         logging.info(self.fs.sample(20))
 
@@ -255,6 +258,7 @@ class DateHandler:
         self.metrics = backtest.metrics_table.copy()
         self.metrics = self.metrics[ self.metrics.date  <= self.date]
         self.metrics = self.metrics[ prev  <= self.metrics.date]
+        self.metrics = self.metrics.drop_duplicates('symbol', keep='first')
 
 
 
