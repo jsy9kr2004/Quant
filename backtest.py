@@ -18,18 +18,15 @@ class Backtest:
         self.rebalance_period = rebalance_period
         self.eval_handler = EvaluationHandler(self)
         # 아래 값들은 init_bt_from_db 에서 세팅해주나, 가려지는 값이 없도록(init만 봤을 때 calss value가 모두 보이도록) 나열함
-        self.price_table = ""
         self.symbol_table = ""
+        self.price_table = ""
         self.fs_table = ""
         self.metrics_table = ""
         if conf['PRINT_EVAL_REPORT'] == 'Y':
             self.eval_report_path = self.create_report("EVAL")
         if conf['PRINT_RANK_REPORT'] == 'Y':
             self.rank_report_path = self.create_report("RANK")
-        if conf['USE_DB'] == "Y":
-            self.init_bt_from_db()
-        if conf['USE_DATAFRAME'] == "Y":
-            self.init_bt_from_df()
+        self.backtest_table_year = 0
 
         self.run()
 
@@ -75,36 +72,30 @@ class Backtest:
             table = pd.concat([table, df])
         return table
 
-    def init_bt_from_db(self):
+    def reload_bt_table(self, year):
         """
         추후에 database에서 가져올 데이터가 많을 걸 대비해서 __init__ 함수에서 세팅하지 않고, 해당 함수에서 세팅토록 함
         일부 필요한 내용한 init하거나 분할해서 가져오려고 한다면 쿼리가 더 복잡해질 수 있기에 따로 빼놓음
+        init에서 세팅하지 않은 이유를 코드에 도입. 해당하는 year에 값을 가져오도록 변경
         """
-        # TODO 추후에 database에서 가져올 테이블이 많다면, set_bt_from_db 와 같은 함수 안에서 처리 예정
         query = "SELECT * FROM PRICE WHERE date BETWEEN '" \
                 + str(datetime.datetime(self.main_ctx.start_year, 1, 1)) + "'" \
                 + " AND '" + str(datetime.datetime(self.main_ctx.end_year, 12, 31)) + "'"
-        self.price_table = self.data_from_database(query)
-        self.symbol_table = self.data_from_database("SELECT * FROM symbol_list")
-        self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
-        #self.fs_table = self.data_from_database("SELECT * FROM financial_statement")
-        #self.metrics_table = self.data_from_database("SELECT * FROM METRICS")
+        if self.conf['USE_DB'] == "Y":
+            self.symbol_table = self.data_from_database("SELECT * FROM symbol_list")
+            self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
+            self.price_table = self.data_from_database(query)
+            self.fs_table = self.data_from_database("SELECT * FROM financial_statement")
+            self.metrics_table = self.data_from_database("SELECT * FROM METRICS")
 
-    def init_bt_from_df(self):
-        """
-        추후에 database에서 가져올 데이터가 많을 걸 대비해서 __init__ 함수에서 세팅하지 않고, 해당 함수에서 세팅토록 함
-        일부 필요한 내용한 init하거나 분할해서 가져오려고 한다면 쿼리가 더 복잡해질 수 있기에 따로 빼놓음
-        """
-        # TODO 추후에 database에서 가져올 테이블이 많다면, set_bt_from_db 와 같은 함수 안에서 처리 예정
-        query = "SELECT * FROM PRICE WHERE date BETWEEN '" \
-                + str(datetime.datetime(self.main_ctx.start_year, 1, 1)) + "'" \
-                + " AND '" + str(datetime.datetime(self.main_ctx.end_year, 12, 31)) + "'"
-                
-        self.price_table =  pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
-        self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
-        self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
-        # self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")
-        # self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
+        if self.conf['USE_DATAFRAME'] == "Y":
+            if self.symbol_table == "":
+                self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
+                self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
+            self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price_" + str(year) + ".parquet")
+            self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
+                                            + str(year) + ".parquet")
+            self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
 
     def get_trade_date(self, pdate):
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
@@ -128,8 +119,12 @@ class Backtest:
         backtest에서 본인에게 mapping되어 있는 plan_handler에게 달아줌.
         """
         date = datetime.datetime(self.main_ctx.start_year, 1, 1)
-        while date <= datetime.datetime(self.main_ctx.end_year, 9, 30):
+        while date <= datetime.datetime(self.main_ctx.end_year, 12 - self.rebalance_period, 30):
+            if date.year != self.backtest_table_year:
+                self.reload_bt_table(date.year)
+                self.backtest_table_year = date.year
             date = self.get_trade_date(date)
+            # get_trade_date 에서 price table 을 이용해야 하기에 reload_bt_table을 먼저 해주어야 함
             if date is None:
                 break
             logging.info("in Backtest run() date : ", date)
