@@ -129,7 +129,7 @@ class Backtest:
         date_handler는 다수 만들어지며 생성 주체는 backtest이며 생성 후
         backtest에서 본인에게 mapping되어 있는 plan_handler에게 달아줌.
         """
-        date = datetime.datetime(self.main_ctx.start_year, 1, 1)
+        date = datetime.datetime(self.main_ctx.start_year, 4, 1)
         while date <= datetime.datetime(self.main_ctx.end_year, 12 - self.rebalance_period, 30):
             if date.year != self.backtest_table_year:
                 logging.info("reload_bt_table. date.year : {}, backtest_table_year : {}".format(date.year, self.backtest_table_year))
@@ -287,8 +287,13 @@ class EvaluationHandler:
 
     def cal_price(self):
         """best_symbol_group 의 ['price', 'rebalance_day_price'] column을 채워주는 함수"""
+        
         for idx, (date, rebalance_date, best_group, reference_group) in enumerate(self.best_symbol_group):
-
+            if date.year != self.backtest.backtest_table_year:
+                logging.info("in cal_price() reload_bt_table. date.year : {}, backtest_table_year : {}".format(date.year, self.backtest.backtest_table_year))
+                self.backtest.reload_bt_table(date.year)
+                self.backtest.backtest_table_year = date.year
+                            
             if idx == 0:
                 start_datehandler = DateHandler(self.backtest, date)
             end_datehandler = DateHandler(self.backtest, rebalance_date)

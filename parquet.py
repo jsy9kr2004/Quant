@@ -2,11 +2,11 @@ import datetime
 import logging
 import os
 import pandas as pd
-from dateutil.relativedelta import relativedelta
-from multiprocessing import Pool
-
 import pyarrow as pa
 import pyarrow.parquet as pq
+
+from dateutil.relativedelta import relativedelta
+from multiprocessing import Pool
 from pyarrow import csv
 
 
@@ -77,9 +77,6 @@ class Parquet:
                                                      how='outer', on=['date', 'symbol']).merge(cash_flow_statement,
                                                                                                how='outer',
                                                                                                on=['date', 'symbol'])
-
-        # ['financial_statment', 'date'], ['financial_statment', 'fillingDate'],
-        #     ['financial_statment', 'acceptedDate'],
         financial_statement['date'] = financial_statement['date'].astype('datetime64[ns]')
         financial_statement['acceptedDate'] = financial_statement['acceptedDate'].astype('datetime64[ns]')
         financial_statement['fillingDate'] = financial_statement['fillingDate'].astype('datetime64[ns]')
@@ -93,36 +90,14 @@ class Parquet:
             fs_peryear.to_parquet(self.path + "financial_statement_" + str(year) + ".parquet",
                                   engine="pyarrow", compression="gzip")
         logging.info("create price parquet per year")
+        
+        del income_statement
+        del balance_sheet_statement
+        del cash_flow_statement
         del financial_statement
         del fs_peryear
 
-        # query = "CREATE VIEW FINANCIAL_STATEMENT" \
-        #       " AS SELECT a.date, a.symbol, a.reportedCurrency, a.fillingDate, a.acceptedDate, a.calendarYear," \
-        #       " a.period, a.revenue, a.grossProfit, a.ebitda, a.operatingIncome, a.netIncome, a.eps, a.epsdiluted," \
-        #       " a.weightedAverageShsOut, a.weightedAverageShsOutDil," \
-        #       " b.inventory AS bs_inventory, b.totalCurrentAssets, b.totalNonCurrentAssets, b.totalAssets," \
-        #       " b.accountPayables as bs_accountPayables, b.totalCurrentLiabilities, b.totalNonCurrentLiabilities," \
-        #       " b.totalLiabilities, b.totalEquity, b.totalDebt, b.netDebt," \
-        #       " c.inventory as cf_inventory, c.accountsPayables as cf_accountsPayables," \
-        #       " c.commonStockIssued, c.commonStockRepurchased, c.dividendsPaid, c.netChangeInCash," \
-        #       " c.cashAtEndOfPeriod, c.operatingCashFlow, c.capitalExpenditure, c.freeCashFlow, a.link, a.finalLink" \
-        #       " FROM income_statement a, balance_sheet_statement b, cash_flow_statement c " \
-        #       " WHERE a.symbol = b.symbol AND b.symbol = c.symbol" \
-        #       " AND a.date = b.date AND b.date = c.date;"
-        # self.main_ctx.conn.execute(query)
-
         # 4번 Table
-        # query = "CREATE VIEW METRICS" \
-        #         " AS SELECT a.date, a.symbol, a.period, a.netIncomePerShare, a.marketCap, a.enterpriseValue," \
-        #         " a.peRatio, a.priceToSalesRatio, a.pbRatio, a.enterpriseValueOverEBITDA, a.debtToEquity," \
-        #         " a.dividendYield, a.payoutRatio, a.netCurrentAssetValue, a.roe, a.capexPerShare," \
-        #         " b.revenueGrowth, b.grossProfitGrowth, b.ebitgrowth, b.operatingIncomeGrowth, b.netIncomeGrowth," \
-        #         " b.epsgrowth, b.epsdilutedGrowth, b.dividendsperShareGrowth, b.operatingCashFlowGrowth," \
-        #         " b.freeCashFlowGrowth, b.assetGrowth, b.bookValueperShareGrowth, b.debtGrowth, c.dcf" \
-        #         " FROM key_metrics a, financial_growth b, historical_daily_discounted_cash_flow c" \
-        #         " WHERE a.symbol = b.symbol AND b.symbol = c.symbol" \
-        #         " AND a.date = b.date AND b.date = c.date;"
-        # self.main_ctx.conn.execute(query)
         key_metrics = pd.read_parquet(self.path + "key_metrics.parquet")
         financial_growth = pd.read_parquet(self.path + "financial_growth.parquet")
         historical_daily_discounted_cash_flow = pd.read_parquet(self.path
@@ -142,25 +117,18 @@ class Parquet:
                                                               datetime.datetime(year, 12, 31))]
             metrics_peryear.to_parquet(self.path + "metrics_"+ str(year) + ".parquet",
                                        engine="pyarrow", compression="gzip")
-            
+                   
         logging.info("create price parquet per year")
+        
+        del financial_growth
+        del key_metrics
         del metrics
         del metrics_peryear
 
         # 5번 Table
         indexes = pd.read_parquet(self.path + "symbol_available_indexes.parquet")
-        # query = "ALTER TABLE symbol_available_indexes RENAME INDEXES;"
-        # self.main_ctx.conn.execute(query)
         indexes.to_parquet(self.path + "indexes.parquet", engine="pyarrow", compression="gzip")
-
         logging.info("create indexes df")
-        # views = ['indexes','metrics','price','financial_statment','symbol_list']
-        # params = [
-        #     ['financial_statment', 'date'], ['financial_statment', 'fillingDate'],
-        #     ['financial_statment', 'acceptedDate'],
-        #     ['metrics', 'date'], ['price', 'date']
-        #     ['symbol_list', 'ipoDate'], ['symbol_list', 'delistedDate']
-        # ]
 
     @staticmethod
     def read_csv_mp(filename):
