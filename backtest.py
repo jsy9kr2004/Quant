@@ -81,6 +81,7 @@ class Backtest:
         query = "SELECT * FROM PRICE WHERE date BETWEEN '" \
                 + str(datetime.datetime(self.main_ctx.start_year, 1, 1)) + "'" \
                 + " AND '" + str(datetime.datetime(self.main_ctx.end_year, 12, 31)) + "'"
+        self.symbol_table = pd.DataFrame()
         if self.conf['USE_DB'] == "Y":
             self.symbol_table = self.data_from_database("SELECT * FROM symbol_list")
             self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
@@ -89,19 +90,29 @@ class Backtest:
             self.metrics_table = self.data_from_database("SELECT * FROM METRICS")
 
         if self.conf['USE_DATAFRAME'] == "Y":
-            if self.symbol_table == "":
+            if self.symbol_table.empty:
                 self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
                 self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
+
+            prev_price = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price_" + str(year-1) + ".parquet")
             self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price_" + str(year) + ".parquet")
+            self.price_table = pd.concat([prev_price, self.price_table])
+
+            prev_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
+                                            + str(year-1) + ".parquet")
             self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
                                             + str(year) + ".parquet")
+            self.fs_table = pd.concat([prev_fs, self.fs_table])
+
+            prev_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year-1) + ".parquet")
             self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
+            self.metrics_table = pd.concat([prev_metrics, self.metrics_table])
 
     def get_trade_date(self, pdate):
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
+        # pdate =  pdate.date()
         post_date = pdate + relativedelta(days=4)
-        post_date = post_date.date()
-        pdate = pdate.date()
+
         res = self.price_table.query("date <= @post_date and date >=@pdate")
         if res.empty:
             return None
@@ -121,6 +132,7 @@ class Backtest:
         date = datetime.datetime(self.main_ctx.start_year, 1, 1)
         while date <= datetime.datetime(self.main_ctx.end_year, 12 - self.rebalance_period, 30):
             if date.year != self.backtest_table_year:
+                logging.info("reload_bt_table. date.year : {}, backtest_table_year : {}".format(date.year, self.backtest_table_year))
                 self.reload_bt_table(date.year)
                 self.backtest_table_year = date.year
             date = self.get_trade_date(date)
@@ -129,13 +141,16 @@ class Backtest:
                 break
             logging.info("in Backtest run() date : " + str(date))
             self.plan_handler.date_handler = DateHandler(self, date)
+            logging.info("complete set date_handler date : {}".format(date.strftime("%Y-%m-%d")))
             self.plan_handler.run()
             self.eval_handler.set_best_symbol_group(date, date+relativedelta(
                 months=self.rebalance_period), self.plan_handler.date_handler)
             # day를 기준으로 하려면 아래를 사용하면 됨. 31일 기준으로 하면 우리가 원한 한달이 아님
             # date += relativedelta(days=self.rebalance_period)
             date += relativedelta(months=self.rebalance_period)
+
         if (self.conf['PRINT_RANK_REPORT'] == 'Y') | (self.conf['PRINT_EVAL_REPORT'] == 'Y'):
+            logging.info("start eval_handler run()")
             self.eval_handler.run(self.price_table)
 
 
@@ -185,8 +200,7 @@ class PlanHandler:
         else:
             logging.error("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<'")
             return
-
-        print(top_k_df[['symbol', params["key"]]])
+        logging.info(top_k_df[['symbol', params["key"]]])
         symbols = top_k_df['symbol']
         delta = 100
         for sym in symbols:
@@ -207,20 +221,26 @@ class PlanHandler:
 class DateHandler:
     def __init__(self, backtest, date):
         self.date = date
+        # date = datetime.datetime.combine(date, datetime.datetime.min.time())
         # query = '(date == "{}")'.format(self.date)
         # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
-        query = '(delistedDate >= "{}") or (delistedDate == "NaT")'.format(self.date)
+        query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(date)
         self.symbol_list = backtest.symbol_table.query(query)
         self.symbol_list = self.symbol_list.assign(score=0)
+
+        logging.info("In Datehandler init() : set price + symbol")
         self.price = self.get_date_latest_per_symbol(backtest.price_table, self.date)
         self.symbol_list = pd.merge(self.symbol_list, self.price, how='left', on='symbol')
+
+        logging.info("In Datehandler init() : set fs")
         self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
+
+        logging.info("In Datehandler init() : set metrics")
         self.metrics = self.get_date_latest_per_symbol(backtest.metrics_table, self.date)
 
     def get_date_latest_per_symbol(self, table, date):
         date_latest = pd.DataFrame()
         syms = self.symbol_list['symbol']
-        tmp = [pd.DataFrame()]
         # TODO 모든 symbol 다 돌면 오래걸려서 10개로 줄임. 나중에 삭제
         for sym in syms[:10]:
             # TODO date 기준에 date - 3달 ~ date로 넣기
@@ -230,7 +250,8 @@ class DateHandler:
                 continue
             else:
                 # past 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
-                date_latest = date_latest.append(past.iloc[0])
+                # date_latest = date_latest.append(past.iloc[0])
+                date_latest = pd.concat([date_latest, past.iloc[[0]]], axis=0)
         # FIXME 왜 symbol 당 row가 2개씩 들어가있나 ?
         date_latest = date_latest.drop_duplicates('symbol', keep='first')
         return date_latest
@@ -267,7 +288,6 @@ class EvaluationHandler:
     def cal_price(self):
         """best_symbol_group 의 ['price', 'rebalance_day_price'] column을 채워주는 함수"""
         for idx, (date, rebalance_date, best_group, reference_group) in enumerate(self.best_symbol_group):
-            
             if idx == 0:
                 start_datehandler = DateHandler(self.backtest, date)
             end_datehandler = DateHandler(self.backtest, rebalance_date)
