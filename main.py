@@ -19,6 +19,7 @@ class MainCtx:
         #                   + config['MARIA_DB_ADDR'] + ":" + config['MARIA_DB_PORT'] + "/" + config['MARIA_DB_NAME']
         # self.conn = sqlalchemy.create_engine(aws_mariadb_url)
         self.cre_tbl_list = ["FULL_LIST", "TMP_FULL_LIST", "PRICE", "FINANCIAL_STATEMENT", "METRICS", "INDEXES"]
+        self.tables = dict()
 
 
 def get_config():
@@ -47,14 +48,13 @@ if __name__ == '__main__':
 
     if conf['USE_DB'] == "Y":
         db = Database(main_ctx)
-        tables = dict()
         if conf['NEED_INSERT_CSV_TO_DB'] == "Y":
             db.insert_csv()
         if conf['NEED_NEW_VIEW_DB'] == "Y":
             db.rebuild_table_view()
     elif conf['USE_DATAFRAME'] == 'Y':
         df_engine = Parquet(main_ctx)
-        tables = df_engine.tables
+        main_ctx.tables = df_engine.tables
         if conf['NEED_INSERT_CSV_TO_PQ'] == "Y":
             df_engine.insert_csv()
         if conf['NEED_NEW_VIEW_PQ'] == "Y":
@@ -72,7 +72,7 @@ if __name__ == '__main__':
                                                                "diff": 2, "base": 0, "base_dir": '>'}},
     ]
     plan_handler.plan_list = plan
-    bt = Backtest(main_ctx, conf, tables, plan_handler, rebalance_period=3)
+    bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=3)
 
     ################################################################################################
     # (1) tickers를 이용한 재무재표 예제
