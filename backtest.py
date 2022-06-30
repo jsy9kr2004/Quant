@@ -93,15 +93,13 @@ class Backtest:
             if self.symbol_table.empty:
                 self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
                 self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
+            self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
 
-            self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price_" + str(year) + ".parquet")
             self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
                                             + str(year) + ".parquet")
             self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
 
             if year != self.main_ctx.start_year:
-                prev_price = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price_" + str(year - 1) + ".parquet")
-                self.price_table = pd.concat([prev_price, self.price_table])
                 prev_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
                                           + str(year-1) + ".parquet")
                 self.fs_table = pd.concat([prev_fs, self.fs_table])
@@ -484,8 +482,8 @@ class EvaluationHandler:
         self.cal_price()
         if self.backtest.conf['NEED_EVALUATION'] == 'Y':
             self.cal_earning()
-            self.cal_mdd(price_table)
-            self.cal_sharp()
+            # self.cal_mdd(price_table)
+            # self.cal_sharp()
         self.print_report()
 
 
