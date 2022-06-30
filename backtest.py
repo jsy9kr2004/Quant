@@ -240,7 +240,7 @@ class DateHandler:
         date_latest = pd.DataFrame()
         syms = self.symbol_list['symbol']
         # TODO 모든 symbol 다 돌면 오래걸려서 10개로 줄임. 나중에 삭제
-        for sym in syms[:10]:
+        for sym in syms:
             # TODO date 기준에 date - 3달 ~ date로 넣기
             prev_q_date = date - relativedelta(months=3)
             past = table.query("(symbol == @sym) and (date <= @date and date >= @prev_q_date)")
