@@ -82,6 +82,7 @@ class Backtest:
                 + str(datetime.datetime(self.main_ctx.start_year, 1, 1)) + "'" \
                 + " AND '" + str(datetime.datetime(self.main_ctx.end_year, 12, 31)) + "'"
         self.symbol_table = pd.DataFrame()
+        self.price_table = pd.DataFrame()
         if self.conf['USE_DB'] == "Y":
             self.symbol_table = self.data_from_database("SELECT * FROM symbol_list")
             self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
@@ -93,7 +94,8 @@ class Backtest:
             if self.symbol_table.empty:
                 self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
                 self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
-            self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
+            if self.price_table.empty:
+                self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
 
             self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
                                             + str(year) + ".parquet")
@@ -184,14 +186,17 @@ class PlanHandler:
                                                                   params["diff"], params["base"], params["base_dir"]))
         key = str(params["key"])
         if params["key_dir"] == "low":
-            # top_k_df = self.date_handler.metrics[self.date_handler.metrics[key].dropna() ]
-            top_k_df = self.date_handler.metrics.sort_values(by=[key], ascending=True, na_position="last")[:self.k_num]
+            top_k_df = self.date_handler.metrics[self.date_handler.metrics[key] > 0]
+            top_k_df = top_k_df.sort_values(
+                        by=[key], ascending=True, na_position="last")[:self.k_num]
         elif params["key_dir"] == "high":
-            top_k_df = self.date_handler.metrics.sort_values(by=[key], ascending=False, na_position="last")[:self.k_num]
+            top_k_df = self.date_handler.metrics.sort_values(
+                        by=[key], ascending=False, na_position="last")[:self.k_num]
         else:
-            logging.error("Wrong params['key_dir'] : ", params["key_dir"], " params['key_dir'] must be 'low' or 'high'")
+            logging.error("Wrong params['key_dir'] : ", params["key_dir"], "params['key_dir'] must be 'low' or 'high'")
             return
         
+
         if params["base_dir"] == ">":
             top_k_df = top_k_df[top_k_df[key] > params["base"]]
         elif params["base_dir"] == "<":
@@ -229,7 +234,8 @@ class DateHandler:
         self.symbol_list = backtest.symbol_table.query(query)
         self.symbol_list = self.symbol_list.assign(score=0)
 
-        logging.info("In Datehandler init() : set price + symbol")
+        logging.info("Datehandler init() date : "+str(date))
+
         trade_date = backtest.get_trade_date(date)
         self.price = backtest.price_table.query("date == @trade_date")
         # self.price = self.get_date_latest_per_symbol(backtest.price_table, self.date)
@@ -237,7 +243,6 @@ class DateHandler:
         logging.info(self.symbol_list.sample(10))
 
         prev =  self.date - relativedelta(months=4)
-        logging.info("In Datehandler init() : set fs")
         # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
         self.fs = backtest.fs_table.copy()
         self.fs = self.fs[ self.fs.date  <= self.date]
@@ -250,8 +255,8 @@ class DateHandler:
         self.metrics = backtest.metrics_table.copy()
         self.metrics = self.metrics[ self.metrics.date  <= self.date]
         self.metrics = self.metrics[ prev  <= self.metrics.date]
-        logging.info(self.metrics.sample(20))
-        logging.info(self.metrics.pbRatio)
+
+
 
     # def get_date_latest_per_symbol(self, table, date):
     #     date_latest = pd.DataFrame()
@@ -271,7 +276,6 @@ class DateHandler:
     #     # FIXME 왜 symbol 당 row가 2개씩 들어가있나 ?
     #     date_latest = date_latest.drop_duplicates('symbol', keep='first')
     #     return date_latest
-    #    self.metrics = self.get_date_latest_per_symbol(backtest.metrics_table, self.date)
 
 
 class EvaluationHandler:
@@ -425,6 +429,9 @@ class EvaluationHandler:
                             = allday_price_per_symbol.assign(my_asset=lambda x: x.close * count_per_sym)
                         allday_price_allsymbol.append(allday_price_per_symbol)
 
+                if allday_price_allsymbol == "":
+                    logging.warning("allday_price_allsymbol is empty. can't calc MDD.")
+                    return
                 # 각 종목별 일별 자산을 모두 더하여 일별 총자산 구함
                 accum_df = pd.DataFrame()
                 for j, df in enumerate(allday_price_allsymbol):
@@ -501,8 +508,8 @@ class EvaluationHandler:
         self.cal_price()
         if self.backtest.conf['NEED_EVALUATION'] == 'Y':
             self.cal_earning()
-            self.cal_mdd(price_table)
-            self.cal_sharp()
+            # self.cal_mdd(price_table)
+            # self.cal_sharp()
         self.print_report()
 
 
