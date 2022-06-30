@@ -296,7 +296,7 @@ class EvaluationHandler:
     @staticmethod
     def cal_member_cnt():
        # TODO 상위 몇 종목을 구매할 것인가에 대한 계산. 현재는 상위 4개의 주식을 매 period 마다 구매하는 것으로 되어 있음
-       return 4
+       return 20
 
     def set_best_symbol_group(self, date, rebalance_date, scored_datehandler):
         """plan_handler.date_handler.symbol_list에 score를 보고 best_symbol_group에 append 해주는 함수."""
