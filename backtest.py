@@ -184,13 +184,14 @@ class PlanHandler:
                                                                   params["diff"], params["base"], params["base_dir"]))
         key = str(params["key"])
         if params["key_dir"] == "low":
-            top_k_df = self.date_handler.metrics.sort_values(by=[key], ascending=True)[:self.k_num]
+            # top_k_df = self.date_handler.metrics[self.date_handler.metrics[key].dropna() ]
+            top_k_df = self.date_handler.metrics.sort_values(by=[key], ascending=True, na_position="last")[:self.k_num]
         elif params["key_dir"] == "high":
-            top_k_df = self.date_handler.metrics.sort_values(by=[key], ascending=False)[:self.k_num]
+            top_k_df = self.date_handler.metrics.sort_values(by=[key], ascending=False, na_position="last")[:self.k_num]
         else:
             logging.error("Wrong params['key_dir'] : ", params["key_dir"], " params['key_dir'] must be 'low' or 'high'")
             return
-
+        
         if params["base_dir"] == ">":
             top_k_df = top_k_df[top_k_df[key] > params["base"]]
         elif params["base_dir"] == "<":
@@ -227,32 +228,48 @@ class DateHandler:
         self.symbol_list = self.symbol_list.assign(score=0)
 
         logging.info("In Datehandler init() : set price + symbol")
-        self.price = self.get_date_latest_per_symbol(backtest.price_table, self.date)
+        trade_date = backtest.get_trade_date(date)
+        self.price = backtest.price_table.query("date == @trade_date")
+        # self.price = self.get_date_latest_per_symbol(backtest.price_table, self.date)
         self.symbol_list = pd.merge(self.symbol_list, self.price, how='left', on='symbol')
+        print(self.symbol_list.sample(10))
 
+        prev =  self.date - relativedelta(months=4)
         logging.info("In Datehandler init() : set fs")
-        self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
+        # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
+        self.fs = backtest.fs_table.copy()
+        self.fs = self.fs[ self.fs.date  <= self.date]
+        self.fs = self.fs[ prev  <= self.fs.date]
+
+        print(self.fs.sample(20))
 
         logging.info("In Datehandler init() : set metrics")
-        self.metrics = self.get_date_latest_per_symbol(backtest.metrics_table, self.date)
+        # self.metrics = self.get_date_latest_per_symbol(backtest.metrics_table, self.date)
+        self.metrics = backtest.metrics_table.copy()
+        self.metrics = self.metrics[ self.metrics.date  <= self.date]
+        self.metrics = self.metrics[ prev  <= self.metrics.date]
+        print(self.metrics.sample(20))
+        print(self.metrics.pbRatio)
 
-    def get_date_latest_per_symbol(self, table, date):
-        date_latest = pd.DataFrame()
-        syms = self.symbol_list['symbol']
-        # TODO 모든 symbol 다 돌면 오래걸려서 10개로 줄임. 나중에 삭제
-        for sym in syms[:10]:
-            # TODO date 기준에 date - 3달 ~ date로 넣기
-            prev_q_date = date - relativedelta(months=3)
-            past = table.query("(symbol == @sym) and (date <= @date and date >= @prev_q_date)")
-            if past.empty:
-                continue
-            else:
-                # past 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
-                # date_latest = date_latest.append(past.iloc[0])
-                date_latest = pd.concat([date_latest, past.iloc[[0]]], axis=0)
-        # FIXME 왜 symbol 당 row가 2개씩 들어가있나 ?
-        date_latest = date_latest.drop_duplicates('symbol', keep='first')
-        return date_latest
+
+    # def get_date_latest_per_symbol(self, table, date):
+    #     date_latest = pd.DataFrame()
+    #     syms = self.symbol_list['symbol']
+    #     print(len(syms))
+    #     # TODO 모든 symbol 다 돌면 오래걸려서 10개로 줄임. 나중에 삭제
+    #     for sym in syms:
+    #         # TODO date 기준에 date - 3달 ~ date로 넣기
+    #         prev_q_date = date - relativedelta(months=3)
+    #         past = table.query("(symbol == @sym) and (date <= @date and date >= @prev_q_date)")
+    #         if past.empty:
+    #             continue
+    #         else:
+    #             # past 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
+    #             # date_latest = date_latest.append(past.iloc[0])
+    #             date_latest = pd.concat([date_latest, past.iloc[[0]]], axis=0)
+    #     # FIXME 왜 symbol 당 row가 2개씩 들어가있나 ?
+    #     date_latest = date_latest.drop_duplicates('symbol', keep='first')
+    #     return date_latest
 
 
 class EvaluationHandler:
@@ -482,8 +499,8 @@ class EvaluationHandler:
         self.cal_price()
         if self.backtest.conf['NEED_EVALUATION'] == 'Y':
             self.cal_earning()
-            # self.cal_mdd(price_table)
-            # self.cal_sharp()
+            self.cal_mdd(price_table)
+            self.cal_sharp()
         self.print_report()
 
 
