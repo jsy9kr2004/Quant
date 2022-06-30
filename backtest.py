@@ -94,19 +94,19 @@ class Backtest:
                 self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
                 self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
 
-            prev_price = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price_" + str(year-1) + ".parquet")
             self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price_" + str(year) + ".parquet")
-            self.price_table = pd.concat([prev_price, self.price_table])
-
-            prev_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
-                                            + str(year-1) + ".parquet")
             self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
                                             + str(year) + ".parquet")
-            self.fs_table = pd.concat([prev_fs, self.fs_table])
-
-            prev_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year-1) + ".parquet")
             self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
-            self.metrics_table = pd.concat([prev_metrics, self.metrics_table])
+
+            if year != self.main_ctx.start_year:
+                prev_price = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price_" + str(year - 1) + ".parquet")
+                self.price_table = pd.concat([prev_price, self.price_table])
+                prev_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
+                                          + str(year-1) + ".parquet")
+                self.fs_table = pd.concat([prev_fs, self.fs_table])
+                prev_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year-1) + ".parquet")
+                self.metrics_table = pd.concat([prev_metrics, self.metrics_table])
 
     def get_trade_date(self, pdate):
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
@@ -288,6 +288,7 @@ class EvaluationHandler:
     def cal_price(self):
         """best_symbol_group 의 ['price', 'rebalance_day_price'] column을 채워주는 함수"""
         for idx, (date, rebalance_date, best_group, reference_group) in enumerate(self.best_symbol_group):
+
             if idx == 0:
                 start_datehandler = DateHandler(self.backtest, date)
             end_datehandler = DateHandler(self.backtest, rebalance_date)
