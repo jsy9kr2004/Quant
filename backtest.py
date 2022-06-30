@@ -473,9 +473,10 @@ class EvaluationHandler:
         elem.to_csv(path, columns=columns, mode="a")
 
     def print_report(self):
-        eval_columns = ["symbol", "score", "price", "rebalance_day_price", "count", "period_earning",
+        eval_columns = ["symbol", "score", "price", "rebalance_day_price", "count",
                         "pbRatio", "pbRatio_rank", "pbRatio_score", "peRatio", "peRatio_rank", "peRatio_score",
                         "ipoDate", "delistedDate"]
+        # "period_earning" 우선 삭제
         for idx, (date, rebalance_date, eval_elem, rank_elem) in enumerate(self.best_symbol_group):
             if self.backtest.conf['PRINT_EVAL_REPORT'] == 'Y' and self.backtest.conf['NEED_EVALUATION'] == 'Y':
                 self.write_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem, eval_columns)
