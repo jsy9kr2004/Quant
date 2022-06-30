@@ -1,5 +1,5 @@
 import csv
-from datetime import datetime
+import datetime
 from dateutil.relativedelta import relativedelta
 import logging
 import os
@@ -47,7 +47,7 @@ class Backtest:
         with open(path, 'w') as file:
             writer = csv.writer(file, delimiter=",")
             writer.writerow(["COMMON"])
-            writer.writerow(["Report Date", datetime.now().strftime('%m-%d %H:%M')])
+            writer.writerow(["Report Date", datetime.datetime.now().strftime('%m-%d %H:%M')])
             writer.writerow(["Rebalance Period", str(self.rebalance_period) + " Month",
                              "Start Year", self.main_ctx.start_year,
                              "End Year", self.main_ctx.end_year])
@@ -82,13 +82,13 @@ class Backtest:
         """
         # TODO 추후에 database에서 가져올 테이블이 많다면, set_bt_from_db 와 같은 함수 안에서 처리 예정
         query = "SELECT * FROM PRICE WHERE date BETWEEN '" \
-                + str(datetime(self.main_ctx.start_year, 1, 1)) + "'" \
-                + " AND '" + str(datetime(self.main_ctx.end_year, 12, 31)) + "'"
+                + str(datetime.datetime(self.main_ctx.start_year, 1, 1)) + "'" \
+                + " AND '" + str(datetime.datetime(self.main_ctx.end_year, 12, 31)) + "'"
         self.price_table = self.data_from_database(query)
         self.symbol_table = self.data_from_database("SELECT * FROM symbol_list")
         self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
-        self.fs_table = self.data_from_database("SELECT * FROM financial_statement")
-        self.metrics_table = self.data_from_database("SELECT * FROM METRICS")
+        #self.fs_table = self.data_from_database("SELECT * FROM financial_statement")
+        #self.metrics_table = self.data_from_database("SELECT * FROM METRICS")
 
     def init_bt_from_df(self):
         """
@@ -97,19 +97,21 @@ class Backtest:
         """
         # TODO 추후에 database에서 가져올 테이블이 많다면, set_bt_from_db 와 같은 함수 안에서 처리 예정
         query = "SELECT * FROM PRICE WHERE date BETWEEN '" \
-                + str(datetime(self.main_ctx.start_year, 1, 1)) + "'" \
-                + " AND '" + str(datetime(self.main_ctx.end_year, 12, 31)) + "'"
+                + str(datetime.datetime(self.main_ctx.start_year, 1, 1)) + "'" \
+                + " AND '" + str(datetime.datetime(self.main_ctx.end_year, 12, 31)) + "'"
                 
         self.price_table =  pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
         self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
         self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
-        self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")
-        self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
+        # self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")
+        # self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
 
-    def get_trade_date(self, date):
+    def get_trade_date(self, pdate):
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
-        post_date = date + relativedelta(days=4)
-        res = self.price_table.query("date <= @post_date and date >=@date")
+        post_date = pdate + relativedelta(days=4)
+        post_date = post_date.date()
+        pdate =  pdate.date()
+        res = self.price_table.query("date <= @post_date and date >=@pdate")
         if res.empty:
             return None
         else:
@@ -125,8 +127,8 @@ class Backtest:
         date_handler는 다수 만들어지며 생성 주체는 backtest이며 생성 후
         backtest에서 본인에게 mapping되어 있는 plan_handler에게 달아줌.
         """
-        date = datetime(self.main_ctx.start_year, 1, 1)
-        while date <= datetime(self.main_ctx.end_year, 9, 30):
+        date = datetime.datetime(self.main_ctx.start_year, 1, 1)
+        while date <= datetime.datetime(self.main_ctx.end_year, 9, 30):
             date = self.get_trade_date(date)
             if date is None:
                 break
@@ -270,6 +272,7 @@ class EvaluationHandler:
     def cal_price(self):
         """best_symbol_group 의 ['price', 'rebalance_day_price'] column을 채워주는 함수"""
         for idx, (date, rebalance_date, best_group, reference_group) in enumerate(self.best_symbol_group):
+            
             if idx == 0:
                 start_datehandler = DateHandler(self.backtest, date)
             end_datehandler = DateHandler(self.backtest, rebalance_date)
@@ -315,7 +318,7 @@ class EvaluationHandler:
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
         base_asset = self.total_asset
         prev = 0
-        best_asset = 0
+        best_asset = -1
         worst_asset = self.total_asset * 1000
         for idx, (date, rebalance_date, best_group, reference_group) in enumerate(self.best_symbol_group):
             # TODO best_symbol_group 맞게 사고 남은 짜투리 금액 처리
@@ -358,7 +361,7 @@ class EvaluationHandler:
 
     def cal_mdd(self, price_table):
         """MDD를 계산해서 채워주는 함수"""
-        best_asset = 0
+        best_asset = -1
         worst_asset = self.total_asset * 100000
         for i, (date, rebalance_date, best_group, reference_group) in enumerate(self.best_symbol_group):
             if i == 0:
@@ -437,8 +440,8 @@ class EvaluationHandler:
 
         ref_total_earning_rates = dict()
         for ref_sym in self.backtest.conf['REFERENCE_SYMBOL']:
-            start_date = self.backtest.get_trade_date(datetime(self.backtest.main_ctx.start_year, 1, 1))
-            end_date = self.backtest.get_trade_date(datetime(self.backtest.main_ctx.end_year, 12, 31))
+            start_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.start_year, 1, 1))
+            end_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.end_year, 12, 31))
             reference_earning_df = self.backtest.price_table.query("(symbol == @ref_sym) and ((date == @start_date) or (date == @end_date))")
             reference_earning = reference_earning_df.iloc[0]['close'] - reference_earning_df.iloc[1]['close']
             ref_total_earning_rate = (reference_earning / reference_earning_df.iloc[1]['close']) * 100

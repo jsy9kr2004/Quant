@@ -35,6 +35,12 @@ class Parquet:
         all_symbol = all_symbol.drop_duplicates('symbol', keep='last')
         all_symbol = all_symbol[(all_symbol['exchangeShortName'] == 'NASDAQ')
                                 | (all_symbol['exchangeShortName'] == 'NYSE')]
+        
+        
+        # ['symbol_list', 'ipoDate'], ['symbol_list', 'delistedDate']
+        all_symbol['ipoDate'] = pd.to_datetime(all_symbol['ipoDate']).dt.date
+        all_symbol['delistedDate'] = pd.to_datetime(all_symbol['delistedDate']).dt.date
+        
         all_symbol = all_symbol.reset_index(drop=True)
         all_symbol.to_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet", engine="pyarrow", compression="gzip")
         logging.info("create symbol_list df")
@@ -50,7 +56,10 @@ class Parquet:
         del price
         del marketcap
         
+        # ['price', 'date']
+        price_marketcap['date'] = pd.to_datetime(price_marketcap['date']).dt.date
         price_marketcap.to_parquet(self.main_ctx.root_path + "/VIEW/price.parquet", engine="pyarrow", compression="gzip")
+        
         logging.info("create price df")
         for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
             price_peryear = price_marketcap[ price_marketcap['date'].between(datetime.date(year,1,1), datetime.date(year,12,31)) ]
@@ -70,8 +79,15 @@ class Parquet:
                                                     cash_flow_statement, 
                                                     how='outer', on=['date', 'symbol']
                                                 )
+
+        # ['financial_statment', 'date'], ['financial_statment', 'fillingDate'],
+        #     ['financial_statment', 'acceptedDate'],
+        financial_statement['date'] = pd.to_datetime(financial_statement['date']).dt.date
+        financial_statement['acceptedDate'] = pd.to_datetime(financial_statement['acceptedDate']).dt.date
+        financial_statement['fillingDate'] = pd.to_datetime(financial_statement['fillingDate']).dt.date
                                                 
         financial_statement.to_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet", engine="pyarrow", compression="gzip")
+        
         logging.info("create financial_statement df")
         for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
             fs_peryear = financial_statement[ financial_statement['date'].between(datetime.date(year,1,1), datetime.date(year,12,31)) ]
@@ -118,13 +134,12 @@ class Parquet:
                                         historical_daily_discounted_cash_flow, 
                                         how='outer', on=['date', 'symbol']
                                     )
+        metrics['date'] = pd.to_datetime(metrics['date']).dt.date
         metrics.to_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet", engine="pyarrow", compression="gzip")
         logging.info("create metrics df")
 
         for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
-            print("cur year : ", year)
             metrics_peryear = metrics[ metrics['date'].between(datetime.date(year,1,1), datetime.date(year,12,31)) ]
-            print( metrics_peryear.sample(10) )
             metrics_peryear.to_parquet(self.main_ctx.root_path + "/VIEW/metrics_"+ str(year) +".parquet", engine="pyarrow", compression="gzip")
             
         logging.info("create price parquet per year")
@@ -138,6 +153,15 @@ class Parquet:
         indexes.to_parquet(self.main_ctx.root_path + "/VIEW/indexes.parquet", engine="pyarrow", compression="gzip")
 
         logging.info("create indexes df")
+    
+    
+        # views = ['indexes','metrics','price','financial_statment','symbol_list']
+        # params = [
+        #     ['financial_statment', 'date'], ['financial_statment', 'fillingDate'],
+        #     ['financial_statment', 'acceptedDate'],
+        #     ['metrics', 'date'], ['price', 'date']
+        #     ['symbol_list', 'ipoDate'], ['symbol_list', 'delistedDate']
+        # ]
         
 
     @staticmethod
