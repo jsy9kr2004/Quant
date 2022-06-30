@@ -38,8 +38,8 @@ class Parquet:
         
         
         # ['symbol_list', 'ipoDate'], ['symbol_list', 'delistedDate']
-        all_symbol['ipoDate'] = pd.to_datetime(all_symbol['ipoDate']).dt.date
-        all_symbol['delistedDate'] = pd.to_datetime(all_symbol['delistedDate']).dt.date
+        all_symbol['ipoDate'] = all_symbol['ipoDate'].astype('datetime64[ns]')
+        all_symbol['delistedDate'] = all_symbol['delistedDate'].astype('datetime64[ns]')
         
         all_symbol = all_symbol.reset_index(drop=True)
         all_symbol.to_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet", engine="pyarrow", compression="gzip")
@@ -57,12 +57,12 @@ class Parquet:
         del marketcap
         
         # ['price', 'date']
-        price_marketcap['date'] = pd.to_datetime(price_marketcap['date']).dt.date
+        price_marketcap['date'] = price_marketcap['date'].astype('datetime64[ns]')
         price_marketcap.to_parquet(self.main_ctx.root_path + "/VIEW/price.parquet", engine="pyarrow", compression="gzip")
         
         logging.info("create price df")
-        for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
-            price_peryear = price_marketcap[ price_marketcap['date'].between(datetime.date(year,1,1), datetime.date(year,12,31)) ]
+        for year in range(self.main_ctx.start_year-1, self.main_ctx.end_year+1):
+            price_peryear = price_marketcap[ price_marketcap['date'].between(datetime.datetime(year,1,1), datetime.datetime(year,12,31)) ]
             price_peryear.to_parquet(self.main_ctx.root_path + "/VIEW/price_"+ str(year) +".parquet", engine="pyarrow", compression="gzip")
         logging.info("create price parquet per year")
         del price_marketcap
@@ -82,15 +82,15 @@ class Parquet:
 
         # ['financial_statment', 'date'], ['financial_statment', 'fillingDate'],
         #     ['financial_statment', 'acceptedDate'],
-        financial_statement['date'] = pd.to_datetime(financial_statement['date']).dt.date
-        financial_statement['acceptedDate'] = pd.to_datetime(financial_statement['acceptedDate']).dt.date
-        financial_statement['fillingDate'] = pd.to_datetime(financial_statement['fillingDate']).dt.date
+        financial_statement['date'] = financial_statement['date'].astype('datetime64[ns]')
+        financial_statement['acceptedDate'] = financial_statement['acceptedDate'].astype('datetime64[ns]')
+        financial_statement['fillingDate'] = financial_statement['fillingDate'].astype('datetime64[ns]')
                                                 
         financial_statement.to_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet", engine="pyarrow", compression="gzip")
         
         logging.info("create financial_statement df")
-        for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
-            fs_peryear = financial_statement[ financial_statement['date'].between(datetime.date(year,1,1), datetime.date(year,12,31)) ]
+        for year in range(self.main_ctx.start_year-1, self.main_ctx.end_year+1):
+            fs_peryear = financial_statement[ financial_statement['date'].between(datetime.datetime(year,1,1), datetime.datetime(year,12,31)) ]
             fs_peryear.to_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"+ str(year) +".parquet", engine="pyarrow", compression="gzip")
         logging.info("create price parquet per year")
         del financial_statement
@@ -134,12 +134,12 @@ class Parquet:
                                         historical_daily_discounted_cash_flow, 
                                         how='outer', on=['date', 'symbol']
                                     )
-        metrics['date'] = pd.to_datetime(metrics['date']).dt.date
+        metrics['date'] = metrics['date'].astype('datetime64[ns]')
         metrics.to_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet", engine="pyarrow", compression="gzip")
         logging.info("create metrics df")
 
-        for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
-            metrics_peryear = metrics[ metrics['date'].between(datetime.date(year,1,1), datetime.date(year,12,31)) ]
+        for year in range(self.main_ctx.start_year-1, self.main_ctx.end_year+1):
+            metrics_peryear = metrics[ metrics['date'].between(datetime.datetime(year,1,1), datetime.datetime(year,12,31)) ]
             metrics_peryear.to_parquet(self.main_ctx.root_path + "/VIEW/metrics_"+ str(year) +".parquet", engine="pyarrow", compression="gzip")
             
         logging.info("create price parquet per year")
