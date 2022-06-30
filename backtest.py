@@ -101,7 +101,7 @@ class Backtest:
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
         post_date = pdate + relativedelta(days=4)
         post_date = post_date.date()
-        pdate =  pdate.date()
+        pdate = pdate.date()
         res = self.price_table.query("date <= @post_date and date >=@pdate")
         if res.empty:
             return None
@@ -127,7 +127,7 @@ class Backtest:
             # get_trade_date 에서 price table 을 이용해야 하기에 reload_bt_table을 먼저 해주어야 함
             if date is None:
                 break
-            logging.info("in Backtest run() date : ", date)
+            logging.info("in Backtest run() date : " + str(date))
             self.plan_handler.date_handler = DateHandler(self, date)
             self.plan_handler.run()
             self.eval_handler.set_best_symbol_group(date, date+relativedelta(

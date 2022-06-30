@@ -22,17 +22,6 @@ class FMP:
         self.symbol_list = pd.DataFrame()
         self.main_ctx = main_ctx
 
-    @staticmethod
-    def create_dir(path):
-        if not os.path.exists(path):
-            logging.info('Creating Folder "{}" ...'.format(path))
-            try:
-                os.makedirs(path)
-                return True
-            except OSError:
-                logging.error('Cannot Creating "{}" directory.'.format(path))
-                return False
-
     def flatten_json(self, js, expand_all=False):
         df = pd.json_normalize(json.loads(js) if type(js) == str else js)
         # get first column that contains lists
@@ -69,7 +58,7 @@ class FMP:
         """
         # [RULE] 모든 File들은 Path가 ./data/* 로 시작해야 함. ./data나 ./data/*/* 와 같은 path는 가질 수 없음
         path = self.main_ctx.root_path + "/" + main_url.replace("/", "-").replace("-", "_")
-        cre_flag = self.create_dir(path)
+        cre_flag = self.main_ctx.create_dir(path)
 
         if need_symbol == False:
             data_list = [path[path.rfind("/") + 1:]]
@@ -83,7 +72,8 @@ class FMP:
         for elem in data_list:
             # TODO url_data = "" 와 같은 줄이 필요할 듯? except 후 continue로 들어갈 때 이전 값이 들어있음. 초기화 필요?
             # json_data = ""
-            if (not os.path.isfile(path + "/{}.csv".format(elem + file_postfix))) and (not os.path.isfile(path + "/{}.csvx".format(elem + file_postfix))):
+            if (not os.path.isfile(path + "/{}.csv".format(elem + file_postfix))) \
+                    and (not os.path.isfile(path + "/{}.csvx".format(elem + file_postfix))):
                 if is_v4 == True:
                     # TODO symbol 이 외에 list가 올 것이기에 need_symbol flag를 두고 있으나, symbol 이외에는 아직 당장 필요한 것이
                     #       없어서 이대로 두었으나 이 loop는 symbol 이외의 list에 대한 대비가 아래 if 문 이외에는 되어 있지 않음
@@ -105,7 +95,7 @@ class FMP:
                     logging.info('Creating File "{}/{}.csv" <- "{}"'.format(path, elem + file_postfix, api_url))
                     # json_data = pd.read_json(api_url)
                     end = time.time()
-                    remain_sec = (0.2 - (end -start))
+                    remain_sec = (0.2 - (end - start))
                     if remain_sec > 0:
                         sleep(remain_sec)
                     start = time.time()
@@ -174,10 +164,10 @@ class FMP:
                     self.get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
         elif extra_url.find("from") != -1:
             for year in range(self.main_ctx.start_year, self.main_ctx.end_year + 1):
-                #for month in range(1, 13):
-                extra_url = re.sub('from=[0-9]{4}-[0-9]{2}-[0-9]{2}&to=[0-9]{4}-[0-9]{2}-[0-9]{2}',
-                                    "[FT]", extra_url)
-                file_postfix = "_" + str(year)# + "_" + str(month)
+                # for month in range(1, 13):
+                extra_url = re.sub('from=[0-9]{4}-[0-9]{2}-[0-9]{2}&to=[0-9]{4}-[0-9]{2}-[0-9]{2}', "[FT]", extra_url)
+                file_postfix = "_" + str(year)
+                # file_postfix = "_" + str(year) + "_" + str(month)
                 extra_url = extra_url.replace("[FT]", "from={0}-01-01&to={0}-12-31".format(year))
                 self.get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
         elif extra_url.find("page") != -1:
@@ -210,25 +200,27 @@ class FMP:
             return
         
         # stock_list에서 type "stock", exchange "NASDQA", "NYSE" 만 가져오기 이를 filtered_symbol에 저장
-        symbol_list = symbol_list.drop( symbol_list.columns[0], axis=1)
-        filtered_symbol = symbol_list[(symbol_list['type'] == "stock")  & \
-        ((symbol_list['exchangeShortName'] == 'NASDAQ') | (symbol_list['exchangeShortName'] == 'NYSE'))] 
+        symbol_list = symbol_list.drop(symbol_list.columns[0], axis=1)
+        filtered_symbol = symbol_list[(symbol_list['type'] == "stock")
+                                      & ((symbol_list['exchangeShortName'] == 'NASDAQ')
+                                         | (symbol_list['exchangeShortName'] == 'NYSE'))]
         filtered_symbol = filtered_symbol.reset_index(drop=True)
         filtered_symbol = filtered_symbol.drop(['price', 'exchange', 'name'], axis=1)        
         all_symbol = filtered_symbol
         # target_stock_symbol 과 delisted stock symbol 합쳐 필요한 symbol list 완성
         file_list = os.listdir(self.main_ctx.root_path + "/delisted_companies/")
         for file in file_list:
-            delisted = pd.read_csv(self.main_ctx.root_path + "/delisted_companies/" + file, index_col=None)
-            if delisted.empty == True:
-                continue    
-            # drop index column
-            delisted = delisted.drop(delisted.columns[0], axis=1)
-            delisted = delisted.reset_index(drop=True)
-            delisted = delisted[((delisted['exchange'] == 'NASDAQ') | (delisted['exchange'] == 'NYSE'))]
-            delisted.rename(columns={'exchange':'exchangeShortName'}, inplace=True)
-            delisted = delisted.drop(['companyName'], axis=1)        
-            all_symbol = pd.concat([all_symbol, delisted])
+            if os.path.splitext(file)[1] != ".csvx":
+                delisted = pd.read_csv(self.main_ctx.root_path + "/delisted_companies/" + file, index_col=None)
+                if delisted.empty == True:
+                    continue
+                # drop index column
+                delisted = delisted.drop(delisted.columns[0], axis=1)
+                delisted = delisted.reset_index(drop=True)
+                delisted = delisted[((delisted['exchange'] == 'NASDAQ') | (delisted['exchange'] == 'NYSE'))]
+                delisted.rename(columns={'exchange':'exchangeShortName'}, inplace=True)
+                delisted = delisted.drop(['companyName'], axis=1)
+                all_symbol = pd.concat([all_symbol, delisted])
         all_symbol.to_csv('./allsymbol.csv')
         all_symbol.drop_duplicates('symbol', keep='first')
         all_symbol = all_symbol.reset_index(drop=True)
@@ -237,7 +229,7 @@ class FMP:
         logging.info(self.symbol_list)
 
     def get_fmp(self, api_list):
-        self.create_dir(self.main_ctx.root_path)
+        self.main_ctx.create_dir(self.main_ctx.root_path)
         self.set_symbol()
         for i in range(len(api_list)):
             need_symbol = True if api_list[i].find(self.ex_symbol) != -1 else False

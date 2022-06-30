@@ -19,17 +19,28 @@ class MainCtx:
         #                   + config['MARIA_DB_ADDR'] + ":" + config['MARIA_DB_PORT'] + "/" + config['MARIA_DB_NAME']
         # self.conn = sqlalchemy.create_engine(aws_mariadb_url)
 
+    @staticmethod
+    def create_dir(path):
+        if not os.path.exists(path):
+            logging.info('Creating Folder "{}" ...'.format(path))
+            try:
+                os.makedirs(path)
+                return True
+            except OSError:
+                logging.error('Cannot Creating "{}" directory.'.format(path))
+                return False
+
 
 def get_config():
     with open('config/conf.yaml') as f:
         return yaml.load(f, Loader=yaml.FullLoader)
 
 
-def set_logger(conf):
+def set_logger(config):
     log_path = "log.txt"
     if os.path.exists(log_path):
         os.remove(log_path)
-    logging.basicConfig(level=conf['LOG_LVL'],
+    logging.basicConfig(level=config['LOG_LVL'],
                         format='[%(asctime)s][%(levelname)s] %(message)s (%(filename)s:%(lineno)d) ',
                         handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
 
@@ -39,9 +50,9 @@ if __name__ == '__main__':
     set_logger(conf)
     main_ctx = MainCtx(conf)
 
-    fmp = FMP(conf, main_ctx)
-    fmp.create_dir("./reports")
+    main_ctx.create_dir("./reports")
     if conf['NEED_NEW_GET_FMP'] == "Y":
+        fmp = FMP(conf, main_ctx)
         fmp.get_new()
 
     if conf['USE_DB'] == "Y":
