@@ -3,6 +3,7 @@ import datetime
 from dateutil.relativedelta import relativedelta
 import logging
 import os
+import copy 
 
 import pandas as pd
 import numpy as np
@@ -357,7 +358,7 @@ class EvaluationHandler:
                         self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'rebalance_day_price']\
                             = end_datehandler.price.loc[(end_datehandler.price['symbol']==sym), 'close'].values[0]
                 
-            start_datehanler = end_datehandler
+            start_datehandler = copy.deepcopy(end_datehandler)
             # print(idx, " ", date, "\n", self.best_symbol_group[idx][2])
 
     def cal_earning(self): 
