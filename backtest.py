@@ -202,6 +202,8 @@ class PlanHandler:
         logging.info(top_k_df[['symbol', params["key"]]])
         symbols = top_k_df['symbol']
         delta = 100
+        logging.info("TEST")
+        logging.info(symbols)
         for sym in symbols:
             prev_score = self.date_handler.symbol_list[self.date_handler.symbol_list['symbol'] == sym]['score']
             self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), 'score']\
@@ -232,7 +234,7 @@ class DateHandler:
         self.price = backtest.price_table.query("date == @trade_date")
         # self.price = self.get_date_latest_per_symbol(backtest.price_table, self.date)
         self.symbol_list = pd.merge(self.symbol_list, self.price, how='left', on='symbol')
-        print(self.symbol_list.sample(10))
+        logging.info(self.symbol_list.sample(10))
 
         prev =  self.date - relativedelta(months=4)
         logging.info("In Datehandler init() : set fs")
@@ -241,17 +243,15 @@ class DateHandler:
         self.fs = self.fs[ self.fs.date  <= self.date]
         self.fs = self.fs[ prev  <= self.fs.date]
 
-        print(self.fs.sample(20))
+        logging.info(self.fs.sample(20))
 
         logging.info("In Datehandler init() : set metrics")
-<<<<<<< HEAD
         # self.metrics = self.get_date_latest_per_symbol(backtest.metrics_table, self.date)
         self.metrics = backtest.metrics_table.copy()
         self.metrics = self.metrics[ self.metrics.date  <= self.date]
         self.metrics = self.metrics[ prev  <= self.metrics.date]
-        print(self.metrics.sample(20))
-        print(self.metrics.pbRatio)
-
+        logging.info(self.metrics.sample(20))
+        logging.info(self.metrics.pbRatio)
 
     # def get_date_latest_per_symbol(self, table, date):
     #     date_latest = pd.DataFrame()
@@ -271,27 +271,7 @@ class DateHandler:
     #     # FIXME 왜 symbol 당 row가 2개씩 들어가있나 ?
     #     date_latest = date_latest.drop_duplicates('symbol', keep='first')
     #     return date_latest
-=======
-        self.metrics = self.get_date_latest_per_symbol(backtest.metrics_table, self.date)
-
-    def get_date_latest_per_symbol(self, table, date):
-        date_latest = pd.DataFrame()
-        syms = self.symbol_list['symbol']
-        # TODO 모든 symbol 다 돌면 오래걸려서 10개로 줄임. 나중에 삭제
-        for sym in syms:
-            # TODO date 기준에 date - 3달 ~ date로 넣기
-            prev_q_date = date - relativedelta(months=3)
-            past = table.query("(symbol == @sym) and (date <= @date and date >= @prev_q_date)")
-            if past.empty:
-                continue
-            else:
-                # past 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
-                # date_latest = date_latest.append(past.iloc[0])
-                date_latest = pd.concat([date_latest, past.iloc[[0]]], axis=0)
-        # FIXME 왜 symbol 당 row가 2개씩 들어가있나 ?
-        date_latest = date_latest.drop_duplicates('symbol', keep='first')
-        return date_latest
->>>>>>> fafa556b69df4dae2667be6c7e8a474475e65a4f
+    #    self.metrics = self.get_date_latest_per_symbol(backtest.metrics_table, self.date)
 
 
 class EvaluationHandler:
