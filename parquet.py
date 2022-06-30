@@ -9,43 +9,25 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from pyarrow import csv
 
+import datetime
+from dateutil.relativedelta import relativedelta
+
 class Parquet:
     def __init__(self, main_ctx):
         self.main_ctx = main_ctx
         self.tables = dict()
 
-    def csv2pq(self, df, path, tablename):
-        csv_save_path = path + tablename + ".csv"
-        pq_save_path = path + tablename + ".parquet"
-        df.to_csv(csv_save_path)
-        pq.write_table(csv.read_csv(csv_save_path), pq_save_path)
-        
-
-    def read_from_pq(self):
-        dir_list = os.listdir(self.main_ctx.root_path)
-        
-        for directory in dir_list:
-            
-            csv_path = self.main_ctx.root_path + "/" + directory + "/" + directory + ".csv"
-            pq_path = self.main_ctx.root_path + "/" + directory + "/" + directory + ".parquet"
-            if directory == 'stock_list' or directory == 'symbol_available_indexes':
-                pq.write_table(csv.read_csv(csv_path), pq_path)
-            self.tables[directory] = pq.read_table(source=pq_path).to_pandas()
-            logging.info("read from pq : {}".format(directory))
-            # self.tables[directory] = pd.read_parquet(pq_path, engine='pyarrow')
-
     def rebuild_table_view(self):
         # 1번 Table
-        symbol_list = self.tables['stock_list'][['symbol', 'exchangeShortName', 'type']]      
-        delisted = self.tables['delisted_companies'][['symbol', 'exchange', 'ipoDate', 'delistedDate']]
-        profile = self.tables['profile'][['symbol', 'ipoDate', 'industry', 'exchangeShortName']]
         
+        symbol_list = pd.read_parquet(self.main_ctx.root_path + "/parquet/stock_list.parquet", columns=['symbol', 'exchangeShortName', 'type'])
+        delisted = pd.read_parquet(self.main_ctx.root_path + "/parquet/delisted_companies.parquet", columns=['symbol', 'exchange', 'ipoDate', 'delistedDate'])
+        profile = pd.read_parquet(self.main_ctx.root_path + "/parquet/profile.parquet", columns=['symbol', 'ipoDate', 'industry', 'exchangeShortName'])        
         delisted.rename(columns={'exchange':'exchangeShortName'}, inplace=True)
         
         # concat (symbol_list, delisted companies)
         all_symbol = pd.concat([symbol_list, delisted])
         all_symbol = all_symbol.drop_duplicates('symbol', keep='last')
-
         # merge ((symbol_list, delisted companies), profile)
         all_symbol = all_symbol.merge(profile, how='left', on=['symbol', 'exchangeShortName'])
         all_symbol['ipoDate'] = all_symbol['ipoDate_x'].combine_first(all_symbol['ipoDate_y'])
@@ -54,54 +36,49 @@ class Parquet:
         all_symbol = all_symbol[(all_symbol['exchangeShortName'] == 'NASDAQ')
                                 | (all_symbol['exchangeShortName'] == 'NYSE')]
         all_symbol = all_symbol.reset_index(drop=True)
-        self.tables['symbol_list'] = all_symbol
+        all_symbol.to_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet", engine="pyarrow", compression="gzip")
         logging.info("create symbol_list df")
+        del all_symbol
         
-        self.csv2pq(all_symbol, self.main_ctx.root_path + "/", "symbol_list")
 
 
-        # query = "ALTER TABLE full_list ADD PRIMARY KEY (symbol);"
-        # self.main_ctx.conn.execute(query)
-        # query = "SELECT c.symbol, c.exchangeShortName, c.type, d.delistedDate," \
-        #        " CASE c.ipoDate" \
-        #        " IS NULL THEN d.ipoDate" \
-        #        " ELSE c.ipoDate" \
-        #        " END as ipoDate" \
-        #        " FROM (SELECT a.symbol, a.exchangeShortName, a.type, b.industry, b.ipoDate" \
-        #        " FROM stock a LEFT OUTER JOIN profile b on a.symbol = b.symbol) c" \
-        #        " LEFT OUTER JOIN delisted_companies d on c.symbol = d.symbol;"
-        #        # CASE WHEN table3.col3 IS NULL THEN table2.col3 ELSE table3.col3 END as col4
-        # result = pd.read_sql_query(sql=query, con=self.main_ctx.conn)
 
         # 2번 Table
-        price = self.tables['historical_price_full'][['date', 'symbol', 'close', 'volume']]
-        marketcap = self.tables['historical_market_capitalization'][['date', 'symbol', 'marketCap']]
+        price = pd.read_parquet(self.main_ctx.root_path + "/parquet/historical_price_full.parquet", columns=['date', 'symbol', 'close', 'volume'])
+        marketcap = pd.read_parquet(self.main_ctx.root_path + "/parquet/historical_market_capitalization.parquet", columns=['date', 'symbol', 'marketCap'])
         price_marketcap = pd.merge(price, marketcap, how='left', on=['symbol', 'date'])
-        self.tables['price'] = price_marketcap
         del price
         del marketcap
-        self.csv2pq(price_marketcap, self.main_ctx.root_path + "/", "price")
-        logging.info("create price df")
-
         
-        # query = "CREATE TABLE PRICE " \
-        #         " AS SELECT a.date, a.symbol, a.open, a.high, a.low, a.close, a.volume, " \
-        #         " b.marketCap" \
-        #         " FROM historical_price_full a, historical_market_capitalization b" \
-        #         " WHERE a.symbol = b.symbol" \
-        #         " AND a.date = b.date"
-        # logging.info(query)
-        # self.main_ctx.conn.execute(query)
+        price_marketcap.to_parquet(self.main_ctx.root_path + "/VIEW/price.parquet", engine="pyarrow", compression="gzip")
+        logging.info("create price df")
+        for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
+            price_peryear = price_marketcap[ price_marketcap['date'].between(datetime.date(year,1,1), datetime.date(year,12,31)) ]
+            price_peryear.to_parquet(self.main_ctx.root_path + "/VIEW/price_"+ str(year) +".parquet", engine="pyarrow", compression="gzip")
+        logging.info("create price parquet per year")
+        del price_marketcap
+        del price_peryear
+        
 
         # 3번 Table
-
-        self.tables['financial_statement'] = self.tables['income_statement'].merge(
-                                                self.tables['balance_sheet_statement'],
+        income_statement = pd.read_parquet(self.main_ctx.root_path + "/parquet/income_statement.parquet")
+        balance_sheet_statement = pd.read_parquet(self.main_ctx.root_path + "/parquet/balance_sheet_statement.parquet")
+        cash_flow_statement = pd.read_parquet(self.main_ctx.root_path + "/parquet/cash_flow_statement.parquet")
+    
+        financial_statement =income_statement.merge(balance_sheet_statement,
                                                 how='outer', on=['date', 'symbol']).merge(
-                                                    self.tables['cash_flow_statement'], 
+                                                    cash_flow_statement, 
                                                     how='outer', on=['date', 'symbol']
                                                 )
-        self.csv2pq(self.tables['financial_statement'], self.main_ctx.root_path + "/", "financial_statement")
+                                                
+        financial_statement.to_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet", engine="pyarrow", compression="gzip")
+        logging.info("create financial_statement df")
+        for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
+            fs_peryear = financial_statement[ financial_statement['date'].between(datetime.date(year,1,1), datetime.date(year,12,31)) ]
+            fs_peryear.to_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"+ str(year) +".parquet", engine="pyarrow", compression="gzip")
+        logging.info("create price parquet per year")
+        del financial_statement
+        del fs_peryear
 
         # query = "CREATE VIEW FINANCIAL_STATEMENT" \
         #         " AS SELECT a.date, a.symbol, a.reportedCurrency, a.fillingDate, a.acceptedDate, a.calendarYear," \
@@ -117,7 +94,6 @@ class Parquet:
         #         " WHERE a.symbol = b.symbol AND b.symbol = c.symbol" \
         #         " AND a.date = b.date AND b.date = c.date;"
         # self.main_ctx.conn.execute(query)
-        logging.info("create financial_statement df")
         
 
         # 4번 Table
@@ -132,26 +108,34 @@ class Parquet:
         #         " WHERE a.symbol = b.symbol AND b.symbol = c.symbol" \
         #         " AND a.date = b.date AND b.date = c.date;"
         # self.main_ctx.conn.execute(query)
-        self.tables['key_metrics']
-        self.tables['financial_growth']
-        self.tables['historical_daily_discounted_cash_flow']
+        key_metrics = pd.read_parquet(self.main_ctx.root_path + "/parquet/key_metrics.parquet")
+        financial_growth = pd.read_parquet(self.main_ctx.root_path + "/parquet/financial_growth.parquet")
+        historical_daily_discounted_cash_flow = pd.read_parquet(
+                            self.main_ctx.root_path + "/parquet/historical_daily_discounted_cash_flow.parquet")
         
-        self.tables['metrics'] = self.tables['key_metrics'].merge(
-                                        self.tables['financial_growth'],
-                                        how='outer', on=['date', 'symbol']).merge(
-                                            self.tables['historical_daily_discounted_cash_flow'], 
-                                            how='outer', on=['date', 'symbol']
-                                        )
-        
-        self.csv2pq(self.tables['metrics'], self.main_ctx.root_path + "/", "metrics")
-
+        metrics = key_metrics.merge(financial_growth,
+                                    how='outer', on=['date', 'symbol']).merge(
+                                        historical_daily_discounted_cash_flow, 
+                                        how='outer', on=['date', 'symbol']
+                                    )
+        metrics.to_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet", engine="pyarrow", compression="gzip")
         logging.info("create metrics df")
 
+        for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
+            print("cur year : ", year)
+            metrics_peryear = metrics[ metrics['date'].between(datetime.date(year,1,1), datetime.date(year,12,31)) ]
+            print( metrics_peryear.sample(10) )
+            metrics_peryear.to_parquet(self.main_ctx.root_path + "/VIEW/metrics_"+ str(year) +".parquet", engine="pyarrow", compression="gzip")
+            
+        logging.info("create price parquet per year")
+        del metrics
+        del metrics_peryear
+
         # 5번 Table
-        self.tables['indexes'] = self.tables['symbol_available_indexes']
+        indexes = pd.read_parquet(self.main_ctx.root_path + "/parquet/symbol_available_indexes.parquet")
         # query = "ALTER TABLE symbol_available_indexes RENAME INDEXES;"
         # self.main_ctx.conn.execute(query)
-        self.csv2pq(self.tables['indexes'], self.main_ctx.root_path + "/", "indexes")
+        indexes.to_parquet(self.main_ctx.root_path + "/VIEW/indexes.parquet", engine="pyarrow", compression="gzip")
 
         logging.info("create indexes df")
         
@@ -166,16 +150,17 @@ class Parquet:
         # merge all csvs per directoy
         dir_list = os.listdir(self.main_ctx.root_path)
         logging.info("directory list : {}".format(dir_list))
-        for directory in dir_list:    
-            csv_save_path = self.main_ctx.root_path + "/" + directory + "/" + directory + ".csv"
-            pq_save_path = self.main_ctx.root_path + "/" + directory + "/" + directory + ".parquet"
+        for directory in dir_list:
+            csv_save_path = self.main_ctx.root_path + "/parquet/" + directory + ".csv"
+            pq_save_path = self.main_ctx.root_path + "/parquet/" + directory + ".parquet"
             if (directory != 'stock_list') and (directory != 'symbol_available_indexes'):
                 if os.path.exists(csv_save_path):
                     os.remove(csv_save_path)
                 if os.path.exists(pq_save_path):
                     os.remove(pq_save_path)
                 
-            file_list = [self.main_ctx.root_path + "/" + directory + "/" +file for file in os.listdir(self.main_ctx.root_path + "/" + directory) if file.endswith(".csv")] 
+            file_list = [self.main_ctx.root_path + "/" + directory + "/" +file 
+                            for file in os.listdir(self.main_ctx.root_path + "/" + directory) if file.endswith(".csv")] 
             full_df = pd.DataFrame()
             
             # using multi-processing 
@@ -198,18 +183,3 @@ class Parquet:
             full_df.to_csv(csv_save_path, index=False)
             pq.write_table(csv.read_csv(csv_save_path), pq_save_path)
             logging.info("create df in tables dict : {}".format(directory))
-            # check_df = pd.read_parquet(save_path, engine='pyarrow')
-    
-                        
-        params = [
-            ['income_statement', 'date'], ['income_statement', 'fillingDate'], ['income_statement', 'acceptedDate'],
-            ['balance_sheet_statement', 'date'], ['balance_sheet_statement', 'fillingDate'],
-            ['balance_sheet_statement', 'acceptedDate'],
-            ['cash_flow_statement', 'date'], ['cash_flow_statement', 'fillingDate'],
-            ['cash_flow_statement', 'acceptedDate'],
-            ['key_metrics', 'date'], ['financial_growth', 'date'], ['historical_daily_discounted_cash_flow', 'date'],
-            ['earning_calendar', 'date'], ['profile', 'ipoDate'], ['historical_market_capitalization', 'date'],
-            ['delisted_companies', 'ipoDate'], ['delisted_companies', 'delistedDate'],
-            ['historical_price_full', 'date']
-        ]
-

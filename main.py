@@ -18,8 +18,6 @@ class MainCtx:
         # aws_mariadb_url = 'mysql+pymysql://' + config['MARIA_DB_USER'] + ":" + config['MARIA_DB_PASSWD'] + "@" \
         #                   + config['MARIA_DB_ADDR'] + ":" + config['MARIA_DB_PORT'] + "/" + config['MARIA_DB_NAME']
         # self.conn = sqlalchemy.create_engine(aws_mariadb_url)
-        self.cre_tbl_list = ["FULL_LIST", "TMP_FULL_LIST", "PRICE", "FINANCIAL_STATEMENT", "METRICS", "INDEXES"]
-        self.tables = dict()
 
 
 def get_config():
@@ -54,12 +52,9 @@ if __name__ == '__main__':
             db.rebuild_table_view()
     elif conf['USE_DATAFRAME'] == 'Y':
         df_engine = Parquet(main_ctx)
-        main_ctx.tables = df_engine.tables
         if conf['NEED_INSERT_CSV_TO_PQ'] == "Y":
             df_engine.insert_csv()
         if conf['NEED_NEW_VIEW_PQ'] == "Y":
-            if conf['NEED_INSERT_CSV_TO_PQ'] == "N":
-                df_engine.read_from_pq()
             df_engine.rebuild_table_view()
     else:
         logging.error("Check conf.yaml. don't choose db and parquet both")
