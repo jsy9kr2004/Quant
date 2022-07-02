@@ -195,11 +195,11 @@ class PlanHandler:
 
         key = str(params["key"])
         if params["key_dir"] == "low":
-            top_k_df = self.date_handler.metrics[self.date_handler.metrics[key] > 0]
+            top_k_df = self.date_handler.fs_metircs[self.date_handler.fs_metircs[key] > 0]
             top_k_df = top_k_df.sort_values(
                         by=[key], ascending=True, na_position="last")[:self.k_num]
         elif params["key_dir"] == "high":
-            top_k_df = self.date_handler.metrics.sort_values(
+            top_k_df = self.date_handler.fs_metircs.sort_values(
                         by=[key], ascending=False, na_position="last")[:self.k_num]
         else:
             logging.error("Wrong params['key_dir'] : ", params["key_dir"], "params['key_dir'] must be 'low' or 'high'")
@@ -212,10 +212,10 @@ class PlanHandler:
         else:
             logging.error("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<'")
             return
-        logging.info(top_k_df[['symbol', params["key"]]])
+        # logging.info(top_k_df[['symbol', params["key"]]])
         symbols = top_k_df['symbol']
         delta = self.absolute_score
-        logging.debug(symbols)
+        # logging.debug(symbols)
         for sym in symbols:
             prev_score = self.date_handler.symbol_list[self.date_handler.symbol_list['symbol'] == sym]['score']
             self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), 'score']\
@@ -259,6 +259,9 @@ class DateHandler:
         self.metrics = self.metrics[ self.metrics.date  <= self.date]
         self.metrics = self.metrics[ prev  <= self.metrics.date]
         self.metrics = self.metrics.drop_duplicates('symbol', keep='first')
+
+        self.fs_metircs = pd.merge(self.fs, self.metrics, how='outer', on='symbol')
+
 
 class EvaluationHandler:
     def __init__(self, backtest):
@@ -465,7 +468,7 @@ class EvaluationHandler:
         # "period_earning" 우선 삭제
         for idx, (date, rebalance_date, eval_elem, rank_elem) in enumerate(self.best_symbol_group):
             if self.backtest.conf['PRINT_EVAL_REPORT'] == 'Y' and self.backtest.conf['NEED_EVALUATION'] == 'Y':
-                self.write_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem, eval_columns)
+                self.write_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem, eval_elem.columns.tolist())
             if self.backtest.conf['PRINT_RANK_REPORT'] == 'Y':
                 if idx <= self.backtest.conf['RANK_PERIOD']:
                     self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem, rank_elem.columns.tolist())

@@ -72,10 +72,54 @@ if __name__ == '__main__':
 
     plan_handler = PlanHandler(conf['TOP_K_NUM'], conf['ABSOLUTE_SCORE'])
     plan = [
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'pbRatio', "key_dir": 'low', "weight": 1,
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'threeYNetIncomeGrowthPerShare', "key_dir": 'high', "weight": 1,
                                                                "diff": 2, "base": 0, "base_dir": '>'}},
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'peRatio', "key_dir": 'low', "weight": 1,
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'fiveYRevenueGrowthPerShare', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},                                                       
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'bookValueperShareGrowth', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
+
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'threeYRevenueGrowthPerShare', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'epsdilutedGrowth', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
+
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'epsgrowth', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
+
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'netIncomeGrowth', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
+
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'otherNonCurrentAssets', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
+
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'grossProfitRatio', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
+
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'revenueGrowth', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
+
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'netCashUsedForInvestingActivites', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'costOfRevenue', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'costAndExpenses', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'grossProfit', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},   
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'threeYShareholdersEquityGrowthPerShare', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},   
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'operatingIncomeGrowth', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},   
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'ebitgrowth', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},   
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'otherCurrentLiabilities', "key_dir": 'low', "weight": 1,
                                                                "diff": 3, "base": 0, "base_dir": '>'}},
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'grossProfitGrowth', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},   
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'fiveYNetIncomeGrowthPerShare', "key_dir": 'high', "weight": 1,
+                                                               "diff": 2, "base": 0, "base_dir": '>'}}
+
     ]
     plan_handler.plan_list = plan
     bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=conf['REBALANCE_PERIOD'])
