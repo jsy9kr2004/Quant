@@ -156,10 +156,11 @@ class Backtest:
 
 
 class PlanHandler:
-    def __init__(self, k_num):
+    def __init__(self, k_num, absolute_score):
         self.plan_list = None
         self.date_handler = None
         self.k_num = k_num
+        self.absolute_score = absolute_score
 
     def run(self):
         """
@@ -185,6 +186,10 @@ class PlanHandler:
         logging.info("[pbr] key : {}, key_dir : {}, weight : {}, "
                      "diff : {}, base : {}, base_dir : {}".format(params["key"], params["key_dir"], params["weight"],
                                                                   params["diff"], params["base"], params["base_dir"]))
+
+        if self.absolute_score - params["diff"] * self.k_num < 0:
+            logging.error("Wrong params['diff'] : TOO BIG! SET UNDER " + str(self.absolute_score/self.k_num))
+
         key = str(params["key"])
         if params["key_dir"] == "low":
             top_k_df = self.date_handler.metrics[self.date_handler.metrics[key] > 0]
@@ -196,7 +201,6 @@ class PlanHandler:
         else:
             logging.error("Wrong params['key_dir'] : ", params["key_dir"], "params['key_dir'] must be 'low' or 'high'")
             return
-        
 
         if params["base_dir"] == ">":
             top_k_df = top_k_df[top_k_df[key] > params["base"]]
@@ -207,9 +211,8 @@ class PlanHandler:
             return
         logging.info(top_k_df[['symbol', params["key"]]])
         symbols = top_k_df['symbol']
-        delta = 100
-        logging.info("TEST")
-        logging.info(symbols)
+        delta = self.absolute_score
+        logging.debug(symbols)
         for sym in symbols:
             prev_score = self.date_handler.symbol_list[self.date_handler.symbol_list['symbol'] == sym]['score']
             self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), 'score']\
@@ -263,12 +266,11 @@ class EvaluationHandler:
         self.accumulated_earning = 0
         self.MDD = 0
         self.sharp = 0
-        self.total_asset = 100000000
+        self.total_asset = backtest.conf['TOTAL_ASSET']
 
-    @staticmethod
-    def cal_member_cnt():
-       # TODO 상위 몇 종목을 구매할 것인가에 대한 계산. 현재는 상위 4개의 주식을 매 period 마다 구매하는 것으로 되어 있음
-       return 20
+    def cal_member_cnt(self):
+           """상위 몇 종목을 구매할 것인가에 대한 계산. 현재는 상위 4개의 주식을 매 period 마다 구매하는 것으로 되어 있음"""
+       return self.backtest.conf['MEMBER_CNT']
 
     def set_best_symbol_group(self, date, rebalance_date, scored_datehandler):
         """plan_handler.date_handler.symbol_list에 score를 보고 best_symbol_group에 append 해주는 함수."""
@@ -369,8 +371,8 @@ class EvaluationHandler:
 
             # print("date : ", date, "\nbest group : \n")
             # print(best_group[['symbol', 'price', 'rebalance_day_price', 'count']])
-            print("cur idx : {} prev : {} earning : {:.2f} asset : {}".format(idx, idx-1, period_earning,
-                                                                              self.total_asset))
+            logging.info("cur idx : {} prev : {} earning : {:.2f} asset : {}".format(idx, idx-1, period_earning,
+                                                                                     self.total_asset))
             # print(best_group['symbol', 'price', 'rebalance_day_price'])
 
             self.historical_earning_per_rebalanceday.append([date, period_earning, prev, self.total_asset, best_group])
@@ -380,7 +382,7 @@ class EvaluationHandler:
                 best_asset = my_asset_period
             if self.total_asset < worst_asset:
                 worst_asset = my_asset_period
-        print("rebalanced day price based MDD : {:.2f} %".format(((worst_asset / best_asset) - 1) * 100))
+        logging.info("rebalanced day price based MDD : {:.2f} %".format(((worst_asset / best_asset) - 1) * 100))
 
     def cal_mdd(self, price_table):
         """MDD를 계산해서 채워주는 함수"""
