@@ -70,15 +70,15 @@ if __name__ == '__main__':
     else:
         logging.error("Check conf.yaml. don't choose db and parquet both")
 
-    plan_handler = PlanHandler(k_num=20)
+    plan_handler = PlanHandler(conf['TOP_K_NUM'], conf['ABSOLUTE_SCORE'])
     plan = [
         {"f_name": plan_handler.single_metric_plan, "params": {"key": 'pbRatio', "key_dir": 'low', "weight": 1,
                                                                "diff": 2, "base": 0, "base_dir": '>'}},
         {"f_name": plan_handler.single_metric_plan, "params": {"key": 'peRatio', "key_dir": 'low', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},
+                                                               "diff": 3, "base": 0, "base_dir": '>'}},
     ]
     plan_handler.plan_list = plan
-    bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=3)
+    bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=conf['REBALANCE_PERIOD'])
 
     ################################################################################################
     # (1) tickers를 이용한 재무재표 예제
@@ -89,12 +89,6 @@ if __name__ == '__main__':
     # symbol = 'GOOGL'
     # sp500_ticker = si.tickers_sp500()
     # print(si.get_balance_sheet(symbol))
-
-    # (2) MultiProcessing 예제
-    # from multiprocessing import Pool
-    # pool = Pool(8)
-    # return = pool.map(method, parameters)
-    # sp500_info = pool.map(, sp500_tickers)
 
     # (3) DataReader 예제
     # import FinanceDataReader as fdr

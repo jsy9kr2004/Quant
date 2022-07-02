@@ -141,6 +141,8 @@ class Parquet:
         dir_list = os.listdir(self.main_ctx.root_path)
         logging.info("directory list : {}".format(dir_list))
         for directory in dir_list:
+            if not os.path.isdir(directory):
+                continue
             csv_save_path = self.path + directory + ".csv"
             pq_save_path = self.path + directory + ".parquet"
             if (directory != 'stock_list') and (directory != 'symbol_available_indexes'):
