@@ -98,16 +98,11 @@ class Backtest:
             if self.price_table.empty:
                 self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
 
-            self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
-                                            + str(year) + ".parquet")
-            self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
-
-            if year != self.main_ctx.start_year:
-                prev_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
-                                          + str(year-1) + ".parquet")
-                self.fs_table = pd.concat([prev_fs, self.fs_table])
-                prev_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year-1) + ".parquet")
-                self.metrics_table = pd.concat([prev_metrics, self.metrics_table])
+            prev_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
+                                        + str(year-1) + ".parquet")
+            self.fs_table = pd.concat([prev_fs, self.fs_table])
+            prev_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year-1) + ".parquet")
+            self.metrics_table = pd.concat([prev_metrics, self.metrics_table])
 
     def get_trade_date(self, pdate):
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
@@ -304,8 +299,8 @@ class EvaluationHandler:
                     how='outer', on='symbol')
                 self.best_symbol_group[idx][3] = \
                     self.best_symbol_group[idx][3][self.best_symbol_group[idx][3].close > 0.000001] 
-                self.best_symbol_group[idx][3]['period_price_diff'] = \
-                    self.best_symbol_group[idx][3]['rebalance_day_price'] - self.best_symbol_group[idx][3]['close']
+                diff = self.best_symbol_group[idx][3]['rebalance_day_price'] - self.best_symbol_group[idx][3]['close']
+                self.best_symbol_group[idx][3]['period_price_diff'] = diff / self.best_symbol_group[idx][3]['close']
                 self.best_symbol_group[idx][3] = pd.merge(
                     self.best_symbol_group[idx][3], start_datehandler.metrics, how='outer', on='symbol')
                 self.best_symbol_group[idx][3] = pd.merge(
@@ -347,7 +342,7 @@ class EvaluationHandler:
         worst_asset = self.total_asset * 1000
         for idx, (date, rebalance_date, best_group, reference_group) in enumerate(self.best_symbol_group):
             # TODO best_symbol_group 맞게 사고 남은 짜투리 금액 처리
-            stock_cnt = (self.total_asset / self.member_cnt) / best_group['price']
+            stock_cnt = (self.total_asset / len(best_group)) / best_group['price']
             stock_cnt = stock_cnt.replace([np.inf, -np.inf], 0)
             stock_cnt = stock_cnt.fillna(0)
             stock_cnt = stock_cnt.astype(int)
@@ -464,7 +459,7 @@ class EvaluationHandler:
             if self.backtest.conf['PRINT_EVAL_REPORT'] == 'Y' and self.backtest.conf['NEED_EVALUATION'] == 'Y':
                 self.write_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem, eval_columns)
             if self.backtest.conf['PRINT_RANK_REPORT'] == 'Y':
-                if idx == self.backtest.conf['RANK_PERIOD']:
+                if idx <= self.backtest.conf['RANK_PERIOD']:
                     self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem, rank_elem.columns.tolist())
             # period.to_csv(self.backtest.eval_report_path, mode="a", column=columns)
 
