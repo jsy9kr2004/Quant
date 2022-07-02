@@ -98,16 +98,18 @@ class Backtest:
             if self.price_table.empty:
                 self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
 
+
+            self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
+                                        + str(year) + ".parquet")
+            self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
+            
             if year != self.main_ctx.start_year:
                 prev_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
                                           + str(year-1) + ".parquet")
                 self.fs_table = pd.concat([prev_fs, self.fs_table])
                 prev_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year-1) + ".parquet")
                 self.metrics_table = pd.concat([prev_metrics, self.metrics_table])
-            else:
-                self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
-                                            + str(year) + ".parquet")
-                self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
+
 
 
     def get_trade_date(self, pdate):
