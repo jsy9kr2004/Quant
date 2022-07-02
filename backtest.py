@@ -464,7 +464,8 @@ class EvaluationHandler:
             if self.backtest.conf['PRINT_EVAL_REPORT'] == 'Y' and self.backtest.conf['NEED_EVALUATION'] == 'Y':
                 self.write_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem, eval_columns)
             if self.backtest.conf['PRINT_RANK_REPORT'] == 'Y':
-                self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem, rank_elem.columns.tolist())
+                if idx == self.backtest.conf['RANK_PERIOD']:
+                    self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem, rank_elem.columns.tolist())
             # period.to_csv(self.backtest.eval_report_path, mode="a", column=columns)
 
         ref_total_earning_rates = dict()
