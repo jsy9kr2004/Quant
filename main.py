@@ -1,5 +1,6 @@
 import logging
 import os
+import pandas as pd
 import sqlalchemy
 import yaml
 
@@ -71,56 +72,16 @@ if __name__ == '__main__':
         logging.error("Check conf.yaml. don't choose db and parquet both")
 
     plan_handler = PlanHandler(conf['TOP_K_NUM'], conf['ABSOLUTE_SCORE'])
-    plan = [
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'threeYNetIncomeGrowthPerShare', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'fiveYRevenueGrowthPerShare', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},                                                       
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'bookValueperShareGrowth', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
-
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'threeYRevenueGrowthPerShare', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'epsdilutedGrowth', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
-
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'epsgrowth', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
-
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'netIncomeGrowth', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
-
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'otherNonCurrentAssets', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
-
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'grossProfitRatio', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
-
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'revenueGrowth', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
-
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'netCashUsedForInvestingActivites', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'costOfRevenue', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'costAndExpenses', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},      
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'grossProfit', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},   
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'threeYShareholdersEquityGrowthPerShare', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},   
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'operatingIncomeGrowth', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},   
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'ebitgrowth', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},   
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'otherCurrentLiabilities', "key_dir": 'low', "weight": 1,
-                                                               "diff": 3, "base": 0, "base_dir": '>'}},
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'grossProfitGrowth', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},   
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'fiveYNetIncomeGrowthPerShare', "key_dir": 'high', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}}
-
-    ]
+    plan = []
+    plan_df = pd.read_csv("./plan.csv")
+    plan_info = plan_df.values.tolist()
+    for i in range(len(plan_info)):
+        plan.append(
+            {"f_name": plan_handler.single_metric_plan,
+             "params": {"key": plan_info[i][0],
+                        "key_dir": plan_info[i][1], "weight": plan_info[i][2],
+                        "diff": plan_info[i][3], "base": plan_info[i][4], "base_dir": plan_info[i][5]}}
+        )
     plan_handler.plan_list = plan
     bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=conf['REBALANCE_PERIOD'])
 

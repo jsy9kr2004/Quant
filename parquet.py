@@ -104,10 +104,8 @@ class Parquet:
                                                                 + "historical_daily_discounted_cash_flow.parquet")
         
         metrics = key_metrics.merge(financial_growth,
-                                    how='outer', on=['date', 'symbol']).merge(
-                                        historical_daily_discounted_cash_flow, 
-                                        how='outer', on=['date', 'symbol']
-                                    )
+                                    how='outer', on=['date', 'symbol']).merge(historical_daily_discounted_cash_flow,
+                                                                              how='outer', on=['date', 'symbol'])
         metrics['date'] = metrics['date'].astype('datetime64[ns]')
         metrics.to_parquet(self.path + "metrics.parquet", engine="pyarrow", compression="gzip")
         logging.info("create metrics df")
@@ -115,7 +113,7 @@ class Parquet:
         for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
             metrics_peryear = metrics[metrics['date'].between(datetime.datetime(year, 1, 1),
                                                               datetime.datetime(year, 12, 31))]
-            metrics_peryear.to_parquet(self.path + "metrics_"+ str(year) + ".parquet",
+            metrics_peryear.to_parquet(self.path + "metrics_" + str(year) + ".parquet",
                                        engine="pyarrow", compression="gzip")
                    
         logging.info("create price parquet per year")
