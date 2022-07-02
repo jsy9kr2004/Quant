@@ -98,8 +98,9 @@ class Backtest:
             if self.price_table.empty:
                 self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
 
+
             self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
-                                            + str(year) + ".parquet")
+                                        + str(year) + ".parquet")
             self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
 
             if year != self.main_ctx.start_year:
@@ -108,6 +109,8 @@ class Backtest:
                 self.fs_table = pd.concat([prev_fs, self.fs_table])
                 prev_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year-1) + ".parquet")
                 self.metrics_table = pd.concat([prev_metrics, self.metrics_table])
+
+
 
     def get_trade_date(self, pdate):
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
@@ -156,10 +159,11 @@ class Backtest:
 
 
 class PlanHandler:
-    def __init__(self, k_num):
+    def __init__(self, k_num, absolute_score):
         self.plan_list = None
         self.date_handler = None
         self.k_num = k_num
+        self.absolute_score = absolute_score
 
     def run(self):
         """
@@ -185,18 +189,21 @@ class PlanHandler:
         logging.info("[pbr] key : {}, key_dir : {}, weight : {}, "
                      "diff : {}, base : {}, base_dir : {}".format(params["key"], params["key_dir"], params["weight"],
                                                                   params["diff"], params["base"], params["base_dir"]))
+
+        if self.absolute_score - params["diff"] * self.k_num < 0:
+            logging.error("Wrong params['diff'] : TOO BIG! SET UNDER " + str(self.absolute_score/self.k_num))
+
         key = str(params["key"])
         if params["key_dir"] == "low":
-            top_k_df = self.date_handler.metrics[self.date_handler.metrics[key] > 0]
+            top_k_df = self.date_handler.fs_metircs[self.date_handler.fs_metircs[key] > 0]
             top_k_df = top_k_df.sort_values(
                         by=[key], ascending=True, na_position="last")[:self.k_num]
         elif params["key_dir"] == "high":
-            top_k_df = self.date_handler.metrics.sort_values(
+            top_k_df = self.date_handler.fs_metircs.sort_values(
                         by=[key], ascending=False, na_position="last")[:self.k_num]
         else:
             logging.error("Wrong params['key_dir'] : ", params["key_dir"], "params['key_dir'] must be 'low' or 'high'")
             return
-        
 
         if params["base_dir"] == ">":
             top_k_df = top_k_df[top_k_df[key] > params["base"]]
@@ -205,11 +212,10 @@ class PlanHandler:
         else:
             logging.error("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<'")
             return
-        logging.info(top_k_df[['symbol', params["key"]]])
+        # logging.info(top_k_df[['symbol', params["key"]]])
         symbols = top_k_df['symbol']
-        delta = 100
-        logging.info("TEST")
-        logging.info(symbols)
+        delta = self.absolute_score
+        # logging.debug(symbols)
         for sym in symbols:
             prev_score = self.date_handler.symbol_list[self.date_handler.symbol_list['symbol'] == sym]['score']
             self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), 'score']\
@@ -235,14 +241,11 @@ class DateHandler:
         self.symbol_list = backtest.symbol_table.query(query)
         self.symbol_list = self.symbol_list.assign(score=0)
 
-        logging.info("Datehandler init() date : "+str(date))
-
         trade_date = backtest.get_trade_date(date)
         self.price = backtest.price_table.query("date == @trade_date")
         self.price = self.price.drop_duplicates('symbol', keep='first')
         # self.price = self.get_date_latest_per_symbol(backtest.price_table, self.date)
         self.symbol_list = pd.merge(self.symbol_list, self.price, how='left', on='symbol')
-        logging.info(self.symbol_list.sample(10))
 
         prev =  self.date - relativedelta(months=4)
         # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
@@ -251,36 +254,13 @@ class DateHandler:
         self.fs = self.fs[ prev  <= self.fs.date]
         self.fs = self.fs.drop_duplicates('symbol', keep='first')
 
-
-        logging.info(self.fs.sample(20))
-
-        logging.info("In Datehandler init() : set metrics")
         # self.metrics = self.get_date_latest_per_symbol(backtest.metrics_table, self.date)
         self.metrics = backtest.metrics_table.copy()
         self.metrics = self.metrics[ self.metrics.date  <= self.date]
         self.metrics = self.metrics[ prev  <= self.metrics.date]
         self.metrics = self.metrics.drop_duplicates('symbol', keep='first')
 
-
-
-    # def get_date_latest_per_symbol(self, table, date):
-    #     date_latest = pd.DataFrame()
-    #     syms = self.symbol_list['symbol']
-    #     print(len(syms))
-    #     # TODO 모든 symbol 다 돌면 오래걸려서 10개로 줄임. 나중에 삭제
-    #     for sym in syms:
-    #         # TODO date 기준에 date - 3달 ~ date로 넣기
-    #         prev_q_date = date - relativedelta(months=3)
-    #         past = table.query("(symbol == @sym) and (date <= @date and date >= @prev_q_date)")
-    #         if past.empty:
-    #             continue
-    #         else:
-    #             # past 는 date 이전 모든 fs들, 이 중 첫번째 row가 가장 최신 fs. iloc[0]로 첫 row 가져옴.
-    #             # date_latest = date_latest.append(past.iloc[0])
-    #             date_latest = pd.concat([date_latest, past.iloc[[0]]], axis=0)
-    #     # FIXME 왜 symbol 당 row가 2개씩 들어가있나 ?
-    #     date_latest = date_latest.drop_duplicates('symbol', keep='first')
-    #     return date_latest
+        self.fs_metircs = pd.merge(self.fs, self.metrics, how='outer', on='symbol')
 
 
 class EvaluationHandler:
@@ -292,20 +272,17 @@ class EvaluationHandler:
         self.accumulated_earning = 0
         self.MDD = 0
         self.sharp = 0
-        self.total_asset = 100000000
+        self.total_asset = backtest.conf['TOTAL_ASSET']
 
-    @staticmethod
-    def cal_member_cnt():
-       # TODO 상위 몇 종목을 구매할 것인가에 대한 계산. 현재는 상위 4개의 주식을 매 period 마다 구매하는 것으로 되어 있음
-       return 20
+    def cal_member_cnt(self):
+        """상위 몇 종목을 구매할 것인가에 대한 계산. 현재는 상위 4개의 주식을 매 period 마다 구매하는 것으로 되어 있음"""
+        return self.backtest.conf['MEMBER_CNT']
 
     def set_best_symbol_group(self, date, rebalance_date, scored_datehandler):
         """plan_handler.date_handler.symbol_list에 score를 보고 best_symbol_group에 append 해주는 함수."""
         best_symbol_info = pd.merge( scored_datehandler.symbol_list, scored_datehandler.metrics, how='outer', on='symbol')
         best_symbol_info = pd.merge( best_symbol_info, scored_datehandler.fs, how='outer', on='symbol')
         best_symbol = best_symbol_info.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
-        # print("set_best_symbol_group()")
-        # print(best_symbol)
         # best_symbol = best_symbol.assign(price=0)
         best_symbol = best_symbol.assign(count=0)
         reference_group = pd.DataFrame()
@@ -331,8 +308,10 @@ class EvaluationHandler:
                 self.best_symbol_group[idx][3] = pd.merge(
                     self.best_symbol_group[idx][3], rebalance_date_price_df, 
                     how='outer', on='symbol')
-                self.best_symbol_group[idx][3]['period_price_diff'] = \
-                    self.best_symbol_group[idx][3]['rebalance_day_price'] - self.best_symbol_group[idx][3]['close']
+                self.best_symbol_group[idx][3] = \
+                    self.best_symbol_group[idx][3][self.best_symbol_group[idx][3].close > 0.000001]
+                diff = self.best_symbol_group[idx][3]['rebalance_day_price'] - self.best_symbol_group[idx][3]['close']
+                self.best_symbol_group[idx][3]['period_price_diff'] = diff / self.best_symbol_group[idx][3]['close']
                 self.best_symbol_group[idx][3] = pd.merge(
                     self.best_symbol_group[idx][3], start_datehandler.metrics, how='outer', on='symbol')
                 self.best_symbol_group[idx][3] = pd.merge(
@@ -347,6 +326,7 @@ class EvaluationHandler:
                 syms = best_group['symbol']
                 for sym in syms:
                     if start_datehandler.price.loc[(start_datehandler.price['symbol']==sym), 'close'].empty:
+                        logging.warning("there is no price in FMP API  symbol : {}".format(sym))
                         self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'price'] = 0
                     else:
                         self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'price']\
@@ -358,6 +338,10 @@ class EvaluationHandler:
                         self.best_symbol_group[idx][2].loc[(self.best_symbol_group[idx][2].symbol == sym), 'rebalance_day_price']\
                             = end_datehandler.price.loc[(end_datehandler.price['symbol']==sym), 'close'].values[0]
                 
+                self.best_symbol_group[idx][2] = \
+                                self.best_symbol_group[idx][2][self.best_symbol_group[idx][2].price > 0.000001]
+
+
             start_datehandler = copy.deepcopy(end_datehandler)
             # print(idx, " ", date, "\n", self.best_symbol_group[idx][2])
 
@@ -369,7 +353,7 @@ class EvaluationHandler:
         worst_asset = self.total_asset * 1000
         for idx, (date, rebalance_date, best_group, reference_group) in enumerate(self.best_symbol_group):
             # TODO best_symbol_group 맞게 사고 남은 짜투리 금액 처리
-            stock_cnt = (self.total_asset / self.member_cnt) / best_group['price']
+            stock_cnt = (self.total_asset / len(best_group)) / best_group['price']
             stock_cnt = stock_cnt.replace([np.inf, -np.inf], 0)
             stock_cnt = stock_cnt.fillna(0)
             stock_cnt = stock_cnt.astype(int)
@@ -393,8 +377,8 @@ class EvaluationHandler:
 
             # print("date : ", date, "\nbest group : \n")
             # print(best_group[['symbol', 'price', 'rebalance_day_price', 'count']])
-            print("cur idx : {} prev : {} earning : {:.2f} asset : {}".format(idx, idx-1, period_earning,
-                                                                              self.total_asset))
+            logging.info("cur idx : {} prev : {} earning : {:.2f} asset : {}".format(idx, idx-1, period_earning,
+                                                                                     self.total_asset))
             # print(best_group['symbol', 'price', 'rebalance_day_price'])
 
             self.historical_earning_per_rebalanceday.append([date, period_earning, prev, self.total_asset, best_group])
@@ -404,7 +388,7 @@ class EvaluationHandler:
                 best_asset = my_asset_period
             if self.total_asset < worst_asset:
                 worst_asset = my_asset_period
-        print("rebalanced day price based MDD : {:.2f} %".format(((worst_asset / best_asset) - 1) * 100))
+        logging.info("rebalanced day price based MDD : {:.2f} %".format(((worst_asset / best_asset) - 1) * 100))
 
     def cal_mdd(self, price_table):
         """MDD를 계산해서 채워주는 함수"""
@@ -478,15 +462,16 @@ class EvaluationHandler:
         elem.to_csv(path, columns=columns, mode="a")
 
     def print_report(self):
-        eval_columns = ["symbol", "score", "price", "rebalance_day_price", "count",
+        eval_columns = ["symbol", "score", "price", "rebalance_day_price", "count", "period_earning",
                         "pbRatio", "pbRatio_rank", "pbRatio_score", "peRatio", "peRatio_rank", "peRatio_score",
                         "ipoDate", "delistedDate"]
         # "period_earning" 우선 삭제
         for idx, (date, rebalance_date, eval_elem, rank_elem) in enumerate(self.best_symbol_group):
             if self.backtest.conf['PRINT_EVAL_REPORT'] == 'Y' and self.backtest.conf['NEED_EVALUATION'] == 'Y':
-                self.write_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem, eval_columns)
+                self.write_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem, eval_elem.columns.tolist())
             if self.backtest.conf['PRINT_RANK_REPORT'] == 'Y':
-                self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem, rank_elem.columns.tolist())
+                if idx <= self.backtest.conf['RANK_PERIOD']:
+                    self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem, rank_elem.columns.tolist())
             # period.to_csv(self.backtest.eval_report_path, mode="a", column=columns)
 
         ref_total_earning_rates = dict()
@@ -494,8 +479,10 @@ class EvaluationHandler:
             start_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.start_year, 1, 1))
             end_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.end_year, 12, 31))
             reference_earning_df = self.backtest.price_table.query("(symbol == @ref_sym) and ((date == @start_date) or (date == @end_date))")
-            reference_earning = reference_earning_df.iloc[0]['close'] - reference_earning_df.iloc[1]['close']
-            ref_total_earning_rate = (reference_earning / reference_earning_df.iloc[1]['close']) * 100
+            logging.info(ref_sym)
+            logging.info(reference_earning_df)
+            reference_earning = reference_earning_df.iloc[1]['close'] - reference_earning_df.iloc[0]['close']
+            ref_total_earning_rate = (reference_earning / reference_earning_df.iloc[0]['close']) * 100
             ref_total_earning_rates[ref_sym] = ref_total_earning_rate
 
         plan_earning = self.historical_earning_per_rebalanceday [ len(self.historical_earning_per_rebalanceday)-1 ][3]\
@@ -514,7 +501,7 @@ class EvaluationHandler:
         self.cal_price()
         if self.backtest.conf['NEED_EVALUATION'] == 'Y':
             self.cal_earning()
-            # self.cal_mdd(price_table)
+            self.cal_mdd(price_table)
             # self.cal_sharp()
         self.print_report()
 
