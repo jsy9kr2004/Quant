@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 
 from dateutil.relativedelta import relativedelta
+from multiprocessing import Pool
+from functools import reduce
 
 CHUNK_SIZE = 20480
 
@@ -171,9 +173,20 @@ class PlanHandler:
         """
         assert self.plan_list is not None, "Empty Plan List"
         assert self.date_handler is not None, "Empty Date Handler"
-        for plan in self.plan_list:
-            plan["f_name"](plan["params"])
-
+        
+        with Pool(processes=8) as pool:
+            df_list = pool.map(self.plan_run, self.plan_list)
+        
+        full_df = reduce(lambda df1,df2: pd.merge(df1,df2,on='symbol'), df_list)
+        self.date_handler.symbol_list = pd.merge(self.date_handler.symbol_list, full_df, how='left', on=['symbol'])
+        score_col_list = self.date_handler.symbol_list.columns.str.contains("_score")
+        self.date_handler.symbol_list['score'] = self.date_handler.symbol_list.loc[:,score_col_list].sum(axis=1)
+        logging.debug(self.date_handler.symbol_list.sort_values(by=['score'], ascending=False)[['symbol', 'score']])    
+                                    
+    @staticmethod
+    def plan_run(plan):
+        return plan["f_name"](plan["params"])
+    
     def single_metric_plan(self, params):
         """single metric(PBR, PER ... )에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수.
            params에 plan의 parameter들이 아래와 같이 들어옴
@@ -187,7 +200,7 @@ class PlanHandler:
         logging.info("[plan] key : {}, key_dir : {}, weight : {}, "
                      "diff : {}, base : {}, base_dir : {}".format(params["key"], params["key_dir"], params["weight"],
                                                                   params["diff"], params["base"], params["base_dir"]))
-
+        
         if self.absolute_score - params["diff"] * self.k_num < 0:
             logging.warning("Wrong params['diff'] : TOO BIG! SET UNDER " + str(self.absolute_score/self.k_num))
 
@@ -213,24 +226,19 @@ class PlanHandler:
         logging.debug(top_k_df[['symbol', params["key"]]])
 
         symbols = top_k_df['symbol']
-
+        return_df = self.date_handler.symbol_list[['symbol']]
         delta = self.absolute_score
-        for sym in symbols:
-            prev_score = self.date_handler.symbol_list[self.date_handler.symbol_list['symbol'] == sym]['score']
-            self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), 'score']\
-                = prev_score + params["weight"] * delta
+        for sym in symbols:            
             local_score_name = key + '_score'
-            self.date_handler.symbol_list.loc[(self.date_handler.symbol_list.symbol == sym), local_score_name]\
+            return_df.loc[(self.date_handler.symbol_list.symbol == sym), local_score_name]\
                 = params["weight"] * delta
             delta = delta - params["diff"]
-        local_rank_name = key + '_rank'
-        self.date_handler.symbol_list[local_rank_name] = \
-            self.date_handler.symbol_list[local_score_name].rank(method='min', ascending=False)
-
-        logging.debug(self.date_handler.symbol_list[[local_score_name, local_rank_name]])
-        logging.debug(self.date_handler.symbol_list.sort_values(by=['score'], ascending=False)[['symbol', 'score']])
-
-
+        local_rank_name = key+'_rank'
+        return_df[local_rank_name] = return_df[local_score_name].rank(method='min', ascending=False)
+        logging.debug(return_df[[local_score_name, local_rank_name]])
+        return return_df
+    
+    
 class DateHandler:
     def __init__(self, backtest, date):
         self.date = date
@@ -286,11 +294,12 @@ class EvaluationHandler:
         # best_symbol = best_symbol.assign(price=0)
         best_symbol = best_symbol.assign(count=0)
         reference_group = pd.DataFrame()
-        self.best_k.append([date, rebalance_date, best_symbol, reference_group])
+        period_earning_rate = 0
+        self.best_k.append([date, rebalance_date, best_symbol, reference_group, period_earning_rate])
 
     def cal_price(self):
         """best_k 의 ['price', 'rebalance_day_price'] column을 채워주는 함수"""
-        for idx, (date, rebalance_date, best_group, reference_group) in enumerate(self.best_k):
+        for idx, (date, rebalance_date, best_group, reference_group, period_earning_rate) in enumerate(self.best_k):
             if date.year != self.backtest.table_year:
                 logging.info("Reload BackTest Table. year : {} -> {}".format(self.backtest.table_year, date.year))
                 self.backtest.reload_bt_table(date.year)
@@ -345,7 +354,7 @@ class EvaluationHandler:
         prev = 0
         best_asset = -1
         worst_asset = self.total_asset * 1000
-        for idx, (date, rebalance_date, best_group, reference_group) in enumerate(self.best_k):
+        for idx, (date, rebalance_date, best_group, reference_group, period_earning_rate) in enumerate(self.best_k):
             # TODO best_k 맞게 사고 남은 짜투리 금액 처리
             stock_cnt = (self.total_asset / len(best_group)) / best_group['price']
             stock_cnt = stock_cnt.replace([np.inf, -np.inf], 0)
@@ -369,8 +378,10 @@ class EvaluationHandler:
             prev = self.total_asset
             self.total_asset = remain_asset + rebalance_day_price_mul_stock_cnt.sum()
 
-            logging.debug("cur idx : {} prev : {} earning : {:.2f} asset : {}".format(idx, idx-1, period_earning,
-                                                                                      self.total_asset))
+            logging.debug("cur idx : {}, prev : {}, earning : {:.2f}, earning_rate : {}, asset : {}".format(idx, idx-1, period_earning,
+                                                                                      period_earning / (self.total_asset-period_earning), self.total_asset))
+            self.best_k[idx][4] = period_earning / (self.total_asset-period_earning)
+            
 
             self.historical_earning_per_rebalanceday.append([date, period_earning, prev, self.total_asset, best_group])
 
@@ -385,7 +396,7 @@ class EvaluationHandler:
         """MDD를 계산해서 채워주는 함수"""
         best_asset = -1
         worst_asset = self.total_asset * 100000
-        for i, (date, rebalance_date, best_group, reference_group) in enumerate(self.best_k):
+        for i, (date, rebalance_date, best_group, reference_group, period_earning_rate) in enumerate(self.best_k):
             if i == 0:
                 prev_date = date
                 continue
@@ -457,9 +468,13 @@ class EvaluationHandler:
         #                "pbRatio", "pbRatio_rank", "pbRatio_score", "peRatio", "peRatio_rank", "peRatio_score",
         #                "ipoDate", "delistedDate"]
         # "period_earning" 우선 삭제
-        for idx, (date, rebalance_date, eval_elem, rank_elem) in enumerate(self.best_k):
+        for idx, (date, rebalance_date, eval_elem, rank_elem, period_earning_rate) in enumerate(self.best_k):
             if self.backtest.conf['PRINT_EVAL_REPORT'] == 'Y' and self.backtest.conf['NEED_EVALUATION'] == 'Y':
                 self.write_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem, eval_elem.columns.tolist())
+                fd = open(self.backtest.eval_report_path, 'a')
+                writer = csv.writer(fd, delimiter=",")
+                writer.writerow(str(period_earning_rate))
+                fd.close()
             if self.backtest.conf['PRINT_RANK_REPORT'] == 'Y':
                 if idx <= self.backtest.conf['RANK_PERIOD']:
                     self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem, rank_elem.columns.tolist())
