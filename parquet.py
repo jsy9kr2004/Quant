@@ -14,14 +14,15 @@ class Parquet:
     def __init__(self, main_ctx):
         self.main_ctx = main_ctx
         self.tables = dict()
-        self.path = self.main_ctx.root_path + "/VIEW/"
+        self.view_path = self.main_ctx.root_path + "/VIEW/"
+        self.rawpq_path = self.main_ctx.root_path + "/parquet/"
 
     def rebuild_table_view(self):
         # 1번 Table
-        symbol_list = pd.read_parquet(self.path + "stock_list.parquet", columns=['symbol', 'exchangeShortName', 'type'])
-        delisted = pd.read_parquet(self.path + "delisted_companies.parquet",
+        symbol_list = pd.read_parquet(self.rawpq_path + "stock_list.parquet", columns=['symbol', 'exchangeShortName', 'type'])
+        delisted = pd.read_parquet(self.rawpq_path + "delisted_companies.parquet",
                                    columns=['symbol', 'exchange', 'ipoDate', 'delistedDate'])
-        profile = pd.read_parquet(self.path + "profile.parquet",
+        profile = pd.read_parquet(self.rawpq_path + "profile.parquet",
                                   columns=['symbol', 'ipoDate', 'industry', 'exchangeShortName'])
         delisted.rename(columns={'exchange':'exchangeShortName'}, inplace=True)
 
@@ -41,14 +42,14 @@ class Parquet:
         all_symbol['delistedDate'] = all_symbol['delistedDate'].astype('datetime64[ns]')
         
         all_symbol = all_symbol.reset_index(drop=True)
-        all_symbol.to_parquet(self.path + "symbol_list.parquet", engine="pyarrow", compression="gzip")
+        all_symbol.to_parquet(self.view_path + "symbol_list.parquet", engine="pyarrow", compression="gzip")
         logging.info("create symbol_list df")
         del all_symbol
 
         # 2번 Table
-        price = pd.read_parquet(self.path + "historical_price_full.parquet",
+        price = pd.read_parquet(self.rawpq_path + "historical_price_full.parquet",
                                 columns=['date', 'symbol', 'close', 'volume'])
-        marketcap = pd.read_parquet(self.path + "historical_market_capitalization.parquet",
+        marketcap = pd.read_parquet(self.rawpq_path + "historical_market_capitalization.parquet",
                                     columns=['date', 'symbol', 'marketCap'])
         price_marketcap = pd.merge(price, marketcap, how='left', on=['symbol', 'date'])
         del price
@@ -56,22 +57,23 @@ class Parquet:
         
         # ['price', 'date']
         price_marketcap['date'] = price_marketcap['date'].astype('datetime64[ns]')
-        price_marketcap.to_parquet(self.path + "price.parquet", engine="pyarrow", compression="gzip")
+        price_marketcap.to_parquet(self.view_path + "price.parquet", engine="pyarrow", compression="gzip")
         
         logging.info("create price df")
-        for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
-            price_peryear = price_marketcap[price_marketcap['date'].between(datetime.datetime(year, 1, 1),
-                                                                            datetime.datetime(year, 12, 31))]
-            price_peryear.to_parquet(self.path + "price_" + str(year) + ".parquet",
-                                     engine="pyarrow", compression="gzip")
-        logging.info("create price parquet per year")
+        # for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
+        #     price_peryear = price_marketcap[price_marketcap['date'].between(datetime.datetime(year, 1, 1),
+        #                                                                     datetime.datetime(year, 12, 31))]
+        #     price_peryear.to_parquet(self.view_path + "price_" + str(year) + ".parquet",
+        #                              engine="pyarrow", compression="gzip")
+        # logging.info("create price parquet per year")
+        # del price_peryear
+
         del price_marketcap
-        del price_peryear
 
         # 3번 Table
-        income_statement = pd.read_parquet(self.path + "income_statement.parquet")
-        balance_sheet_statement = pd.read_parquet(self.path + "balance_sheet_statement.parquet")
-        cash_flow_statement = pd.read_parquet(self.path + "cash_flow_statement.parquet")
+        income_statement = pd.read_parquet(self.rawpq_path + "income_statement.parquet")
+        balance_sheet_statement = pd.read_parquet(self.rawpq_path + "balance_sheet_statement.parquet")
+        cash_flow_statement = pd.read_parquet(self.rawpq_path + "cash_flow_statement.parquet")
     
         financial_statement = income_statement.merge(balance_sheet_statement,
                                                      how='outer', on=['date', 'symbol']).merge(cash_flow_statement,
@@ -81,13 +83,13 @@ class Parquet:
         financial_statement['acceptedDate'] = financial_statement['acceptedDate'].astype('datetime64[ns]')
         financial_statement['fillingDate'] = financial_statement['fillingDate'].astype('datetime64[ns]')
                                                 
-        financial_statement.to_parquet(self.path + "financial_statement.parquet", engine="pyarrow", compression="gzip")
+        financial_statement.to_parquet(self.view_path + "financial_statement.parquet", engine="pyarrow", compression="gzip")
         
         logging.info("create financial_statement df")
         for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
             fs_peryear = financial_statement[financial_statement['date'].between(datetime.datetime(year, 1, 1),
                                                                                  datetime.datetime(year, 12, 31))]
-            fs_peryear.to_parquet(self.path + "financial_statement_" + str(year) + ".parquet",
+            fs_peryear.to_parquet(self.view_path + "financial_statement_" + str(year) + ".parquet",
                                   engine="pyarrow", compression="gzip")
         logging.info("create price parquet per year")
         
@@ -98,16 +100,14 @@ class Parquet:
         del fs_peryear
 
         # 4번 Table
-        key_metrics = pd.read_parquet(self.path + "key_metrics.parquet")
-        financial_growth = pd.read_parquet(self.path + "financial_growth.parquet")
-        historical_daily_discounted_cash_flow = pd.read_parquet(self.path
+        key_metrics = pd.read_parquet(self.rawpq_path + "key_metrics.parquet")
+        financial_growth = pd.read_parquet(self.rawpq_path + "financial_growth.parquet")
+        historical_daily_discounted_cash_flow = pd.read_parquet(self.rawpq_path
                                                                 + "historical_daily_discounted_cash_flow.parquet")
         
         metrics = key_metrics.merge(financial_growth,
-                                    how='outer', on=['date', 'symbol']).merge(
-                                        historical_daily_discounted_cash_flow, 
-                                        how='outer', on=['date', 'symbol']
-                                    )
+                                    how='outer', on=['date', 'symbol']).merge(historical_daily_discounted_cash_flow,
+                                                                              how='outer', on=['date', 'symbol'])
         metrics['date'] = metrics['date'].astype('datetime64[ns]')
         metrics.to_parquet(self.path + "metrics.parquet", engine="pyarrow", compression="gzip")
         logging.info("create metrics df")
@@ -115,10 +115,10 @@ class Parquet:
         for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
             metrics_peryear = metrics[metrics['date'].between(datetime.datetime(year, 1, 1),
                                                               datetime.datetime(year, 12, 31))]
-            metrics_peryear.to_parquet(self.path + "metrics_"+ str(year) + ".parquet",
+            metrics_peryear.to_parquet(self.path + "metrics_" + str(year) + ".parquet",
                                        engine="pyarrow", compression="gzip")
                    
-        logging.info("create price parquet per year")
+        # logging.info("create price parquet per year")
         
         del financial_growth
         del key_metrics
@@ -126,8 +126,8 @@ class Parquet:
         del metrics_peryear
 
         # 5번 Table
-        indexes = pd.read_parquet(self.path + "symbol_available_indexes.parquet")
-        indexes.to_parquet(self.path + "indexes.parquet", engine="pyarrow", compression="gzip")
+        indexes = pd.read_parquet(self.rawpq_path + "symbol_available_indexes.parquet")
+        indexes.to_parquet(self.view_path + "indexes.parquet", engine="pyarrow", compression="gzip")
         logging.info("create indexes df")
 
     @staticmethod
@@ -139,6 +139,8 @@ class Parquet:
         # wrap your csv importer in a function that can be mapped
         # merge all csvs per directoy
         dir_list = os.listdir(self.main_ctx.root_path)
+        if self.main_ctx.need_pq_new_year == 'Y':
+            dir_list = ['earning_calendar', 'historical_price_full']
         logging.info("directory list : {}".format(dir_list))
         for directory in dir_list:
             if not os.path.isdir(directory):

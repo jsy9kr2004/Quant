@@ -1,5 +1,6 @@
 import logging
 import os
+import pandas as pd
 import sqlalchemy
 import yaml
 
@@ -14,6 +15,7 @@ class MainCtx:
         self.start_year = int(config['START_YEAR'])
         self.end_year = int(config['END_YEAR'])
         self.root_path = config['ROOT_PATH']
+        self.need_pq_new_year = config['NEED_NEWYEAR_CSV_TO_PQ']
         # 다른 Class와 함수에서 connection이 자주 필요하기에 Databse Class 로 관리하지 않고 main_context로 관리
         # aws_mariadb_url = 'mysql+pymysql://' + config['MARIA_DB_USER'] + ":" + config['MARIA_DB_PASSWD'] + "@" \
         #                   + config['MARIA_DB_ADDR'] + ":" + config['MARIA_DB_PORT'] + "/" + config['MARIA_DB_NAME']
@@ -63,7 +65,7 @@ if __name__ == '__main__':
             db.rebuild_table_view()
     elif conf['USE_DATAFRAME'] == 'Y':
         df_engine = Parquet(main_ctx)
-        if conf['NEED_INSERT_CSV_TO_PQ'] == "Y":
+        if conf['NEED_INSERT_CSV_TO_PQ'] == "Y" or conf['NEED_NEWYEAR_CSV_TO_PQ'] == "Y":
             df_engine.insert_csv()
         if conf['NEED_NEW_VIEW_PQ'] == "Y":
             df_engine.rebuild_table_view()
@@ -71,12 +73,16 @@ if __name__ == '__main__':
         logging.error("Check conf.yaml. don't choose db and parquet both")
 
     plan_handler = PlanHandler(conf['TOP_K_NUM'], conf['ABSOLUTE_SCORE'])
-    plan = [
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": '', "key_dir": 'low', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'peRatio', "key_dir": 'low', "weight": 1,
-                                                               "diff": 2, "base": 0, "base_dir": '>'}},
-    ]
+    plan = []
+    plan_df = pd.read_csv("./plan.csv")
+    plan_info = plan_df.values.tolist()
+    for i in range(len(plan_info)):
+        plan.append(
+            {"f_name": plan_handler.single_metric_plan,
+             "params": {"key": plan_info[i][0],
+                        "key_dir": plan_info[i][1], "weight": plan_info[i][2],
+                        "diff": plan_info[i][3], "base": plan_info[i][4], "base_dir": plan_info[i][5]}}
+        )
     plan_handler.plan_list = plan
     bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=conf['REBALANCE_PERIOD'])
 

@@ -66,7 +66,10 @@ class FMP:
             # 일부만 돌리기 위해 앞에 5개만 가져옴 (for test) / 나중에 else만 없애면 됨.
             # data_list = self.symbol_list.head(5)
             data_list = self.symbol_list
-
+            if main_url == "historical-price-full":
+                logging.info("add ETF symbols to get historical-price-full data")
+                data_list = data_list.append(pd.Series(["SPY", "IVV", "VTI", "VOO", "QQQ", "VEA", "IEFA"]))
+            
         # for elem in SYMBOL:
         start = time.time()
         for elem in data_list:
@@ -210,7 +213,7 @@ class FMP:
         # target_stock_symbol 과 delisted stock symbol 합쳐 필요한 symbol list 완성
         file_list = os.listdir(self.main_ctx.root_path + "/delisted_companies/")
         for file in file_list:
-            if os.path.splitext(file)[1] != ".csvx":
+            if os.path.splitext(file)[1] == ".csv":
                 delisted = pd.read_csv(self.main_ctx.root_path + "/delisted_companies/" + file, index_col=None)
                 if delisted.empty == True:
                     continue
