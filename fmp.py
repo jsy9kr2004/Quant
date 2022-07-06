@@ -75,8 +75,6 @@ class FMP:
         for elem in data_list:
             # TODO url_data = "" 와 같은 줄이 필요할 듯? except 후 continue로 들어갈 때 이전 값이 들어있음. 초기화 필요?
             # json_data = ""
-            print(elem)
-            print(file_postfix)
             if (not os.path.isfile(path + "/{}.csv".format(elem + file_postfix))) \
                     and (not os.path.isfile(path + "/{}.csvx".format(elem + file_postfix))):
                 if is_v4 == True:

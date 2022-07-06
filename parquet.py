@@ -120,10 +120,10 @@ class Parquet:
                    
         # logging.info("create price parquet per year")
         
-        # del financial_growth
-        # del key_metrics
-        # del metrics
-        # del metrics_peryear
+        del financial_growth
+        del key_metrics
+        del metrics
+        del metrics_peryear
 
         # 5번 Table
         indexes = pd.read_parquet(self.rawpq_path + "symbol_available_indexes.parquet")
