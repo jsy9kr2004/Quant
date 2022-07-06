@@ -136,7 +136,7 @@ class Backtest:
         date = datetime.datetime(self.main_ctx.start_year, 4, 1)
         while date <= datetime.datetime(self.main_ctx.end_year, 12 - self.rebalance_period, 30):
             if date.year != self.backtest_table_year:
-                logging.info("reload_bt_table. date.year : {}, backtest_table_year : {}".format(date.year, self.backtest_table_year))
+                logging.info("reload_bt_table. date.year : {}, backtest_table_year : {}".format(date.year,self.backtest_table_year))
                 self.reload_bt_table(date.year)
                 self.backtest_table_year = date.year
             date = self.get_trade_date(date)
@@ -212,7 +212,7 @@ class PlanHandler:
         else:
             logging.error("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<'")
             return
-        logging.info(top_k_df[['symbol', params["key"]]])
+        logging.debug(top_k_df[['symbol', params["key"]]])
         symbols = top_k_df['symbol']
         delta = self.absolute_score
         logging.debug(symbols)

@@ -72,10 +72,10 @@ if __name__ == '__main__':
 
     plan_handler = PlanHandler(conf['TOP_K_NUM'], conf['ABSOLUTE_SCORE'])
     plan = [
-        {"f_name": plan_handler.single_metric_plan, "params": {"key": 'pbRatio', "key_dir": 'low', "weight": 1,
+        {"f_name": plan_handler.single_metric_plan, "params": {"key": '', "key_dir": 'low', "weight": 1,
                                                                "diff": 2, "base": 0, "base_dir": '>'}},
         {"f_name": plan_handler.single_metric_plan, "params": {"key": 'peRatio', "key_dir": 'low', "weight": 1,
-                                                               "diff": 3, "base": 0, "base_dir": '>'}},
+                                                               "diff": 2, "base": 0, "base_dir": '>'}},
     ]
     plan_handler.plan_list = plan
     bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=conf['REBALANCE_PERIOD'])
