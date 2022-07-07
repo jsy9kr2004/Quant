@@ -173,20 +173,20 @@ class PlanHandler:
         """
         assert self.plan_list is not None, "Empty Plan List"
         assert self.date_handler is not None, "Empty Date Handler"
-        
+
         with Pool(processes=8) as pool:
             df_list = pool.map(self.plan_run, self.plan_list)
-        
+
         full_df = reduce(lambda df1,df2: pd.merge(df1,df2,on='symbol'), df_list)
         self.date_handler.symbol_list = pd.merge(self.date_handler.symbol_list, full_df, how='left', on=['symbol'])
         score_col_list = self.date_handler.symbol_list.columns.str.contains("_score")
         self.date_handler.symbol_list['score'] = self.date_handler.symbol_list.loc[:,score_col_list].sum(axis=1)
-        logging.debug(self.date_handler.symbol_list.sort_values(by=['score'], ascending=False)[['symbol', 'score']])    
-                                    
+        logging.debug(self.date_handler.symbol_list.sort_values(by=['score'], ascending=False)[['symbol', 'score']])
+
     @staticmethod
     def plan_run(plan):
         return plan["f_name"](plan["params"])
-    
+
     def single_metric_plan(self, params):
         """single metric(PBR, PER ... )에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수.
            params에 plan의 parameter들이 아래와 같이 들어옴
@@ -200,7 +200,7 @@ class PlanHandler:
         logging.info("[plan] key : {}, key_dir : {}, weight : {}, "
                      "diff : {}, base : {}, base_dir : {}".format(params["key"], params["key_dir"], params["weight"],
                                                                   params["diff"], params["base"], params["base_dir"]))
-        
+
         if self.absolute_score - params["diff"] * self.k_num < 0:
             logging.warning("Wrong params['diff'] : TOO BIG! SET UNDER " + str(self.absolute_score/self.k_num))
 
@@ -228,7 +228,7 @@ class PlanHandler:
         symbols = top_k_df['symbol']
         return_df = self.date_handler.symbol_list[['symbol']]
         delta = self.absolute_score
-        for sym in symbols:            
+        for sym in symbols:
             local_score_name = key + '_score'
             return_df.loc[(self.date_handler.symbol_list.symbol == sym), local_score_name]\
                 = params["weight"] * delta
@@ -237,8 +237,8 @@ class PlanHandler:
         return_df[local_rank_name] = return_df[local_score_name].rank(method='min', ascending=False)
         logging.debug(return_df[[local_score_name, local_rank_name]])
         return return_df
-    
-    
+
+
 class DateHandler:
     def __init__(self, backtest, date):
         self.date = date
@@ -319,9 +319,19 @@ class EvaluationHandler:
                 self.best_k[idx][3]['period_price_diff'] = diff / self.best_k[idx][3]['close']
                 self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.metrics, how='outer', on='symbol')
                 self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs, how='outer', on='symbol')
-                for feature in self.best_k[idx][3].columns:
-                    feature_rank_col_name = feature + "_rank"
-                    self.best_k[idx][3][feature_rank_col_name] = self.best_k[idx][3][feature].rank(method='min')
+                if self.backtest.conf['PRINT_AI'] == 'Y':
+                    for feature in self.best_k[idx][3].columns:
+                        feature_rank_col_name = feature + "_normal"
+                        max_value = self.best_k[idx][3][feature].max()
+                        min_value = self.best_k[idx][3][feature].min()
+                        self.best_k[idx][3][feature_rank_col_name]\
+                            = (self.best_k[idx][3][feature] - min_value) / (max_value - min_value)
+                        self.best_k[idx][3]['earning_diff'] \
+                            = self.best_k[idx][3]['period_price_diff'] - self.best_k[idx][3]['period_price_diff'].mean()
+                else:
+                    for feature in self.best_k[idx][3].columns:
+                        feature_rank_col_name = feature + "_rank"
+                        self.best_k[idx][3][feature_rank_col_name] = self.best_k[idx][3][feature].rank(method='min')
                 # self.best_k[idx][3] = self.best_k[idx][3].sort_values(by=["period_price_diff"], axis=0, ascending=False)
                 self.best_k[idx][3] = self.best_k[idx][3].sort_values(by=["period_price_diff"], axis=0, ascending=False)[:self.backtest.conf['TOP_K_NUM']]
             else:
@@ -381,7 +391,7 @@ class EvaluationHandler:
             logging.debug("cur idx : {}, prev : {}, earning : {:.2f}, earning_rate : {}, asset : {}".format(idx, idx-1, period_earning,
                                                                                       period_earning / (self.total_asset-period_earning), self.total_asset))
             self.best_k[idx][4] = period_earning / (self.total_asset-period_earning)
-            
+
 
             self.historical_earning_per_rebalanceday.append([date, period_earning, prev, self.total_asset, best_group])
 
@@ -480,29 +490,30 @@ class EvaluationHandler:
                     self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem, rank_elem.columns.tolist())
             # period.to_csv(self.backtest.eval_report_path, mode="a", column=columns)
 
-        ref_total_earning_rates = dict()
-        for ref_sym in self.backtest.conf['REFERENCE_SYMBOL']:
-            start_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.start_year, 1, 1))
-            end_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.end_year, 12, 31))
-            reference_earning_df= self.backtest.price_table.query("(symbol == @ref_sym) and ((date == @start_date) or (date == @end_date))")
-            logging.debug(ref_sym)
-            logging.debug(reference_earning_df)
-            reference_earning = reference_earning_df.iloc[1]['close'] - reference_earning_df.iloc[0]['close']
-            ref_total_earning_rate = (reference_earning / reference_earning_df.iloc[0]['close']) * 100
-            ref_total_earning_rates[ref_sym] = ref_total_earning_rate
+        if self.backtest.conf['PRINT_EVAL_REPORT'] == 'Y' and self.backtest.conf['NEED_EVALUATION'] == 'Y':
+            ref_total_earning_rates = dict()
+            for ref_sym in self.backtest.conf['REFERENCE_SYMBOL']:
+                start_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.start_year, 1, 1))
+                end_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.end_year, 12, 31))
+                reference_earning_df= self.backtest.price_table.query("(symbol == @ref_sym) and ((date == @start_date) or (date == @end_date))")
+                logging.debug(ref_sym)
+                logging.debug(reference_earning_df)
+                reference_earning = reference_earning_df.iloc[1]['close'] - reference_earning_df.iloc[0]['close']
+                ref_total_earning_rate = (reference_earning / reference_earning_df.iloc[0]['close']) * 100
+                ref_total_earning_rates[ref_sym] = ref_total_earning_rate
 
-        plan_earning = self.historical_earning_per_rebalanceday[len(self.historical_earning_per_rebalanceday)-1][3]\
-                       - self.historical_earning_per_rebalanceday[0][2]
-        plan_total_earning_rate = (plan_earning / self.historical_earning_per_rebalanceday[0][2]) * 100
+            plan_earning = self.historical_earning_per_rebalanceday[len(self.historical_earning_per_rebalanceday)-1][3]\
+                           - self.historical_earning_per_rebalanceday[0][2]
+            plan_total_earning_rate = (plan_earning / self.historical_earning_per_rebalanceday[0][2]) * 100
 
-        logging.info("Our Earning : " + str(plan_total_earning_rate))
-        fd = open(self.backtest.eval_report_path, 'a')
-        writer = csv.writer(fd, delimiter=",")
-        writer.writerow("")
-        writer.writerow(["ours", plan_total_earning_rate])
-        for ref_sym, total_earning_rate in ref_total_earning_rates.items():
-            writer.writerow([ref_sym, total_earning_rate])
-        fd.close()
+            logging.info("Our Earning : " + str(plan_total_earning_rate))
+            fd = open(self.backtest.eval_report_path, 'a')
+            writer = csv.writer(fd, delimiter=",")
+            writer.writerow("")
+            writer.writerow(["ours", plan_total_earning_rate])
+            for ref_sym, total_earning_rate in ref_total_earning_rates.items():
+                writer.writerow([ref_sym, total_earning_rate])
+            fd.close()
 
     def run(self, price_table):
         self.cal_price()
