@@ -2,6 +2,7 @@ import copy
 import csv
 import datetime
 import logging
+import multiprocessing
 import os
 
 import numpy as np
@@ -174,10 +175,10 @@ class PlanHandler:
         assert self.plan_list is not None, "Empty Plan List"
         assert self.date_handler is not None, "Empty Date Handler"
 
-        with Pool(processes=8) as pool:
+        with Pool(processes=multiprocessing.cpu_count()*2) as pool:
             df_list = pool.map(self.plan_run, self.plan_list)
 
-        full_df = reduce(lambda df1,df2: pd.merge(df1,df2,on='symbol'), df_list)
+        full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
         self.date_handler.symbol_list = pd.merge(self.date_handler.symbol_list, full_df, how='left', on=['symbol'])
         score_col_list = self.date_handler.symbol_list.columns.str.contains("_score")
         self.date_handler.symbol_list['score'] = self.date_handler.symbol_list.loc[:,score_col_list].sum(axis=1)
@@ -228,6 +229,8 @@ class PlanHandler:
         symbols = top_k_df['symbol']
         return_df = self.date_handler.symbol_list[['symbol']]
         delta = self.absolute_score
+        # 경고처리 무시
+        pd.set_option('mode.chained_assignment', None)
         for sym in symbols:
             local_score_name = key + '_score'
             return_df.loc[(self.date_handler.symbol_list.symbol == sym), local_score_name]\
@@ -322,10 +325,15 @@ class EvaluationHandler:
                 if self.backtest.conf['PRINT_AI'] == 'Y':
                     for feature in self.best_k[idx][3].columns:
                         feature_rank_col_name = feature + "_normal"
-                        max_value = self.best_k[idx][3][feature].max()
-                        min_value = self.best_k[idx][3][feature].min()
-                        self.best_k[idx][3][feature_rank_col_name]\
-                            = (self.best_k[idx][3][feature] - min_value) / (max_value - min_value)
+                        try:
+                            max_value = self.best_k[idx][3][feature].max()
+                            min_value = self.best_k[idx][3][feature].min()
+                            self.best_k[idx][3][feature_rank_col_name] \
+                                = (float(self.best_k[idx][3][feature]) - float(min_value)) \
+                                  / (float(max_value) - float(min_value))
+                        except Exception as e:
+                            logging.info(str(e))
+                            continue
                         self.best_k[idx][3]['earning_diff'] \
                             = self.best_k[idx][3]['period_price_diff'] - self.best_k[idx][3]['period_price_diff'].mean()
                 else:
