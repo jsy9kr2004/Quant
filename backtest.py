@@ -147,14 +147,19 @@ class Backtest:
             logging.info("Backtest Run : " + str(date.strftime("%Y-%m-%d")))
             self.plan_handler.date_handler = DateHandler(self, date)
             logging.debug("complete set date_handler date : {}".format(date.strftime("%Y-%m-%d")))
-            self.plan_handler.run()
+            
+            if (self.conf['NEED_EVALUATION'] == 'Y'):
+                self.plan_handler.run()
             self.eval_handler.set_best_k(date, date+relativedelta(
-                months=self.rebalance_period), self.plan_handler.date_handler)
+                    months=self.rebalance_period), self.plan_handler.date_handler)
             # day를 기준으로 하려면 아래를 사용하면 됨. 31일 기준으로 하면 우리가 원한 한달이 아님
             # date += relativedelta(days=self.rebalance_period)
             date += relativedelta(months=self.rebalance_period)
 
-        if (self.conf['PRINT_RANK_REPORT'] == 'Y') | (self.conf['PRINT_EVAL_REPORT'] == 'Y'):
+        if (self.conf['PRINT_RANK_REPORT'] == 'Y') | \
+            (self.conf['PRINT_EVAL_REPORT'] == 'Y') | \
+            (self.conf['PRINT_AI'] == 'Y'):
+                
             logging.info("START Evaluation")
             self.eval_handler.run(self.price_table)
 
@@ -312,7 +317,7 @@ class EvaluationHandler:
                 start_dh = DateHandler(self.backtest, date)
             end_dh = DateHandler(self.backtest, rebalance_date)
 
-            if self.backtest.conf['PRINT_RANK_REPORT'] == 'Y':
+            if (self.backtest.conf['PRINT_RANK_REPORT'] == 'Y') or (self.backtest.conf['PRINT_AI'] == 'Y'):
                 self.best_k[idx][3] = start_dh.price
                 rebalance_date_price_df = end_dh.price[['symbol', 'close']]
                 rebalance_date_price_df.rename(columns={'close':'rebalance_day_price'}, inplace=True)
@@ -324,18 +329,30 @@ class EvaluationHandler:
                 self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs, how='outer', on='symbol')
                 if self.backtest.conf['PRINT_AI'] == 'Y':
                     for feature in self.best_k[idx][3].columns:
-                        feature_rank_col_name = feature + "_normal"
+                        feature_normal_col_name = feature + "_normal"
                         try:
                             max_value = self.best_k[idx][3][feature].max()
                             min_value = self.best_k[idx][3][feature].min()
-                            self.best_k[idx][3][feature_rank_col_name] \
-                                = (float(self.best_k[idx][3][feature]) - float(min_value)) \
-                                  / (float(max_value) - float(min_value))
+                            self.best_k[idx][3][feature_normal_col_name] \
+                                = (self.best_k[idx][3][feature] - min_value)/(max_value - min_value)
                         except Exception as e:
                             logging.info(str(e))
                             continue
                         self.best_k[idx][3]['earning_diff'] \
                             = self.best_k[idx][3]['period_price_diff'] - self.best_k[idx][3]['period_price_diff'].mean()
+                    
+                    normal_col_list = self.best_k[idx][3].columns.str.contains("_normal")
+                    df_for_reg = self.best_k[idx][3].loc[:,normal_col_list]
+                        
+                    for col in df_for_reg.columns:
+                        new_col_name = col + "_max_diff"
+                        max_v = df_for_reg[col].max()
+                        df_for_reg[new_col_name] = max_v - df_for_reg[col]
+                
+                    df_for_reg['earning_diff'] = self.best_k[idx][3]['earning_diff']
+                    df_for_reg['symbol'] = self.best_k[idx][3]['symbol']                                                
+                    df_for_reg.to_csv('./reports/{}_{}_regressor_train.csv'.format(date.year, date.month), index=False)
+                    
                 else:
                     for feature in self.best_k[idx][3].columns:
                         feature_rank_col_name = feature + "_rank"
@@ -365,7 +382,8 @@ class EvaluationHandler:
 
             start_dh = copy.deepcopy(end_dh)
             logging.debug(idx, " ", date, "\n", self.best_k[idx][2])
-
+    
+        
     def cal_earning(self): 
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
         base_asset = self.total_asset
