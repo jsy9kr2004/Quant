@@ -8,6 +8,7 @@ from backtest import Backtest, PlanHandler
 from database import Database
 from parquet import Parquet
 from fmp import FMP
+from regressor import Regressor, RegressionNetwork
 
 
 class MainCtx:
@@ -52,6 +53,14 @@ if __name__ == '__main__':
     set_logger(conf)
     main_ctx = MainCtx(conf)
 
+    if conf['RUN_REGRESSION'] == "Y":
+        regor = Regressor(conf)
+        regor.dataload()
+        regor.train()
+        MLP = RegressionNetwork()
+        MLP.train()
+        exit()
+
     main_ctx.create_dir("./reports")
     if conf['NEED_NEW_GET_FMP'] == "Y":
         fmp = FMP(conf, main_ctx)
@@ -86,6 +95,8 @@ if __name__ == '__main__':
     plan_handler.plan_list = plan
     bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=conf['REBALANCE_PERIOD'])
 
+
+    
     ################################################################################################
     # (1) tickers를 이용한 재무재표 예제
     # import yfinance as yf
