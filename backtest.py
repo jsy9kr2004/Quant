@@ -27,11 +27,12 @@ class Backtest:
         self.price_table = ""
         self.fs_table = ""
         self.metrics_table = ""
+        self.reload_bt_table(main_ctx.start_year)
+        self.table_year = main_ctx.start_year
         if conf['PRINT_EVAL_REPORT'] == 'Y':
             self.eval_report_path = self.create_report("EVAL")
         if conf['PRINT_RANK_REPORT'] == 'Y':
             self.rank_report_path = self.create_report("RANK")
-        self.table_year = 0
 
         self.run()
 
@@ -134,8 +135,9 @@ class Backtest:
         date_handler는 다수 만들어지며 생성 주체는 backtest이며 생성 후
         backtest에서 본인에게 mapping되어 있는 plan_handler에게 달아줌.
         """
-        date = datetime.datetime(self.main_ctx.start_year, 4, 1)
-        while date <= datetime.datetime(self.main_ctx.end_year, 12 - self.rebalance_period, 30):
+        date = datetime.datetime(self.main_ctx.start_year, self.conf['START_MONTH'], self.conf['START_DATE'])
+        recent_date = self.price_table["date"].max()
+        while True:
             if date.year != self.table_year:
                 logging.info("Reload BackTest table. year : {} -> {}".format(self.table_year, date.year))
                 self.reload_bt_table(date.year)
@@ -148,20 +150,20 @@ class Backtest:
             self.plan_handler.date_handler = DateHandler(self, date)
             logging.debug("complete set date_handler date : {}".format(date.strftime("%Y-%m-%d")))
             
-            if self.conf['NEED_EVALUATION'] == 'Y':
-                self.plan_handler.run()
-            self.eval_handler.set_best_k(date, date+relativedelta(months=self.rebalance_period),
-                                         self.plan_handler.date_handler)
+            self.plan_handler.run()
+            if date != recent_date:
+                self.eval_handler.set_best_k(date, date+relativedelta(months=self.rebalance_period),
+                                             self.plan_handler.date_handler)
+            else:
+                self.eval_handler.print_current_best(self.plan_handler.date_handler)
+                break
             # day를 기준으로 하려면 아래를 사용하면 됨. 31일 기준으로 하면 우리가 원한 한달이 아님
             # date += relativedelta(days=self.rebalance_period)
-            date += relativedelta(months=self.rebalance_period)
-
-        date = self.price_table["date"].max()
-        logging.debug("Recent date : " + str(date))
-        self.reload_bt_table(date.year)
-        self.plan_handler.date_handler = DateHandler(self, date)
-        self.plan_handler.run()
-        self.eval_handler.print_current_best(self.plan_handler.date_handler)
+            if date <= datetime.datetime(self.main_ctx.end_year, 12 - self.rebalance_period, 30):
+                date += relativedelta(months=self.rebalance_period)
+            else:
+                # 마지막 loop 에 도달하면 최근 date 로 한번 돌아서 print 해준 후에 루프를 빠져 나가도록 함
+                date = recent_date
 
         if (self.conf['PRINT_RANK_REPORT'] == 'Y') | (self.conf['PRINT_EVAL_REPORT'] == 'Y') |\
                 (self.conf['PRINT_AI'] == 'Y'):
