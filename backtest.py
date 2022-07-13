@@ -148,18 +148,21 @@ class Backtest:
             self.plan_handler.date_handler = DateHandler(self, date)
             logging.debug("complete set date_handler date : {}".format(date.strftime("%Y-%m-%d")))
             
-            if (self.conf['NEED_EVALUATION'] == 'Y'):
+            if self.conf['NEED_EVALUATION'] == 'Y':
                 self.plan_handler.run()
-            self.eval_handler.set_best_k(date, date+relativedelta(
-                    months=self.rebalance_period), self.plan_handler.date_handler)
+            self.eval_handler.set_best_k(date, date+relativedelta(months=self.rebalance_period),
+                                         self.plan_handler.date_handler)
             # day를 기준으로 하려면 아래를 사용하면 됨. 31일 기준으로 하면 우리가 원한 한달이 아님
             # date += relativedelta(days=self.rebalance_period)
             date += relativedelta(months=self.rebalance_period)
 
-        if (self.conf['PRINT_RANK_REPORT'] == 'Y') | \
-            (self.conf['PRINT_EVAL_REPORT'] == 'Y') | \
-            (self.conf['PRINT_AI'] == 'Y'):
-                
+        date = self.price_table["date"].max()
+        logging.debug("Recent date : " + str(date))
+        self.reload_bt_table(date.year)
+        self.eval_handler.print_current_best(DateHandler(self, date))
+
+        if (self.conf['PRINT_RANK_REPORT'] == 'Y') | (self.conf['PRINT_EVAL_REPORT'] == 'Y') |\
+                (self.conf['PRINT_AI'] == 'Y'):
             logging.info("START Evaluation")
             self.eval_handler.run(self.price_table)
 
@@ -294,6 +297,13 @@ class EvaluationHandler:
         """상위 몇 종목을 구매할 것인가에 대한 계산. 현재는 상위 4개의 주식을 매 period 마다 구매하는 것으로 되어 있음"""
         return self.backtest.conf['MEMBER_CNT']
 
+    def print_current_best(self, scored_dh):
+        best_symbol_info = pd.merge(scored_dh.symbol_list, scored_dh.metrics, how='outer', on='symbol')
+        best_symbol_info = pd.merge(best_symbol_info, scored_dh.fs, how='outer', on='symbol')
+        best_symbol = best_symbol_info.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
+        best_symbol = best_symbol.assign(count=0)
+        best_symbol.to_csv('./result.csv')
+
     def set_best_k(self, date, rebalance_date, scored_dh):
         """plan_handler.date_handler.symbol_list에 score를 보고 best_k에 append 해주는 함수."""
         best_symbol_info = pd.merge(scored_dh.symbol_list, scored_dh.metrics, how='outer', on='symbol')
@@ -340,7 +350,6 @@ class EvaluationHandler:
                             continue
                         self.best_k[idx][3]['earning_diff'] \
                             = self.best_k[idx][3]['period_price_diff'] - self.best_k[idx][3]['period_price_diff'].mean()
-                    
                     normal_col_list = self.best_k[idx][3].columns.str.contains("_normal")
                     df_for_reg = self.best_k[idx][3].loc[:,normal_col_list]
                         
@@ -383,8 +392,7 @@ class EvaluationHandler:
             start_dh = copy.deepcopy(end_dh)
             logging.debug(idx, " ", date, "\n", self.best_k[idx][2])
     
-        
-    def cal_earning(self): 
+    def cal_earning(self):
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
         base_asset = self.total_asset
         prev = 0
@@ -414,10 +422,11 @@ class EvaluationHandler:
             prev = self.total_asset
             self.total_asset = remain_asset + rebalance_day_price_mul_stock_cnt.sum()
 
-            logging.debug("cur idx : {}, prev : {}, earning : {:.2f}, earning_rate : {}, asset : {}".format(idx, idx-1, period_earning,
-                                                                                      period_earning / (self.total_asset-period_earning), self.total_asset))
+            logging.debug("cur idx : {}, prev : {}, earning : {:.2f},"
+                          "earning_rate : {}, asset : {}".format(idx, idx-1, period_earning,
+                                                                 period_earning / (self.total_asset - period_earning),
+                                                                 self.total_asset))
             self.best_k[idx][4] = period_earning / (self.total_asset-period_earning)
-
 
             self.historical_earning_per_rebalanceday.append([date, period_earning, prev, self.total_asset, best_group])
 

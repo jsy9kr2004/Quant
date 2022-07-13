@@ -57,8 +57,8 @@ if __name__ == '__main__':
         regor = Regressor(conf)
         regor.dataload()
         regor.train()
-        MLP = RegressionNetwork()
-        MLP.train()
+        # MLP = RegressionNetwork()
+        # MLP.train()
         exit()
 
     main_ctx.create_dir("./reports")
