@@ -159,6 +159,7 @@ class Backtest:
         date = self.price_table["date"].max()
         logging.debug("Recent date : " + str(date))
         self.reload_bt_table(date.year)
+        self.plan_handler.run()
         self.eval_handler.print_current_best(DateHandler(self, date))
 
         if (self.conf['PRINT_RANK_REPORT'] == 'Y') | (self.conf['PRINT_EVAL_REPORT'] == 'Y') |\
