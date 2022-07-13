@@ -159,8 +159,9 @@ class Backtest:
         date = self.price_table["date"].max()
         logging.debug("Recent date : " + str(date))
         self.reload_bt_table(date.year)
+        self.plan_handler.date_handler = DateHandler(self, date)
         self.plan_handler.run()
-        self.eval_handler.print_current_best(DateHandler(self, date))
+        self.eval_handler.print_current_best(self.plan_handler.date_handler)
 
         if (self.conf['PRINT_RANK_REPORT'] == 'Y') | (self.conf['PRINT_EVAL_REPORT'] == 'Y') |\
                 (self.conf['PRINT_AI'] == 'Y'):
@@ -391,7 +392,8 @@ class EvaluationHandler:
                 self.best_k[idx][2] = self.best_k[idx][2][self.best_k[idx][2].price > 0.000001]
 
             start_dh = copy.deepcopy(end_dh)
-            logging.debug(idx, " ", date, "\n", self.best_k[idx][2])
+            logging.debug(str(idx) + " " + str(date))
+            logging.debug(str(self.best_k[idx][2]))
     
     def cal_earning(self):
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
