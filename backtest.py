@@ -367,9 +367,19 @@ class EvaluationHandler:
                     df_for_reg.to_csv('./reports/{}_{}_regressor_train.csv'.format(date.year, date.month), index=False)
                     
                 else:
+                    sort = pd.read_csv('./sort.csv', header=0)
                     for feature in self.best_k[idx][3].columns:
                         feature_rank_col_name = feature + "_rank"
-                        self.best_k[idx][3][feature_rank_col_name] = self.best_k[idx][3][feature].rank(method='min')
+                        f = sort.query("name == @feature")
+                        if f.empty:
+                            continue
+                        else:
+                            if f.iloc[0].sort == "low":
+                                self.best_k[idx][3][feature_rank_col_name]\
+                                    = self.best_k[idx][3][feature].rank(method='min', ascending=True)
+                            elif f.iloc[0].sort == "high":
+                                self.best_k[idx][3][feature_rank_col_name] \
+                                    = self.best_k[idx][3][feature].rank(method='min', ascending=False)
                 # self.best_k[idx][3] = self.best_k[idx][3].sort_values(by=["period_price_diff"], axis=0, ascending=False)
                 self.best_k[idx][3] = self.best_k[idx][3].sort_values(by=["period_price_diff"], axis=0, ascending=False)[:self.backtest.conf['TOP_K_NUM']]
             else:
@@ -535,7 +545,8 @@ class EvaluationHandler:
             for ref_sym in self.backtest.conf['REFERENCE_SYMBOL']:
                 start_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.start_year, 1, 1))
                 end_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.end_year, 12, 31))
-                reference_earning_df= self.backtest.price_table.query("(symbol == @ref_sym) and ((date == @start_date) or (date == @end_date))")
+                reference_earning_df = self.backtest.price_table.query(
+                    "(symbol == @ref_sym) and ((date == @start_date) or (date == @end_date))")
                 logging.debug(ref_sym)
                 logging.debug(reference_earning_df)
                 reference_earning = reference_earning_df.iloc[1]['close'] - reference_earning_df.iloc[0]['close']
