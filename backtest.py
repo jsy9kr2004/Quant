@@ -343,14 +343,20 @@ class EvaluationHandler:
                 self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.metrics, how='outer', on='symbol')
                 self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs, how='outer', on='symbol')
                 
-                # 음수 처리                
+                # 음수 처리
+                highlow = pd.read_csv('./sort.csv', header=0)                
                 for feature in self.best_k[idx][3].columns:
-                    try:
-                        feat_max = self.best_k[idx][3][feature].max()
-                        self.best_k[idx][3][feature] = [s if s >= 0 else s*(-1)*feat_max for s in self.best_k[idx][3][feature]] 
-                    except Exception as e:
-                        logging.info(str(e))
+                    f = highlow.query("name == @feature")
+                    if f.empty:
                         continue
+                    else:
+                        if f.iloc[0].sort == "low":
+                            try:
+                                feat_max = self.best_k[idx][3][feature].max()
+                                self.best_k[idx][3][feature] = [s if s >= 0 else s*(-1)*feat_max for s in self.best_k[idx][3][feature]] 
+                            except Exception as e:
+                                logging.info(str(e))
+                                continue
 
                 if self.backtest.conf['PRINT_AI'] == 'Y':
                     for feature in self.best_k[idx][3].columns:
@@ -378,10 +384,10 @@ class EvaluationHandler:
                     df_for_reg.to_csv('./reports/{}_{}_regressor_train.csv'.format(date.year, date.month), index=False)
                     
                 if self.backtest.conf['PRINT_RANK_REPORT'] == 'Y':
-                    sort = pd.read_csv('./sort.csv', header=0)
+                    
                     for feature in self.best_k[idx][3].columns:
                         feature_rank_col_name = feature + "_rank"
-                        f = sort.query("name == @feature")
+                        f = highlow.query("name == @feature")
                         if f.empty:
                             continue
                         else:
