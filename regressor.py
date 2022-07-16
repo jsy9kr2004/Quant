@@ -1,4 +1,5 @@
 import logging
+from xml.dom import XHTML_NAMESPACE
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -16,131 +17,107 @@ from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
 import torch.optim as optim
 
+from torch.utils.tensorboard import SummaryWriter
+
+
 use_col_list = [
-# "averageInventory_normal",#"averageInventory_normal_max_diff",
-"daysPayablesOutstanding_normal",#"daysPayablesOutstanding_normal_max_diff",
-"accountsPayables_normal",#"accountsPayables_normal_max_diff",
-# "workingCapital_normal",#"workingCapital_normal_max_diff",
-"capexToDepreciation_normal",#"capexToDepreciation_normal_max_diff",
-"currentRatio_normal",#"currentRatio_normal_max_diff",
-"netCurrentAssetValue_normal",#"netCurrentAssetValue_normal_max_diff",
-"daysOfInventoryOnHand_normal",#"daysOfInventoryOnHand_normal_max_diff",
-"payablesTurnover_normal",#"payablesTurnover_normal_max_diff",
-"capexToRevenue_normal",#"capexToRevenue_normal_max_diff",
-"netDebtToEBITDA_normal",#"netDebtToEBITDA_normal_max_diff",
-"evToOperatingCashFlow_normal",#"evToOperatingCashFlow_normal_max_diff",
-"evToFreeCashFlow_normal",#"evToFreeCashFlow_normal_max_diff",
-"debtToAssets_normal",#"debtToAssets_normal_max_diff",
-"tangibleBookValuePerShare_normal",#"tangibleBookValuePerShare_normal_max_diff",
-"capexPerShare_normal",#"capexPerShare_normal_max_diff",
-"peRatio_normal",#"peRatio_normal_max_diff",
-"enterpriseValueOverEBITDA_normal",#"enterpriseValueOverEBITDA_normal_max_diff",
-# "enterpriseValue_normal",#"enterpriseValue_normal_max_diff",
-"bookValuePerShare_normal",#"bookValuePerShare_normal_max_diff",
-"shareholdersEquityPerShare_normal",#"shareholdersEquityPerShare_normal_max_diff",
-"pfcfRatio_normal",#"pfcfRatio_normal_max_diff",
-"pocfratio_normal",#"pocfratio_normal_max_diff",
-"daysSalesOutstanding_normal",#"daysSalesOutstanding_normal_max_diff",
-"incomeQuality_normal",#"incomeQuality_normal_max_diff",
-"revenuePerShare_normal",#"revenuePerShare_normal_max_diff",
-"freeCashFlowPerShare_normal",#"freeCashFlowPerShare_normal_max_diff",
-"evToSales_normal",#"evToSales_normal_max_diff",
-"netIncomePerShare_normal",#"netIncomePerShare_normal_max_diff",
-"operatingCashFlowPerShare_normal",#"operatingCashFlowPerShare_normal_max_diff",
-"cashPerShare_normal",#"cashPerShare_normal_max_diff",
-"priceToSalesRatio_normal",#"priceToSalesRatio_normal_max_diff",
-"pbRatio_normal",#"pbRatio_normal_max_diff",
-"ptbRatio_normal",#"ptbRatio_normal_max_diff",
-"roic_normal",#"roic_normal_max_diff",
-# "freeCashFlowYield_normal",#"freeCashFlowYield_normal_max_diff",
-"roe_normal",#"roe_normal_max_diff",
-# "otherLiabilities_normal",#"otherLiabilities_normal_max_diff",
-# "returnOnTangibleAssets_normal",#"returnOnTangibleAssets_normal_max_diff",
-# "earningsYield_normal",#"earningsYield_normal_max_diff",
-# "capitalExpenditure_normal",#"capitalExpenditure_normal_max_diff",
-# "otherInvestingActivites_normal",#"otherInvestingActivites_normal_max_diff",
-# "totalStockholdersEquity_normal",#"totalStockholdersEquity_normal_max_diff",
-# "netDebt_normal",#"netDebt_normal_max_diff",
-# "totalAssets_normal",#"totalAssets_normal_max_diff",
-# "totalNonCurrentLiabilities_normal",#"totalNonCurrentLiabilities_normal_max_diff",
-# "netIncome_y_norma#l","netIncome_y_normal_max_diff",
-# "capitalLeaseObligations_normal",#"capitalLeaseObligations_normal_max_diff",
-# "revenue_normal",#"revenue_normal_max_diff",
-"ebitdaratio_normal",#"ebitdaratio_normal_max_diff",
-"ebitda_normal",#"ebitda_normal_max_diff",
-# "othertotalStockholdersEquity_normal",#"othertotalStockholdersEquity_normal_max_diff",
-# "netIncome_x_normal",#"netIncome_x_normal_max_diff",
-# "netReceivables_normal",#"netReceivables_normal_max_diff",
-# "cashAtBeginningOfPeriod_normal",#"cashAtBeginningOfPeriod_normal_max_diff",
-# "netCashUsedForInvestingActivites_normal",#"netCashUsedForInvestingActivites_normal_max_diff",
-# "freeCashFlow_normal",#"freeCashFlow_normal_max_diff",
-# "otherWorkingCapital_normal",#"otherWorkingCapital_normal_max_diff",
-# "incomeBeforeTax_normal",#"incomeBeforeTax_normal_max_diff",
-# "cashAtEndOfPeriod_normal",#"cashAtEndOfPeriod_normal_max_diff",
-# "netCashProvidedByOperatingActivities_normal",#"netCashProvidedByOperatingActivities_normal_max_diff",
-# "operatingCashFlow_normal",#"operatingCashFlow_normal_max_diff",
-"netIncomeGrowth_normal",#"netIncomeGrowth_normal_max_diff",
-# "otherNonCurrentAssets_normal",#"otherNonCurrentAssets_normal_max_diff",
-# "cashAndShortTermInvestments_normal",#"cashAndShortTermInvestments_normal_max_diff",
-# "accumulatedOtherComprehensiveIncomeLoss_normal",#"accumulatedOtherComprehensiveIncomeLoss_normal_max_diff",
-"grossProfit_normal",#"grossProfit_normal_max_diff",
-# "cashAndCashEquivalents_normal",#"cashAndCashEquivalents_normal_max_diff",
-"epsgrowth_normal",#"epsgrowth_normal_max_diff",
-# "totalDebt_normal",#"totalDebt_normal_max_diff",
-"epsdilutedGrowth_normal",#"epsdilutedGrowth_normal_max_diff",
-# "incomeTaxExpense_normal",#"incomeTaxExpense_normal_max_diff",
-# "retainedEarnings_normal",#"retainedEarnings_normal_max_diff",
-"revenueGrowth_normal",#"revenueGrowth_normal_max_diff",
-"grossProfitRatio_normal",#"grossProfitRatio_normal_max_diff",
-"epsdiluted_normal",#"epsdiluted_normal_max_diff",
-"eps_normal",#"eps_normal_max_diff",
-"debtGrowth_normal",#"debtGrowth_normal_max_diff",
-# "operatingIncome_normal",#"operatingIncome_normal_max_diff",
-"netIncomeRatio_normal",#"netIncomeRatio_normal_max_diff",
-"totalOtherIncomeExpensesNet_normal",#"totalOtherIncomeExpensesNet_normal_max_diff",
-"incomeBeforeTaxRatio_normal",#"incomeBeforeTaxRatio_normal_max_diff",
-# "costOfRevenue_normal",#"costOfRevenue_normal_max_diff",
-"operatingCashFlowGrowth_normal",#"operatingCashFlowGrowth_normal_max_diff",
-# "totalInvestments_normal",#"totalInvestments_normal_max_diff",
-"ebitgrowth_normal",#"ebitgrowth_normal_max_diff",
-"operatingIncomeGrowth_normal",#"operatingIncomeGrowth_normal_max_diff",
-"freeCashFlowGrowth_normal",#"freeCashFlowGrowth_normal_max_diff",
-# "minorityInterest_normal",#"minorityInterest_normal_max_diff",
-"fiveYRevenueGrowthPerShare_normal",#"fiveYRevenueGrowthPerShare_normal_max_diff",
-# "deferredIncomeTax_normal",#"deferredIncomeTax_normal_max_diff",
-"threeYOperatingCFGrowthPerShare_normal",#"threeYOperatingCFGrowthPerShare_normal_max_diff",
-"grossProfitGrowth_normal",#"grossProfitGrowth_normal_max_diff",
-"operatingIncomeRatio_normal",#"operatingIncomeRatio_normal_max_diff",
-"threeYShareholdersEquityGrowthPerShare_normal",#"threeYShareholdersEquityGrowthPerShare_normal_max_diff",
-"fiveYShareholdersEquityGrowthPerShare_normal",#"fiveYShareholdersEquityGrowthPerShare_normal_max_diff",
-"fiveYOperatingCFGrowthPerShare_normal",#"fiveYOperatingCFGrowthPerShare_normal_max_diff",
-# "inventory_y_norma#l","inventory_y_normal_max_diff",
-"threeYRevenueGrowthPerShare_normal",#"threeYRevenueGrowthPerShare_normal_max_diff",
-"researchAndDdevelopementToRevenue_normal",#"researchAndDdevelopementToRevenue_normal_max_diff",
-# "goodwillAndIntangibleAssets_normal",#"goodwillAndIntangibleAssets_normal_max_diff",
-"threeYNetIncomeGrowthPerShare_normal",#"threeYNetIncomeGrowthPerShare_normal_max_diff",
-"tenYOperatingCFGrowthPerShare_normal",#"tenYOperatingCFGrowthPerShare_normal_max_diff",
-"tenYRevenueGrowthPerShare_normal",#"tenYRevenueGrowthPerShare_normal_max_diff",
-"tenYShareholdersEquityGrowthPerShare_normal",#"tenYShareholdersEquityGrowthPerShare_normal_max_diff",
-"tenYNetIncomeGrowthPerShare_normal",#"tenYNetIncomeGrowthPerShare_normal_max_diff",
-"weightedAverageSharesGrowth_normal",#"weightedAverageSharesGrowth_normal_max_diff",
-"weightedAverageSharesDilutedGrowth_normal",#"weightedAverageSharesDilutedGrowth_normal_max_diff",
-"fiveYNetIncomeGrowthPerShare_normal",#"fiveYNetIncomeGrowthPerShare_normal_max_diff",
-"bookValueperShareGrowth_normal",#"bookValueperShareGrowth_normal_max_diff",
-"inventoryGrowth_normal",#"inventoryGrowth_normal_max_diff",
-# "shortTermDebt_normal",#"shortTermDebt_normal_max_diff",
-# "interestIncome_normal",#"interestIncome_normal_max_diff",
-"rdexpenseGrowth_normal",#"rdexpenseGrowth_normal_max_diff",
-# "effectOfForexChangesOnCash_normal",#"effectOfForexChangesOnCash_normal_max_diff",
-# "inventory_x_normal",#"inventory_x_normal_max_diff",
-# "goodwill_normal",#"goodwill_normal_max_diff",
-# "intangibleAssets_normal",#"intangibleAssets_normal_max_diff",
-# "commonStockIssued_normal",#"commonStockIssued_normal_max_diff",
-# "deferredRevenue_normal",#"deferredRevenue_normal_max_diff",
-# "shortTermInvestments_normal",#"shortTermInvestments_normal_max_diff",
-# "deferredTaxLiabilitiesNonCurrent_normal",#"deferredTaxLiabilitiesNonCurrent_normal_max_diff",
-# "taxAssets_normal",#"taxAssets_normal_max_diff",
-# "researchAndDevelopmentExpenses_normal",#"researchAndDevelopmentExpenses_normal_max_diff",
+"interestCoverage_normal", "interestCoverage_normal_max_diff",
+"dividendYield_normal", "dividendYield_normal_max_diff",
+"inventoryTurnover_normal", "inventoryTurnover_normal_max_diff",
+"daysPayablesOutstanding_normal", "daysPayablesOutstanding_normal_max_diff",
+"stockBasedCompensationToRevenue_normal", "stockBasedCompensationToRevenue_normal_max_diff",
+"dcf_normal", "dcf_normal_max_diff",
+"capexToDepreciation_normal", "capexToDepreciation_normal_max_diff",
+"currentRatio_normal", "currentRatio_normal_max_diff",
+"daysOfInventoryOnHand_normal", "daysOfInventoryOnHand_normal_max_diff",
+"payablesTurnover_normal", "payablesTurnover_normal_max_diff",
+"grahamNetNet_normal", "grahamNetNet_normal_max_diff",
+"capexToRevenue_normal", "capexToRevenue_normal_max_diff",
+"netDebtToEBITDA_normal", "netDebtToEBITDA_normal_max_diff",
+"receivablesTurnover_normal", "receivablesTurnover_normal_max_diff",
+"capexToOperatingCashFlow_normal", "capexToOperatingCashFlow_normal_max_diff",
+"evToOperatingCashFlow_normal", "evToOperatingCashFlow_normal_max_diff",
+"evToFreeCashFlow_normal", "evToFreeCashFlow_normal_max_diff",
+"debtToAssets_normal", "debtToAssets_normal_max_diff",
+"tangibleBookValuePerShare_normal", "tangibleBookValuePerShare_normal_max_diff",
+"stockBasedCompensation_normal", "stockBasedCompensation_normal_max_diff",
+"capexPerShare_normal", "capexPerShare_normal_max_diff",
+"peRatio_normal", "peRatio_normal_max_diff",
+"enterpriseValueOverEBITDA_normal", "enterpriseValueOverEBITDA_normal_max_diff",
+"bookValuePerShare_normal", "bookValuePerShare_normal_max_diff",
+"shareholdersEquityPerShare_normal", "shareholdersEquityPerShare_normal_max_diff",
+"pfcfRatio_normal", "pfcfRatio_normal_max_diff",
+"pocfratio_normal", "pocfratio_normal_max_diff",
+"daysSalesOutstanding_normal", "daysSalesOutstanding_normal_max_diff",
+"incomeQuality_normal", "incomeQuality_normal_max_diff",
+"interestDebtPerShare_normal", "interestDebtPerShare_normal_max_diff",
+"revenuePerShare_normal", "revenuePerShare_normal_max_diff",
+"freeCashFlowPerShare_normal", "freeCashFlowPerShare_normal_max_diff",
+"evToSales_normal", "evToSales_normal_max_diff",
+"netIncomePerShare_normal", "netIncomePerShare_normal_max_diff",
+"grahamNumber_normal", "grahamNumber_normal_max_diff",
+"operatingCashFlowPerShare_normal", "operatingCashFlowPerShare_normal_max_diff",
+"cashPerShare_normal", "cashPerShare_normal_max_diff",
+"priceToSalesRatio_normal", "priceToSalesRatio_normal_max_diff",
+"pbRatio_normal", "pbRatio_normal_max_diff",
+"ptbRatio_normal", "ptbRatio_normal_max_diff",
+"investedCapital_normal", "investedCapital_normal_max_diff",
+"roic_normal", "roic_normal_max_diff",
+"freeCashFlowYield_normal", "freeCashFlowYield_normal_max_diff",
+"roe_normal", "roe_normal_max_diff",
+"returnOnTangibleAssets_normal", "returnOnTangibleAssets_normal_max_diff",
+"earningsYield_normal", "earningsYield_normal_max_diff",
+"debtToEquity_normal", "debtToEquity_normal_max_diff",
+"payoutRatio_normal", "payoutRatio_normal_max_diff",
+"salesGeneralAndAdministrativeToRevenue_normal", "salesGeneralAndAdministrativeToRevenue_normal_max_diff",
+"intangiblesToTotalAssets_normal", "intangiblesToTotalAssets_normal_max_diff",
+"netDebt_normal", "netDebt_normal_max_diff",
+"ebitdaratio_normal", "ebitdaratio_normal_max_diff",
+"ebitda_normal", "ebitda_normal_max_diff",
+"dividendsperShareGrowth_normal", "dividendsperShareGrowth_normal_max_diff",
+"freeCashFlow_normal", "freeCashFlow_normal_max_diff",
+"operatingCashFlow_normal", "operatingCashFlow_normal_max_diff",
+"netIncomeGrowth_normal", "netIncomeGrowth_normal_max_diff",
+"grossProfit_normal", "grossProfit_normal_max_diff",
+"epsgrowth_normal", "epsgrowth_normal_max_diff",
+"epsdilutedGrowth_normal", "epsdilutedGrowth_normal_max_diff",
+"revenueGrowth_normal", "revenueGrowth_normal_max_diff",
+"grossProfitRatio_normal", "grossProfitRatio_normal_max_diff",
+"epsdiluted_normal", "epsdiluted_normal_max_diff",
+"eps_normal", "eps_normal_max_diff",
+"debtGrowth_normal", "debtGrowth_normal_max_diff",
+"tenYDividendperShareGrowthPerShare_normal", "tenYDividendperShareGrowthPerShare_normal_max_diff",
+"netIncomeRatio_normal", "netIncomeRatio_normal_max_diff",
+"incomeBeforeTaxRatio_normal", "incomeBeforeTaxRatio_normal_max_diff",
+"operatingCashFlowGrowth_normal", "operatingCashFlowGrowth_normal_max_diff",
+"ebitgrowth_normal", "ebitgrowth_normal_max_diff",
+"operatingIncomeGrowth_normal", "operatingIncomeGrowth_normal_max_diff",
+"threeYDividendperShareGrowthPerShare_normal", "threeYDividendperShareGrowthPerShare_normal_max_diff",
+"assetGrowth_normal", "assetGrowth_normal_max_diff",
+"freeCashFlowGrowth_normal", "freeCashFlowGrowth_normal_max_diff",
+"sgaexpensesGrowth_normal", "sgaexpensesGrowth_normal_max_diff",
+"fiveYDividendperShareGrowthPerShare_normal", "fiveYDividendperShareGrowthPerShare_normal_max_diff",
+"receivablesGrowth_normal", "receivablesGrowth_normal_max_diff",
+"fiveYRevenueGrowthPerShare_normal", "fiveYRevenueGrowthPerShare_normal_max_diff",
+"threeYOperatingCFGrowthPerShare_normal", "threeYOperatingCFGrowthPerShare_normal_max_diff",
+"grossProfitGrowth_normal", "grossProfitGrowth_normal_max_diff",
+"operatingIncomeRatio_normal", "operatingIncomeRatio_normal_max_diff",
+"threeYShareholdersEquityGrowthPerShare_normal", "threeYShareholdersEquityGrowthPerShare_normal_max_diff",
+"fiveYShareholdersEquityGrowthPerShare_normal", "fiveYShareholdersEquityGrowthPerShare_normal_max_diff",
+"fiveYOperatingCFGrowthPerShare_normal", "fiveYOperatingCFGrowthPerShare_normal_max_diff",
+"threeYRevenueGrowthPerShare_normal", "threeYRevenueGrowthPerShare_normal_max_diff",
+"researchAndDdevelopementToRevenue_normal", "researchAndDdevelopementToRevenue_normal_max_diff",
+"threeYNetIncomeGrowthPerShare_normal", "threeYNetIncomeGrowthPerShare_normal_max_diff",
+"tenYOperatingCFGrowthPerShare_normal", "tenYOperatingCFGrowthPerShare_normal_max_diff",
+"tenYRevenueGrowthPerShare_normal", "tenYRevenueGrowthPerShare_normal_max_diff",
+"tenYShareholdersEquityGrowthPerShare_normal", "tenYShareholdersEquityGrowthPerShare_normal_max_diff",
+"tenYNetIncomeGrowthPerShare_normal", "tenYNetIncomeGrowthPerShare_normal_max_diff",
+"weightedAverageSharesGrowth_normal", "weightedAverageSharesGrowth_normal_max_diff",
+"weightedAverageSharesDilutedGrowth_normal", "weightedAverageSharesDilutedGrowth_normal_max_diff",
+"fiveYNetIncomeGrowthPerShare_normal", "fiveYNetIncomeGrowthPerShare_normal_max_diff",
+"bookValueperShareGrowth_normal", "bookValueperShareGrowth_normal_max_diff",
+"inventoryGrowth_normal", "inventoryGrowth_normal_max_diff",
+"rdexpenseGrowth_normal", "rdexpenseGrowth_normal_max_diff",
 "earning_diff"
 ]
         
@@ -168,7 +145,7 @@ class Regressor:
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
             df = df.loc[:, use_col_list]
-            # df = df[df.isnull().sum(axis=1) < 50]
+            df = df[df.isnull().sum(axis=1) < 5]
             # df = df.loc[:, df.isnull().sum(axis=0) < 100]         
             self.train_df = pd.concat([self.train_df, df], axis=0)
         
@@ -189,7 +166,9 @@ class Regressor:
         logging.debug('NaN occurrences in Rows:')
         logging.debug(self.train_df.isnull().sum(axis=1))
         self.train_df = self.train_df.fillna(0)
-        logging.debug("train_df shape : ", self.train_df.shape)
+        # self.train_df = self.train_df.fillna(self.train_df.mean())
+        logging.debug("train_df shape : ")
+        logging.debug(self.train_df.shape)
 
     def train(self):        
         # x = self.train_df.loc[:, self.train_df.columns != 'earning_diff']
@@ -262,7 +241,7 @@ class RegressionNetwork(nn.Module):
         self.conf = conf
         self.fc1 = nn.Linear(len(use_col_list)-1, 128)
         self.fc2 = nn.Linear(128, 1)
-        self.dropout = nn.Dropout(0.25)
+        self.dropout = nn.Dropout(0.4)
     def forward(self, x):
         h = self.dropout(F.relu(self.fc1(x)))
         h = self.fc2(h)
@@ -272,33 +251,44 @@ class RegressionNetwork(nn.Module):
 
         # for regression network
         net = RegressionNetwork(self.conf)
-        optimizer = optim.SGD(net.parameters(), lr=0.001)
+        optimizer = optim.AdamW(net.parameters(), lr=0.01)
         loss_fn = nn.MSELoss()
         
         myDs = MyDataset(self.conf)
-        train_loader = DataLoader(myDs, batch_size=16, shuffle=False)
-        for epoch in range(0,3):
+        train_loader = DataLoader(myDs, batch_size=4, shuffle=False)
+        min_loss = 9999
+        
+        writer = SummaryWriter('scalar/')
+        
+        for epoch in range(0,5):
             print("epoch : ", epoch)
             for i, (data, labels) in enumerate(train_loader):
                 optimizer.zero_grad()
                 pred = net(data)
                 loss = loss_fn(pred,labels) 
-                print(i, loss)
+                writer.add_scalar("Loss/train", loss, epoch)
+                if loss < min_loss:
+                    min_loss = loss
+                    torch.save(net.state_dict(), './model_state_dict.pt')  # 모델 객체의 state_dict 저장
+
                 loss.backward()
                 optimizer.step()
+            print("min_loss : ", min_loss)
+            test_loader = DataLoader(myDs, batch_size=1024, shuffle=False)
+            net.load_state_dict(torch.load('./model_state_dict.pt'))
+            net.eval()
+            preds = np.empty(shape=(0))
+            labels = np.empty(shape=(0))
+            for i, (data, label) in enumerate(test_loader):
+                optimizer.zero_grad()
+                pred = net(data)
+                preds = np.append(preds, pred.detach().numpy())
+                labels = np.append(labels, label)
                 
-        test_loader = DataLoader(myDs, batch_size=1024, shuffle=False)
-        net.eval()
-        preds = np.empty(shape=(0))
-        labels = np.empty(shape=(0))
-        for i, (data, label) in enumerate(test_loader):
-            optimizer.zero_grad()
-            pred = net(data)
-            preds = np.append(preds, pred.detach().numpy())
-            labels = np.append(labels, label)
-            
-        plt.scatter(preds, labels, alpha=0.4)
-        plt.xlabel("pred")
-        plt.ylabel("labels")
-        plt.show()
+            plt.scatter(preds, labels, alpha=0.4)
+            plt.xlabel("pred")
+            plt.ylabel("labels")
+            plt.show()
+            writer.close()
         # pred = net(tensor_x_test)
+        

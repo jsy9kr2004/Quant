@@ -150,7 +150,8 @@ class Backtest:
             self.plan_handler.date_handler = DateHandler(self, date)
             logging.debug("complete set date_handler date : {}".format(date.strftime("%Y-%m-%d")))
             
-            self.plan_handler.run()
+            if (self.conf['NEED_EVALUATION'] == 'Y'):
+                self.plan_handler.run()
             if date != recent_date:
                 self.eval_handler.set_best_k(date, date+relativedelta(months=self.rebalance_period),
                                              self.plan_handler.date_handler)
@@ -187,7 +188,7 @@ class PlanHandler:
         assert self.plan_list is not None, "Empty Plan List"
         assert self.date_handler is not None, "Empty Date Handler"
 
-        with Pool(processes=multiprocessing.cpu_count()*2) as pool:
+        with Pool(processes=multiprocessing.cpu_count()) as pool:
             df_list = pool.map(self.plan_run, self.plan_list)
 
         full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
@@ -341,6 +342,16 @@ class EvaluationHandler:
                 self.best_k[idx][3]['period_price_diff'] = diff / self.best_k[idx][3]['close']
                 self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.metrics, how='outer', on='symbol')
                 self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs, how='outer', on='symbol')
+                
+                # 음수 처리                
+                for feature in self.best_k[idx][3].columns:
+                    try:
+                        feat_max = self.best_k[idx][3][feature].max()
+                        self.best_k[idx][3][feature] = [s if s >= 0 else s*(-1)*feat_max for s in self.best_k[idx][3][feature]] 
+                    except Exception as e:
+                        logging.info(str(e))
+                        continue
+
                 if self.backtest.conf['PRINT_AI'] == 'Y':
                     for feature in self.best_k[idx][3].columns:
                         feature_normal_col_name = feature + "_normal"
@@ -366,10 +377,10 @@ class EvaluationHandler:
                     df_for_reg['symbol'] = self.best_k[idx][3]['symbol']                                                
                     df_for_reg.to_csv('./reports/{}_{}_regressor_train.csv'.format(date.year, date.month), index=False)
                     
-                else:
+                if (self.backtest.conf['PRINT_RANK_REPORT'] == 'Y'):
                     for feature in self.best_k[idx][3].columns:
                         feature_rank_col_name = feature + "_rank"
-                        self.best_k[idx][3][feature_rank_col_name] = self.best_k[idx][3][feature].rank(method='min')
+                        self.best_k[idx][3][feature_rank_col_name] = self.best_k[idx][3][feature].rank()
                 # self.best_k[idx][3] = self.best_k[idx][3].sort_values(by=["period_price_diff"], axis=0, ascending=False)
                 self.best_k[idx][3] = self.best_k[idx][3].sort_values(by=["period_price_diff"], axis=0, ascending=False)[:self.backtest.conf['TOP_K_NUM']]
             else:
