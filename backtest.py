@@ -188,7 +188,7 @@ class PlanHandler:
         assert self.plan_list is not None, "Empty Plan List"
         assert self.date_handler is not None, "Empty Date Handler"
 
-        with Pool(processes=multiprocessing.cpu_count()) as pool:
+        with Pool(processes=multiprocessing.cpu_count()-1) as pool:
             df_list = pool.map(self.plan_run, self.plan_list)
 
         full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
@@ -219,23 +219,28 @@ class PlanHandler:
             logging.warning("Wrong params['diff'] : TOO BIG! SET UNDER " + str(self.absolute_score/self.k_num))
 
         key = str(params["key"])
-        if params["key_dir"] == "low":
-            top_k_df = self.date_handler.fs_metircs[self.date_handler.fs_metircs[key] > 0]
-            top_k_df = top_k_df.sort_values(by=[key], ascending=True, na_position="last")[:self.k_num]
-        elif params["key_dir"] == "high":
-            top_k_df = self.date_handler.fs_metircs.sort_values(by=[key], ascending=False,
+        # if params["key_dir"] == "low":
+        #     top_k_df = self.date_handler.fs_metrics[self.date_handler.fs_metrics[key] > 0]
+        #     top_k_df = top_k_df.sort_values(by=[key], ascending=True, na_position="last")[:self.k_num]
+        # elif params["key_dir"] == "high":
+        #    top_k_df = self.date_handler.fs_metrics.sort_values(by=[key], ascending=False,
+        #                                                        na_position="last")[:self.k_num]
+        # else:
+        #     logging.error("Wrong params['key_dir'] : ", params["key_dir"], "params['key_dir'] must be 'low' or 'high'")
+        #     return
+        
+        # all feature was preprocessed ( high is good ) in Datehandler 
+        top_k_df = self.date_handler.fs_metrics.sort_values(by=[key], ascending=False,
                                                                 na_position="last")[:self.k_num]
-        else:
-            logging.error("Wrong params['key_dir'] : ", params["key_dir"], "params['key_dir'] must be 'low' or 'high'")
-            return
 
-        if params["base_dir"] == ">":
-            top_k_df = top_k_df[top_k_df[key] > params["base"]]
-        elif params["base_dir"] == "<":
-            top_k_df = top_k_df[top_k_df[key] < params["base"]]
-        else:
-            logging.error("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<'")
-            return
+
+        # if params["base_dir"] == ">":
+        #     top_k_df = top_k_df[top_k_df[key] > params["base"]]
+        # elif params["base_dir"] == "<":
+        #     top_k_df = top_k_df[top_k_df[key] < params["base"]]
+        # else:
+        #     logging.error("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<'")
+        #     return
 
         logging.debug(top_k_df[['symbol', params["key"]]])
 
@@ -244,8 +249,8 @@ class PlanHandler:
         delta = self.absolute_score
         # 경고처리 무시
         pd.set_option('mode.chained_assignment', None)
+        local_score_name = key + '_score'
         for sym in symbols:
-            local_score_name = key + '_score'
             return_df.loc[(self.date_handler.symbol_list.symbol == sym), local_score_name]\
                 = params["weight"] * delta
             delta = delta - params["diff"]
@@ -268,9 +273,15 @@ class DateHandler:
         trade_date = backtest.get_trade_date(date)
         self.price = backtest.price_table.query("date == @trade_date")
         self.price = self.price.drop_duplicates('symbol', keep='first')
+        
         # self.price = self.get_date_latest_per_symbol(backtest.price_table, self.date)
         self.symbol_list = pd.merge(self.symbol_list, self.price, how='left', on='symbol')
 
+        # filter volume
+        # self.symbol_list = self.symbol_list.drop(index=self.symbol_list[self.symbol_list['volume'] < 10000].index)
+        self.symbol_list = self.symbol_list[self.symbol_list.volume > 10000]
+        del self.price
+    
         prev = self.date - relativedelta(months=4)
         # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
         self.fs = backtest.fs_table.copy()
@@ -284,9 +295,59 @@ class DateHandler:
         self.metrics = self.metrics[prev <= self.metrics.date]
         self.metrics = self.metrics.drop_duplicates('symbol', keep='first')
 
-        self.fs_metircs = pd.merge(self.fs, self.metrics, how='outer', on='symbol')
-
-
+        self.fs_metrics = pd.merge(self.fs, self.metrics, how='outer', on='symbol')
+        
+        del self.metrics
+        del self.fs
+        
+        # remove outlier 
+        logging.info("before removing outlier # rows : " + str(self.fs_metrics.shape[0]))
+        logging.info("before removing outlier # columns : " + str(self.fs_metrics.shape[1]))
+        for col in self.fs_metrics.columns:
+            try:
+                Q1 = np.percentile(self.fs_metrics[col], 25)
+                Q3 = np.percentile(self.fs_metrics[col], 75)
+                IQR = Q3 - Q1
+                
+                # 0.5 is not fixed.   reference :  1.5 => remove 0.7%,  0 =>  remove 50%
+                outlier_step = 0.5*IQR
+                outlier_list_col = self.fs_metrics[(self.fs_metrics[col] < (Q1 - outlier_step)) 
+                                                    | (self.fs_metrics[col] > (Q3 + outlier_step))].index
+                self.fs_metrics = self.fs_metrics.drop(index=outlier_list_col, axis=0)
+            except Exception as e:
+                logging.info(str(e))
+                continue
+        logging.info("after removing outlier # rows : " + str(self.fs_metrics.shape[0]))
+        logging.info("after removing outlier # columns : " + str(self.fs_metrics.shape[1]))
+        
+        highlow = pd.read_csv('./sort.csv', header=0)                
+        for feature in self.fs_metrics.columns:
+            # 음수 처리
+            f = highlow.query("name == @feature")
+            if f.empty:
+                continue
+            else:
+                if f.iloc[0].sort == "low":
+                    try:
+                        feat_max = self.fs_metrics[feature].max()
+                        self.fs_metrics[feature] = [s*(-1) if s >= 0 else (s - feat_max) for s in self.fs_metrics[feature]] 
+                    except Exception as e:
+                        logging.info(str(e))
+                        continue
+            
+            pd.set_option('mode.chained_assignment', None)
+            # normalization ( -10000~10000 ). range is not fixed
+            feature_normal_col_name = feature + "_normal"
+            try:
+                max_value = self.fs_metrics[feature].max()
+                min_value = self.fs_metrics[feature].min()
+                self.fs_metrics[feature_normal_col_name] \
+                    = (((self.fs_metrics[feature] - min_value) * 20000) / (max_value - min_value)) - 10000
+            except Exception as e:
+                logging.info(str(e))
+                continue
+        
+        
 class EvaluationHandler:
     def __init__(self, backtest):
         self.best_k = []
@@ -303,16 +364,16 @@ class EvaluationHandler:
         return self.backtest.conf['MEMBER_CNT']
 
     def print_current_best(self, scored_dh):
-        best_symbol_info = pd.merge(scored_dh.symbol_list, scored_dh.metrics, how='outer', on='symbol')
-        best_symbol_info = pd.merge(best_symbol_info, scored_dh.fs, how='outer', on='symbol')
+        best_symbol_info = pd.merge(scored_dh.symbol_list, scored_dh.fs_metrics, how='left', on='symbol')
+        #best_symbol_info = pd.merge(best_symbol_info, scored_dh.fs, how='left', on='symbol')
         best_symbol = best_symbol_info.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
         best_symbol = best_symbol.assign(count=0)
         best_symbol.to_csv('./result.csv')
 
     def set_best_k(self, date, rebalance_date, scored_dh):
         """plan_handler.date_handler.symbol_list에 score를 보고 best_k에 append 해주는 함수."""
-        best_symbol_info = pd.merge(scored_dh.symbol_list, scored_dh.metrics, how='outer', on='symbol')
-        best_symbol_info = pd.merge(best_symbol_info, scored_dh.fs, how='outer', on='symbol')
+        best_symbol_info = pd.merge(scored_dh.symbol_list, scored_dh.fs_metrics, how='left', on='symbol')
+        #best_symbol_info = pd.merge(best_symbol_info, scored_dh.fs, how='left', on='symbol')
         best_symbol = best_symbol_info.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
         # best_symbol = best_symbol.assign(price=0)
         best_symbol = best_symbol.assign(count=0)
@@ -333,70 +394,37 @@ class EvaluationHandler:
             end_dh = DateHandler(self.backtest, rebalance_date)
 
             if (self.backtest.conf['PRINT_RANK_REPORT'] == 'Y') or (self.backtest.conf['PRINT_AI'] == 'Y'):
-                self.best_k[idx][3] = start_dh.price
-                rebalance_date_price_df = end_dh.price[['symbol', 'close']]
+                self.best_k[idx][3] = start_dh.symbol_list
+                rebalance_date_price_df = end_dh.symbol_list[['symbol', 'close']]
                 rebalance_date_price_df.rename(columns={'close':'rebalance_day_price'}, inplace=True)
                 self.best_k[idx][3] = pd.merge(self.best_k[idx][3], rebalance_date_price_df, how='outer', on='symbol')
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].close > 0.000001]
                 diff = self.best_k[idx][3]['rebalance_day_price'] - self.best_k[idx][3]['close']
                 self.best_k[idx][3]['period_price_diff'] = diff / self.best_k[idx][3]['close']
-                self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.metrics, how='outer', on='symbol')
-                self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs, how='outer', on='symbol')
+                self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs_metrics, how='left', on='symbol')
+                # self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs, how='left', on='symbol')
                 
-                # 음수 처리
-                highlow = pd.read_csv('./sort.csv', header=0)                
-                for feature in self.best_k[idx][3].columns:
-                    f = highlow.query("name == @feature")
-                    if f.empty:
-                        continue
-                    else:
-                        if f.iloc[0].sort == "low":
-                            try:
-                                feat_max = self.best_k[idx][3][feature].max()
-                                self.best_k[idx][3][feature] = [s if s >= 0 else s*(-1)*feat_max for s in self.best_k[idx][3][feature]] 
-                            except Exception as e:
-                                logging.info(str(e))
-                                continue
-
                 if self.backtest.conf['PRINT_AI'] == 'Y':
-                    for feature in self.best_k[idx][3].columns:
-                        feature_normal_col_name = feature + "_normal"
-                        try:
-                            max_value = self.best_k[idx][3][feature].max()
-                            min_value = self.best_k[idx][3][feature].min()
-                            self.best_k[idx][3][feature_normal_col_name] \
-                                = (self.best_k[idx][3][feature] - min_value)/(max_value - min_value)
-                        except Exception as e:
-                            logging.info(str(e))
-                            continue
-                        self.best_k[idx][3]['earning_diff'] \
-                            = self.best_k[idx][3]['period_price_diff'] - self.best_k[idx][3]['period_price_diff'].mean()
+                    
+                    self.best_k[idx][3]['earning_diff'] \
+                        = self.best_k[idx][3]['period_price_diff'] - self.best_k[idx][3]['period_price_diff'].mean()
                     normal_col_list = self.best_k[idx][3].columns.str.contains("_normal")
                     df_for_reg = self.best_k[idx][3].loc[:,normal_col_list]
                         
-                    for col in df_for_reg.columns:
-                        new_col_name = col + "_max_diff"
-                        max_v = df_for_reg[col].max()
-                        df_for_reg[new_col_name] = max_v - df_for_reg[col]
+                    # for col in df_for_reg.columns:
+                    #     new_col_name = col + "_max_diff"
+                    #     max_v = df_for_reg[col].max()
+                    #     df_for_reg[new_col_name] = max_v - df_for_reg[col]
                 
                     df_for_reg['earning_diff'] = self.best_k[idx][3]['earning_diff']
                     df_for_reg['symbol'] = self.best_k[idx][3]['symbol']                                                
                     df_for_reg.to_csv('./reports/{}_{}_regressor_train.csv'.format(date.year, date.month), index=False)
                     
                 if self.backtest.conf['PRINT_RANK_REPORT'] == 'Y':
-                    
                     for feature in self.best_k[idx][3].columns:
                         feature_rank_col_name = feature + "_rank"
-                        f = highlow.query("name == @feature")
-                        if f.empty:
-                            continue
-                        else:
-                            if f.iloc[0].sort == "low":
-                                self.best_k[idx][3][feature_rank_col_name]\
-                                    = self.best_k[idx][3][feature].rank(method='min', ascending=True)
-                            elif f.iloc[0].sort == "high":
-                                self.best_k[idx][3][feature_rank_col_name] \
-                                    = self.best_k[idx][3][feature].rank(method='min', ascending=False)
+                        self.best_k[idx][3][feature_rank_col_name] \
+                            = self.best_k[idx][3][feature].rank(method='min', ascending=False)
                 # self.best_k[idx][3] = self.best_k[idx][3].sort_values(by=["period_price_diff"], axis=0, ascending=False)
                 self.best_k[idx][3] = self.best_k[idx][3].sort_values(by=["period_price_diff"], axis=0, ascending=False)[:self.backtest.conf['TOP_K_NUM']]
             else:
@@ -405,20 +433,20 @@ class EvaluationHandler:
             if self.backtest.conf['NEED_EVALUATION'] == 'Y':
                 syms = best_group['symbol']
                 for sym in syms:
-                    if start_dh.price.loc[(start_dh.price['symbol'] == sym), 'close'].empty:
+                    if start_dh.symbol_list.loc[(start_dh.symbol_list['symbol'] == sym), 'close'].empty:
                         logging.debug("there is no price in FMP API  symbol : {}".format(sym))
                         self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'price'] = 0
                     else:
                         self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'price']\
-                            = start_dh.price.loc[(start_dh.price['symbol'] == sym), 'close'].values[0]
+                            = start_dh.symbol_list.loc[(start_dh.symbol_list['symbol'] == sym), 'close'].values[0]
 
-                    if end_dh.price.loc[(end_dh.price['symbol'] == sym), 'close'].empty:
+                    if end_dh.symbol_list.loc[(end_dh.symbol_list['symbol'] == sym), 'close'].empty:
                         self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'rebalance_day_price'] = 0
                     else:
                         self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'rebalance_day_price']\
-                            = end_dh.price.loc[(end_dh.price['symbol'] == sym), 'close'].values[0]
+                            = end_dh.symbol_list.loc[(end_dh.symbol_list['symbol'] == sym), 'close'].values[0]
                 
-                self.best_k[idx][2] = self.best_k[idx][2][self.best_k[idx][2].price > 0.000001]
+                # self.best_k[idx][2] = self.best_k[idx][2][self.best_k[idx][2].symbol_list > 0.000001]
 
             start_dh = copy.deepcopy(end_dh)
             logging.debug(str(idx) + " " + str(date))
