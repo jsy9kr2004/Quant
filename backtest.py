@@ -262,6 +262,8 @@ class PlanHandler:
 
 class DateHandler:
     def __init__(self, backtest, date):
+        pd.set_option('mode.chained_assignment', None)
+
         self.date = date
         # date = datetime.datetime.combine(date, datetime.datetime.min.time())
         # query = '(date == "{}")'.format(self.date)
@@ -305,15 +307,21 @@ class DateHandler:
         logging.info("before removing outlier # columns : " + str(self.fs_metrics.shape[1]))
         for col in self.fs_metrics.columns:
             try:
+                # removing outlier with IQR
                 Q1 = np.percentile(self.fs_metrics[col], 25)
                 Q3 = np.percentile(self.fs_metrics[col], 75)
                 IQR = Q3 - Q1
-                
                 # 0.5 is not fixed.   reference :  1.5 => remove 0.7%,  0 =>  remove 50%
                 outlier_step = 0.5*IQR
                 outlier_list_col = self.fs_metrics[(self.fs_metrics[col] < (Q1 - outlier_step)) 
                                                     | (self.fs_metrics[col] > (Q3 + outlier_step))].index
                 self.fs_metrics = self.fs_metrics.drop(index=outlier_list_col, axis=0)
+                
+                # removing outlier with z-score
+                # mmean = self.fs_metrics[col].mean()
+                # mstd = self.fs_metrics[col].std()
+                # self.fs_metrics = self.fs_metrics[ (self.fs_metrics[col]-mmean)/mstd < 2 & (self.fs_metrics[col]-mmean)/mstd > -2]
+                
             except Exception as e:
                 logging.info(str(e))
                 continue
@@ -335,7 +343,6 @@ class DateHandler:
                         logging.info(str(e))
                         continue
             
-            pd.set_option('mode.chained_assignment', None)
             # normalization ( -10000~10000 ). range is not fixed
             feature_normal_col_name = feature + "_normal"
             try:
@@ -382,6 +389,8 @@ class EvaluationHandler:
         self.best_k.append([date, rebalance_date, best_symbol, reference_group, period_earning_rate])
 
     def cal_price(self):
+        pd.set_option('mode.chained_assignment', None)
+
         """best_k 의 ['price', 'rebalance_day_price'] column을 채워주는 함수"""
         for idx, (date, rebalance_date, best_group, reference_group, period_earning_rate) in enumerate(self.best_k):
             if date.year != self.backtest.table_year:
@@ -417,9 +426,10 @@ class EvaluationHandler:
                     #     df_for_reg[new_col_name] = max_v - df_for_reg[col]
                 
                     df_for_reg['earning_diff'] = self.best_k[idx][3]['earning_diff']
-                    df_for_reg['symbol'] = self.best_k[idx][3]['symbol']                                                
-                    df_for_reg.to_csv('./reports/{}_{}_regressor_train.csv'.format(date.year, date.month), index=False)
-                    
+                    df_for_reg['symbol'] = self.best_k[idx][3]['symbol']  
+                    traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data/'
+                    df_for_reg.to_csv(traindata_path + '{}_{}_regressor_train.csv'.format(date.year, date.month), index=False)
+                
                 if self.backtest.conf['PRINT_RANK_REPORT'] == 'Y':
                     for feature in self.best_k[idx][3].columns:
                         feature_rank_col_name = feature + "_rank"

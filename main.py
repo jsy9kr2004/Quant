@@ -54,11 +54,11 @@ if __name__ == '__main__':
     main_ctx = MainCtx(conf)
 
     if conf['RUN_REGRESSION'] == "Y":
-        regor = Regressor(conf)
-        regor.dataload()
-        regor.train()
-        # MLP = RegressionNetwork()
-        # MLP.train()
+        # regor = Regressor(conf)
+        # regor.dataload()
+        # regor.train()
+        MLP = RegressionNetwork(conf)
+        MLP.mtrain()
         exit()
 
     main_ctx.create_dir("./reports")
