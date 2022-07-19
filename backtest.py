@@ -312,7 +312,7 @@ class DateHandler:
                 Q3 = np.percentile(self.fs_metrics[col], 75)
                 IQR = Q3 - Q1
                 # 0.5 is not fixed.   reference :  1.5 => remove 0.7%,  0 =>  remove 50%
-                outlier_step = 0.5*IQR
+                outlier_step = IQR
                 outlier_list_col = self.fs_metrics[(self.fs_metrics[col] < (Q1 - outlier_step)) 
                                                     | (self.fs_metrics[col] > (Q3 + outlier_step))].index
                 self.fs_metrics = self.fs_metrics.drop(index=outlier_list_col, axis=0)
@@ -379,11 +379,15 @@ class EvaluationHandler:
 
     def set_best_k(self, date, rebalance_date, scored_dh):
         """plan_handler.date_handler.symbol_list에 score를 보고 best_k에 append 해주는 함수."""
-        best_symbol_info = pd.merge(scored_dh.symbol_list, scored_dh.fs_metrics, how='left', on='symbol')
-        #best_symbol_info = pd.merge(best_symbol_info, scored_dh.fs, how='left', on='symbol')
-        best_symbol = best_symbol_info.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
-        # best_symbol = best_symbol.assign(price=0)
-        best_symbol = best_symbol.assign(count=0)
+        if self.backtest.conf['NEED_EVALUATION'] == 'Y':
+            best_symbol_info = pd.merge(scored_dh.symbol_list, scored_dh.fs_metrics, how='left', on='symbol')
+            #best_symbol_info = pd.merge(best_symbol_info, scored_dh.fs, how='left', on='symbol')
+            best_symbol = best_symbol_info.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
+            # best_symbol = best_symbol.assign(price=0)
+            best_symbol = best_symbol.assign(count=0)
+        else:
+            best_symbol = pd.DataFrame()
+            
         reference_group = pd.DataFrame()
         period_earning_rate = 0
         self.best_k.append([date, rebalance_date, best_symbol, reference_group, period_earning_rate])

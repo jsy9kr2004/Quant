@@ -14,6 +14,11 @@ from datasets import Dataset
 from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.neural_network import MLPRegressor
+from sklearn.metrics import mean_squared_error
+
+
 import matplotlib.pyplot as plt
 import torch.optim as optim
 
@@ -138,6 +143,9 @@ class Regressor:
         self.train_df = pd.DataFrame()
         # for linear regression()
         self.mlr = LinearRegression()
+        self.rfg = RandomForestRegressor()
+        self.nn = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128, 16), 
+                  activation='tanh', solver='lbfgs', max_iter = 100, verbose = True)
         
     def dataload(self):
 
@@ -146,9 +154,13 @@ class Regressor:
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
             df = df.loc[:, use_col_list]
-            df = df[df.isnull().sum(axis=1) < 5]
-            # df = df.loc[:, df.isnull().sum(axis=0) < 100]         
+            df = df[df.isnull().sum(axis=1) < 100]
+            # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
+            logging.debug(df.shape)  
             self.train_df = pd.concat([self.train_df, df], axis=0)
+            
+        logging.debug("train_df shape : ")
+        logging.debug(self.train_df.shape)    
         
         # self.train_df = self.train_df.drop(columns=[
         #     'symbol', 'close_normal', 'close_normal_max_diff', 'date_normal', 'date_normal_max_diff',
@@ -168,15 +180,43 @@ class Regressor:
         logging.debug(self.train_df.isnull().sum(axis=1))
         self.train_df = self.train_df.fillna(0)
         # self.train_df = self.train_df.fillna(self.train_df.mean())
+
+        for col in self.train_df.columns:
+            if col == 'earning_diff':
+                continue
+            max_value = self.train_df[col].max()
+            min_value = self.train_df[col].min()
+            self.train_df[col] = ((self.train_df[col] - min_value) / (max_value - min_value))-0.5        
+            
+        Q1 = np.percentile(self.train_df['earning_diff'], 25)
+        Q3 = np.percentile(self.train_df['earning_diff'], 75)
+        IQR = Q3 - Q1
+        # 0.5 is not fixed.   reference :  1.5 => remove 0.7%,  0 =>  remove 50%
+        outlier_step = 3*IQR
+        outlier_list_col = self.train_df[(self.train_df['earning_diff'] < (Q1 - outlier_step)) 
+                                            | (self.train_df['earning_diff'] > (Q3 + outlier_step))].index
+        self.train_df = self.train_df.drop(index=outlier_list_col, axis=0)
+        
+        
         logging.debug("train_df shape : ")
         logging.debug(self.train_df.shape)
 
     def train(self):        
+        
+
+        
         # x = self.train_df.loc[:, self.train_df.columns != 'earning_diff']
         x = self.train_df[self.train_df.columns.difference(['earning_diff'])]
         y = self.train_df[['earning_diff']]
         x_train, x_test, y_train, y_test = train_test_split(x, y, train_size=0.8, test_size=0.2)
         self.mlr.fit(x_train, y_train)
+        print ( "mlr score : ", self.mlr.score(x_train, y_train) )
+        self.nn.fit(x_train, y_train)
+        print ( "nn score : ", self.mlr.score(x_train, y_train) )
+        self.rfg.fit(x_train, y_train.values.ravel())
+        print ( "rfg score : ", self.mlr.score(x_train, y_train) )
+
+        
         # weight 출력
         logging.debug("result regression. weight : ")
         logging.debug(x.columns)
@@ -197,6 +237,23 @@ class Regressor:
             plt.show()
             # plt.scatter(self.train_df[['pbRatio_normal']], self.train_df[['earning_diff']], alpha=0.4)
             # plt.show()
+        y_predict = self.rfg.predict(x_test)
+        if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
+            plt.scatter(y_test, y_predict, alpha=0.4)
+            pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
+            plt.xlabel("Actual")
+            plt.ylabel("Predicted")
+            plt.title("MULTIPLE LINEAR REGRESSION")
+            plt.show()
+            
+        y_predict = self.nn.predict(x_test)
+        if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
+            plt.scatter(y_test, y_predict, alpha=0.4)
+            pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
+            plt.xlabel("Actual")
+            plt.ylabel("Predicted")
+            plt.title("MULTIPLE LINEAR REGRESSION")
+            plt.show()
         
         # input = [[1, 1, 620, 16, 1, 98, 1, 0, 1, 0, 0, 1, 1, 0]]
         # my_predict = mlr.predict(input)
@@ -220,28 +277,34 @@ class MyDataset(Dataset):
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
             df = df.loc[:, use_col_list]
-            for col in df.columns:
-                if col == 'earning_diff':
-                    continue
-                max_value = df[col].max()
-                min_value = df[col].min()
-                df[col] = ((df[col] - min_value) / (max_value - min_value)) - 0.5
+            
             # df = df[df.isnull().sum(axis=1) < 50]
             # df = df.loc[:, df.isnull().sum(axis=0) < 100]         
             self.train_df = pd.concat([self.train_df, df], axis=0)            
         # self.train_df = self.train_df.fillna(self.train_df.mean())
+        for col in self.train_df.columns:
+            if col == 'earning_diff':
+                continue
+            max_value = self.train_df[col].max()
+            min_value = self.train_df[col].min()
+            self.train_df[col] = ((self.train_df[col] - min_value) / (max_value - min_value))-0.5
+        
+        logging.debug(self.train_df.shape)
+        
         self.train_df = self.train_df.fillna(0)
+        
         
         Q1 = np.percentile(self.train_df['earning_diff'], 25)
         Q3 = np.percentile(self.train_df['earning_diff'], 75)
         IQR = Q3 - Q1
         # 0.5 is not fixed.   reference :  1.5 => remove 0.7%,  0 =>  remove 50%
-        outlier_step = 1.5*IQR
+        outlier_step = 3*IQR
         outlier_list_col = self.train_df[(self.train_df['earning_diff'] < (Q1 - outlier_step)) 
                                             | (self.train_df['earning_diff'] > (Q3 + outlier_step))].index
         self.train_df = self.train_df.drop(index=outlier_list_col, axis=0)
     
-
+        logging.debug(self.train_df.shape)
+        
         x = self.train_df.loc[:, self.train_df.columns != 'earning_diff'].values
         y = self.train_df[['earning_diff']].values
         self.x_train = torch.tensor(x, dtype=torch.float32)
@@ -261,10 +324,10 @@ class RegressionNetwork(nn.Module):
         self.fc1 = nn.Linear(len(use_col_list)-1, 128)
         self.fc2 = nn.Linear(128, 32)
         self.fc3 = nn.Linear(32, 1)
-        self.dropout = nn.Dropout(0.25)
+        self.dropout = nn.Dropout(0.5)
     def forward(self, x):
-        h = self.dropout(F.leaky_relu(self.fc1(x), negative_slope=0.2))
-        h = self.dropout(F.leaky_relu(self.fc2(h), negative_slope=0.2))
+        h = self.dropout(F.tanh(self.fc1(x)))
+        h = self.dropout(F.tanh(self.fc2(h)))
         h = self.fc3(h)
         return h
     
@@ -272,7 +335,8 @@ class RegressionNetwork(nn.Module):
 
         # for regression network
         net = RegressionNetwork(self.conf)
-        optimizer = optim.AdamW(net.parameters(), lr=0.04)
+        net2 = RegressionNetwork(self.conf)
+        optimizer = optim.AdamW(net.parameters(), lr=0.01)
         loss_fn = nn.MSELoss()
         
         myDs = MyDataset(self.conf)
@@ -281,22 +345,28 @@ class RegressionNetwork(nn.Module):
         
         writer = SummaryWriter('scalar/')
         
-        for epoch in range(0,50):
+        for epoch in range(1,201):
             print("epoch : ", epoch)
+            net.train()
+            loss_sum = 0
             for i, (data, labels) in enumerate(train_loader):
-                optimizer.zero_grad()
+                
                 pred = net(data)
                 loss = loss_fn(pred,labels) 
+                loss_sum += loss
                 writer.add_scalar("Loss/train", loss, epoch)
-                if loss < min_loss:
-                    min_loss = loss
-                    torch.save(net.state_dict(), './model_state_dict.pt')  # 모델 객체의 state_dict 저장
-
+                
+                optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+            
+            if loss_sum < min_loss:
+                min_loss = loss
+                torch.save(net.state_dict(), './model_state_dict.pt')  # 모델 객체의 state_dict 저장
             print("min_loss : ", min_loss)
+            print("loss : ", loss_sum)
             test_loader = DataLoader(myDs, batch_size=1024, shuffle=False)
-            net.load_state_dict(torch.load('./model_state_dict.pt'))
+            # net2.load_state_dict(torch.load('./model_state_dict.pt'))
             net.eval()
             preds = np.empty(shape=(0))
             labels = np.empty(shape=(0))
@@ -305,11 +375,11 @@ class RegressionNetwork(nn.Module):
                 pred = net(data)
                 preds = np.append(preds, pred.detach().numpy())
                 labels = np.append(labels, label)
-                
-            plt.scatter(preds, labels, alpha=0.4)
-            plt.xlabel("pred")
-            plt.ylabel("labels")
-            plt.show()
-            writer.close()
+            if epoch % 10 == 0:    
+                plt.scatter(preds, labels, alpha=0.4)
+                plt.xlabel("pred")
+                plt.ylabel("labels")
+                plt.show()
+        writer.close()
         # pred = net(tensor_x_test)
         
