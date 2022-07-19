@@ -332,7 +332,7 @@ class EvaluationHandler:
                                 = (float(self.best_k[idx][3][feature]) - float(min_value)) \
                                   / (float(max_value) - float(min_value))
                         except Exception as e:
-                            logging.info(str(e))
+                            logging.debug(str(e))
                             continue
                         self.best_k[idx][3]['earning_diff'] \
                             = self.best_k[idx][3]['period_price_diff'] - self.best_k[idx][3]['period_price_diff'].mean()
