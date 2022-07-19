@@ -13,7 +13,111 @@ from dateutil.relativedelta import relativedelta
 from multiprocessing import Pool
 from functools import reduce
 
+from warnings import simplefilter
+
+simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
+
 CHUNK_SIZE = 20480
+
+use_col_list = [
+"interestCoverage",
+"dividendYield",
+"inventoryTurnover",
+"daysPayablesOutstanding",
+"stockBasedCompensationToRevenue",
+"dcf",
+"capexToDepreciation",
+"currentRatio",
+"daysOfInventoryOnHand",
+"payablesTurnover",
+"grahamNetNet",
+"capexToRevenue",
+"netDebtToEBITDA",
+"receivablesTurnover",
+"capexToOperatingCashFlow",
+"evToOperatingCashFlow",
+"evToFreeCashFlow",
+"debtToAssets",
+"tangibleBookValuePerShare",
+"stockBasedCompensation",
+"capexPerShare",
+"peRatio",
+"enterpriseValueOverEBITDA",
+"bookValuePerShare",
+"shareholdersEquityPerShare",
+"pfcfRatio",
+"pocfratio",
+"daysSalesOutstanding",
+"incomeQuality",
+"interestDebtPerShare",
+"revenuePerShare",
+"freeCashFlowPerShare",
+"evToSales",
+"netIncomePerShare",
+"grahamNumber",
+"operatingCashFlowPerShare",
+"cashPerShare",
+"priceToSalesRatio",
+"pbRatio",
+"ptbRatio",
+"investedCapital",
+"roic",
+"freeCashFlowYield",
+"roe",
+"returnOnTangibleAssets",
+"earningsYield",
+"debtToEquity",
+"payoutRatio",
+"salesGeneralAndAdministrativeToRevenue",
+"intangiblesToTotalAssets",
+"netDebt",
+"ebitdaratio",
+"ebitda",
+"dividendsperShareGrowth",
+"freeCashFlow",
+"operatingCashFlow",
+"netIncomeGrowth",
+"grossProfit",
+"epsgrowth",
+"epsdilutedGrowth",
+"revenueGrowth",
+"grossProfitRatio",
+"epsdiluted",
+"eps",
+"debtGrowth",
+"tenYDividendperShareGrowthPerShare",
+"netIncomeRatio",
+"incomeBeforeTaxRatio",
+"operatingCashFlowGrowth",
+"ebitgrowth",
+"operatingIncomeGrowth",
+"threeYDividendperShareGrowthPerShare",
+"assetGrowth",
+"freeCashFlowGrowth",
+"sgaexpensesGrowth",
+"fiveYDividendperShareGrowthPerShare",
+"receivablesGrowth",
+"fiveYRevenueGrowthPerShare",
+"threeYOperatingCFGrowthPerShare",
+"grossProfitGrowth",
+"operatingIncomeRatio",
+"threeYShareholdersEquityGrowthPerShare",
+"fiveYShareholdersEquityGrowthPerShare",
+"fiveYOperatingCFGrowthPerShare",
+"threeYRevenueGrowthPerShare",
+"researchAndDdevelopementToRevenue",
+"threeYNetIncomeGrowthPerShare",
+"tenYOperatingCFGrowthPerShare",
+"tenYRevenueGrowthPerShare",
+"tenYShareholdersEquityGrowthPerShare",
+"tenYNetIncomeGrowthPerShare",
+"weightedAverageSharesGrowth",
+"weightedAverageSharesDilutedGrowth",
+"fiveYNetIncomeGrowthPerShare",
+"bookValueperShareGrowth",
+"inventoryGrowth",
+"rdexpenseGrowth",
+]
 
 class Backtest:
     def __init__(self, main_ctx, conf, plan_handler, rebalance_period):
@@ -147,16 +251,18 @@ class Backtest:
             if date is None:
                 break
             logging.info("Backtest Run : " + str(date.strftime("%Y-%m-%d")))
-            self.plan_handler.date_handler = DateHandler(self, date)
-            logging.debug("complete set date_handler date : {}".format(date.strftime("%Y-%m-%d")))
+            
 
             if (self.conf['NEED_EVALUATION'] == 'Y'):
+                self.plan_handler.date_handler = DateHandler(self, date)
+                logging.debug("complete set date_handler date : {}".format(date.strftime("%Y-%m-%d")))
                 self.plan_handler.run()
+                
             if date != recent_date:
                 self.eval_handler.set_best_k(date, date+relativedelta(months=self.rebalance_period),
                                              self.plan_handler.date_handler)
             else:
-                self.eval_handler.print_current_best(self.plan_handler.date_handler)
+                # self.eval_handler.print_current_best(self.plan_handler.date_handler)
                 break
             # day를 기준으로 하려면 아래를 사용하면 됨. 31일 기준으로 하면 우리가 원한 한달이 아님
             # date += relativedelta(days=self.rebalance_period)
@@ -396,15 +502,21 @@ class EvaluationHandler:
                 # self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs, how='left', on='symbol')
 
                 if self.backtest.conf['PRINT_AI'] == 'Y':
-                    df_for_reg = self.best_k[idx][3]
+                    df_for_reg = self.best_k[idx][3].copy()
+                    df_for_reg = df_for_reg[use_col_list]
+                    print("in print_AI")
+                    print(df_for_reg)
+                    df_for_reg['period_price_diff']  = self.best_k[idx][3]['period_price_diff']
+                    df_for_reg['symbol']  = self.best_k[idx][3]['symbol']
+                    
+                    
                     df_for_reg['earning_diff'] \
                         = df_for_reg['period_price_diff'] - df_for_reg['period_price_diff'].mean()
-                    
+                    print(df_for_reg)
                     # normal_col_list = self.best_k[idx][3].columns.str.contains("_normal")
                     # df_for_reg = self.best_k[idx][3].loc[:,normal_col_list]
-                    
-                    df_for_reg['earning_diff'] = self.best_k[idx][3]['earning_diff']
-                    df_for_reg['symbol'] = self.best_k[idx][3]['symbol']
+                    # df_for_reg['earning_diff'] = self.best_k[idx][3]['earning_diff']
+                    # df_for_reg['symbol'] = self.best_k[idx][3]['symbol']
 
                     # remove outlier
                     logging.info("before removing outlier # rows : " + str(df_for_reg.shape[0]))
@@ -412,7 +524,6 @@ class EvaluationHandler:
                     for col in use_col_list:
                         try:
                             # removing outlier with IQR
-                            
                             Q1 = np.nanpercentile(df_for_reg[col], 10)
                             Q3 = np.nanpercentile(df_for_reg[col], 90)
                             print("col : ", col , "Q1: ", Q1, "Q3 :", Q3)
@@ -465,9 +576,41 @@ class EvaluationHandler:
                             continue
                     logging.info("after removing outlier # rows : " + str(df_for_reg.shape[0]))
                     logging.info("after removing outlier # columns : " + str(df_for_reg.shape[1]))
+                        
+                    # 음수 처리
+                    for col in use_col_list:
+                        highlow = pd.read_csv('./sort.csv', header=0)
+                        f = highlow.query("name == @col")
+                        if f.empty:
+                            continue
+                        else:
+                            if f.iloc[0].sort == "low":
+                                try:
+                                    feat_max = df_for_reg[col].max()
+                                    df_for_reg[col] = \
+                                        [s*(-1) if s >= 0 else (s - feat_max) for s in df_for_reg[col]]
+                                except Exception as e:
+                                    logging.info(str(e))
+                                    continue
+                                
+                    for col in use_col_list:    
+                        feature_normal_col_name = col + "_normal"
+                        try:
+                            max_value = df_for_reg[col].max()
+                            min_value = df_for_reg[col].min()
+                            df_for_reg[feature_normal_col_name] \
+                                = ((df_for_reg[col] - min_value)) / (max_value - min_value)
+                        except Exception as e:
+                            logging.info(str(e))
+                            continue 
 
+                    normal_col_list = df_for_reg.columns.str.contains("_normal")
+                    df_for_reg_print = df_for_reg.loc[:,normal_col_list]
+                    df_for_reg_print['earning_diff'] = df_for_reg['earning_diff']
+                    df_for_reg_print['symbol'] = df_for_reg['symbol']
+                    
                     traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data/'
-                    df_for_reg.to_csv(traindata_path + '{}_{}_regressor_train.csv'.format(date.year, date.month), index=False)
+                    df_for_reg_print.to_csv(traindata_path + '{}_{}_regressor_train.csv'.format(date.year, date.month), index=False)
 
                 if self.backtest.conf['PRINT_RANK_REPORT'] == 'Y':
                     for feature in self.best_k[idx][3].columns:
