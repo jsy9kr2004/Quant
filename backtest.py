@@ -1,3 +1,4 @@
+from cmath import nan
 import copy
 import csv
 import datetime
@@ -13,7 +14,6 @@ from multiprocessing import Pool
 from functools import reduce
 
 CHUNK_SIZE = 20480
-
 
 class Backtest:
     def __init__(self, main_ctx, conf, plan_handler, rebalance_period):
@@ -298,38 +298,12 @@ class DateHandler:
         self.metrics = self.metrics.drop_duplicates('symbol', keep='first')
 
         self.fs_metrics = pd.merge(self.fs, self.metrics, how='outer', on='symbol')
-
         del self.metrics
         del self.fs
 
-        # remove outlier
-        logging.info("before removing outlier # rows : " + str(self.fs_metrics.shape[0]))
-        logging.info("before removing outlier # columns : " + str(self.fs_metrics.shape[1]))
-        for col in self.fs_metrics.columns:
-            try:
-                # removing outlier with IQR
-                Q1 = np.percentile(self.fs_metrics[col], 25)
-                Q3 = np.percentile(self.fs_metrics[col], 75)
-                IQR = Q3 - Q1
-                # 0.5 is not fixed.   reference :  1.5 => remove 0.7%,  0 =>  remove 50%
-                outlier_step = IQR
-                outlier_list_col = self.fs_metrics[(self.fs_metrics[col] < (Q1 - outlier_step))
-                                                    | (self.fs_metrics[col] > (Q3 + outlier_step))].index
-                self.fs_metrics = self.fs_metrics.drop(index=outlier_list_col, axis=0)
-
-                # removing outlier with z-score
-                # mmean = self.fs_metrics[col].mean()
-                # mstd = self.fs_metrics[col].std()
-                # self.fs_metrics = self.fs_metrics[ (self.fs_metrics[col]-mmean)/mstd < 2 & (self.fs_metrics[col]-mmean)/mstd > -2]
-
-            except Exception as e:
-                logging.info(str(e))
-                continue
-        logging.info("after removing outlier # rows : " + str(self.fs_metrics.shape[0]))
-        logging.info("after removing outlier # columns : " + str(self.fs_metrics.shape[1]))
-
         highlow = pd.read_csv('./sort.csv', header=0)
         for feature in self.fs_metrics.columns:
+            feature_sortedvalue_col_name = feature + "_sorted"
             # 음수 처리
             f = highlow.query("name == @feature")
             if f.empty:
@@ -338,7 +312,8 @@ class DateHandler:
                 if f.iloc[0].sort == "low":
                     try:
                         feat_max = self.fs_metrics[feature].max()
-                        self.fs_metrics[feature] = [s*(-1) if s >= 0 else (s - feat_max) for s in self.fs_metrics[feature]]
+                        self.fs_metrics[feature_sortedvalue_col_name] = \
+                            [s*(-1) if s >= 0 else (s - feat_max) for s in self.fs_metrics[feature]]
                     except Exception as e:
                         logging.info(str(e))
                         continue
@@ -349,7 +324,7 @@ class DateHandler:
                 max_value = self.fs_metrics[feature].max()
                 min_value = self.fs_metrics[feature].min()
                 self.fs_metrics[feature_normal_col_name] \
-                    = (((self.fs_metrics[feature] - min_value) * 20000) / (max_value - min_value)) - 10000
+                    = (((self.fs_metrics[feature] - min_value) * 20000) / (max_value - min_value))
             except Exception as e:
                 logging.info(str(e))
                 continue
@@ -418,19 +393,76 @@ class EvaluationHandler:
                 # self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs, how='left', on='symbol')
 
                 if self.backtest.conf['PRINT_AI'] == 'Y':
-
-                    self.best_k[idx][3]['earning_diff'] \
-                        = self.best_k[idx][3]['period_price_diff'] - self.best_k[idx][3]['period_price_diff'].mean()
-                    normal_col_list = self.best_k[idx][3].columns.str.contains("_normal")
-                    df_for_reg = self.best_k[idx][3].loc[:,normal_col_list]
-
-                    # for col in df_for_reg.columns:
-                    #     new_col_name = col + "_max_diff"
-                    #     max_v = df_for_reg[col].max()
-                    #     df_for_reg[new_col_name] = max_v - df_for_reg[col]
-
+                    df_for_reg = self.best_k[idx][3]
+                    df_for_reg['earning_diff'] \
+                        = df_for_reg['period_price_diff'] - df_for_reg['period_price_diff'].mean()
+                    
+                    # normal_col_list = self.best_k[idx][3].columns.str.contains("_normal")
+                    # df_for_reg = self.best_k[idx][3].loc[:,normal_col_list]
+                    
                     df_for_reg['earning_diff'] = self.best_k[idx][3]['earning_diff']
                     df_for_reg['symbol'] = self.best_k[idx][3]['symbol']
+
+                    # remove outlier
+                    logging.info("before removing outlier # rows : " + str(df_for_reg.shape[0]))
+                    logging.info("before removing outlier # columns : " + str(df_for_reg.shape[1]))
+                    for col in use_col_list:
+                        try:
+                            # removing outlier with IQR
+                            
+                            Q1 = np.nanpercentile(df_for_reg[col], 10)
+                            Q3 = np.nanpercentile(df_for_reg[col], 90)
+                            print("col : ", col , "Q1: ", Q1, "Q3 :", Q3)
+                            IQR = Q3 - Q1
+                            # 0.5 is not fixed.   reference :  1.5 => remove 0.7%,  0 =>  remove 50%
+                            outlier_step = 1.5*IQR
+                            outlier_list_col = df_for_reg[(df_for_reg[col] < (Q1 - outlier_step))
+                                                                | (df_for_reg[col] > (Q3 + outlier_step))].index
+                            if outlier_list_col.shape[0] < 200:
+                                df_for_reg = df_for_reg.drop(index=outlier_list_col, axis=0)
+
+                            # removing by count 
+                            # MID = self.fs_metrics[col].median()
+                            # if (MID == nan) or (MID.isnan()):
+                            #     print("MID is nan col : ", col)
+                            #     continue
+                            # logging.debug("start removing outlier col : " + col +  " mid : " + str(MID))
+
+                            # threshold = 200
+                            # while True:
+                            #     outlier_list_col = self.fs_metrics[(self.fs_metrics[col] < (MID - threshold))
+                            #                                     | (self.fs_metrics[col] > (MID + threshold))].index
+                                
+                                # if outlier_list_col.shape[0] <= 200:
+                                    
+                                #     # logging.debug("outlier undercut col cnt : " +  str(outlier_list_col.shape[0]) + " threshold : "+ str(threshold))
+                                #     # print(outlier_list_col.shape)
+                                #     threshold -= 5
+                                # elif outlier_list_col.shape[0] > 1000:
+                                #     # logging.debug("outlier overcut col cnt : " + str(outlier_list_col.shape[0]) + " threshold : " + str(threshold))
+                                #     # print(outlier_list_col.shape)
+                                #     threshold += 5
+                                # if (outlier_list_col.shape[0] <= 1000) & (outlier_list_col.shape[0] > 200) :
+                                #     logging.debug("@@@@@@@@ proper outlier col cnt : " +  str(outlier_list_col.shape[0])+ " threshold : " + str(threshold))
+                                #     print(outlier_list_col.shape)
+                                #     break
+                                # if threshold <= 0:
+                                #     print(outlier_list_col.shape)
+                                #     break
+                                # if threshold > 1000:
+                                #     logging.debug("there is no proper threshold in col : " + col)
+                                #     print(outlier_list_col.shape)
+                                #     outlier_list_col = []
+                                #     break
+                            
+                            # self.fs_metrics = self.fs_metrics.drop(index=outlier_list_col, axis=0)
+                        
+                        except Exception as e:
+                            logging.info(str(e))
+                            continue
+                    logging.info("after removing outlier # rows : " + str(df_for_reg.shape[0]))
+                    logging.info("after removing outlier # columns : " + str(df_for_reg.shape[1]))
+
                     traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data/'
                     df_for_reg.to_csv(traindata_path + '{}_{}_regressor_train.csv'.format(date.year, date.month), index=False)
 
@@ -459,12 +491,12 @@ class EvaluationHandler:
                     else:
                         self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'rebalance_day_price']\
                             = end_dh.symbol_list.loc[(end_dh.symbol_list['symbol'] == sym), 'close'].values[0]
-                
+                logging.debug(str(self.best_k[idx][2]))
+
                 # self.best_k[idx][2] = self.best_k[idx][2][self.best_k[idx][2].symbol_list > 0.000001]
 
             start_dh = copy.deepcopy(end_dh)
             logging.debug(str(idx) + " " + str(date))
-            logging.debug(str(self.best_k[idx][2]))
 
     def cal_earning(self):
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
