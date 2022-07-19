@@ -188,7 +188,7 @@ class PlanHandler:
         assert self.plan_list is not None, "Empty Plan List"
         assert self.date_handler is not None, "Empty Date Handler"
 
-        with Pool(processes=multiprocessing.cpu_count()-1) as pool:
+        with Pool(processes=multiprocessing.cpu_count()-2) as pool:
             df_list = pool.map(self.plan_run, self.plan_list)
 
         full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
@@ -230,9 +230,8 @@ class PlanHandler:
         #     return
 
         # all feature was preprocessed ( high is good ) in Datehandler
-        top_k_df = self.date_handler.fs_metrics.sort_values(by=[key], ascending=False,
+        top_k_df = self.date_handler.fs_metrics.sort_values(by=[key+"_sorted"], ascending=False,
                                                                 na_position="last")[:self.k_num]
-
 
         # if params["base_dir"] == ">":
         #     top_k_df = top_k_df[top_k_df[key] > params["base"]]
@@ -301,9 +300,13 @@ class DateHandler:
         del self.metrics
         del self.fs
 
+
+
         highlow = pd.read_csv('./sort.csv', header=0)
         for feature in self.fs_metrics.columns:
             feature_sortedvalue_col_name = feature + "_sorted"
+            self.fs_metrics[feature_sortedvalue_col_name] = self.fs_metrics[feature]
+            
             # 음수 처리
             f = highlow.query("name == @feature")
             if f.empty:
@@ -317,14 +320,14 @@ class DateHandler:
                     except Exception as e:
                         logging.info(str(e))
                         continue
-
-            # normalization ( -10000~10000 ). range is not fixed
+                    
+            # normalization ( 0~20000 ). range is not fixed
             feature_normal_col_name = feature + "_normal"
             try:
-                max_value = self.fs_metrics[feature].max()
-                min_value = self.fs_metrics[feature].min()
+                max_value = self.fs_metrics[feature_sortedvalue_col_name].max()
+                min_value = self.fs_metrics[feature_sortedvalue_col_name].min()
                 self.fs_metrics[feature_normal_col_name] \
-                    = (((self.fs_metrics[feature] - min_value) * 20000) / (max_value - min_value))
+                    = (((self.fs_metrics[feature_sortedvalue_col_name] - min_value) * 20000) / (max_value - min_value))
             except Exception as e:
                 logging.info(str(e))
                 continue
