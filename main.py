@@ -48,9 +48,18 @@ def set_logger(config):
                         handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
 
 
+def conf_check(config):
+    # REPORT 종류는 EVAL, RANK, AI, AVG 뿐
+    for rep_type in config['REPORT_LIST']:
+        if rep_type != "EVAL" and rep_type != "RANK" and rep_type != "AI" and rep_type != "AVG":
+            logging.critical("Only REPORT_LIST : EVAL, RANK, AI, AVG")
+            exit()
+
+
 if __name__ == '__main__':
     conf = get_config()
     set_logger(conf)
+    conf_check(conf)
     main_ctx = MainCtx(conf)
 
     if conf['RUN_REGRESSION'] == "Y":
@@ -95,8 +104,6 @@ if __name__ == '__main__':
     plan_handler.plan_list = plan
     bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=conf['REBALANCE_PERIOD'])
 
-
-    
     ################################################################################################
     # (1) tickers를 이용한 재무재표 예제
     # import yfinance as yf

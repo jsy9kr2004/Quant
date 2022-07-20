@@ -71,13 +71,13 @@ class Database:
             price = pd.concat([price, df])
         
         dfs_marketcap = pd.read_sql_query(sql="SELECT date, symbol, marketCap FROM historical_market_capitalization",
-                                            con=self.main_ctx.conn, chunksize=20480)
+                                          con=self.main_ctx.conn, chunksize=20480)
         marketcap = pd.DataFrame()
         for df in dfs_price:
             marketcap = pd.concat([marketcap, df])
         price_marketcap = pd.merge(price, marketcap, how='left', on=['symbol', 'date'])
         price_marketcap.to_sql("PRICE", self.main_ctx.conn,
-                          if_exists='append', index=False, index_label=None, chunksize=512)
+                               if_exists='append', index=False, index_label=None, chunksize=512)
         
         # query = "CREATE TABLE PRICE " \
         #         " AS SELECT a.date, a.symbol, a.open, a.high, a.low, a.close, a.volume, " \
@@ -171,5 +171,5 @@ class Database:
             logging.info(query)
             try:
                 self.main_ctx.conn.execute(query)
-            except:
+            except Exception as e:
                 logging.error("insert_csv() > query error query : ", query)

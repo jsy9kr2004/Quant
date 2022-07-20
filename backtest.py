@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 
 from dateutil.relativedelta import relativedelta
-from multiprocessing import Pool
 from functools import reduce
+from multiprocessing import Pool
 
 CHUNK_SIZE = 20480
 
@@ -28,42 +28,47 @@ class Backtest:
         self.fs_table = ""
         self.metrics_table = ""
         self.reload_bt_table(main_ctx.start_year)
+
         self.table_year = main_ctx.start_year
-        if conf['PRINT_EVAL_REPORT'] == 'Y':
-            self.eval_report_path = self.create_report("EVAL")
-        if conf['PRINT_RANK_REPORT'] == 'Y':
-            self.rank_report_path = self.create_report("RANK")
+
+        self.eval_report_path = self.create_report("EVAL")
+        self.rank_report_path = self.create_report("RANK")
+        self.ai_report_path = self.create_report("AI")
+        self.avg_report_path = self.create_report("AVG")
 
         self.run()
 
     def create_report(self, report_type):
-        path = "./reports/" + report_type + "_REPORT_"
-        idx = 0
-        while True:
-            if not os.path.exists(path + str(idx) + ".csv"):
-                path = path + str(idx) + ".csv"
-                logging.info('REPORT PATH: "{}" ...'.format(path))
-                break
-            else:
-                idx += 1
+        if report_type in self.conf['REPORT_LIST']:
+            path = "./reports/" + report_type + "_REPORT_"
+            idx = 0
+            while True:
+                if not os.path.exists(path + str(idx) + ".csv"):
+                    path = path + str(idx) + ".csv"
+                    logging.info('REPORT PATH: "{}" ...'.format(path))
+                    break
+                else:
+                    idx += 1
 
-        with open(path, 'w') as file:
-            writer = csv.writer(file, delimiter=",")
-            writer.writerow(["COMMON"])
-            writer.writerow(["Report Date", datetime.datetime.now().strftime('%m-%d %H:%M')])
-            writer.writerow(["Rebalance Period", str(self.rebalance_period) + " Month",
-                             "Start Year", self.main_ctx.start_year,
-                             "End Year", self.main_ctx.end_year])
-            writer.writerow(["K", self.plan_handler.k_num])
-            writer.writerow("")
-
-            writer.writerow(["PLAN HANDLER"])
-            for plan in self.plan_handler.plan_list:
-                writer.writerow(plan["params"])
-                dict_writer = csv.DictWriter(file, fieldnames=plan["params"])
-                dict_writer.writerow(plan["params"])
+            with open(path, 'w') as file:
+                writer = csv.writer(file, delimiter=",")
+                writer.writerow(["COMMON"])
+                writer.writerow(["Report Date", datetime.datetime.now().strftime('%m-%d %H:%M')])
+                writer.writerow(["Rebalance Period", str(self.rebalance_period) + " Month",
+                                 "Start Year", self.main_ctx.start_year,
+                                 "End Year", self.main_ctx.end_year])
+                writer.writerow(["K", self.plan_handler.k_num])
                 writer.writerow("")
-        return path
+
+                writer.writerow(["PLAN HANDLER"])
+                for plan in self.plan_handler.plan_list:
+                    writer.writerow(plan["params"])
+                    dict_writer = csv.DictWriter(file, fieldnames=plan["params"])
+                    dict_writer.writerow(plan["params"])
+                    writer.writerow("")
+            return path
+        else:
+            return None
 
     def data_from_database(self, query):
         """
@@ -147,11 +152,12 @@ class Backtest:
             if date is None:
                 break
             logging.info("Backtest Run : " + str(date.strftime("%Y-%m-%d")))
-            self.plan_handler.date_handler = DateHandler(self, date)
-            logging.debug("complete set date_handler date : {}".format(date.strftime("%Y-%m-%d")))
 
-            if (self.conf['NEED_EVALUATION'] == 'Y'):
+            if self.eval_report_path is not None:
+                self.plan_handler.date_handler = DateHandler(self, date)
+                logging.debug("complete set date_handler date : {}".format(date.strftime("%Y-%m-%d")))
                 self.plan_handler.run()
+
             if date != recent_date:
                 self.eval_handler.set_best_k(date, date+relativedelta(months=self.rebalance_period),
                                              self.plan_handler.date_handler)
@@ -164,10 +170,13 @@ class Backtest:
                 date += relativedelta(months=self.rebalance_period)
             else:
                 # 마지막 loop 에 도달하면 최근 date 로 한번 돌아서 print 해준 후에 루프를 빠져 나가도록 함
-                date = recent_date
+                if self.eval_report_path is not None:
+                    date = recent_date
+                # evaluation report 를 뽑지 않으면 current 추천을 스킵하고 나가야 함
+                else:
+                    break
 
-        if (self.conf['PRINT_RANK_REPORT'] == 'Y') | (self.conf['PRINT_EVAL_REPORT'] == 'Y') |\
-                (self.conf['PRINT_AI'] == 'Y'):
+        if self.rank_report_path is not None or self.eval_report_path is not None or self.ai_report_path is not None:
             logging.info("START Evaluation")
             self.eval_handler.run(self.price_table)
 
@@ -219,28 +228,9 @@ class PlanHandler:
             logging.warning("Wrong params['diff'] : TOO BIG! SET UNDER " + str(self.absolute_score/self.k_num))
 
         key = str(params["key"])
-        # if params["key_dir"] == "low":
-        #     top_k_df = self.date_handler.fs_metrics[self.date_handler.fs_metrics[key] > 0]
-        #     top_k_df = top_k_df.sort_values(by=[key], ascending=True, na_position="last")[:self.k_num]
-        # elif params["key_dir"] == "high":
-        #    top_k_df = self.date_handler.fs_metrics.sort_values(by=[key], ascending=False,
-        #                                                        na_position="last")[:self.k_num]
-        # else:
-        #     logging.error("Wrong params['key_dir'] : ", params["key_dir"], "params['key_dir'] must be 'low' or 'high'")
-        #     return
 
         # all feature was preprocessed ( high is good ) in Datehandler
-        top_k_df = self.date_handler.fs_metrics.sort_values(by=[key], ascending=False,
-                                                                na_position="last")[:self.k_num]
-
-
-        # if params["base_dir"] == ">":
-        #     top_k_df = top_k_df[top_k_df[key] > params["base"]]
-        # elif params["base_dir"] == "<":
-        #     top_k_df = top_k_df[top_k_df[key] < params["base"]]
-        # else:
-        #     logging.error("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<'")
-        #     return
+        top_k_df = self.date_handler.fs_metrics.sort_values(by=[key], ascending=False, na_position="last")[:self.k_num]
 
         logging.debug(top_k_df[['symbol', params["key"]]])
 
@@ -308,20 +298,19 @@ class DateHandler:
         for col in self.fs_metrics.columns:
             try:
                 # removing outlier with IQR
-                Q1 = np.percentile(self.fs_metrics[col], 25)
-                Q3 = np.percentile(self.fs_metrics[col], 75)
-                IQR = Q3 - Q1
+                q1 = np.percentile(self.fs_metrics[col], 25)
+                q3 = np.percentile(self.fs_metrics[col], 75)
+                iqr = q3 - q1
                 # 0.5 is not fixed.   reference :  1.5 => remove 0.7%,  0 =>  remove 50%
-                outlier_step = IQR
-                outlier_list_col = self.fs_metrics[(self.fs_metrics[col] < (Q1 - outlier_step))
-                                                    | (self.fs_metrics[col] > (Q3 + outlier_step))].index
+                outlier_step = iqr
+                outlier_list_col = self.fs_metrics[(self.fs_metrics[col] < (q1 - outlier_step))
+                                                   | (self.fs_metrics[col] > (q3 + outlier_step))].index
                 self.fs_metrics = self.fs_metrics.drop(index=outlier_list_col, axis=0)
-
                 # removing outlier with z-score
                 # mmean = self.fs_metrics[col].mean()
                 # mstd = self.fs_metrics[col].std()
-                # self.fs_metrics = self.fs_metrics[ (self.fs_metrics[col]-mmean)/mstd < 2 & (self.fs_metrics[col]-mmean)/mstd > -2]
-
+                # self.fs_metrics = self.fs_metrics[(self.fs_metrics[col]-mmean)/mstd < 2
+                #                                    & (self.fs_metrics[col]-mmean)/mstd > -2]
             except Exception as e:
                 logging.info(str(e))
                 continue
@@ -372,16 +361,16 @@ class EvaluationHandler:
 
     def print_current_best(self, scored_dh):
         best_symbol_info = pd.merge(scored_dh.symbol_list, scored_dh.fs_metrics, how='left', on='symbol')
-        #best_symbol_info = pd.merge(best_symbol_info, scored_dh.fs, how='left', on='symbol')
+        # best_symbol_info = pd.merge(best_symbol_info, scored_dh.fs, how='left', on='symbol')
         best_symbol = best_symbol_info.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
         best_symbol = best_symbol.assign(count=0)
         best_symbol.to_csv('./result.csv')
 
     def set_best_k(self, date, rebalance_date, scored_dh):
         """plan_handler.date_handler.symbol_list에 score를 보고 best_k에 append 해주는 함수."""
-        if self.backtest.conf['NEED_EVALUATION'] == 'Y':
+        if self.backtest.eval_report_path is not None:
             best_symbol_info = pd.merge(scored_dh.symbol_list, scored_dh.fs_metrics, how='left', on='symbol')
-            #best_symbol_info = pd.merge(best_symbol_info, scored_dh.fs, how='left', on='symbol')
+            # best_symbol_info = pd.merge(best_symbol_info, scored_dh.fs, how='left', on='symbol')
             best_symbol = best_symbol_info.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
             # best_symbol = best_symbol.assign(price=0)
             best_symbol = best_symbol.assign(count=0)
@@ -406,7 +395,7 @@ class EvaluationHandler:
                 start_dh = DateHandler(self.backtest, date)
             end_dh = DateHandler(self.backtest, rebalance_date)
 
-            if (self.backtest.conf['PRINT_RANK_REPORT'] == 'Y') or (self.backtest.conf['PRINT_AI'] == 'Y'):
+            if self.backtest.rank_report_path is not None or self.backtest.ai_report_path is not None:
                 self.best_k[idx][3] = start_dh.symbol_list
                 rebalance_date_price_df = end_dh.symbol_list[['symbol', 'close']]
                 rebalance_date_price_df.rename(columns={'close':'rebalance_day_price'}, inplace=True)
@@ -417,8 +406,7 @@ class EvaluationHandler:
                 self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs_metrics, how='left', on='symbol')
                 # self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs, how='left', on='symbol')
 
-                if self.backtest.conf['PRINT_AI'] == 'Y':
-
+                if self.backtest.ai_report_path is not None:
                     self.best_k[idx][3]['earning_diff'] \
                         = self.best_k[idx][3]['period_price_diff'] - self.best_k[idx][3]['period_price_diff'].mean()
                     normal_col_list = self.best_k[idx][3].columns.str.contains("_normal")
@@ -434,17 +422,18 @@ class EvaluationHandler:
                     traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data/'
                     df_for_reg.to_csv(traindata_path + '{}_{}_regressor_train.csv'.format(date.year, date.month), index=False)
 
-                if self.backtest.conf['PRINT_RANK_REPORT'] == 'Y':
+                if self.backtest.rank_report_path is not None:
                     for feature in self.best_k[idx][3].columns:
                         feature_rank_col_name = feature + "_rank"
                         self.best_k[idx][3][feature_rank_col_name] \
                             = self.best_k[idx][3][feature].rank(method='min', ascending=False)
-                # self.best_k[idx][3] = self.best_k[idx][3].sort_values(by=["period_price_diff"], axis=0, ascending=False)
-                self.best_k[idx][3] = self.best_k[idx][3].sort_values(by=["period_price_diff"], axis=0, ascending=False)[:self.backtest.conf['TOP_K_NUM']]
+                self.best_k[idx][3] \
+                    = self.best_k[idx][3].sort_values(by=["period_price_diff"],
+                                                      axis=0, ascending=False)[:self.backtest.conf['TOP_K_NUM']]
             else:
                 self.best_k[idx][3] = pd.DataFrame()
 
-            if self.backtest.conf['NEED_EVALUATION'] == 'Y':
+            if self.backtest.eval_report_path is not None:
                 syms = best_group['symbol']
                 for sym in syms:
                     if start_dh.symbol_list.loc[(start_dh.symbol_list['symbol'] == sym), 'close'].empty:
@@ -574,32 +563,28 @@ class EvaluationHandler:
         self.sharp = sharp
 
     @staticmethod
-    def write_csv(path, date, rebalance_date, elem, columns):
+    def write_csv(path, date, rebalance_date, elem):
         fd = open(path, 'a')
         writer = csv.writer(fd, delimiter=",")
         writer.writerow("")
         writer.writerow(["start", date, "end", rebalance_date])
         fd.close()
-        elem.to_csv(path, columns=columns, mode="a")
+        elem.to_csv(path, mode="a")
 
     def print_report(self):
-        # eval_columns = ["symbol", "score", "price", "rebalance_day_price", "count", "period_earning",
-        #                "pbRatio", "pbRatio_rank", "pbRatio_score", "peRatio", "peRatio_rank", "peRatio_score",
-        #                "ipoDate", "delistedDate"]
-        # "period_earning" 우선 삭제
         for idx, (date, rebalance_date, eval_elem, rank_elem, period_earning_rate) in enumerate(self.best_k):
-            if self.backtest.conf['PRINT_EVAL_REPORT'] == 'Y' and self.backtest.conf['NEED_EVALUATION'] == 'Y':
-                self.write_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem, eval_elem.columns.tolist())
+            if self.backtest.eval_report_path is not None:
+                self.write_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem)
                 fd = open(self.backtest.eval_report_path, 'a')
                 writer = csv.writer(fd, delimiter=",")
                 writer.writerow(str(period_earning_rate))
                 fd.close()
-            if self.backtest.conf['PRINT_RANK_REPORT'] == 'Y':
+            if self.backtest.rank_report_path is not None:
                 if idx <= self.backtest.conf['RANK_PERIOD']:
-                    self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem, rank_elem.columns.tolist())
+                    self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem)
             # period.to_csv(self.backtest.eval_report_path, mode="a", column=columns)
 
-        if self.backtest.conf['PRINT_EVAL_REPORT'] == 'Y' and self.backtest.conf['NEED_EVALUATION'] == 'Y':
+        if self.backtest.eval_report_path is not None:
             ref_total_earning_rates = dict()
             for ref_sym in self.backtest.conf['REFERENCE_SYMBOL']:
                 start_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.start_year, 1, 1))
@@ -627,7 +612,7 @@ class EvaluationHandler:
 
     def run(self, price_table):
         self.cal_price()
-        if self.backtest.conf['NEED_EVALUATION'] == 'Y':
+        if self.backtest.eval_report_path is not None:
             self.cal_earning()
             self.cal_mdd(price_table)
             # self.cal_sharp()
