@@ -145,7 +145,7 @@ class Regressor:
         self.mlr = LinearRegression()
         self.rfg = RandomForestRegressor()
         self.nn = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128, 16), 
-                  activation='tanh', solver='lbfgs', max_iter = 100, verbose = True)
+                  activation='relu', solver='lbfgs', max_iter = 5000, verbose = True)
         
     def dataload(self):
 
@@ -154,56 +154,25 @@ class Regressor:
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
             df = df.loc[:, use_col_list]
-            df = df[df.isnull().sum(axis=1) < 100]
-            # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
             logging.debug(df.shape)  
+            df = df[df.isnull().sum(axis=1) < 5]
+            logging.debug(df.shape)  
+            # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
             self.train_df = pd.concat([self.train_df, df], axis=0)
             
         logging.debug("train_df shape : ")
         logging.debug(self.train_df.shape)    
-        
-        # self.train_df = self.train_df.drop(columns=[
-        #     'symbol', 'close_normal', 'close_normal_max_diff', 'date_normal', 'date_normal_max_diff',
-        #     'date_y_normal', 'date_y_normal_max_diff', 'fillingDate_normal', 'fillingDate_normal_max_diff',
-        #     'acceptedDate_normal', 'acceptedDate_normal_max_diff', 'acceptedDate_y_normal', 'acceptedDate_y_normal_max_diff', 
-        #     'calendarYear_normal', 'calendarYear_normal_max_diff', 'calendarYear_x_normal', 'calendarYear_x_normal_max_diff',
-        #     'calendarYear_y_normal', 'calendarYear_y_normal_max_diff',
-        #     'cik_normal', 'cik_normal_max_diff', 'cik_x_normal', 'cik_x_normal_max_diff', 'cik_y_normal',
-        #     'cik_y_normal_max_diff', 'close_normal','close_normal_max_diff','commonStockIssued_normal','commonStockIssued_normal_max_diff',
-        #     'commonStockRepurchased_normal','commonStockRepurchased_normal_max_diff','commonStock_normal','commonStock_normal_max_diff',
-        #     'marketCap_x_normal','marketCap_x_normal_max_diff','marketCap_y_normal','marketCap_y_normal_max_diff',
-        #     'rebalance_day_price_normal','rebalance_day_price_normal_max_diff'
-        #     ])
         logging.debug('NaN occurrences in Columns:')
         logging.debug(self.train_df.isnull().sum(axis=0))
         logging.debug('NaN occurrences in Rows:')
         logging.debug(self.train_df.isnull().sum(axis=1))
         self.train_df = self.train_df.fillna(0)
-        # self.train_df = self.train_df.fillna(self.train_df.mean())
-
-        for col in self.train_df.columns:
-            if col == 'earning_diff':
-                continue
-            max_value = self.train_df[col].max()
-            min_value = self.train_df[col].min()
-            self.train_df[col] = ((self.train_df[col] - min_value) / (max_value - min_value))-0.5        
-            
-        Q1 = np.percentile(self.train_df['earning_diff'], 25)
-        Q3 = np.percentile(self.train_df['earning_diff'], 75)
-        IQR = Q3 - Q1
-        # 0.5 is not fixed.   reference :  1.5 => remove 0.7%,  0 =>  remove 50%
-        outlier_step = 3*IQR
-        outlier_list_col = self.train_df[(self.train_df['earning_diff'] < (Q1 - outlier_step)) 
-                                            | (self.train_df['earning_diff'] > (Q3 + outlier_step))].index
-        self.train_df = self.train_df.drop(index=outlier_list_col, axis=0)
-        
+        # self.train_df = self.train_df.fillna(self.train_df.mean())   
         
         logging.debug("train_df shape : ")
         logging.debug(self.train_df.shape)
 
     def train(self):        
-        
-
         
         # x = self.train_df.loc[:, self.train_df.columns != 'earning_diff']
         x = self.train_df[self.train_df.columns.difference(['earning_diff'])]
@@ -211,10 +180,10 @@ class Regressor:
         x_train, x_test, y_train, y_test = train_test_split(x, y, train_size=0.8, test_size=0.2)
         self.mlr.fit(x_train, y_train)
         print ( "mlr score : ", self.mlr.score(x_train, y_train) )
-        self.nn.fit(x_train, y_train)
-        print ( "nn score : ", self.mlr.score(x_train, y_train) )
+        self.nn.fit(x_train, y_train.values.ravel())
+        print ( "nn score : ", self.nn.score(x_train, y_train) )
         self.rfg.fit(x_train, y_train.values.ravel())
-        print ( "rfg score : ", self.mlr.score(x_train, y_train) )
+        print ( "rfg score : ", self.rfg.score(x_train, y_train) )
 
         
         # weight 출력
@@ -227,13 +196,42 @@ class Regressor:
         self.prediction(x_train, x_test, y_train, y_test)
            
     def prediction(self,  x_train, x_test, y_train, y_test):
+        
+        y_predict = self.mlr.predict(x_train)
+        if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
+            plt.scatter(y_train, y_predict, alpha=0.4)
+            pd.concat([pd.DataFrame(y_train).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
+            plt.xlabel("Actual")
+            plt.ylabel("Predicted")
+            plt.title("mlr REGRESSION")
+            plt.show()
+            # plt.scatter(self.train_df[['pbRatio_normal']], self.train_df[['earning_diff']], alpha=0.4)
+            # plt.show()
+        y_predict = self.rfg.predict(x_train)
+        if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
+            plt.scatter(y_train, y_predict, alpha=0.4)
+            pd.concat([pd.DataFrame(y_train).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
+            plt.xlabel("Actual")
+            plt.ylabel("Predicted")
+            plt.title("rfg REGRESSION")
+            plt.show()
+
+        y_predict = self.nn.predict(x_train)
+        if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
+            plt.scatter(y_train, y_predict, alpha=0.4)
+            pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
+            plt.xlabel("Actual")
+            plt.ylabel("Predicted")
+            plt.title("nn REGRESSION")
+            plt.show()
+            
         y_predict = self.mlr.predict(x_test)
         if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
             plt.scatter(y_test, y_predict, alpha=0.4)
             pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
             plt.xlabel("Actual")
             plt.ylabel("Predicted")
-            plt.title("MULTIPLE LINEAR REGRESSION")
+            plt.title("mlr REGRESSION")
             plt.show()
             # plt.scatter(self.train_df[['pbRatio_normal']], self.train_df[['earning_diff']], alpha=0.4)
             # plt.show()
@@ -243,18 +241,19 @@ class Regressor:
             pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
             plt.xlabel("Actual")
             plt.ylabel("Predicted")
-            plt.title("MULTIPLE LINEAR REGRESSION")
+            plt.title("rfg REGRESSION")
             plt.show()
-            
         y_predict = self.nn.predict(x_test)
         if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
             plt.scatter(y_test, y_predict, alpha=0.4)
-            pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
+            pd.concat([pd.DataFrame(y_train).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
             plt.xlabel("Actual")
             plt.ylabel("Predicted")
-            plt.title("MULTIPLE LINEAR REGRESSION")
-            plt.show()
+            plt.title("nn REGRESSION")
+            plt.show()                
+
         
+
         # input = [[1, 1, 620, 16, 1, 98, 1, 0, 1, 0, 0, 1, 1, 0]]
         # my_predict = mlr.predict(input)
 
@@ -277,32 +276,13 @@ class MyDataset(Dataset):
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
             df = df.loc[:, use_col_list]
-            
-            # df = df[df.isnull().sum(axis=1) < 50]
+            logging.debug(df.shape)  
+            df = df[df.isnull().sum(axis=1) < 5]
+            logging.debug(df.shape)  
             # df = df.loc[:, df.isnull().sum(axis=0) < 100]         
             self.train_df = pd.concat([self.train_df, df], axis=0)            
         # self.train_df = self.train_df.fillna(self.train_df.mean())
-        for col in self.train_df.columns:
-            if col == 'earning_diff':
-                continue
-            max_value = self.train_df[col].max()
-            min_value = self.train_df[col].min()
-            self.train_df[col] = ((self.train_df[col] - min_value) / (max_value - min_value))-0.5
-        
-        logging.debug(self.train_df.shape)
-        
         self.train_df = self.train_df.fillna(0)
-        
-        
-        Q1 = np.percentile(self.train_df['earning_diff'], 25)
-        Q3 = np.percentile(self.train_df['earning_diff'], 75)
-        IQR = Q3 - Q1
-        # 0.5 is not fixed.   reference :  1.5 => remove 0.7%,  0 =>  remove 50%
-        outlier_step = 3*IQR
-        outlier_list_col = self.train_df[(self.train_df['earning_diff'] < (Q1 - outlier_step)) 
-                                            | (self.train_df['earning_diff'] > (Q3 + outlier_step))].index
-        self.train_df = self.train_df.drop(index=outlier_list_col, axis=0)
-    
         logging.debug(self.train_df.shape)
         
         x = self.train_df.loc[:, self.train_df.columns != 'earning_diff'].values
@@ -326,8 +306,8 @@ class RegressionNetwork(nn.Module):
         self.fc3 = nn.Linear(32, 1)
         self.dropout = nn.Dropout(0.5)
     def forward(self, x):
-        h = self.dropout(F.tanh(self.fc1(x)))
-        h = self.dropout(F.tanh(self.fc2(h)))
+        h = self.dropout(F.leaky_relu(self.fc1(x)))
+        h = self.dropout(F.leaky_relu(self.fc2(h)))
         h = self.fc3(h)
         return h
     
@@ -336,7 +316,7 @@ class RegressionNetwork(nn.Module):
         # for regression network
         net = RegressionNetwork(self.conf)
         net2 = RegressionNetwork(self.conf)
-        optimizer = optim.AdamW(net.parameters(), lr=0.01)
+        optimizer = optim.AdamW(net.parameters(), lr=0.03)
         loss_fn = nn.MSELoss()
         
         myDs = MyDataset(self.conf)
