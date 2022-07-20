@@ -605,6 +605,7 @@ class EvaluationHandler:
 
                     normal_col_list = df_for_reg.columns.str.contains("_normal")
                     df_for_reg_print = df_for_reg.loc[:,normal_col_list]
+                    df_for_reg_print['period_price_diff'] = df_for_reg['period_price_diff']
                     df_for_reg_print['earning_diff'] = df_for_reg['earning_diff']
                     df_for_reg_print['symbol'] = df_for_reg['symbol']
 
