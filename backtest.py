@@ -398,17 +398,12 @@ class DateHandler:
         self.fs = self.fs[prev <= self.fs.fillingDate]
         self.fs = self.fs.drop_duplicates('symbol', keep='first')
 
-        # self.metrics = self.get_date_latest_per_symbol(backtest.metrics_table, self.date)
         self.metrics = backtest.metrics_table.copy()
-        self.metrics = self.metrics[self.metrics.date <= self.date]
-        self.metrics = self.metrics[prev <= self.metrics.date]
-        self.metrics = self.metrics.drop_duplicates('symbol', keep='first')
-
-        self.fs_metrics = pd.merge(self.fs, self.metrics, how='outer', on='symbol')
+        
+        self.fs_metrics = pd.merge(self.fs, self.metrics, how='outer', on=['symbol', 'date'])
+        
         del self.metrics
         del self.fs
-
-
 
         highlow = pd.read_csv('./sort.csv', header=0)
         for feature in self.fs_metrics.columns:
