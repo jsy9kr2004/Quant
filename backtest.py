@@ -391,7 +391,7 @@ class DateHandler:
         self.symbol_list = self.symbol_list[self.symbol_list.volume > 10000]
         del self.price
 
-        prev = self.date - relativedelta(months=4)
+        prev = self.date - relativedelta(months=3)
         # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
         self.fs = backtest.fs_table.copy()
         self.fs = self.fs[self.fs.fillingDate <= self.date]
@@ -400,8 +400,8 @@ class DateHandler:
 
         # self.metrics = self.get_date_latest_per_symbol(backtest.metrics_table, self.date)
         self.metrics = backtest.metrics_table.copy()
-        self.metrics = self.metrics[self.metrics.fillingDate <= self.date]
-        self.metrics = self.metrics[prev <= self.metrics.fillingDate]
+        self.metrics = self.metrics[self.metrics.date <= self.date]
+        self.metrics = self.metrics[prev <= self.metrics.date]
         self.metrics = self.metrics.drop_duplicates('symbol', keep='first')
 
         self.fs_metrics = pd.merge(self.fs, self.metrics, how='outer', on='symbol')
