@@ -232,7 +232,7 @@ class Backtest:
         if res.empty:
             return None
         else:
-            return res.iloc[0].date
+            return res.iloc[-1].date
 
     def run(self):
         """
@@ -251,19 +251,19 @@ class Backtest:
                 logging.info("Reload BackTest table. year : {} -> {}".format(self.table_year, date.year))
                 self.reload_bt_table(date.year)
                 self.table_year = date.year
-            date = self.get_trade_date(date)
+            tdate = self.get_trade_date(date)
             # get_trade_date 에서 price table 을 이용해야 하기에 reload_bt_table을 먼저 해주어야 함
-            if date is None:
+            if tdate is None:
                 break
-            logging.info("Backtest Run : " + str(date.strftime("%Y-%m-%d")))
+            logging.info("Backtest Run : " + str(tdate.strftime("%Y-%m-%d")))
 
             if self.eval_report_path is not None:
-                self.plan_handler.date_handler = DateHandler(self, date)
-                logging.debug("complete set date_handler date : {}".format(date.strftime("%Y-%m-%d")))
+                self.plan_handler.date_handler = DateHandler(self, tdate)
+                logging.debug("complete set date_handler date : {}".format(tdate.strftime("%Y-%m-%d")))
                 self.plan_handler.run()
 
             if date != recent_date:
-                self.eval_handler.set_best_k(date, date+relativedelta(months=self.rebalance_period),
+                self.eval_handler.set_best_k(tdate, date+relativedelta(months=self.rebalance_period),
                                              self.plan_handler.date_handler)
             else:
                 self.eval_handler.print_current_best(self.plan_handler.date_handler)
@@ -368,6 +368,9 @@ class DateHandler:
     def __init__(self, backtest, date):
         pd.set_option('mode.chained_assignment', None)
 
+        logging.info("in datehandler date : ")
+        logging.info(date)
+        
         self.date = date
         # date = datetime.datetime.combine(date, datetime.datetime.min.time())
         # query = '(date == "{}")'.format(self.date)
@@ -391,14 +394,14 @@ class DateHandler:
         prev = self.date - relativedelta(months=4)
         # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
         self.fs = backtest.fs_table.copy()
-        self.fs = self.fs[self.fs.date <= self.date]
-        self.fs = self.fs[prev <= self.fs.date]
+        self.fs = self.fs[self.fs.fillingDate <= self.date]
+        self.fs = self.fs[prev <= self.fs.fillingDate]
         self.fs = self.fs.drop_duplicates('symbol', keep='first')
 
         # self.metrics = self.get_date_latest_per_symbol(backtest.metrics_table, self.date)
         self.metrics = backtest.metrics_table.copy()
-        self.metrics = self.metrics[self.metrics.date <= self.date]
-        self.metrics = self.metrics[prev <= self.metrics.date]
+        self.metrics = self.metrics[self.metrics.fillingDate <= self.date]
+        self.metrics = self.metrics[prev <= self.metrics.fillingDate]
         self.metrics = self.metrics.drop_duplicates('symbol', keep='first')
 
         self.fs_metrics = pd.merge(self.fs, self.metrics, how='outer', on='symbol')
@@ -523,16 +526,29 @@ class EvaluationHandler:
                     for col in use_col_list:
                         try:
                             # removing outlier with IQR
-                            Q1 = np.nanpercentile(df_for_reg[col], 10)
-                            Q3 = np.nanpercentile(df_for_reg[col], 90)
+                            # candi 1
+                            # Q1 = np.nanpercentile(df_for_reg[col], 10)
+                            # Q3 = np.nanpercentile(df_for_reg[col], 90)
+                            # print("col : ", col , "Q1: ", Q1, "Q3 :", Q3)
+                            # IQR = Q3 - Q1
+                            # # 0.5 is not fixed.   reference :  1.5 => remove 0.7%,  0 =>  remove 50%
+                            # outlier_step = 1.5*IQR
+                            # outlier_list_col = df_for_reg[(df_for_reg[col] < (Q1 - outlier_step))
+                            #                                     | (df_for_reg[col] > (Q3 + outlier_step))].index
+                            # if outlier_list_col.shape[0] < 200:
+                            #     df_for_reg = df_for_reg.drop(index=outlier_list_col, axis=0)
+
+                            # candi 2
+                            Q1 = np.nanpercentile(df_for_reg[col], 0.5)
+                            Q3 = np.nanpercentile(df_for_reg[col], 99.5)
                             print("col : ", col , "Q1: ", Q1, "Q3 :", Q3)
                             IQR = Q3 - Q1
-                            # 0.5 is not fixed.   reference :  1.5 => remove 0.7%,  0 =>  remove 50%
-                            outlier_step = 1.5*IQR
+                            outlier_step = 0*IQR
                             outlier_list_col = df_for_reg[(df_for_reg[col] < (Q1 - outlier_step))
                                                                 | (df_for_reg[col] > (Q3 + outlier_step))].index
                             if outlier_list_col.shape[0] < 200:
                                 df_for_reg = df_for_reg.drop(index=outlier_list_col, axis=0)
+
 
                             # removing by count
                             # MID = self.fs_metrics[col].median()

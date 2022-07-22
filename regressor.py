@@ -150,7 +150,8 @@ class Regressor:
         logging.info("test file list : ", self.test_files)
         self.train_df = pd.DataFrame()
         self.test_df = pd.DataFrame()
-
+        self.test_df_list = []
+        
         self.nns = dict()
         self.mlr = LinearRegression()
         self.rfg = RandomForestRegressor()
@@ -187,6 +188,8 @@ class Regressor:
             # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
             self.train_df = pd.concat([self.train_df, df], axis=0)
 
+
+        self.test_df_list = []
         for fpath in self.test_files:
             print(fpath)
             df = pd.read_csv(fpath)
@@ -196,7 +199,10 @@ class Regressor:
             df = df[df.isnull().sum(axis=1) < 5]
             logging.debug(df.shape)  
             # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
+            df = df.fillna(0)
             self.test_df = pd.concat([self.test_df, df], axis=0)
+            self.test_df_list.append([fpath, df])
+            
             
         logging.debug("train_df shape : ")
         logging.debug(self.train_df.shape)    
@@ -218,7 +224,7 @@ class Regressor:
         # x = self.train_df.loc[:, self.train_df.columns != 'earning_diff']
         x_train = self.train_df[self.train_df.columns.difference(['earning_diff', 'period_price_diff', 'symbol'])]
         y_train = self.train_df[['earning_diff']]
-        x_test = self.test_df[self.train_df.columns.difference(['earning_diff', 'period_price_diff', 'symbol'])]
+        x_test = self.test_df[self.test_df.columns.difference(['earning_diff', 'period_price_diff', 'symbol'])]
         y_test = self.test_df[['earning_diff']]
         
         # x_train, x_test, y_train, y_test = train_test_split(x, y, train_size=0.8, test_size=0.2)
@@ -250,8 +256,6 @@ class Regressor:
         # weight_df = pd.DataFrame(self.mlr.coef_, columns=x_train.columns)
         # # weight_df.to_csv("./weight.csv", index=False)
         # print(weight_df)
-      
-
            
     def evaluation(self,  x_train, x_test, y_train, y_test):
         y_predict = self.mlr.predict(x_train)
@@ -288,139 +292,74 @@ class Regressor:
                 plt.title("nn REGRESSION")
                 plt.show()
         
-        
-        preds = np.empty((0,x_test.shape[0]))
 
-        y_predict = self.mlr.predict(x_test)
-        y_predict = y_predict.ravel()
-        # preds = np.vstack((preds, y_predict[None,:]))
-        if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
-            plt.scatter(y_test, y_predict, alpha=0.4)
-            # pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
-            self.test_df['mlr_prediction'] = pd.DataFrame(y_predict)
-            plt.xlabel("Actual")
-            plt.ylabel("Predicted")
-            plt.title("mlr REGRESSION")
-            plt.show()
+        for test_idx, (testdate, df) in enumerate(self.test_df_list):
+            print("evaluation date : ")
+            tdate = "_".join(testdate.split("\\")[4].split('_')[0:2])
+            print(tdate)
             
-        y_predict = self.rfg.predict(x_test)
-        preds = np.vstack((preds, y_predict[None,:]))
-        if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
-            plt.scatter(y_test, y_predict, alpha=0.4)
-            # pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
-            self.test_df['rfg_prediction'] = pd.DataFrame(y_predict)
-            self.test_df['label'] = pd.DataFrame(y_test)
-            plt.xlabel("Actual")
-            plt.ylabel("Predicted")
-            plt.title("rfg REGRESSION")
-            plt.show()
+            x_test = df[df.columns.difference(['earning_diff', 'period_price_diff', 'symbol'])]
+            y_test = df[['earning_diff']]
             
-            
-        for i, nn in self.nns.items():    
-            nn_pred_col_name = 'nn_' + str(i) + '_prediction'
-            y_predict = nn.predict(x_test)
-            preds = np.vstack((preds, y_predict[None,:]))
+            preds = np.empty((0,x_test.shape[0]))
+            y_predict = self.mlr.predict(x_test)
+            y_predict = y_predict.ravel()
+            df['mlr_prediction'] = y_predict
+            # preds = np.vstack((preds, y_predict[None,:]))
             if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
                 plt.scatter(y_test, y_predict, alpha=0.4)
-                # pd.concat([pd.DataFrame(y_train).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
-                self.test_df[nn_pred_col_name] = pd.DataFrame(y_predict)
+                # pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
                 plt.xlabel("Actual")
                 plt.ylabel("Predicted")
-                plt.title(nn_pred_col_name)
-                plt.show()                
-        
-        print(preds.shape)
-        print(np.average(preds, axis=0))
-        print(np.average(preds, axis=0).shape)
-        self.test_df['ai_pred_avg'] = np.average(preds, axis=0)
-        
-        # TODO: 각 model의 top_k 종목의 period_price_diff 합을 구해서 model 최종 평가
-        
-        # model pred col list
-        pred_col_list = ['ai_pred_avg', 'mlr_prediction', 'rfg_prediction'] 
-        for i, nn in self.nns.items(): 
-            nn_pred_col_name = 'nn_' + str(i) + '_prediction'
-            pred_col_list.append(nn_pred_col_name)
-        
-        topk_period_earning_sums = []
-        
-        logging.info("top_10")
-        for col in pred_col_list:
-            top_k_df = self.test_df.sort_values(by=[col], ascending=False, na_position="last")[:10]
-            logging.info(col)
-            logging.info(top_k_df['period_price_diff'].sum())
-            topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
-        
-        logging.info("top_20")
-        for col in pred_col_list:
-            top_k_df = self.test_df.sort_values(by=[col], ascending=False, na_position="last")[:20]
-            logging.info(col)
-            logging.info(top_k_df['period_price_diff'].sum())
-            topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
-
-        logging.info("top_30")
-        for col in pred_col_list:
-            top_k_df = self.test_df.sort_values(by=[col], ascending=False, na_position="last")[:50]
-            logging.info(col)
-            logging.info(top_k_df['period_price_diff'].sum())
-            topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
+                plt.title("mlr REGRESSION")
+                plt.show()
+                
+            y_predict = self.rfg.predict(x_test)
+            preds = np.vstack((preds, y_predict[None,:]))
+            df['rfg_prediction'] = y_predict
+            df['label'] = y_test
+            if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
+                plt.scatter(y_test, y_predict, alpha=0.4)
+                # pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")    
+                plt.xlabel("Actual")
+                plt.ylabel("Predicted")
+                plt.title("rfg REGRESSION")
+                plt.show()
+                
+                
+            for i, nn in self.nns.items():    
+                nn_pred_col_name = 'nn_' + str(i) + '_prediction'
+                y_predict = nn.predict(x_test)
+                preds = np.vstack((preds, y_predict[None,:]))
+                df[nn_pred_col_name] = y_predict
+                if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
+                    plt.scatter(y_test, y_predict, alpha=0.4)
+                    # pd.concat([pd.DataFrame(y_train).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
+                    plt.xlabel("Actual")
+                    plt.ylabel("Predicted")
+                    plt.title(nn_pred_col_name)
+                    plt.show()                
             
-        logging.info("top_3~15")
-        for col in pred_col_list:
-            top_k_df = self.test_df.sort_values(by=[col], ascending=False, na_position="last")[3:15]
-            logging.info(col)
-            logging.info(top_k_df['period_price_diff'].sum())
-            topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
+            df['ai_pred_avg'] = np.average(preds, axis=0)
+            df.to_csv("./reports/prediction_ai_{}.csv".format(tdate))
 
-        logging.info("top_5~15")
-        for col in pred_col_list:
-            top_k_df = self.test_df.sort_values(by=[col], ascending=False, na_position="last")[5:15]
-            logging.info(col)
-            logging.info(top_k_df['period_price_diff'].sum())
-            topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
-            
-        logging.info("top_3~20")
-        for col in pred_col_list:
-            top_k_df = self.test_df.sort_values(by=[col], ascending=False, na_position="last")[3:20]
-            logging.info(col)
-            logging.info(top_k_df['period_price_diff'].sum())
-            topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
-
-        logging.info("top_5~20")
-        for col in pred_col_list:
-            top_k_df = self.test_df.sort_values(by=[col], ascending=False, na_position="last")[5:20]
-            logging.info(col)
-            logging.info(top_k_df['period_price_diff'].sum())
-            topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
-        
-        logging.info("top_10~20")
-        for col in pred_col_list:
-            top_k_df = self.test_df.sort_values(by=[col], ascending=False, na_position="last")[10:20]
-            logging.info(col)
-            logging.info(top_k_df['period_price_diff'].sum())
-            topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())        
-            
-        logging.info("top_5~30")
-        for col in pred_col_list:
-            top_k_df = self.test_df.sort_values(by=[col], ascending=False, na_position="last")[5:30]
-            logging.info(col)
-            logging.info(top_k_df['period_price_diff'].sum())
-            topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
-        
-        logging.info("top_10~30")
-        for col in pred_col_list:
-            top_k_df = self.test_df.sort_values(by=[col], ascending=False, na_position="last")[10:30]
-            logging.info(col)
-            logging.info(top_k_df['period_price_diff'].sum())
-            topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())              
-        
-        self.test_df.to_csv("./prediction_ai.csv")
-        if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
-            plt.scatter(y_test, np.average(preds, axis=0), alpha=0.4)
-            plt.xlabel("Actual")
-            plt.ylabel("Predicted(avg)")
-            plt.title("avg")
-            plt.show()        
+            # 각 model의 top_k 종목의 period_price_diff 합을 구해서 model 최종 평가
+            # model pred col list
+            pred_col_list = ['ai_pred_avg', 'mlr_prediction', 'rfg_prediction'] 
+            for i, nn in self.nns.items(): 
+                nn_pred_col_name = 'nn_' + str(i) + '_prediction'
+                pred_col_list.append(nn_pred_col_name)
+            topk_period_earning_sums = []
+            topk_list = [ (0,10), (0,20), (0,50), (3,50), (3,15), (5,15), (3,20), (5,20), (10,20), (5,30), (10,30) ]
+            for s, e in topk_list:
+                logging.info("top" + str(s) + " ~ "  + str(e) )
+                for col in pred_col_list:
+                    top_k_df = df.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
+                    logging.info(col)
+                    logging.info((top_k_df['period_price_diff'].sum()/(e-s+1)))
+                    topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
+                    top_k_df.to_csv('./reports/prediction_{}_{}_top{}-{}.csv'.format(tdate, col, s, e))
+ 
         
     def latest_prediction(self, latest_data_path):
 
@@ -454,6 +393,19 @@ class Regressor:
         
         ldf['ai_pred_avg'] = np.average(preds, axis=0)        
         ldf.to_csv("./latest_prediction.csv")
+        
+        pred_col_list = ['ai_pred_avg', 'mlr_prediction', 'rfg_prediction'] 
+        for i, nn in self.nns.items(): 
+            nn_pred_col_name = 'nn_' + str(i) + '_prediction'
+            pred_col_list.append(nn_pred_col_name)
+        topk_list = [ (0,10), (0,20), (0,50), (3,50), (3,15), (5,15), (3,20), (5,20), (10,20), (5,30), (10,30) ]
+        for s, e in topk_list:
+            logging.info("top" + str(s) + " ~ "  + str(e) )
+            for col in pred_col_list:
+                top_k_df = ldf.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
+                top_k_df.to_csv('./reports/latest_prediction_{}_top{}-{}.csv'.format(col, s, e))
+ 
+        
 
 
 class MyDataset(Dataset):
