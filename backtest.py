@@ -12,112 +12,37 @@ import pandas as pd
 from dateutil.relativedelta import relativedelta
 from functools import reduce
 from multiprocessing import Pool
-
 from warnings import simplefilter
 
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
-
 CHUNK_SIZE = 20480
 
-use_col_list = [
-"interestCoverage",
-"dividendYield",
-"inventoryTurnover",
-"daysPayablesOutstanding",
-"stockBasedCompensationToRevenue",
-"dcf",
-"capexToDepreciation",
-"currentRatio",
-"daysOfInventoryOnHand",
-"payablesTurnover",
-"grahamNetNet",
-"capexToRevenue",
-"netDebtToEBITDA",
-"receivablesTurnover",
-"capexToOperatingCashFlow",
-"evToOperatingCashFlow",
-"evToFreeCashFlow",
-"debtToAssets",
-"tangibleBookValuePerShare",
-"stockBasedCompensation",
-"capexPerShare",
-"peRatio",
-"enterpriseValueOverEBITDA",
-"bookValuePerShare",
-"shareholdersEquityPerShare",
-"pfcfRatio",
-"pocfratio",
-"daysSalesOutstanding",
-"incomeQuality",
-"interestDebtPerShare",
-"revenuePerShare",
-"freeCashFlowPerShare",
-"evToSales",
-"netIncomePerShare",
-"grahamNumber",
-"operatingCashFlowPerShare",
-"cashPerShare",
-"priceToSalesRatio",
-"pbRatio",
-"ptbRatio",
-"investedCapital",
-"roic",
-"freeCashFlowYield",
-"roe",
-"returnOnTangibleAssets",
-"earningsYield",
-"debtToEquity",
-"payoutRatio",
-"salesGeneralAndAdministrativeToRevenue",
-"intangiblesToTotalAssets",
-"netDebt",
-"ebitdaratio",
-"ebitda",
-"dividendsperShareGrowth",
-"freeCashFlow",
-"operatingCashFlow",
-"netIncomeGrowth",
-"grossProfit",
-"epsgrowth",
-"epsdilutedGrowth",
-"revenueGrowth",
-"grossProfitRatio",
-"epsdiluted",
-"eps",
-"debtGrowth",
-"tenYDividendperShareGrowthPerShare",
-"netIncomeRatio",
-"incomeBeforeTaxRatio",
-"operatingCashFlowGrowth",
-"ebitgrowth",
-"operatingIncomeGrowth",
-"threeYDividendperShareGrowthPerShare",
-"assetGrowth",
-"freeCashFlowGrowth",
-"sgaexpensesGrowth",
-"fiveYDividendperShareGrowthPerShare",
-"receivablesGrowth",
-"fiveYRevenueGrowthPerShare",
-"threeYOperatingCFGrowthPerShare",
-"grossProfitGrowth",
-"operatingIncomeRatio",
-"threeYShareholdersEquityGrowthPerShare",
-"fiveYShareholdersEquityGrowthPerShare",
-"fiveYOperatingCFGrowthPerShare",
-"threeYRevenueGrowthPerShare",
-"researchAndDdevelopementToRevenue",
-"threeYNetIncomeGrowthPerShare",
-"tenYOperatingCFGrowthPerShare",
-"tenYRevenueGrowthPerShare",
-"tenYShareholdersEquityGrowthPerShare",
-"tenYNetIncomeGrowthPerShare",
-"weightedAverageSharesGrowth",
-"weightedAverageSharesDilutedGrowth",
-"fiveYNetIncomeGrowthPerShare",
-"bookValueperShareGrowth",
-"inventoryGrowth",
-"rdexpenseGrowth",
-]
+use_col_list = ["interestCoverage", "dividendYield", "inventoryTurnover", "daysPayablesOutstanding",
+                "stockBasedCompensationToRevenue", "dcf", "capexToDepreciation", "currentRatio",
+                "daysOfInventoryOnHand", "payablesTurnover", "grahamNetNet", "capexToRevenue", "netDebtToEBITDA",
+                "receivablesTurnover", "capexToOperatingCashFlow", "evToOperatingCashFlow", "evToFreeCashFlow",
+                "debtToAssets", "tangibleBookValuePerShare", "stockBasedCompensation", "capexPerShare", "peRatio",
+                "enterpriseValueOverEBITDA", "bookValuePerShare", "shareholdersEquityPerShare", "pfcfRatio",
+                "pocfratio", "daysSalesOutstanding", "incomeQuality", "interestDebtPerShare", "revenuePerShare",
+                "freeCashFlowPerShare", "evToSales", "netIncomePerShare", "grahamNumber", "operatingCashFlowPerShare",
+                "cashPerShare", "priceToSalesRatio", "pbRatio", "ptbRatio", "investedCapital", "roic",
+                "freeCashFlowYield", "roe", "returnOnTangibleAssets", "earningsYield", "debtToEquity", "payoutRatio",
+                "salesGeneralAndAdministrativeToRevenue", "intangiblesToTotalAssets", "netDebt", "ebitdaratio",
+                "ebitda", "dividendsperShareGrowth", "freeCashFlow", "operatingCashFlow", "netIncomeGrowth",
+                "grossProfit", "epsgrowth", "epsdilutedGrowth", "revenueGrowth", "grossProfitRatio", "epsdiluted",
+                "eps", "debtGrowth", "tenYDividendperShareGrowthPerShare", "netIncomeRatio", "incomeBeforeTaxRatio",
+                "operatingCashFlowGrowth", "ebitgrowth", "operatingIncomeGrowth",
+                "threeYDividendperShareGrowthPerShare", "assetGrowth", "freeCashFlowGrowth", "sgaexpensesGrowth",
+                "fiveYDividendperShareGrowthPerShare", "receivablesGrowth", "fiveYRevenueGrowthPerShare",
+                "threeYOperatingCFGrowthPerShare", "grossProfitGrowth", "operatingIncomeRatio",
+                "threeYShareholdersEquityGrowthPerShare", "fiveYShareholdersEquityGrowthPerShare",
+                "fiveYOperatingCFGrowthPerShare", "threeYRevenueGrowthPerShare", "researchAndDdevelopementToRevenue",
+                "threeYNetIncomeGrowthPerShare", "tenYOperatingCFGrowthPerShare", "tenYRevenueGrowthPerShare",
+                "tenYShareholdersEquityGrowthPerShare", "tenYNetIncomeGrowthPerShare", "weightedAverageSharesGrowth",
+                "weightedAverageSharesDilutedGrowth", "fiveYNetIncomeGrowthPerShare", "bookValueperShareGrowth",
+                "inventoryGrowth", "rdexpenseGrowth",
+                ]
+
 
 class Backtest:
     def __init__(self, main_ctx, conf, plan_handler, rebalance_period):
@@ -154,22 +79,24 @@ class Backtest:
                 else:
                     idx += 1
 
-            with open(path, 'w') as file:
-                writer = csv.writer(file, delimiter=",")
-                writer.writerow(["COMMON"])
-                writer.writerow(["Report Date", datetime.datetime.now().strftime('%m-%d %H:%M')])
-                writer.writerow(["Rebalance Period", str(self.rebalance_period) + " Month",
-                                 "Start Year", self.main_ctx.start_year,
-                                 "End Year", self.main_ctx.end_year])
-                writer.writerow(["K", self.plan_handler.k_num])
-                writer.writerow("")
-
-                writer.writerow(["PLAN HANDLER"])
-                for plan in self.plan_handler.plan_list:
-                    writer.writerow(plan["params"])
-                    dict_writer = csv.DictWriter(file, fieldnames=plan["params"])
-                    dict_writer.writerow(plan["params"])
+            if report_type == "EVAL" or report_type == "RANK":
+                with open(path, 'w') as file:
+                    writer = csv.writer(file, delimiter=",")
+                    writer.writerow(["COMMON"])
+                    writer.writerow(["Report Date", datetime.datetime.now().strftime('%m-%d %H:%M')])
+                    writer.writerow(["Rebalance Period", str(self.rebalance_period) + " Month",
+                                     "Start Year", self.main_ctx.start_year,
+                                     "End Year", self.main_ctx.end_year])
+                    writer.writerow(["K", self.plan_handler.k_num])
                     writer.writerow("")
+
+                    if report_type == "EVAL":
+                        writer.writerow(["PLAN HANDLER"])
+                        for plan in self.plan_handler.plan_list:
+                            writer.writerow(plan["params"])
+                            dict_writer = csv.DictWriter(file, fieldnames=plan["params"])
+                            dict_writer.writerow(plan["params"])
+                            writer.writerow("")
             return path
         else:
             return None
@@ -247,7 +174,7 @@ class Backtest:
         date = datetime.datetime(self.main_ctx.start_year, self.conf['START_MONTH'], self.conf['START_DATE'])
         recent_date = self.price_table["date"].max()
         while True:
-            if date.year != self.table_year:
+            if date.year != self.table_year and self.eval_report_path is not None:
                 logging.info("Reload BackTest table. year : {} -> {}".format(self.table_year, date.year))
                 self.reload_bt_table(date.year)
                 self.table_year = date.year
@@ -370,28 +297,35 @@ class DateHandler:
 
         logging.info("in datehandler date : ")
         logging.info(date)
-        
+
         self.date = date
+        # symbol_list와 fs_metrics는 init data에서 세팅해줌
+        self.symbol_list = None
+        self.fs_metrics = None
+
+        self.init_data(backtest)
+
+    def init_symbol(self, backtest):
         # date = datetime.datetime.combine(date, datetime.datetime.min.time())
         # query = '(date == "{}")'.format(self.date)
         # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
-        query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(date)
+        query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(self.date)
         self.symbol_list = backtest.symbol_table.query(query)
         self.symbol_list = self.symbol_list.assign(score=0)
 
-        trade_date = backtest.get_trade_date(date)
-        self.price = backtest.price_table.query("date == @trade_date")
-        self.price = self.price.drop_duplicates('symbol', keep='first')
+        trade_date = backtest.get_trade_date(self.date)
+        price = backtest.price_table.query("date == @trade_date")
+        price = price.drop_duplicates('symbol', keep='first')
 
         # self.price = self.get_date_latest_per_symbol(backtest.price_table, self.date)
-        self.symbol_list = pd.merge(self.symbol_list, self.price, how='left', on='symbol')
+        self.symbol_list = pd.merge(self.symbol_list, price, how='left', on='symbol')
 
         # filter volume
         # self.symbol_list = self.symbol_list.drop(index=self.symbol_list[self.symbol_list['volume'] < 10000].index)
         self.symbol_list = self.symbol_list[self.symbol_list.volume > 10000]
-        del self.price
 
-        prev = self.date - relativedelta(months=3)
+    def init_fs_metrics(self, backtest):
+        prev = self.date - relativedelta(months=4)
         # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
         self.fs = backtest.fs_table.copy()
         self.fs = self.fs[self.fs.fillingDate <= self.date]
@@ -434,6 +368,10 @@ class DateHandler:
             except Exception as e:
                 logging.info(str(e))
                 continue
+
+    def init_data(self, backtest):
+        self.init_symbol(backtest)
+        self.init_fs_metrics(backtest)
 
 
 class EvaluationHandler:
@@ -498,13 +436,13 @@ class EvaluationHandler:
                 self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs_metrics, how='left', on='symbol')
                 # self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs, how='left', on='symbol')
 
-                if self.backtest.conf['PRINT_AI'] == 'Y':
+                if self.backtest.ai_report_path is not None:
                     df_for_reg = self.best_k[idx][3].copy()
                     df_for_reg = df_for_reg[use_col_list]
                     print("in print_AI")
                     print(df_for_reg)
-                    df_for_reg['period_price_diff']  = self.best_k[idx][3]['period_price_diff']
-                    df_for_reg['symbol']  = self.best_k[idx][3]['symbol']
+                    df_for_reg['period_price_diff'] = self.best_k[idx][3]['period_price_diff']
+                    df_for_reg['symbol'] = self.best_k[idx][3]['symbol']
 
                     df_for_reg['earning_diff'] \
                         = df_for_reg['period_price_diff'] - df_for_reg['period_price_diff'].mean()
@@ -790,8 +728,10 @@ class EvaluationHandler:
             if self.backtest.rank_report_path is not None:
                 if idx <= self.backtest.conf['RANK_PERIOD']:
                     self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem)
-            # period.to_csv(self.backtest.eval_report_path, mode="a", column=columns)
+            if self.backtest.avg_report_path is not None:
+                rank_elem.to_csv(self.backtest.avg_report_path, mode="a", index=False, header=False)
 
+        # period.to_csv(self.backtest.eval_report_path, mode="a", column=columns)
         if self.backtest.eval_report_path is not None:
             ref_total_earning_rates = dict()
             for ref_sym in self.backtest.conf['REFERENCE_SYMBOL']:
