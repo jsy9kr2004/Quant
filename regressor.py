@@ -18,7 +18,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.metrics import mean_squared_error
 
-
+import seaborn as sns
 import matplotlib.pyplot as plt
 import torch.optim as optim
 
@@ -26,129 +26,157 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 use_col_list = [
-"interestCoverage_normal",# "interestCoverage_normal_max_diff",
-"dividendYield_normal",# "dividendYield_normal_max_diff",
-"inventoryTurnover_normal",# "inventoryTurnover_normal_max_diff",
-"daysPayablesOutstanding_normal",# "daysPayablesOutstanding_normal_max_diff",
-"stockBasedCompensationToRevenue_normal",# "stockBasedCompensationToRevenue_normal_max_diff",
-"dcf_normal",# "dcf_normal_max_diff",
-"capexToDepreciation_normal",# "capexToDepreciation_normal_max_diff",
-"currentRatio_normal",# "currentRatio_normal_max_diff",
-"daysOfInventoryOnHand_normal",# "daysOfInventoryOnHand_normal_max_diff",
-"payablesTurnover_normal",# "payablesTurnover_normal_max_diff",
-"grahamNetNet_normal",# "grahamNetNet_normal_max_diff",
-"capexToRevenue_normal",# "capexToRevenue_normal_max_diff",
-"netDebtToEBITDA_normal",# "netDebtToEBITDA_normal_max_diff",
-"receivablesTurnover_normal",# "receivablesTurnover_normal_max_diff",
-"capexToOperatingCashFlow_normal",# "capexToOperatingCashFlow_normal_max_diff",
-"evToOperatingCashFlow_normal",# "evToOperatingCashFlow_normal_max_diff",
-"evToFreeCashFlow_normal",# "evToFreeCashFlow_normal_max_diff",
-"debtToAssets_normal",# "debtToAssets_normal_max_diff",
-"tangibleBookValuePerShare_normal",# "tangibleBookValuePerShare_normal_max_diff",
-"stockBasedCompensation_normal",# "stockBasedCompensation_normal_max_diff",
-"capexPerShare_normal",# "capexPerShare_normal_max_diff",
-"peRatio_normal",# "peRatio_normal_max_diff",
-"enterpriseValueOverEBITDA_normal",# "enterpriseValueOverEBITDA_normal_max_diff",
-"bookValuePerShare_normal",# "bookValuePerShare_normal_max_diff",
-"shareholdersEquityPerShare_normal",# "shareholdersEquityPerShare_normal_max_diff",
-"pfcfRatio_normal",# "pfcfRatio_normal_max_diff",
-"pocfratio_normal",# "pocfratio_normal_max_diff",
-"daysSalesOutstanding_normal",# "daysSalesOutstanding_normal_max_diff",
-"incomeQuality_normal",# "incomeQuality_normal_max_diff",
-"interestDebtPerShare_normal",# "interestDebtPerShare_normal_max_diff",
-"revenuePerShare_normal",# "revenuePerShare_normal_max_diff",
-"freeCashFlowPerShare_normal",# "freeCashFlowPerShare_normal_max_diff",
-"evToSales_normal",# "evToSales_normal_max_diff",
-"netIncomePerShare_normal",# "netIncomePerShare_normal_max_diff",
-"grahamNumber_normal",# "grahamNumber_normal_max_diff",
-"operatingCashFlowPerShare_normal",# "operatingCashFlowPerShare_normal_max_diff",
-"cashPerShare_normal",# "cashPerShare_normal_max_diff",
-"priceToSalesRatio_normal",# "priceToSalesRatio_normal_max_diff",
-"pbRatio_normal",# "pbRatio_normal_max_diff",
-"ptbRatio_normal",# "ptbRatio_normal_max_diff",
-"investedCapital_normal",# "investedCapital_normal_max_diff",
-"roic_normal",# "roic_normal_max_diff",
-"freeCashFlowYield_normal",# "freeCashFlowYield_normal_max_diff",
-"roe_normal",# "roe_normal_max_diff",
-"returnOnTangibleAssets_normal",# "returnOnTangibleAssets_normal_max_diff",
-"earningsYield_normal",# "earningsYield_normal_max_diff",
-"debtToEquity_normal",# "debtToEquity_normal_max_diff",
-"payoutRatio_normal",# "payoutRatio_normal_max_diff",
-"salesGeneralAndAdministrativeToRevenue_normal",# "salesGeneralAndAdministrativeToRevenue_normal_max_diff",
-"intangiblesToTotalAssets_normal",# "intangiblesToTotalAssets_normal_max_diff",
-"netDebt_normal",# "netDebt_normal_max_diff",
-"ebitdaratio_normal",# "ebitdaratio_normal_max_diff",
-"ebitda_normal",# "ebitda_normal_max_diff",
-"dividendsperShareGrowth_normal",# "dividendsperShareGrowth_normal_max_diff",
-"freeCashFlow_normal",# "freeCashFlow_normal_max_diff",
-"operatingCashFlow_normal",# "operatingCashFlow_normal_max_diff",
-"netIncomeGrowth_normal",# "netIncomeGrowth_normal_max_diff",
-"grossProfit_normal",# "grossProfit_normal_max_diff",
-"epsgrowth_normal",# "epsgrowth_normal_max_diff",
-"epsdilutedGrowth_normal",# "epsdilutedGrowth_normal_max_diff",
-"revenueGrowth_normal",# "revenueGrowth_normal_max_diff",
-"grossProfitRatio_normal",# "grossProfitRatio_normal_max_diff",
-"epsdiluted_normal",# "epsdiluted_normal_max_diff",
-"eps_normal",# "eps_normal_max_diff",
-"debtGrowth_normal",# "debtGrowth_normal_max_diff",
-"tenYDividendperShareGrowthPerShare_normal",# "tenYDividendperShareGrowthPerShare_normal_max_diff",
-"netIncomeRatio_normal",# "netIncomeRatio_normal_max_diff",
-"incomeBeforeTaxRatio_normal",# "incomeBeforeTaxRatio_normal_max_diff",
-"operatingCashFlowGrowth_normal",# "operatingCashFlowGrowth_normal_max_diff",
-"ebitgrowth_normal",# "ebitgrowth_normal_max_diff",
-"operatingIncomeGrowth_normal",# "operatingIncomeGrowth_normal_max_diff",
-"threeYDividendperShareGrowthPerShare_normal",# "threeYDividendperShareGrowthPerShare_normal_max_diff",
-"assetGrowth_normal",# "assetGrowth_normal_max_diff",
-"freeCashFlowGrowth_normal",# "freeCashFlowGrowth_normal_max_diff",
-"sgaexpensesGrowth_normal",# "sgaexpensesGrowth_normal_max_diff",
-"fiveYDividendperShareGrowthPerShare_normal",# "fiveYDividendperShareGrowthPerShare_normal_max_diff",
-"receivablesGrowth_normal",# "receivablesGrowth_normal_max_diff",
-"fiveYRevenueGrowthPerShare_normal",# "fiveYRevenueGrowthPerShare_normal_max_diff",
-"threeYOperatingCFGrowthPerShare_normal",# "threeYOperatingCFGrowthPerShare_normal_max_diff",
-"grossProfitGrowth_normal",# "grossProfitGrowth_normal_max_diff",
-"operatingIncomeRatio_normal",# "operatingIncomeRatio_normal_max_diff",
-"threeYShareholdersEquityGrowthPerShare_normal",# "threeYShareholdersEquityGrowthPerShare_normal_max_diff",
-"fiveYShareholdersEquityGrowthPerShare_normal",# "fiveYShareholdersEquityGrowthPerShare_normal_max_diff",
-"fiveYOperatingCFGrowthPerShare_normal",# "fiveYOperatingCFGrowthPerShare_normal_max_diff",
-"threeYRevenueGrowthPerShare_normal",# "threeYRevenueGrowthPerShare_normal_max_diff",
-"researchAndDdevelopementToRevenue_normal",# "researchAndDdevelopementToRevenue_normal_max_diff",
-"threeYNetIncomeGrowthPerShare_normal",# "threeYNetIncomeGrowthPerShare_normal_max_diff",
-"tenYOperatingCFGrowthPerShare_normal",# "tenYOperatingCFGrowthPerShare_normal_max_diff",
-"tenYRevenueGrowthPerShare_normal",# "tenYRevenueGrowthPerShare_normal_max_diff",
-"tenYShareholdersEquityGrowthPerShare_normal",# "tenYShareholdersEquityGrowthPerShare_normal_max_diff",
-"tenYNetIncomeGrowthPerShare_normal",# "tenYNetIncomeGrowthPerShare_normal_max_diff",
-"weightedAverageSharesGrowth_normal",# "weightedAverageSharesGrowth_normal_max_diff",
-"weightedAverageSharesDilutedGrowth_normal",# "weightedAverageSharesDilutedGrowth_normal_max_diff",
-"fiveYNetIncomeGrowthPerShare_normal",# "fiveYNetIncomeGrowthPerShare_normal_max_diff",
-"bookValueperShareGrowth_normal",# "bookValueperShareGrowth_normal_max_diff",
-"inventoryGrowth_normal",# "inventoryGrowth_normal_max_diff",
-"rdexpenseGrowth_normal",# "rdexpenseGrowth_normal_max_diff",
-"earning_diff"#
+"interestCoverage_normal",
+"dividendYield_normal",
+"inventoryTurnover_normal",
+"daysPayablesOutstanding_normal",
+"stockBasedCompensationToRevenue_normal",
+"dcf_normal",
+"capexToDepreciation_normal",
+"currentRatio_normal",
+"daysOfInventoryOnHand_normal",
+"payablesTurnover_normal",
+"grahamNetNet_normal",
+"capexToRevenue_normal",
+"netDebtToEBITDA_normal",
+"receivablesTurnover_normal",
+"capexToOperatingCashFlow_normal",
+"evToOperatingCashFlow_normal",
+"evToFreeCashFlow_normal",
+"debtToAssets_normal",
+"tangibleBookValuePerShare_normal",
+"stockBasedCompensation_normal",
+"capexPerShare_normal",
+"peRatio_normal",
+"enterpriseValueOverEBITDA_normal",
+"bookValuePerShare_normal",
+"shareholdersEquityPerShare_normal",
+"pfcfRatio_normal",
+"pocfratio_normal",
+"daysSalesOutstanding_normal",
+"incomeQuality_normal",
+"interestDebtPerShare_normal",
+"revenuePerShare_normal",
+"freeCashFlowPerShare_normal",
+"evToSales_normal",
+"netIncomePerShare_normal",
+"grahamNumber_normal",
+"operatingCashFlowPerShare_normal",
+"cashPerShare_normal",
+"priceToSalesRatio_normal",
+"pbRatio_normal",
+"ptbRatio_normal",
+"investedCapital_normal",
+"roic_normal",
+"freeCashFlowYield_normal",
+"roe_normal",
+"returnOnTangibleAssets_normal",
+"earningsYield_normal",
+"debtToEquity_normal",
+"payoutRatio_normal",
+"salesGeneralAndAdministrativeToRevenue_normal",
+"intangiblesToTotalAssets_normal",
+"netDebt_normal",
+"ebitdaratio_normal",
+"ebitda_normal",
+"dividendsperShareGrowth_normal",
+"freeCashFlow_normal",
+"operatingCashFlow_normal",
+"netIncomeGrowth_normal",
+"grossProfit_normal",
+"epsgrowth_normal",
+"epsdilutedGrowth_normal",
+"revenueGrowth_normal",
+"grossProfitRatio_normal",
+"epsdiluted_normal",
+"eps_normal",
+"debtGrowth_normal",
+"tenYDividendperShareGrowthPerShare_normal",
+"netIncomeRatio_normal",
+"incomeBeforeTaxRatio_normal",
+"operatingCashFlowGrowth_normal",
+"ebitgrowth_normal",
+"operatingIncomeGrowth_normal",
+"threeYDividendperShareGrowthPerShare_normal",
+"assetGrowth_normal",
+"freeCashFlowGrowth_normal",
+"sgaexpensesGrowth_normal",
+"fiveYDividendperShareGrowthPerShare_normal",
+"receivablesGrowth_normal",
+"fiveYRevenueGrowthPerShare_normal",
+"threeYOperatingCFGrowthPerShare_normal",
+"grossProfitGrowth_normal",
+"operatingIncomeRatio_normal",
+"threeYShareholdersEquityGrowthPerShare_normal",
+"fiveYShareholdersEquityGrowthPerShare_normal",
+"fiveYOperatingCFGrowthPerShare_normal",
+"threeYRevenueGrowthPerShare_normal",
+"researchAndDdevelopementToRevenue_normal",
+"threeYNetIncomeGrowthPerShare_normal",
+"tenYOperatingCFGrowthPerShare_normal",
+"tenYRevenueGrowthPerShare_normal",
+"tenYShareholdersEquityGrowthPerShare_normal",
+"tenYNetIncomeGrowthPerShare_normal",
+"weightedAverageSharesGrowth_normal",
+"weightedAverageSharesDilutedGrowth_normal",
+"fiveYNetIncomeGrowthPerShare_normal",
+"bookValueperShareGrowth_normal",
+"inventoryGrowth_normal",
+"rdexpenseGrowth_normal",
+"period_price_diff",
+"earning_diff",
+"symbol"
 ]
         
 class Regressor:
     
     def __init__(self, conf):
         self.conf = conf
+        aidata_dir = conf['ROOT_PATH'] + '/regressor_data/'
         
         self.train_files = []
-        for year in range(int(conf['START_YEAR']), int(conf['END_YEAR'])):
-            traindata_dir = conf['ROOT_PATH'] + '/regressor_data/'
-            path = traindata_dir + str(year) + "*train.csv"
+        for year in range(int(conf['TRAIN_START_YEAR']), int(conf['TRAIN_END_YEAR'])):
+            path = aidata_dir + str(year) + "*train.csv"
             year_files = [file for file in glob.glob(path)]
             self.train_files.extend(year_files)
-        print(self.train_files)
         
-        logging.debug("train file list : ", self.train_files)
+        self.test_files = []
+        for year in range(int(conf['TEST_START_YEAR']), int(conf['TEST_END_YEAR'])):
+            path = aidata_dir + str(year) + "*train.csv"
+            year_files = [file for file in glob.glob(path)]
+            self.test_files.extend(year_files)
+        
+        logging.info("train file list : ", self.train_files)
+        logging.info("test file list : ", self.test_files)
         self.train_df = pd.DataFrame()
-        # for linear regression()
+        self.test_df = pd.DataFrame()
+        self.test_df_list = []
+        
+        self.nns = dict()
         self.mlr = LinearRegression()
         self.rfg = RandomForestRegressor()
-        self.nn = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128, 16), 
-                  activation='relu', solver='lbfgs', max_iter = 5000, verbose = True)
+        self.nns[0] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128), 
+                activation='tanh', solver='lbfgs', max_iter = 400, verbose = True, alpha=0.01)
+        
+        self.nns[1] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128, 16), 
+                activation='relu', solver='lbfgs', max_iter = 200, verbose = True, alpha=0.1)
+        
+        self.nns[2] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128, 16), 
+                  activation='relu', solver='lbfgs', max_iter = 800, verbose = True, alpha=0.001)
+        
+        self.nns[3] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128, 16), 
+                activation='relu', solver='lbfgs', max_iter = 5000, verbose = True, alpha=0.001)
+        
+        self.nns[4] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128, 16), 
+              activation='relu', solver='lbfgs', max_iter = 3200, verbose = True, alpha=0.1)
+        
+        self.nns[5] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128, 16), 
+             activation='relu', solver='adam', max_iter = 5000, verbose = True, learning_rate_init=0.002, early_stopping=True, tol=0.00001)
+        
+        
         
     def dataload(self):
-
+        
         for fpath in self.train_files:     
             print(fpath)
             df = pd.read_csv(fpath)
@@ -159,6 +187,22 @@ class Regressor:
             logging.debug(df.shape)  
             # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
             self.train_df = pd.concat([self.train_df, df], axis=0)
+
+
+        self.test_df_list = []
+        for fpath in self.test_files:
+            print(fpath)
+            df = pd.read_csv(fpath)
+            df = df.dropna(axis=0, subset=['earning_diff'])
+            df = df.loc[:, use_col_list]
+            logging.debug(df.shape)  
+            df = df[df.isnull().sum(axis=1) < 5]
+            logging.debug(df.shape)  
+            # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
+            df = df.fillna(0)
+            self.test_df = pd.concat([self.test_df, df], axis=0)
+            self.test_df_list.append([fpath, df])
+            
             
         logging.debug("train_df shape : ")
         logging.debug(self.train_df.shape)    
@@ -167,95 +211,201 @@ class Regressor:
         logging.debug('NaN occurrences in Rows:')
         logging.debug(self.train_df.isnull().sum(axis=1))
         self.train_df = self.train_df.fillna(0)
+        self.test_df = self.test_df.fillna(0)
         # self.train_df = self.train_df.fillna(self.train_df.mean())   
         
         logging.debug("train_df shape : ")
         logging.debug(self.train_df.shape)
+        logging.debug("test_df shape : ")
+        logging.debug(self.test_df.shape)
 
     def train(self):        
         
         # x = self.train_df.loc[:, self.train_df.columns != 'earning_diff']
-        x = self.train_df[self.train_df.columns.difference(['earning_diff'])]
-        y = self.train_df[['earning_diff']]
-        x_train, x_test, y_train, y_test = train_test_split(x, y, train_size=0.8, test_size=0.2)
+        x_train = self.train_df[self.train_df.columns.difference(['earning_diff', 'period_price_diff', 'symbol'])]
+        y_train = self.train_df[['earning_diff']]
+        x_test = self.test_df[self.test_df.columns.difference(['earning_diff', 'period_price_diff', 'symbol'])]
+        y_test = self.test_df[['earning_diff']]
+        
+        # x_train, x_test, y_train, y_test = train_test_split(x, y, train_size=0.8, test_size=0.2)
+        logging.info("start fitting LinearRegression")
         self.mlr.fit(x_train, y_train)
-        print ( "mlr score : ", self.mlr.score(x_train, y_train) )
-        self.nn.fit(x_train, y_train.values.ravel())
-        print ( "nn score : ", self.nn.score(x_train, y_train) )
+        logging.info( "mlr score : ")
+        logging.info(self.mlr.score(x_train, y_train))
+        logging.info("end fitting LinearRegression")
+        
+        logging.info("start fitting RandomForestRegressor")
         self.rfg.fit(x_train, y_train.values.ravel())
-        print ( "rfg score : ", self.rfg.score(x_train, y_train) )
-
+        logging.info("rfg score : ")
+        logging.info(self.rfg.score(x_train, y_train))
+        logging.info("end fitting RandomForestRegressor")
         
+        
+        for i, nn in self.nns.items():
+            logging.info("start fitting " + str(i) + "-th MLPRegressor")
+            nn.fit(x_train, y_train.values.ravel())
+            logging.info("nn score : ")
+            logging.info(nn.score(x_train, y_train))
+            logging.info("end fitting " + str(i) + "-th MLPRegressor")
+        
+        self.evaluation(x_train, x_test, y_train, y_test)
         # weight 출력
-        logging.debug("result regression. weight : ")
-        logging.debug(x.columns)
-        logging.debug(self.mlr.coef_)
-        weight_df = pd.DataFrame(self.mlr.coef_, columns=x.columns)
-        weight_df.to_csv("./weight.csv", index=False)
-        print(weight_df)
-        self.prediction(x_train, x_test, y_train, y_test)
+        # logging.debug("result regression. weight : ")
+        # logging.debug(x_train.columns)
+        # logging.debug(self.mlr.coef_)
+        # weight_df = pd.DataFrame(self.mlr.coef_, columns=x_train.columns)
+        # # weight_df.to_csv("./weight.csv", index=False)
+        # print(weight_df)
            
-    def prediction(self,  x_train, x_test, y_train, y_test):
-        
+    def evaluation(self,  x_train, x_test, y_train, y_test):
         y_predict = self.mlr.predict(x_train)
         if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
             plt.scatter(y_train, y_predict, alpha=0.4)
-            pd.concat([pd.DataFrame(y_train).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
             plt.xlabel("Actual")
             plt.ylabel("Predicted")
             plt.title("mlr REGRESSION")
             plt.show()
-            # plt.scatter(self.train_df[['pbRatio_normal']], self.train_df[['earning_diff']], alpha=0.4)
-            # plt.show()
+            
         y_predict = self.rfg.predict(x_train)
         if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
             plt.scatter(y_train, y_predict, alpha=0.4)
-            pd.concat([pd.DataFrame(y_train).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
             plt.xlabel("Actual")
             plt.ylabel("Predicted")
             plt.title("rfg REGRESSION")
             plt.show()
 
-        y_predict = self.nn.predict(x_train)
-        if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
-            plt.scatter(y_train, y_predict, alpha=0.4)
-            pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
-            plt.xlabel("Actual")
-            plt.ylabel("Predicted")
-            plt.title("nn REGRESSION")
+            ftr_importances_values = self.rfg.feature_importances_
+            ftr_importances = pd.Series(ftr_importances_values, index = x_train.columns)
+            ftr_top20 = ftr_importances.sort_values(ascending=False)[:20]
+
+            plt.figure(figsize=(8,6))
+            plt.title('Top 20 Feature Importances')
+            sns.barplot(x=ftr_top20, y=ftr_top20.index)
             plt.show()
             
-        y_predict = self.mlr.predict(x_test)
-        if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
-            plt.scatter(y_test, y_predict, alpha=0.4)
-            pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
-            plt.xlabel("Actual")
-            plt.ylabel("Predicted")
-            plt.title("mlr REGRESSION")
-            plt.show()
-            # plt.scatter(self.train_df[['pbRatio_normal']], self.train_df[['earning_diff']], alpha=0.4)
-            # plt.show()
-        y_predict = self.rfg.predict(x_test)
-        if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
-            plt.scatter(y_test, y_predict, alpha=0.4)
-            pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
-            plt.xlabel("Actual")
-            plt.ylabel("Predicted")
-            plt.title("rfg REGRESSION")
-            plt.show()
-        y_predict = self.nn.predict(x_test)
-        if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
-            plt.scatter(y_test, y_predict, alpha=0.4)
-            pd.concat([pd.DataFrame(y_train).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
-            plt.xlabel("Actual")
-            plt.ylabel("Predicted")
-            plt.title("nn REGRESSION")
-            plt.show()                
-
+        for i, nn in self.nns.items():
+            y_predict = nn.predict(x_train)
+            if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
+                plt.scatter(y_train, y_predict, alpha=0.4)
+                plt.xlabel("Actual")
+                plt.ylabel("Predicted")
+                plt.title("nn REGRESSION")
+                plt.show()
         
 
-        # input = [[1, 1, 620, 16, 1, 98, 1, 0, 1, 0, 0, 1, 1, 0]]
-        # my_predict = mlr.predict(input)
+        for test_idx, (testdate, df) in enumerate(self.test_df_list):
+            print("evaluation date : ")
+            tdate = "_".join(testdate.split("\\")[4].split('_')[0:2])
+            print(tdate)
+            
+            x_test = df[df.columns.difference(['earning_diff', 'period_price_diff', 'symbol'])]
+            y_test = df[['earning_diff']]
+            
+            preds = np.empty((0,x_test.shape[0]))
+            y_predict = self.mlr.predict(x_test)
+            y_predict = y_predict.ravel()
+            df['mlr_prediction'] = y_predict
+            # preds = np.vstack((preds, y_predict[None,:]))
+            if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
+                plt.scatter(y_test, y_predict, alpha=0.4)
+                # pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
+                plt.xlabel("Actual")
+                plt.ylabel("Predicted")
+                plt.title("mlr REGRESSION")
+                plt.show()
+                
+            y_predict = self.rfg.predict(x_test)
+            preds = np.vstack((preds, y_predict[None,:]))
+            df['rfg_prediction'] = y_predict
+            df['label'] = y_test
+            if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
+                plt.scatter(y_test, y_predict, alpha=0.4)
+                # pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")    
+                plt.xlabel("Actual")
+                plt.ylabel("Predicted")
+                plt.title("rfg REGRESSION")
+                plt.show()
+                
+                
+            for i, nn in self.nns.items():    
+                nn_pred_col_name = 'nn_' + str(i) + '_prediction'
+                y_predict = nn.predict(x_test)
+                preds = np.vstack((preds, y_predict[None,:]))
+                df[nn_pred_col_name] = y_predict
+                if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
+                    plt.scatter(y_test, y_predict, alpha=0.4)
+                    # pd.concat([pd.DataFrame(y_train).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
+                    plt.xlabel("Actual")
+                    plt.ylabel("Predicted")
+                    plt.title(nn_pred_col_name)
+                    plt.show()                
+            
+            df['ai_pred_avg'] = np.average(preds, axis=0)
+            df.to_csv("./reports/prediction_ai_{}.csv".format(tdate))
+
+            # 각 model의 top_k 종목의 period_price_diff 합을 구해서 model 최종 평가
+            # model pred col list
+            pred_col_list = ['ai_pred_avg', 'mlr_prediction', 'rfg_prediction'] 
+            for i, nn in self.nns.items(): 
+                nn_pred_col_name = 'nn_' + str(i) + '_prediction'
+                pred_col_list.append(nn_pred_col_name)
+            topk_period_earning_sums = []
+            topk_list = [ (0,10), (0,20), (0,50), (3,50), (3,15), (5,15), (3,20), (5,20), (10,20), (5,30), (10,30) ]
+            for s, e in topk_list:
+                logging.info("top" + str(s) + " ~ "  + str(e) )
+                for col in pred_col_list:
+                    top_k_df = df.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
+                    logging.info(col)
+                    logging.info((top_k_df['period_price_diff'].sum()/(e-s+1)))
+                    topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
+                    top_k_df.to_csv('./reports/prediction_{}_{}_top{}-{}.csv'.format(tdate, col, s, e))
+ 
+        
+    def latest_prediction(self, latest_data_path):
+
+        ldf = pd.read_csv(latest_data_path)
+        collist = use_col_list.copy()
+        collist.remove("earning_diff")
+        collist.remove("period_price_diff")
+
+        ldf = ldf.loc[:, collist]
+        ldf = ldf[ldf.isnull().sum(axis=1) < 5]
+        ldf = ldf.fillna(0)
+        
+        input = ldf[ldf.columns.difference(['symbol'])]
+        
+        preds = np.empty((0,input.shape[0]))
+
+        y_predict1 = self.mlr.predict(input)
+        ldf['mlr_prediction'] = y_predict1.ravel()
+        # preds = np.vstack((preds, y_predict1.ravel()[None,:]))
+        
+        for i, nn in self.nns.items():    
+            nn_pred_col_name = 'nn_' + str(i) + '_prediction'
+            y_predict2 = nn.predict(input)
+            ldf[nn_pred_col_name] = y_predict2
+            preds = np.vstack((preds, y_predict2[None,:]))
+
+        
+        y_predict3 = self.rfg.predict(input)
+        ldf['rfg_prediction'] = y_predict3
+        preds = np.vstack((preds, y_predict3[None,:]))
+        
+        ldf['ai_pred_avg'] = np.average(preds, axis=0)        
+        ldf.to_csv("./latest_prediction.csv")
+        
+        pred_col_list = ['ai_pred_avg', 'mlr_prediction', 'rfg_prediction'] 
+        for i, nn in self.nns.items(): 
+            nn_pred_col_name = 'nn_' + str(i) + '_prediction'
+            pred_col_list.append(nn_pred_col_name)
+        topk_list = [ (0,10), (0,20), (0,50), (3,50), (3,15), (5,15), (3,20), (5,20), (10,20), (5,30), (10,30) ]
+        for s, e in topk_list:
+            logging.info("top" + str(s) + " ~ "  + str(e) )
+            for col in pred_col_list:
+                top_k_df = ldf.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
+                top_k_df.to_csv('./reports/latest_prediction_{}_top{}-{}.csv'.format(col, s, e))
+ 
+        
 
 
 class MyDataset(Dataset):
@@ -362,4 +512,5 @@ class RegressionNetwork(nn.Module):
                 plt.show()
         writer.close()
         # pred = net(tensor_x_test)
+        
         
