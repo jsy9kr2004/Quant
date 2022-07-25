@@ -325,19 +325,16 @@ class DateHandler:
         self.symbol_list = self.symbol_list[self.symbol_list.volume > 10000]
 
     def init_fs_metrics(self, backtest):
-        prev = self.date - relativedelta(months=4)
+        prev = self.date - relativedelta(months=3)
         # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
-        self.fs = backtest.fs_table.copy()
-        self.fs = self.fs[self.fs.fillingDate <= self.date]
-        self.fs = self.fs[prev <= self.fs.fillingDate]
-        self.fs = self.fs.drop_duplicates('symbol', keep='first')
+        fs = backtest.fs_table.copy()
+        fs = fs[fs.fillingDate <= self.date]
+        fs = fs[prev <= fs.fillingDate]
+        fs = fs.drop_duplicates('symbol', keep='first')
 
-        self.metrics = backtest.metrics_table.copy()
+        metrics = backtest.metrics_table.copy()
         
-        self.fs_metrics = pd.merge(self.fs, self.metrics, how='left', on=['symbol', 'date'])
-        
-        del self.metrics
-        del self.fs
+        self.fs_metrics = pd.merge(fs, metrics, how='left', on=['symbol', 'date'])
 
         highlow = pd.read_csv('./sort.csv', header=0)
         for feature in self.fs_metrics.columns:
