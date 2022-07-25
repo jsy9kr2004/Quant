@@ -400,7 +400,7 @@ class DateHandler:
 
         self.metrics = backtest.metrics_table.copy()
         
-        self.fs_metrics = pd.merge(self.fs, self.metrics, how='outer', on=['symbol', 'date'])
+        self.fs_metrics = pd.merge(self.fs, self.metrics, how='left', on=['symbol', 'date'])
         
         del self.metrics
         del self.fs
@@ -506,7 +506,6 @@ class EvaluationHandler:
                     df_for_reg['period_price_diff']  = self.best_k[idx][3]['period_price_diff']
                     df_for_reg['symbol']  = self.best_k[idx][3]['symbol']
 
-
                     df_for_reg['earning_diff'] \
                         = df_for_reg['period_price_diff'] - df_for_reg['period_price_diff'].mean()
                     print(df_for_reg)
@@ -518,6 +517,7 @@ class EvaluationHandler:
                     # remove outlier
                     logging.info("before removing outlier # rows : " + str(df_for_reg.shape[0]))
                     logging.info("before removing outlier # columns : " + str(df_for_reg.shape[1]))
+                    outlier_list_col = []
                     for col in use_col_list:
                         try:
                             # removing outlier with IQR
@@ -534,16 +534,14 @@ class EvaluationHandler:
                             #     df_for_reg = df_for_reg.drop(index=outlier_list_col, axis=0)
 
                             # candi 2
-                            Q1 = np.nanpercentile(df_for_reg[col], 0.5)
-                            Q3 = np.nanpercentile(df_for_reg[col], 99.5)
+                            Q1 = np.nanpercentile(df_for_reg[col], 1)
+                            Q3 = np.nanpercentile(df_for_reg[col], 99)
                             print("col : ", col , "Q1: ", Q1, "Q3 :", Q3)
                             IQR = Q3 - Q1
                             outlier_step = 0*IQR
-                            outlier_list_col = df_for_reg[(df_for_reg[col] < (Q1 - outlier_step))
-                                                                | (df_for_reg[col] > (Q3 + outlier_step))].index
-                            if outlier_list_col.shape[0] < 200:
-                                df_for_reg = df_for_reg.drop(index=outlier_list_col, axis=0)
-
+                            outlier_list_col.extend(df_for_reg[(df_for_reg[col] < (Q1 - outlier_step))
+                                                                | (df_for_reg[col] > (Q3 + outlier_step))].index)
+                            
 
                             # removing by count
                             # MID = self.fs_metrics[col].median()
@@ -584,6 +582,15 @@ class EvaluationHandler:
                         except Exception as e:
                             logging.info(str(e))
                             continue
+                                        
+                    Q1 = np.nanpercentile(df_for_reg['earning_diff'], 1)
+                    Q3 = np.nanpercentile(df_for_reg['earning_diff'], 99)
+                    outlier_list_col.extend(df_for_reg[(df_for_reg[col] < (Q1 ))
+                                                        | (df_for_reg[col] > (Q3 ))].index)
+                    
+                    mdict = dict.fromkeys(outlier_list_col)
+                    outlier_list_col = list(mdict)
+                    df_for_reg = df_for_reg.drop(index=outlier_list_col, axis=0)
                     logging.info("after removing outlier # rows : " + str(df_for_reg.shape[0]))
                     logging.info("after removing outlier # columns : " + str(df_for_reg.shape[1]))
 

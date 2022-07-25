@@ -66,7 +66,7 @@ if __name__ == '__main__':
         regor = Regressor(conf)
         regor.dataload()
         regor.train()
-        latest_data_path = conf['ROOT_PATH'] + '/regressor_data/' + '2022_1_regressor_train.csv'
+        latest_data_path = conf['ROOT_PATH'] + '/regressor_data/' + '2022_2_regressor_train.csv'
         regor.latest_prediction(latest_data_path)
         # MLP = RegressionNetwork(conf)
         # MLP.mtrain()

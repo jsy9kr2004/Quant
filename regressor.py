@@ -155,24 +155,23 @@ class Regressor:
         self.nns = dict()
         self.mlr = LinearRegression()
         self.rfg = RandomForestRegressor()
-        self.nns[0] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128), 
-                activation='tanh', solver='lbfgs', max_iter = 400, verbose = True, alpha=0.01)
+        logging.info("use col list length : ")
         
-        self.nns[1] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128, 16), 
-                activation='relu', solver='lbfgs', max_iter = 200, verbose = True, alpha=0.1)
         
-        self.nns[2] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128, 16), 
-                  activation='relu', solver='lbfgs', max_iter = 800, verbose = True, alpha=0.001)
+        self.nns[0] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97), 
+                activation='relu', solver='lbfgs', max_iter = 10000, verbose = True, alpha=0.01)
+             
+        self.nns[1] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97, 16), 
+                activation='relu', solver='lbfgs', max_iter = 10000, verbose = True, alpha=0.001)
         
-        self.nns[3] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128, 16), 
-                activation='relu', solver='lbfgs', max_iter = 5000, verbose = True, alpha=0.001)
+        self.nns[2] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97, 16),
+              activation='relu', solver='lbfgs', max_iter = 10000, verbose = True, alpha=0.1)
         
-        self.nns[4] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128, 16), 
-              activation='relu', solver='lbfgs', max_iter = 3200, verbose = True, alpha=0.1)
-        
-        self.nns[5] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 128, 16), 
+        self.nns[3] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97, 16), 
              activation='relu', solver='adam', max_iter = 5000, verbose = True, learning_rate_init=0.002, early_stopping=True, tol=0.00001)
         
+        self.nns[4] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97), 
+             activation='logistic', solver='adam', max_iter = 5000, verbose = True, learning_rate_init=0.005, early_stopping=True, tol=0.00001)
         
         
     def dataload(self):
@@ -292,7 +291,7 @@ class Regressor:
                 plt.title("nn REGRESSION")
                 plt.show()
         
-
+        model_eval_hist = []
         for test_idx, (testdate, df) in enumerate(self.test_df_list):
             print("evaluation date : ")
             tdate = "_".join(testdate.split("\\")[4].split('_')[0:2])
@@ -350,16 +349,23 @@ class Regressor:
                 nn_pred_col_name = 'nn_' + str(i) + '_prediction'
                 pred_col_list.append(nn_pred_col_name)
             topk_period_earning_sums = []
-            topk_list = [ (0,10), (0,20), (0,50), (3,50), (3,15), (5,15), (3,20), (5,20), (10,20), (5,30), (10,30) ]
+            topk_list = [(0,10), (0,20), (0,30), (3,20), (5,20), (3,30), (10,30)]
             for s, e in topk_list:
                 logging.info("top" + str(s) + " ~ "  + str(e) )
+                k = str(s) + '~' + str(e)
                 for col in pred_col_list:
                     top_k_df = df.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
                     logging.info(col)
                     logging.info((top_k_df['period_price_diff'].sum()/(e-s+1)))
                     topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
                     top_k_df.to_csv('./reports/prediction_{}_{}_top{}-{}.csv'.format(tdate, col, s, e))
- 
+                    model_eval_hist.append([tdate, col, k, (top_k_df['period_price_diff'].sum()/(e-s+1))])
+        
+        col_name = ['start_date', 'model', 'krange', 'avg_earning_per_stock']
+        pred_df = pd.DataFrame(model_eval_hist, columns=col_name)
+        print(pred_df)
+        pred_df.to_csv('./reports/pred_df.csv', index=False)
+        # logging.info(model_eval_hist)
         
     def latest_prediction(self, latest_data_path):
 
@@ -398,7 +404,7 @@ class Regressor:
         for i, nn in self.nns.items(): 
             nn_pred_col_name = 'nn_' + str(i) + '_prediction'
             pred_col_list.append(nn_pred_col_name)
-        topk_list = [ (0,10), (0,20), (0,50), (3,50), (3,15), (5,15), (3,20), (5,20), (10,20), (5,30), (10,30) ]
+        topk_list = [(0,10), (0,20), (0,30), (3,20), (5,20), (3,30), (10,30)]
         for s, e in topk_list:
             logging.info("top" + str(s) + " ~ "  + str(e) )
             for col in pred_col_list:
