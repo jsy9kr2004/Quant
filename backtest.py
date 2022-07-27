@@ -746,7 +746,7 @@ class EvaluationHandler:
                            - self.historical_earning_per_rebalanceday[0][2]
             plan_total_earning_rate = (plan_earning / self.historical_earning_per_rebalanceday[0][2]) * 100
 
-            logging.info("Our Earning : " + str(plan_total_earning_rate))
+            logging.warning("Our Earning : " + str(plan_total_earning_rate))
             fd = open(self.backtest.eval_report_path, 'a')
             writer = csv.writer(fd, delimiter=",")
             writer.writerow("")
