@@ -92,6 +92,9 @@ if __name__ == '__main__':
     else:
         logging.error("Check conf.yaml. don't choose db and parquet both")
 
+    # for mem_cnt in range(30, 41, 10):
+    #    for top_k_num in range(400, 2801, 400):
+    #        for score_ratio in range(0, 201, 25):
     plan_handler = PlanHandler(conf['TOP_K_NUM'], conf['ABSOLUTE_SCORE'])
     plan = []
     plan_df = pd.read_csv("./plan.csv")
@@ -105,18 +108,17 @@ if __name__ == '__main__':
         )
     plan_handler.plan_list = plan
 
-    for mem_cnt in range(10, 51, 10):
-        for top_k_num in range(400, 3201, 400):
-            for score_ratio in range(0, 201, 20):
-                conf['TOP_K_NUM'] = top_k_num
-                conf['MEMBER_CNT'] = mem_cnt
-                conf['ABSOLUTE_SCORE'] = int(top_k_num * 10 * (1 + score_ratio / 100))
-                logging.warning("TOP_K_NUM : " + str(conf['TOP_K_NUM']) + ", MEMBER_CNT : " + str(conf['MEMBER_CNT']) +
-                                ", ABSOLUTE_SCORE : " + str(conf['ABSOLUTE_SCORE']))
+    conf['TOP_K_NUM'] = top_k_num
+    conf['MEMBER_CNT'] = mem_cnt
+    conf['ABSOLUTE_SCORE'] = int(top_k_num * 10 * (1 + score_ratio / 100))
+    logging.warning("TOP_K_NUM : " + str(conf['TOP_K_NUM']) + ", MEMBER_CNT : " + str(conf['MEMBER_CNT']) +
+                    ", ABSOLUTE_SCORE : " + str(conf['ABSOLUTE_SCORE']))
+    bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=conf['REBALANCE_PERIOD'])
+    del plan_handler
+    del bt
     # TOP_K_NUM: 1500
     # MEMBER_CNT: 20
     # ABSOLUTE_SCORE: 30000
-    bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=conf['REBALANCE_PERIOD'])
 
     ################################################################################################
     # (1) tickers를 이용한 재무재표 예제
