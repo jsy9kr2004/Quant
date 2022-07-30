@@ -322,7 +322,7 @@ class DateHandler:
 
         # filter volume
         # self.symbol_list = self.symbol_list.drop(index=self.symbol_list[self.symbol_list['volume'] < 10000].index)
-        self.symbol_list = self.symbol_list[self.symbol_list.volume > 10000]
+        # self.symbol_list = self.symbol_list[self.symbol_list.volume > 10000]
 
     def init_fs_metrics(self, backtest):
         prev = self.date - relativedelta(months=3)
@@ -389,6 +389,7 @@ class EvaluationHandler:
     def print_current_best(self, scored_dh):
         best_symbol_info = pd.merge(scored_dh.symbol_list, scored_dh.fs_metrics, how='left', on='symbol')
         # best_symbol_info = pd.merge(best_symbol_info, scored_dh.fs, how='left', on='symbol')
+        best_symbol_info = best_symbol_info[best_symbol_info.volume > 10000]
         best_symbol = best_symbol_info.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
         best_symbol = best_symbol.assign(count=0)
         best_symbol.to_csv('./result.csv')
@@ -398,6 +399,7 @@ class EvaluationHandler:
         if self.backtest.eval_report_path is not None:
             best_symbol_info = pd.merge(scored_dh.symbol_list, scored_dh.fs_metrics, how='left', on='symbol')
             # best_symbol_info = pd.merge(best_symbol_info, scored_dh.fs, how='left', on='symbol')
+            best_symbol_info = best_symbol_info[best_symbol_info.volume > 10000]
             best_symbol = best_symbol_info.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
             # best_symbol = best_symbol.assign(price=0)
             best_symbol = best_symbol.assign(count=0)
@@ -428,6 +430,8 @@ class EvaluationHandler:
                 rebalance_date_price_df.rename(columns={'close':'rebalance_day_price'}, inplace=True)
                 self.best_k[idx][3] = pd.merge(self.best_k[idx][3], rebalance_date_price_df, how='outer', on='symbol')
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].close > 0.000001]
+                self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].volume > 10000]
+
                 diff = self.best_k[idx][3]['rebalance_day_price'] - self.best_k[idx][3]['close']
                 self.best_k[idx][3]['period_price_diff'] = diff / self.best_k[idx][3]['close']
                 self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs_metrics, how='left', on='symbol')
