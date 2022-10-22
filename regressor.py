@@ -27,6 +27,79 @@ import torch.optim as optim
 
 from torch.utils.tensorboard import SummaryWriter
 
+# use_col_list = [
+# "bookValuePerShare_normal",
+# "capexPerShare_normal",
+# "capexToOperatingCashFlow_normal",
+# "capexToRevenue_normal",
+# "cashPerShare_normal",
+# "currentRatio_normal",
+# "daysOfInventoryOnHand_normal",
+# "daysPayablesOutstanding_normal",
+# "daysSalesOutstanding_normal",
+# "dcf_normal",
+# "debtToAssets_normal",
+# "debtToEquity_normal",
+# "earningsYield_normal",
+# "ebitda_normal",
+# "ebitdaratio_normal",
+# "ebitgrowth_normal",
+# "enterpriseValueOverEBITDA_normal",
+# "eps_normal",
+# "epsdiluted_normal",
+# "epsdilutedGrowth_normal",
+# "epsgrowth_normal",
+# "evToFreeCashFlow_normal",
+# "evToOperatingCashFlow_normal",
+# "evToSales_normal",
+# "freeCashFlow_normal",
+# "freeCashFlowGrowth_normal",
+# "freeCashFlowPerShare_normal",
+# "freeCashFlowYield_normal",
+# "grossProfit_normal",
+# "grossProfitGrowth_normal",
+# "grossProfitRatio_normal",
+# "incomeBeforeTaxRatio_normal",
+# "incomeQuality_normal",
+# "intangiblesToTotalAssets_normal",
+# "interestDebtPerShare_normal",
+# "inventoryTurnover_normal",
+# "investedCapital_normal",
+# "netDebtToEBITDA_normal",
+# "netIncomeGrowth_normal",
+# "netIncomePerShare_normal",
+# "netIncomeRatio_normal",
+# "operatingCashFlow_normal",
+# "operatingCashFlowPerShare_normal",
+# "operatingIncomeGrowth_normal",
+# "operatingIncomeRatio_normal",
+# "payoutRatio_normal",
+# "pbRatio_normal",
+# "peRatio_normal",
+# "pfcfRatio_normal",
+# "pocfratio_normal",
+# "priceToSalesRatio_normal",
+# "ptbRatio_normal",
+# "rdexpenseGrowth_normal",
+# "receivablesGrowth_normal",
+# "researchAndDdevelopementToRevenue_normal",
+# "returnOnTangibleAssets_normal",
+# "revenueGrowth_normal",
+# "revenuePerShare_normal",
+# "roe_normal",
+# "roic_normal",
+# "salesGeneralAndAdministrativeToRevenue_normal",
+# "shareholdersEquityPerShare_normal",
+# "stockBasedCompensationToRevenue_normal",
+# "threeYDividendperShareGrowthPerShare_normal",
+# "threeYNetIncomeGrowthPerShare_normal",
+# "threeYOperatingCFGrowthPerShare_normal",
+# "threeYRevenueGrowthPerShare_normal",
+# "threeYShareholdersEquityGrowthPerShare_normal",
+# "period_price_diff",
+# "earning_diff",
+# "symbol"
+# ] 
 
 use_col_list = [
 "interestCoverage_normal",
@@ -135,7 +208,8 @@ class Regressor:
     
     def __init__(self, conf):
         self.conf = conf
-        aidata_dir = conf['ROOT_PATH'] + '/regressor_data/'
+        # aidata_dir = conf['ROOT_PATH'] + '/regressor_data_0' + str(conf['START_MONTH']) + '/'
+        aidata_dir = conf['ROOT_PATH'] + '/regressor_data_per1/'
         
         self.train_files = []
         for year in range(int(conf['TRAIN_START_YEAR']), int(conf['TRAIN_END_YEAR'])):
@@ -163,23 +237,23 @@ class Regressor:
         logging.info("use col list length : ")
         
         self.rfgs[0] = RandomForestRegressor(n_jobs=-1, n_estimators=200)
-        self.rfgs[1] = RandomForestRegressor(n_jobs=-1, n_estimators=200, min_samples_leaf=2)
+        self.rfgs[1] = RandomForestRegressor(n_jobs=-1, n_estimators=400, min_samples_leaf=2)
         self.rfgs[2] = RandomForestRegressor(n_jobs=-1, n_estimators=200, min_samples_split=4, min_samples_leaf=2)
+        self.rfgs[3] = RandomForestRegressor(n_jobs=-1, n_estimators=400, min_samples_split=8, min_samples_leaf=4)
+        # self.dnns[1] = RegressionNetwork1(self.conf)
+        # self.dnns[1].load_state_dict(torch.load('./model_state_dict_candi1.pt'))
         
-        self.dnns[1] = RegressionNetwork1(self.conf)
-        self.dnns[1].load_state_dict(torch.load('./model_state_dict_candi1.pt'))
+        # self.dnns[2] = RegressionNetwork2(self.conf)
+        # self.dnns[2].load_state_dict(torch.load('./model_state_dict_255_candi2.pt'))
         
-        self.dnns[2] = RegressionNetwork2(self.conf)
-        self.dnns[2].load_state_dict(torch.load('./model_state_dict_255_candi2.pt'))
-        
-        self.dnns[4] = RegressionNetwork4(self.conf)
-        self.dnns[4].load_state_dict(torch.load('./model_state_dict_53_candi4.pt'))
+        # self.dnns[4] = RegressionNetwork4(self.conf)
+        # self.dnns[4].load_state_dict(torch.load('./model_state_dict_53_candi4.pt'))
 
-        self.nns[0] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97), 
-                activation='relu', solver='lbfgs', max_iter = 20000, verbose = True, alpha=0.001)
+        # self.nns[0] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97), 
+        #         activation='relu', solver='lbfgs', max_iter = 20000, verbose = True, alpha=0.001)
         
-        self.nns[1] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97), 
-                activation='tanh', solver='lbfgs', max_iter = 20000, verbose = True, alpha=0.01)
+        # self.nns[1] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97), 
+        #         activation='tanh', solver='lbfgs', max_iter = 20000, verbose = True, alpha=0.01)
         
         # self.nns[1] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97, 64, 16), 
         #         activation='relu', solver='lbfgs', max_iter = 20000, verbose = True, alpha=0.01)
@@ -260,7 +334,7 @@ class Regressor:
         
         # x_train, x_test, y_train, y_test = train_test_split(x, y, train_size=0.8, test_size=0.2)
         logging.info("start fitting LinearRegression")
-        self.mlr.fit(self.x_train, self,y_train)
+        self.mlr.fit(self.x_train, self.y_train)
         logging.info( "mlr score : ")
         logging.info(self.mlr.score(self.x_train, self.y_train))
         logging.info("end fitting LinearRegression")
@@ -270,7 +344,8 @@ class Regressor:
         for i, rfg in self.rfgs.items():
             logging.info("start fitting RandomForestRegressor")
             rfg.fit(self.x_train, self.y_train.values.ravel())
-            filename = 'rfg' + str(i) + '_model.sav'
+            # filename = 'rfg' + str(i) + '_model' + str(self.conf['START_MONTH']) + '.sav'
+            filename = 'rfg' + str(i) + '_model_per1.sav'
             joblib.dump(rfg, filename)
             logging.info("rfg score : ")
             logging.info(rfg.score(self.x_train, self.y_train))
@@ -293,16 +368,16 @@ class Regressor:
         # print('최고 예측 정확도: {:.4f}'.format(grid_cv.best_score_))
     
         
-        for i, nn in self.nns.items():
-            logging.info("start fitting " + str(i) + "-th MLPRegressor")
-            nn.fit(self.x_train, self.y_train.values.ravel())
-            logging.info("nn score : ")
-            logging.info(nn.score(self.x_train, self.y_train))
-            logging.info("end fitting " + str(i) + "-th MLPRegressor")
-            filename = 'nn' + str(i) + '_model.sav'
-            joblib.dump(nn, filename)
+        # for i, nn in self.nns.items():
+        #     logging.info("start fitting " + str(i) + "-th MLPRegressor")
+        #     nn.fit(self.x_train, self.y_train.values.ravel())
+        #     logging.info("nn score : ")
+        #     logging.info(nn.score(self.x_train, self.y_train))
+        #     logging.info("end fitting " + str(i) + "-th MLPRegressor")
+        #     filename = 'nn' + str(i) + '_model.sav'
+        #     joblib.dump(nn, filename)
         
-        self.evaluation(self.x_train, self.x_test, self.y_train, self.y_test)
+        self.evaluation()
         # weight 출력
         # logging.debug("result regression. weight : ")
         # logging.debug(x_train.columns)
@@ -315,13 +390,23 @@ class Regressor:
         
         
         self.rfgs = dict()
-        self.rfgs[0] = joblib.load('rfg0_model.sav')
-        self.rfgs[1] = joblib.load('rfg1_model.sav')
-        self.rfgs[2] = joblib.load('rfg2_model.sav')
         
-        self.nns = dict()
-        self.nns[0] = joblib.load('nn0_model.sav')
-        self.nns[1] = joblib.load('nn1_model.sav')
+        self.rfgs[0] = joblib.load('./rfg0_model_per1.sav')
+        self.rfgs[1] = joblib.load('./rfg1_model_per1.sav')
+        self.rfgs[2] = joblib.load('./rfg2_model_per1.sav')
+        self.rfgs[3] = joblib.load('./rfg3_model_per1.sav')
+        
+        #self.rfgs[0] = joblib.load('rfg0_model' + str(self.conf['START_MONTH']) +'.sav')
+        #self.rfgs[1] = joblib.load('rfg1_model' + str(self.conf['START_MONTH']) +'.sav')
+        #self.rfgs[2] = joblib.load('rfg2_model' + str(self.conf['START_MONTH']) +'.sav')
+        #self.rfgs[3] = joblib.load('rfg3_model' + str(self.conf['START_MONTH']) +'.sav')
+        #self.rfgs[4] = joblib.load('rfg4_model' + str(self.conf['START_MONTH']) +'.sav')
+        #self.rfgs[5] = joblib.load('rfg5_model' + str(self.conf['START_MONTH']) +'.sav')
+        
+        
+        # self.nns = dict()
+        # self.nns[0] = joblib.load('nn0_model.sav')
+        # self.nns[1] = joblib.load('nn1_model.sav')
         
         for i, rfg in self.rfgs.items():
             y_predict = rfg.predict(self.x_train)
@@ -458,20 +543,20 @@ class Regressor:
         # ldf['mlr_prediction'] = y_predict1.ravel()
         # preds = np.vstack((preds, y_predict1.ravel()[None,:]))
         
-        for i, dnn in self.dnns.items():    
-            dnn_pred_col_name = 'dnn_' + str(i) + '_prediction'
-            y_predict0 = dnn(torch.tensor(input.values, dtype=torch.float32))
-            y_predict0 = y_predict0.detach().numpy()
-            y_predict0 = y_predict0.ravel()
-            ldf[dnn_pred_col_name] = pd.Series(y_predict0)
-            preds = np.vstack((preds, y_predict0[None,:]))
+        # for i, dnn in self.dnns.items():    
+        #     dnn_pred_col_name = 'dnn_' + str(i) + '_prediction'
+        #     y_predict0 = dnn(torch.tensor(input.values, dtype=torch.float32))
+        #     y_predict0 = y_predict0.detach().numpy()
+        #     y_predict0 = y_predict0.ravel()
+        #     ldf[dnn_pred_col_name] = pd.Series(y_predict0)
+        #     preds = np.vstack((preds, y_predict0[None,:]))
         
         
-        for i, nn in self.nns.items():    
-            nn_pred_col_name = 'nn_' + str(i) + '_prediction'
-            y_predict2 = nn.predict(input)
-            ldf[nn_pred_col_name] = y_predict2
-            preds = np.vstack((preds, y_predict2[None,:]))
+        # for i, nn in self.nns.items():    
+        #     nn_pred_col_name = 'nn_' + str(i) + '_prediction'
+        #     y_predict2 = nn.predict(input)
+        #     ldf[nn_pred_col_name] = y_predict2
+        #     preds = np.vstack((preds, y_predict2[None,:]))
 
         for i, rfg in self.rfgs.items():    
             rfg_pred_col_name = 'rfg_' + str(i) + '_prediction'

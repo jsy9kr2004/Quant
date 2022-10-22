@@ -51,15 +51,16 @@ class Backtest:
         self.plan_handler = plan_handler
         self.rebalance_period = rebalance_period
         self.eval_handler = EvaluationHandler(self)
+        
         # 아래 값들은 init_bt_from_db 에서 세팅해주나, 가려지는 값이 없도록(init만 봤을 때 calss value가 모두 보이도록) 나열함
-        self.symbol_table = ""
-        self.price_table = ""
-        self.fs_table = ""
-        self.metrics_table = ""
+        self.symbol_table = pd.DataFrame()
+        self.price_table = pd.DataFrame()
+        self.fs_table = pd.DataFrame()
+        self.metrics_table = pd.DataFrame()
         self.reload_bt_table(main_ctx.start_year)
 
         self.table_year = main_ctx.start_year
-
+        
         self.eval_report_path = self.create_report("EVAL")
         self.rank_report_path = self.create_report("RANK")
         self.ai_report_path = self.create_report("AI")
@@ -123,8 +124,7 @@ class Backtest:
         query = "SELECT * FROM PRICE WHERE date BETWEEN '" \
                 + str(datetime.datetime(self.main_ctx.start_year, 1, 1)) + "'" \
                 + " AND '" + str(datetime.datetime(self.main_ctx.end_year, 12, 31)) + "'"
-        self.symbol_table = pd.DataFrame()
-        self.price_table = pd.DataFrame()
+        
         if self.conf['USE_DB'] == "Y":
             self.symbol_table = self.data_from_database("SELECT * FROM symbol_list")
             self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
@@ -133,33 +133,31 @@ class Backtest:
             self.metrics_table = self.data_from_database("SELECT * FROM METRICS")
 
         if self.conf['USE_DATAFRAME'] == "Y":
+            
             if self.symbol_table.empty:
                 self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
                 self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
             if self.price_table.empty:
                 self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
-
+            
+            prev_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
+                                        + str(year-1) + ".parquet")
             self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
                                             + str(year) + ".parquet")
+            self.fs_table = pd.concat([prev_fs, self.fs_table])    
+            prev_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year-1) + ".parquet")
             self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
-
-            if year != self.main_ctx.start_year:
-                prev_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
-                                          + str(year-1) + ".parquet")
-                self.fs_table = pd.concat([prev_fs, self.fs_table])
-                prev_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year-1) + ".parquet")
-                self.metrics_table = pd.concat([prev_metrics, self.metrics_table])
+            self.metrics_table = pd.concat([prev_metrics, self.metrics_table])
 
     def get_trade_date(self, pdate):
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
         # pdate =  pdate.date()
-        post_date = pdate + relativedelta(days=4)
-
-        res = self.price_table.query("date <= @post_date and date >=@pdate")
+        post_date = pdate - relativedelta(days=4)
+        res = self.price_table.query("date >= @post_date and date <= @pdate")
         if res.empty:
             return None
         else:
-            return res.iloc[-1].date
+            return res.iloc[0].date
 
     def run(self):
         """
@@ -173,43 +171,47 @@ class Backtest:
         """
         date = datetime.datetime(self.main_ctx.start_year, self.conf['START_MONTH'], self.conf['START_DATE'])
         recent_date = self.price_table["date"].max()
+        # START OF WHILE #
         while True:
-            if date.year != self.table_year and self.eval_report_path is not None:
+            
+            # rebalance_period 만큼 data 더해가다가 year 가 넘어가면 table reload
+            if date.year != self.table_year:
                 logging.info("Reload BackTest table. year : {} -> {}".format(self.table_year, date.year))
                 self.reload_bt_table(date.year)
                 self.table_year = date.year
-            tdate = self.get_trade_date(date)
             # get_trade_date 에서 price table 을 이용해야 하기에 reload_bt_table을 먼저 해주어야 함
+            tdate = self.get_trade_date(date)
             if tdate is None:
-                break
+                logging.info("tradable date is None. break")
+                break            
+            
             logging.info("Backtest Run : " + str(tdate.strftime("%Y-%m-%d")))
-
-            if self.eval_report_path is not None:
-                self.plan_handler.date_handler = DateHandler(self, tdate)
-                logging.debug("complete set date_handler date : {}".format(tdate.strftime("%Y-%m-%d")))
-                self.plan_handler.run()
+            # Date에 맞게 DateHandler ( symbol, price, fs, metrics table ) 만들고 plan run
+            self.plan_handler.date_handler = DateHandler(self, tdate)
+            logging.debug("complete set date_handler date : {}".format(tdate.strftime("%Y-%m-%d")))
+            self.plan_handler.run()
 
             if date != recent_date:
                 self.eval_handler.set_best_k(tdate, date+relativedelta(months=self.rebalance_period),
                                              self.plan_handler.date_handler)
+            # recent_date이면 current_best 뽑기 
             else:
                 self.eval_handler.print_current_best(self.plan_handler.date_handler)
                 break
-            # day를 기준으로 하려면 아래를 사용하면 됨. 31일 기준으로 하면 우리가 원한 한달이 아님
-            # date += relativedelta(days=self.rebalance_period)
-            if date <= datetime.datetime(self.main_ctx.end_year, 12 - self.rebalance_period, 30):
+         
+            if date <= datetime.datetime(self.main_ctx.end_year, 4, 30):
                 date += relativedelta(months=self.rebalance_period)
             else:
                 # 마지막 loop 에 도달하면 최근 date 로 한번 돌아서 print 해준 후에 루프를 빠져 나가도록 함
                 if self.eval_report_path is not None:
                     date = recent_date
-                # evaluation report 를 뽑지 않으면 current 추천을 스킵하고 나가야 함
+                # evaluation report 를 뽑지 않으면 current 추천을 스킵하고 나감
                 else:
                     break
-
-        if self.rank_report_path is not None or self.eval_report_path is not None or self.ai_report_path is not None:
-            logging.info("START Evaluation")
-            self.eval_handler.run(self.price_table)
+        # END OF WHILE #
+        
+        logging.info("START Evaluation")
+        self.eval_handler.run(self.price_table)
 
 
 class PlanHandler:
@@ -300,46 +302,72 @@ class DateHandler:
 
         self.date = date
         # symbol_list와 fs_metrics는 init data에서 세팅해줌
-        self.symbol_list = None
-        self.fs_metrics = None
-
+        self.dtable = None
         self.init_data(backtest)
 
-    def init_symbol(self, backtest):
-        # date = datetime.datetime.combine(date, datetime.datetime.min.time())
-        # query = '(date == "{}")'.format(self.date)
+    # date handler 안에서 table은 하나 (symbol + price + fs + metric )
+    def init_data(self, backtest):
         # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
         query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(self.date)
-        self.symbol_list = backtest.symbol_table.query(query)
-        self.symbol_list = self.symbol_list.assign(score=0)
+        self.dtable = backtest.symbol_table.query(query)
+        self.dtable = self.dtable.assign(score=0)
 
         trade_date = backtest.get_trade_date(self.date)
         price = backtest.price_table.query("date == @trade_date")
+        price = price[['symbol', 'date', 'close', 'volume']]
         price = price.drop_duplicates('symbol', keep='first')
 
-        # self.price = self.get_date_latest_per_symbol(backtest.price_table, self.date)
-        self.symbol_list = pd.merge(self.symbol_list, price, how='left', on='symbol')
+        self.dtable = pd.merge(self.dtable, price, how='left', on='symbol')
+        del price
 
-        # filter volume
-        # self.symbol_list = self.symbol_list.drop(index=self.symbol_list[self.symbol_list['volume'] < 10000].index)
-        # self.symbol_list = self.symbol_list[self.symbol_list.volume > 10000]
-
-    def init_fs_metrics(self, backtest):
+        # filter volume : drop low 5% 
+        # TODO : 잘 동작하는지 돌려보기 
+        self.dtable = self.dtable.nlargest(len(self.dtable)*0.95, 'volume', keep='all')
+        
+        #현재 fs, metric -> fs_metrics
         prev = self.date - relativedelta(months=3)
         # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
         fs = backtest.fs_table.copy()
         fs = fs[fs.fillingDate <= self.date]
         fs = fs[prev <= fs.fillingDate]
+        # TODO : 제일 최근 것만 잘남는지 확인
         fs = fs.drop_duplicates('symbol', keep='first')
-
         metrics = backtest.metrics_table.copy()
+        fs_metrics = pd.merge(fs, metrics, how='left', on=['symbol', 'date'])
+
+        # TODO : 1 period 전 fs, metrics 와 모든 column 빼서 1-period diff column 만들기
+        prev_period = self.date - relativedelta(months=3)
+        prev = self.date - relativedelta(months=6)
+        prev_period_fs = backtest.fs_table.copy()
+        prev_period_fs = prev_period_fs[prev_period_fs.fillingDate <= prev_period]
+        prev_period_fs = prev_period_fs[prev <= prev_period_fs.fillingDate]
+        prev_period_fs = prev_period_fs.drop_duplicates('symbol', keep='first')
+        prev_period_fs_metrics = pd.merge(prev_period_fs, metrics, how='left', on=['symbol', 'date'])
+        diff_period_fs_metrics = fs_metrics[use_col_list] - prev_period_fs_metrics[use_col_list]
+        diff_period_fs_metrics.rename(columns=lambda x: "period_diff_" + x, inplace=True)
+        print("debug : diff_period")
+        print(diff_period_fs_metrics)
+
+        # TODO : 1년 전 fs, metrics 와 모든 column 빼서 1-year diff column 만들기
+        prev_year = self.date - relativedelta(months=11)
+        prev = self.date - relativedelta(months=14)
+        prev_year_fs = backtest.fs_table.copy()
+        prev_year_fs = prev_year_fs[prev_year_fs.fillingDate <= prev_year]
+        prev_year_fs = prev_year_fs[prev <= prev_year_fs.fillingDate]
+        prev_year_fs = prev_year_fs.drop_duplicates('symbol', keep='first')
+        prev_year_fs_metrics = pd.merge(prev_year_fs, metrics, how='left', on=['symbol', 'date'])
+        diff_year_fs_metrics = fs_metrics - prev_year_fs_metrics
+        diff_year_fs_metrics.rename(columns=lambda x: "year_diff_" + x, inplace=True)
+        print("debug : diff_year")
+        print(diff_year_fs_metrics)
         
-        self.fs_metrics = pd.merge(fs, metrics, how='left', on=['symbol', 'date'])
+        fs_metrics = pd.merge(fs_metrics, diff_period_fs_metrics, how='left', on=['symbol'])
+        fs_metrics = pd.merge(fs_metrics, diff_year_fs_metrics, how='left', on=['symbol'])
 
         highlow = pd.read_csv('./sort.csv', header=0)
-        for feature in self.fs_metrics.columns:
+        for feature in fs_metrics.columns:
             feature_sortedvalue_col_name = feature + "_sorted"
-            self.fs_metrics[feature_sortedvalue_col_name] = self.fs_metrics[feature]
+            fs_metrics[feature_sortedvalue_col_name] = fs_metrics[feature]
 
             # 음수 처리
             f = highlow.query("name == @feature")
@@ -348,28 +376,25 @@ class DateHandler:
             else:
                 if f.iloc[0].sort == "low":
                     try:
-                        feat_max = self.fs_metrics[feature].max()
-                        self.fs_metrics[feature_sortedvalue_col_name] = \
-                            [s*(-1) if s >= 0 else (s - feat_max) for s in self.fs_metrics[feature]]
+                        feat_max = fs_metrics[feature].max()
+                        fs_metrics[feature_sortedvalue_col_name] = \
+                            [s*(-1) if s >= 0 else (s - feat_max) for s in fs_metrics[feature]]
                     except Exception as e:
                         logging.info(str(e))
                         continue
-
             # normalization ( 0~20000 ). range is not fixed
             feature_normal_col_name = feature + "_normal"
             try:
-                max_value = self.fs_metrics[feature_sortedvalue_col_name].max()
-                min_value = self.fs_metrics[feature_sortedvalue_col_name].min()
-                self.fs_metrics[feature_normal_col_name] \
-                    = (((self.fs_metrics[feature_sortedvalue_col_name] - min_value) * 20000) / (max_value - min_value))
+                max_value = fs_metrics[feature_sortedvalue_col_name].max()
+                min_value = fs_metrics[feature_sortedvalue_col_name].min()
+                fs_metrics[feature_normal_col_name] \
+                    = (((fs_metrics[feature_sortedvalue_col_name] - min_value) * 20000) / (max_value - min_value))
             except Exception as e:
                 logging.info(str(e))
                 continue
-
-    def init_data(self, backtest):
-        self.init_symbol(backtest)
-        self.init_fs_metrics(backtest)
-
+        
+        self.dtable = pd.merge(self.dtable, fs_metrics, how='left', on='symbol')
+    
 
 class EvaluationHandler:
     def __init__(self, backtest):
@@ -414,17 +439,93 @@ class EvaluationHandler:
         pd.set_option('mode.chained_assignment', None)
 
         """best_k 의 ['price', 'rebalance_day_price'] column을 채워주는 함수"""
+        logging.info("best k length : ")
+        logging.info(len(self.best_k))
         for idx, (date, rebalance_date, best_group, reference_group, period_earning_rate) in enumerate(self.best_k):
             if date.year != self.backtest.table_year:
                 logging.info("Reload BackTest Table. year : {} -> {}".format(self.backtest.table_year, date.year))
                 self.backtest.reload_bt_table(date.year)
                 self.backtest.table_year = date.year
+            
+            # lastest date
+            if idx == len(self.best_k)-1:
+                logging.info("print latest data : ")
+                logging.info(date)
+                self.best_k[idx][3] = start_dh.symbol_list
+                self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].close > 0.000001]
+                self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].volume > 10000]
+                self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs_metrics, how='left', on='symbol')
+
+                if self.backtest.ai_report_path is not None:
+                    df_for_reg = self.best_k[idx][3].copy()
+                    df_for_reg = df_for_reg[use_col_list]
+                    print("in print_AI")
+                    print(df_for_reg)
+                    df_for_reg['symbol'] = self.best_k[idx][3]['symbol']
+                    # remove outlier
+                    logging.info("before removing outlier # rows : " + str(df_for_reg.shape[0]))
+                    logging.info("before removing outlier # columns : " + str(df_for_reg.shape[1]))
+                    outlier_list_col = []
+                    for col in use_col_list:
+                        try:
+                            Q1 = np.nanpercentile(df_for_reg[col], 1)
+                            Q3 = np.nanpercentile(df_for_reg[col], 99)
+                            print("col : ", col , "Q1: ", Q1, "Q3 :", Q3)
+                            IQR = Q3 - Q1
+                            outlier_step = 0*IQR
+                            outlier_list_col.extend(df_for_reg[(df_for_reg[col] < (Q1 - outlier_step))
+                                                                | (df_for_reg[col] > (Q3 + outlier_step))].index)
+                        except Exception as e:
+                            logging.info(str(e))
+                            continue
+                                        
+                    mdict = dict.fromkeys(outlier_list_col)
+                    outlier_list_col = list(mdict)
+                    df_for_reg = df_for_reg.drop(index=outlier_list_col, axis=0)
+                    logging.info("after removing outlier # rows : " + str(df_for_reg.shape[0]))
+                    logging.info("after removing outlier # columns : " + str(df_for_reg.shape[1]))
+
+                    # 음수 처리
+                    for col in use_col_list:
+                        highlow = pd.read_csv('./sort.csv', header=0)
+                        f = highlow.query("name == @col")
+                        if f.empty:
+                            continue
+                        else:
+                            if f.iloc[0].sort == "low":
+                                try:
+                                    feat_max = df_for_reg[col].max()
+                                    df_for_reg[col] = \
+                                        [s*(-1) if s >= 0 else (s - feat_max) for s in df_for_reg[col]]
+                                except Exception as e:
+                                    logging.info(str(e))
+                                    continue
+
+                    for col in use_col_list:
+                        feature_normal_col_name = col + "_normal"
+                        try:
+                            max_value = df_for_reg[col].max()
+                            min_value = df_for_reg[col].min()
+                            df_for_reg[feature_normal_col_name] \
+                                = ((df_for_reg[col] - min_value)) / (max_value - min_value)
+                        except Exception as e:
+                            logging.info(str(e))
+                            continue
+
+                    normal_col_list = df_for_reg.columns.str.contains("_normal")
+                    df_for_reg_print = df_for_reg.loc[:,normal_col_list]
+                    df_for_reg_print['symbol'] = df_for_reg['symbol']
+                    traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data_0' + str(self.backtest.conf['START_MONTH']) + '/'
+                    df_for_reg_print.to_csv(traindata_path + '{}_{}_regressor_train_latest.csv'.format(date.year, date.month), index=False)
+                break
                             
             if idx == 0:
                 start_dh = DateHandler(self.backtest, date)
             end_dh = DateHandler(self.backtest, rebalance_date)
 
             if self.backtest.rank_report_path is not None or self.backtest.ai_report_path is not None:
+                logging.info("rank/ai report cur date : ")
+                logging.info(date)
                 self.best_k[idx][3] = start_dh.symbol_list
                 rebalance_date_price_df = end_dh.symbol_list[['symbol', 'close']]
                 rebalance_date_price_df.rename(columns={'close':'rebalance_day_price'}, inplace=True)
@@ -566,8 +667,9 @@ class EvaluationHandler:
                     df_for_reg_print['earning_diff'] = df_for_reg['earning_diff']
                     df_for_reg_print['symbol'] = df_for_reg['symbol']
 
-                    traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data/'
-                    df_for_reg_print.to_csv(traindata_path + '{}_{}_regressor_train.csv'.format(date.year, date.month), index=False)
+                    # traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data_0' + str(self.backtest.conf['START_MONTH']) + '/'
+                    traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data_per1/'
+                    df_for_reg_print.to_csv(traindata_path + '{0}_{1:02d}_regressor_train.csv'.format(date.year, date.month), index=False)
 
                 if self.backtest.rank_report_path is not None:
                     for feature in self.best_k[idx][3].columns:
@@ -600,7 +702,7 @@ class EvaluationHandler:
                 # self.best_k[idx][2] = self.best_k[idx][2][self.best_k[idx][2].symbol_list > 0.000001]
 
             start_dh = copy.deepcopy(end_dh)
-            logging.debug(str(idx) + " " + str(date))
+            logging.info(str(idx) + " " + str(date))
 
     def cal_earning(self):
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
@@ -610,6 +712,9 @@ class EvaluationHandler:
         worst_asset = self.total_asset * 1000
         for idx, (date, rebalance_date, best_group, reference_group, period_earning_rate) in enumerate(self.best_k):
             # TODO best_k 맞게 사고 남은 짜투리 금액 처리
+            # if idx == len(self.best_k)-1:
+            #     break
+            
             stock_cnt = (self.total_asset / len(best_group)) / best_group['price']
             stock_cnt = stock_cnt.replace([np.inf, -np.inf], 0)
             stock_cnt = stock_cnt.fillna(0)
@@ -620,6 +725,7 @@ class EvaluationHandler:
             
             if my_asset_period == 0:
                 continue
+            
 
             # MDD 계산을 위해 이 구간에서 각 종목별 구매 개수 저장
             self.best_k[idx][2]['count'] = stock_cnt
@@ -655,6 +761,8 @@ class EvaluationHandler:
             if i == 0:
                 prev_date = date
                 continue
+            # if i == len(self.best_k)-1:
+            #     break
             else:
                 # prev_date ~ date 까지 모든 date에 대해 자산 총액 계산
                 allday_price_allsymbol = []
@@ -766,18 +874,3 @@ class EvaluationHandler:
             self.cal_mdd(price_table)
             # self.cal_sharp()
         self.print_report()
-
-
-class SymbolHandler:
-    def __init__(self, symbol, start_date, end_date):
-        self.symbol = symbol
-        self.start_date = start_date
-        self.end_date = end_date
-        self.price = self.get_symbol_price()
-        self.financial_statement = self.get_symbol_fs()
-
-    def get_symbol_price(self):
-        return self.symbol
-
-    def get_symbol_fs(self):
-        return self.symbol
