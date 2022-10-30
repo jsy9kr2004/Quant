@@ -456,8 +456,15 @@ class EvaluationHandler:
     def print_ai_data(self, df_for_reg, date, latest):
         
         symbols_tmp = df_for_reg['symbol']
-        period_price_diff_tmp = df_for_reg['period_price_diff']
-        df_for_reg = df_for_reg[use_col_list]
+        period_price_diff_tmp = pd.DataFrame()
+        if latest == False:
+            period_price_diff_tmp = df_for_reg['period_price_diff']
+        
+        use_col_list_wYdiff = list(map(lambda x: "Ydiff_"+x, use_col_list))
+        use_col_list_wQdiff = list(map(lambda x: "Qdiff_"+x, use_col_list))
+        use_col_list_wprev = use_col_list + use_col_list_wYdiff + use_col_list_wQdiff
+        print(use_col_list_wprev)
+        df_for_reg = df_for_reg[use_col_list_wprev]
         df_for_reg['symbol'] = symbols_tmp
         
         if latest == False:
@@ -471,7 +478,7 @@ class EvaluationHandler:
         logging.info("before removing outlier # rows : " + str(df_for_reg.shape[0]))
         logging.info("before removing outlier # columns : " + str(df_for_reg.shape[1]))
         outlier_list_col = []
-        for col in use_col_list:
+        for col in use_col_list_wprev:
             try:
                 # removing outlier with IQR
                 # candi 1
@@ -489,7 +496,7 @@ class EvaluationHandler:
                 # candi 2
                 Q1 = np.nanpercentile(df_for_reg[col], 1)
                 Q3 = np.nanpercentile(df_for_reg[col], 99)
-                print("col : ", col , "Q1: ", Q1, "Q3 :", Q3)
+                # print("col : ", col , "Q1: ", Q1, "Q3 :", Q3)
                 IQR = Q3 - Q1
                 outlier_step = 0*IQR
                 outlier_list_col.extend(df_for_reg[(df_for_reg[col] < (Q1 - outlier_step))
@@ -547,7 +554,7 @@ class EvaluationHandler:
         logging.info("after removing outlier # columns : " + str(df_for_reg.shape[1]))
 
         # 음수 처리
-        for col in use_col_list:
+        for col in use_col_list_wprev:
             highlow = pd.read_csv('./sort.csv', header=0)
             f = highlow.query("name == @col")
             if f.empty:
@@ -562,7 +569,7 @@ class EvaluationHandler:
                         logging.info(str(e))
                         continue
 
-        for col in use_col_list:
+        for col in use_col_list_wprev:
             feature_normal_col_name = col + "_normal"
             try:
                 max_value = df_for_reg[col].max()
@@ -604,6 +611,7 @@ class EvaluationHandler:
                 self.best_k[idx][3] = start_dh.dtable
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].close > 0.000001]
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].volume > 10000]
+                self.best_k[idx][3].rename(columns={'close':'price'}, inplace=True)
                 if self.backtest.ai_report_path is not None:
                     df_for_reg = self.best_k[idx][3].copy()
                     self.print_ai_data(df_for_reg, date, True)         
@@ -666,7 +674,10 @@ class EvaluationHandler:
     @staticmethod
     def cal_earning_func(best_k):
         (date, rebalance_date, best_group, reference_group, period_earning_rate) = best_k
-
+        print("in cal_earning_func")
+        print(date)
+        print(best_group)
+        
         TOTAL_ASSET = 100000000
         stock_cnt = (TOTAL_ASSET / len(best_group)) / best_group['price']
         stock_cnt = stock_cnt.replace([np.inf, -np.inf], 0)
@@ -684,18 +695,19 @@ class EvaluationHandler:
         # rebalance date의 가격으로 구매한 종목들 판매했을 때 자산 계산
         rebalance_day_price_mul_stock_cnt = best_group['rebalance_day_price'] * stock_cnt
         best_k[2]['period_earning'] = rebalance_day_price_mul_stock_cnt - price_mul_stock_cnt
-        period_earning = rebalance_day_price_mul_stock_cnt.sum() - price_mul_stock_cnt.sum()
+        # period_earning = rebalance_day_price_mul_stock_cnt.sum() - price_mul_stock_cnt.sum()
         return best_k
     
     def cal_earning(self):
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
-        
+        logging.info("START cal_earning")
+        params = copy.deepcopy(self.best_k)
         with Pool(processes=multiprocessing.cpu_count()-2) as pool:
-            df_list = pool.map(self.cal_earning_func, self.best_k)
+            df_list = pool.map(self.cal_earning_func, params)
         full_df = reduce(lambda df1, df2: pd.concat(df1, df2), df_list)
-        
         # 잘들어가는지 check
         self.best_k = full_df
+        self.best_k.to_csv("./earning_test.csv")
         
 
     def cal_mdd(self, price_table):
