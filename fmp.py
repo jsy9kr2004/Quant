@@ -225,7 +225,7 @@ class FMP:
                 delisted = delisted.drop(['companyName'], axis=1)
                 all_symbol = pd.concat([all_symbol, delisted])
         all_symbol.to_csv('./allsymbol.csv')
-        all_symbol.drop_duplicates('symbol', keep='first')
+        all_symbol = all_symbol.drop_duplicates('symbol', keep='first')
         all_symbol = all_symbol.reset_index(drop=True)
         self.symbol_list = all_symbol["symbol"]
         # logging.info("in set_symbol() list=")

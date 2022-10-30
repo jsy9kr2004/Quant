@@ -41,8 +41,8 @@ def get_config():
 
 def set_logger(config):
     log_path = "log.txt"
-    # if os.path.exists(log_path):
-    #    os.remove(log_path)
+    #if os.path.exists(log_path):
+        #os.remove(log_path)
     logging.basicConfig(level=config['LOG_LVL'],
                         format='[%(asctime)s][%(levelname)s] %(message)s (%(filename)s:%(lineno)d) ',
                         handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
@@ -65,10 +65,10 @@ if __name__ == '__main__':
     if conf['RUN_REGRESSION'] == "Y":
         regor = Regressor(conf)
         regor.dataload()
-        # regor.train()
-        regor.evaluation()
-        latest_data_path = conf['ROOT_PATH'] + '/regressor_data/' + '2022_2_regressor_train.csv'
-        regor.latest_prediction(latest_data_path)
+        regor.train()
+        # regor.evaluation()
+        # latest_data_path = conf['ROOT_PATH'] + '/regressor_data_05/2022_7_regressor_train_latest.csv'
+        # regor.latest_prediction(latest_data_path)
         # MLP = RegressionNetwork(conf)
         # MLP.mtrain()
         exit()
@@ -86,7 +86,7 @@ if __name__ == '__main__':
             db.rebuild_table_view()
     elif conf['USE_DATAFRAME'] == 'Y':
         df_engine = Parquet(main_ctx)
-        if conf['NEED_INSERT_CSV_TO_PQ'] == "Y" or conf['NEED_NEWYEAR_CSV_TO_PQ'] == "Y":
+        if conf['NEED_INSERT_CSV_TO_PQ'] == "Y":
             df_engine.insert_csv()
         if conf['NEED_NEW_VIEW_PQ'] == "Y":
             df_engine.rebuild_table_view()
