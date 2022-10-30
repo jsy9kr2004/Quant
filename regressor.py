@@ -279,7 +279,7 @@ class Regressor:
         
         
     def dataload(self):
-        
+                
         for fpath in self.train_files:     
             print(fpath)
             df = pd.read_csv(fpath)
@@ -290,7 +290,6 @@ class Regressor:
             logging.debug(df.shape)  
             # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
             self.train_df = pd.concat([self.train_df, df], axis=0)
-
 
         self.test_df_list = []
         for fpath in self.test_files:
@@ -305,8 +304,7 @@ class Regressor:
             df = df.fillna(0)
             self.test_df = pd.concat([self.test_df, df], axis=0)
             self.test_df_list.append([fpath, df])
-            
-            
+                
         logging.debug("train_df shape : ")
         logging.debug(self.train_df.shape)    
         logging.debug('NaN occurrences in Columns:')
@@ -331,15 +329,13 @@ class Regressor:
         
 
     def train(self):        
-        
+
         # x_train, x_test, y_train, y_test = train_test_split(x, y, train_size=0.8, test_size=0.2)
         logging.info("start fitting LinearRegression")
         self.mlr.fit(self.x_train, self.y_train)
         logging.info( "mlr score : ")
         logging.info(self.mlr.score(self.x_train, self.y_train))
         logging.info("end fitting LinearRegression")
-        
-        
         
         for i, rfg in self.rfgs.items():
             logging.info("start fitting RandomForestRegressor")

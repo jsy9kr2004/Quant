@@ -10,6 +10,7 @@ import urllib.request
 
 import requests
 import pandas as pd
+import numpy as np
 
 
 class FMP:
@@ -72,11 +73,12 @@ class FMP:
             
         # for elem in SYMBOL:
         start = time.time()
+        data_list = data_list.dropna()
         for elem in data_list:
             # TODO url_data = "" 와 같은 줄이 필요할 듯? except 후 continue로 들어갈 때 이전 값이 들어있음. 초기화 필요?
             # json_data = ""
-            if (not os.path.isfile(path + "/{}.csv".format(elem + file_postfix))) \
-                    and (not os.path.isfile(path + "/{}.csvx".format(elem + file_postfix))):
+            if (not os.path.isfile(path + "/{}.csv".format(str(elem) + file_postfix))) \
+                    and (not os.path.isfile(path + "/{}.csvx".format(str(elem) + file_postfix))):
                 if is_v4 == True:
                     # TODO symbol 이 외에 list가 올 것이기에 need_symbol flag를 두고 있으나, symbol 이외에는 아직 당장 필요한 것이
                     #       없어서 이대로 두었으나 이 loop는 symbol 이외의 list에 대한 대비가 아래 if 문 이외에는 되어 있지 않음
