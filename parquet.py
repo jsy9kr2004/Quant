@@ -85,7 +85,7 @@ class Parquet:
                                                                                                how='outer',
                                                                                                on=['date', 'symbol'])
         financial_statement['date'] = financial_statement['date'].astype('datetime64[ns]')
-        financial_statement['acceptedDate'] = financial_statement['acceptedDate'].astype('datetime64[ns]')
+        # financial_statement['acceptedDate'] = financial_statement['acceptedDate'].astype('datetime64[ns]')
         financial_statement['fillingDate'] = financial_statement['fillingDate'].astype('datetime64[ns]')
                                                 
         financial_statement.to_parquet(self.view_path + "financial_statement.parquet", engine="pyarrow", compression="gzip")
@@ -123,7 +123,7 @@ class Parquet:
             metrics_peryear.to_parquet(self.view_path + "metrics_" + str(year) + ".parquet",
                                        engine="pyarrow", compression="gzip")
                    
-        logging.info("create price parquet per year")
+        logging.info("create metrics parquet per year")
         
         del financial_growth
         del key_metrics
@@ -138,8 +138,13 @@ class Parquet:
     @staticmethod
     def read_csv_mp(filename):
         c_proc = mp.current_process()
+        PQPATH = 'D:\\dataset\\qt\\2022_11\\parquet\\'
         csv_save_path = PQPATH + str(c_proc.pid)+"_mp.csv"
-        df = csv.read_csv(filename).to_pandas()
+        try:
+            df = csv.read_csv(filename).to_pandas()
+        except Exception as e:
+            logging.info(str(e))
+            return
         if not os.path.exists(csv_save_path):
             df.to_csv(csv_save_path, index=False, mode='w', encoding='utf-8-sig')
         else:
@@ -151,11 +156,12 @@ class Parquet:
         # wrap your csv importer in a function that can be mapped
         # merge all csvs per directoy
         dir_list = os.listdir(self.main_ctx.root_path)
-        # dir_list = ["key_metrics", "stock_list", "symbol_available_indexes", 
-        #             "balance_sheet_statement", "cash_flow_statement", "delisted_companies", "earning_calendar",
-        #             "financial_growth", "historical_daily_discounted_cash_flow", "historical_market_capitalization",
-        #             "income_statement", "profile"] 
-        dir_list = ["profile"]
+        # dir_list = [#"key_metrics", "stock_list", "symbol_available_indexes", 
+                     # "balance_sheet_statement", "cash_flow_statement", 
+                     #"delisted_companies", "earning_calendar",
+                     #"financial_growth", "historical_daily_discounted_cash_flow", "historical_market_capitalization",
+                     #"income_statement", "profile"] 
+        # dir_list = ["historical_price_full"]
         logging.info("directory list : {}".format(dir_list))
         for directory in tqdm(dir_list):
             csv_save_path = self.rawpq_path + directory + ".csv"
