@@ -73,7 +73,8 @@ class FMP:
             
         # for elem in SYMBOL:
         start = time.time()
-        data_list = data_list.dropna()
+        if need_symbol == True:
+            data_list = data_list.dropna()
         for elem in data_list:
             # TODO url_data = "" 와 같은 줄이 필요할 듯? except 후 continue로 들어갈 때 이전 값이 들어있음. 초기화 필요?
             # json_data = ""

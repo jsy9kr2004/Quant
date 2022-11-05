@@ -199,7 +199,7 @@ class Backtest:
                 self.eval_handler.print_current_best(self.plan_handler.date_handler)
                 break
          
-            if date <= datetime.datetime(self.main_ctx.end_year, 4, 30):
+            if (date + relativedelta(months=self.rebalance_period)) <= datetime.datetime(self.main_ctx.end_year, 11, 1):
                 date += relativedelta(months=self.rebalance_period)
             else:
                 # 마지막 loop 에 도달하면 최근 date 로 한번 돌아서 print 해준 후에 루프를 빠져 나가도록 함
@@ -326,6 +326,7 @@ class DateHandler:
         prev = self.date - relativedelta(months=3)
         # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
         fs = backtest.fs_table.copy()
+
         fs = fs[fs.fillingDate <= self.date]
         fs = fs[prev <= fs.fillingDate]
         fs = fs.drop_duplicates('symbol', keep='first')
@@ -336,7 +337,7 @@ class DateHandler:
         prev_Q = self.date - relativedelta(months=3)
         prev = self.date - relativedelta(months=6)
         prev_Q_fs = backtest.fs_table.copy()
-        prev_Q_fs = prev_Q_fs[prev_Q_fs.fillingDate <= prev_Q]
+        prev_Q_fs = prev_Q_fs[prev_Q_fs.fillingDate <=  prev_Q]
         prev_Q_fs = prev_Q_fs[prev <= prev_Q_fs.fillingDate]
         prev_Q_fs = prev_Q_fs.drop_duplicates('symbol', keep='first')
         prev_Q_fs_metrics = pd.merge(prev_Q_fs, metrics, how='left', on=['symbol', 'date'])
@@ -456,8 +457,15 @@ class EvaluationHandler:
     def print_ai_data(self, df_for_reg, date, latest):
         
         symbols_tmp = df_for_reg['symbol']
-        period_price_diff_tmp = df_for_reg['period_price_diff']
-        df_for_reg = df_for_reg[use_col_list]
+        period_price_diff_tmp = pd.DataFrame()
+        if latest == False:
+            period_price_diff_tmp = df_for_reg['period_price_diff']
+        
+        use_col_list_wYdiff = list(map(lambda x: "Ydiff_"+x, use_col_list))
+        use_col_list_wQdiff = list(map(lambda x: "Qdiff_"+x, use_col_list))
+        use_col_list_wprev = use_col_list + use_col_list_wYdiff + use_col_list_wQdiff
+        print(use_col_list_wprev)
+        df_for_reg = df_for_reg[use_col_list_wprev]
         df_for_reg['symbol'] = symbols_tmp
         
         if latest == False:
@@ -471,7 +479,7 @@ class EvaluationHandler:
         logging.info("before removing outlier # rows : " + str(df_for_reg.shape[0]))
         logging.info("before removing outlier # columns : " + str(df_for_reg.shape[1]))
         outlier_list_col = []
-        for col in use_col_list:
+        for col in use_col_list_wprev:
             try:
                 # removing outlier with IQR
                 # candi 1
@@ -489,7 +497,7 @@ class EvaluationHandler:
                 # candi 2
                 Q1 = np.nanpercentile(df_for_reg[col], 1)
                 Q3 = np.nanpercentile(df_for_reg[col], 99)
-                print("col : ", col , "Q1: ", Q1, "Q3 :", Q3)
+                # print("col : ", col , "Q1: ", Q1, "Q3 :", Q3)
                 IQR = Q3 - Q1
                 outlier_step = 0*IQR
                 outlier_list_col.extend(df_for_reg[(df_for_reg[col] < (Q1 - outlier_step))
@@ -547,7 +555,7 @@ class EvaluationHandler:
         logging.info("after removing outlier # columns : " + str(df_for_reg.shape[1]))
 
         # 음수 처리
-        for col in use_col_list:
+        for col in use_col_list_wprev:
             highlow = pd.read_csv('./sort.csv', header=0)
             f = highlow.query("name == @col")
             if f.empty:
@@ -562,7 +570,7 @@ class EvaluationHandler:
                         logging.info(str(e))
                         continue
 
-        for col in use_col_list:
+        for col in use_col_list_wprev:
             feature_normal_col_name = col + "_normal"
             try:
                 max_value = df_for_reg[col].max()
@@ -604,6 +612,7 @@ class EvaluationHandler:
                 self.best_k[idx][3] = start_dh.dtable
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].close > 0.000001]
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].volume > 10000]
+                self.best_k[idx][3].rename(columns={'close':'price'}, inplace=True)
                 if self.backtest.ai_report_path is not None:
                     df_for_reg = self.best_k[idx][3].copy()
                     self.print_ai_data(df_for_reg, date, True)         
@@ -666,7 +675,12 @@ class EvaluationHandler:
     @staticmethod
     def cal_earning_func(best_k):
         (date, rebalance_date, best_group, reference_group, period_earning_rate) = best_k
-
+        print("in cal_earning_func")
+        print(date)
+        print(best_group)
+        if 'price' not in best_group.columns:
+            return
+        
         TOTAL_ASSET = 100000000
         stock_cnt = (TOTAL_ASSET / len(best_group)) / best_group['price']
         stock_cnt = stock_cnt.replace([np.inf, -np.inf], 0)
@@ -676,7 +690,7 @@ class EvaluationHandler:
         my_asset_period = price_mul_stock_cnt.sum()
         remain_asset = TOTAL_ASSET - price_mul_stock_cnt.sum()
         if my_asset_period == 0:
-            return None
+            return
         
         # MDD 계산을 위해 이 구간에서 각 종목별 구매 개수 저장
         best_k[2]['count'] = stock_cnt
@@ -685,17 +699,27 @@ class EvaluationHandler:
         rebalance_day_price_mul_stock_cnt = best_group['rebalance_day_price'] * stock_cnt
         best_k[2]['period_earning'] = rebalance_day_price_mul_stock_cnt - price_mul_stock_cnt
         period_earning = rebalance_day_price_mul_stock_cnt.sum() - price_mul_stock_cnt.sum()
+        best_k[4] = period_earning
         return best_k
     
     def cal_earning(self):
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
-        
+        logging.info("START cal_earning")
+        params = copy.deepcopy(self.best_k)
         with Pool(processes=multiprocessing.cpu_count()-2) as pool:
-            df_list = pool.map(self.cal_earning_func, self.best_k)
-        full_df = reduce(lambda df1, df2: pd.concat(df1, df2), df_list)
-        
+            df_list = pool.map(self.cal_earning_func, params)
+        df_list = list(filter(None.__ne__, df_list))
+        print("in cal_earning : df_list : ", df_list)
+        # full_df = reduce(lambda df1, df2: pd.concat(df1, df2), df_list)
         # 잘들어가는지 check
-        self.best_k = full_df
+        self.best_k = df_list
+        for l in df_list:
+            if l == None:
+                continue
+            (date, rebalance_date, best_group, reference_group, period_earning) = l
+            print(date)
+            print(period_earning)
+            best_group.to_csv("./earning_test.csv")
         
 
     def cal_mdd(self, price_table):
@@ -772,12 +796,18 @@ class EvaluationHandler:
         elem.to_csv(path, mode="a")
 
     def print_report(self):
+        plan_earning = 1
+        TOTAL_ASSET = 100000000
+        accumulated_earning = 100
         for idx, (date, rebalance_date, eval_elem, rank_elem, period_earning_rate) in enumerate(self.best_k):
+            local_plan_earning = period_earning_rate / TOTAL_ASSET
+            accumulated_earning = accumulated_earning * (1.0 + local_plan_earning)
             if self.backtest.eval_report_path is not None:
                 self.write_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem)
                 fd = open(self.backtest.eval_report_path, 'a')
                 writer = csv.writer(fd, delimiter=",")
                 writer.writerow(str(period_earning_rate))
+                writer.writerow(str(accumulated_earning))
                 fd.close()
             if self.backtest.rank_report_path is not None:
                 if idx <= self.backtest.conf['RANK_PERIOD']:
@@ -799,9 +829,10 @@ class EvaluationHandler:
                 ref_total_earning_rate = (reference_earning / reference_earning_df.iloc[0]['close']) * 100
                 ref_total_earning_rates[ref_sym] = ref_total_earning_rate
 
-            plan_earning = self.historical_earning_per_rebalanceday[len(self.historical_earning_per_rebalanceday)-1][3]\
-                           - self.historical_earning_per_rebalanceday[0][2]
-            plan_total_earning_rate = (plan_earning / self.historical_earning_per_rebalanceday[0][2]) * 100
+            # plan_earning = self.historical_earning_per_rebalanceday[len(self.historical_earning_per_rebalanceday)-1][3]\
+            #               - self.historical_earning_per_rebalanceday[0][2]
+            # plan_total_earning_rate = (plan_earning / self.historical_earning_per_rebalanceday[0][2]) * 100
+            plan_total_earning_rate = (accumulated_earning-100)/100
 
             logging.warning("Our Earning : " + str(plan_total_earning_rate))
             fd = open(self.backtest.eval_report_path, 'a')
