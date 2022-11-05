@@ -1,3 +1,4 @@
+import datetime
 import json
 import logging
 import os
@@ -8,6 +9,8 @@ import urllib
 import urllib.error
 import urllib.request
 
+import dateutil.utils
+from dateutil.relativedelta import relativedelta
 import requests
 import pandas as pd
 import numpy as np
@@ -21,6 +24,7 @@ class FMP:
         self.target_stock_path = config['TARGET_STOCK_LIST']
         self.target_api_path = config['TARGET_API_LIST']
         self.symbol_list = pd.DataFrame()
+        self.current_list = pd.DataFrame()
         self.main_ctx = main_ctx
 
     def flatten_json(self, js, expand_all=False):
@@ -170,12 +174,15 @@ class FMP:
                     self.get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
         elif extra_url.find("from") != -1:
             for year in range(self.main_ctx.start_year, self.main_ctx.end_year + 1):
-                # for month in range(1, 13):
-                extra_url = re.sub('from=[0-9]{4}-[0-9]{2}-[0-9]{2}&to=[0-9]{4}-[0-9]{2}-[0-9]{2}', "[FT]", extra_url)
-                file_postfix = "_" + str(year)
-                # file_postfix = "_" + str(year) + "_" + str(month)
-                extra_url = extra_url.replace("[FT]", "from={0}-01-01&to={0}-12-31".format(year))
-                self.get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
+                for month in range(1, 13):
+                    # if dateutil.utils.today() < datetime.datetime(year, month, 1):
+                    #     break
+                    extra_url = re.sub('from=[0-9]{4}-[0-9]{1,2}-[0-9]{2}&to=[0-9]{4}-[0-9]{1,2}-[0-9]{2}', "[FT]",
+                                       extra_url)
+                    # file_postfix = "_" + str(year)
+                    file_postfix = "_" + str(year) + "_" + str(month)
+                    extra_url = extra_url.replace("[FT]", "from={0}-{1}-01&to={0}-{1}-31".format(year, month))
+                    self.get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
         elif extra_url.find("page") != -1:
             i = 0
             while True:
@@ -231,12 +238,22 @@ class FMP:
         all_symbol = all_symbol.drop_duplicates('symbol', keep='first')
         all_symbol = all_symbol.reset_index(drop=True)
         self.symbol_list = all_symbol["symbol"]
+
+        all_symbol["delistedDate"] = pd.to_datetime(all_symbol["delistedDate"])
+        recent_date = all_symbol["delistedDate"].max()
+        recent_date -= relativedelta(months=1)
+        query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(recent_date)
+        current_symbol = all_symbol.query(query)
+        current_symbol.to_csv('./current_list.csv')
+        current_symbol = current_symbol.drop_duplicates('symbol', keep='first')
+        current_symbol = current_symbol.reset_index(drop=True)
+        self.current_list = current_symbol["symbol"]
+
         # logging.info("in set_symbol() list=")
         logging.info(self.symbol_list)
 
     def get_fmp(self, api_list):
         self.main_ctx.create_dir(self.main_ctx.root_path)
-        self.set_symbol()
         for i in range(len(api_list)):
             need_symbol = True if api_list[i].find(self.ex_symbol) != -1 else False
             # SYMBOL 이 없는 건, SYMBOL을 만들기 위한 file도 만들어지기 전이기 때문에 두번 돌려서 SYMBOL 안쓰는 것부터 만듦
@@ -256,11 +273,8 @@ class FMP:
             if extra_url != "":
                 extra_url = extra_url + "&"
                 logging.info("{}\n\textra_url : {}".format(api_list[i], extra_url))
-            logging.info("\n\t{}\n\tmain_url : {} / extra_url : {} / need_symbol : {} / is_v4 : {}".format(api_list[i],
-                                                                                                           main_url,
-                                                                                                           extra_url,
-                                                                                                           need_symbol,
-                                                                                                           is_v4))
+            logging.info("\n\t{}\n\tmain_url : {} / extra_url : {} "
+                         "/ need_symbol : {} / is_v4 : {}".format(api_list[i], main_url, extra_url, need_symbol, is_v4))
             self.get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4)
 
     def get_api_list(self):
@@ -279,7 +293,50 @@ class FMP:
                 api_list[i] = str(api_list[i])[2:-2]
         return api_list
 
+    @staticmethod
+    def remove_files(path, only_csv=False):
+        for file in os.listdir(path):
+            if only_csv is True and not file.endswith(".csv"):
+                continue
+            else:
+                os.remove(os.path.join(path, file))
+
+    def remove_current_list_files(self, path):
+        for symbol in self.current_list:
+            print(path + "/" + str(symbol) + ".csv")
+            if os.path.isfile(path + "/" + str(symbol) + ".csv"):
+                os.remove(path + "/" + str(symbol) + ".csv")
+
+    def remove_first_loop(self):
+        today = dateutil.utils.today()
+        year = today.strftime("%Y")
+        month = today.strftime("%m")
+        if os.path.isfile("./allsymbol.csv"):
+            os.remove("./allsymbol.csv")
+        if os.path.isfile("./current_list.csv"):
+            os.remove("./current_list.csv")
+        # self.remove_files("./data/delisted_companies")
+        self.remove_files("./data/stock_list")
+        self.remove_files("./data/symbol_available_indexes")
+
+        base_path = "./data/earning_calendar/earning_calendar_"
+        if os.path.isfile(base_path + str(year) + "_" + str(month) + ".csv"):
+            os.remove(base_path + str(year) + "_" + str(month) + ".csv")
+        else:
+            if not os.path.isfile(base_path + str(year) + "_" + str(month) + ".csvx"):
+                if os.path.isfile(base_path + str(year) + "_" + str(int(month)-1) + ".csv"):
+                    os.remove(base_path + str(year) + "_" + str(int(month)-1) + ".csv")
+
+    def remove_second_loop(self):
+        self.remove_current_list_files("./data/balance_sheet_statement")
+        self.remove_current_list_files("./data/income_statement")
+        self.remove_current_list_files("./data/key_metrics")
+        self.remove_current_list_files("./data/financial_growth")
+
     def get_new(self):
         api_list = self.get_api_list()
+        self.remove_first_loop()
         self.get_fmp(api_list)
+        self.set_symbol()
+        self.remove_second_loop()
         self.get_fmp(api_list)

@@ -74,7 +74,7 @@ if __name__ == '__main__':
         exit()
 
     main_ctx.create_dir("./reports")
-    if conf['NEED_NEW_GET_FMP'] == "Y":
+    if conf['GET_FMP'] == "Y":
         fmp = FMP(conf, main_ctx)
         fmp.get_new()
 
