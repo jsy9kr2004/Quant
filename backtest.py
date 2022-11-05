@@ -81,7 +81,7 @@ class Backtest:
                     idx += 1
 
             if report_type == "EVAL" or report_type == "RANK":
-                with open(path, 'w') as file:
+                with open(path, 'w', newline='') as file:
                     writer = csv.writer(file, delimiter=",")
                     writer.writerow(["COMMON"])
                     writer.writerow(["Report Date", datetime.datetime.now().strftime('%m-%d %H:%M')])
@@ -93,11 +93,10 @@ class Backtest:
 
                     if report_type == "EVAL":
                         writer.writerow(["PLAN HANDLER"])
+                        writer.writerow(["key", "key_dir", "weight", "diff", "base", "base_dir"])
                         for plan in self.plan_handler.plan_list:
-                            writer.writerow(plan["params"])
                             dict_writer = csv.DictWriter(file, fieldnames=plan["params"])
                             dict_writer.writerow(plan["params"])
-                            writer.writerow("")
             return path
         else:
             return None
@@ -173,7 +172,6 @@ class Backtest:
         recent_date = self.price_table["date"].max()
         # START OF WHILE #
         while True:
-            
             # rebalance_period 만큼 data 더해가다가 year 가 넘어가면 table reload
             if date.year != self.table_year:
                 logging.info("Reload BackTest table. year : {} -> {}".format(self.table_year, date.year))
@@ -184,7 +182,6 @@ class Backtest:
             if tdate is None:
                 logging.info("tradable date is None. break")
                 break            
-            
             logging.info("Backtest Run : " + str(tdate.strftime("%Y-%m-%d")))
             # Date에 맞게 DateHandler ( symbol, price, fs, metrics table ) 만들고 plan run
             self.plan_handler.date_handler = DateHandler(self, tdate)
@@ -209,7 +206,6 @@ class Backtest:
                 else:
                     break
         # END OF WHILE #
-        
         logging.info("START Evaluation")
         self.eval_handler.run(self.price_table)
 
@@ -265,8 +261,7 @@ class PlanHandler:
         # all feature was preprocessed ( high is good ) in Datehandler
         top_k_df = self.date_handler.dtable.sort_values(by=[key], ascending=False, na_position="last")[:self.k_num]
         top_k_df = self.date_handler.dtable.sort_values(by=[key+"_sorted"], ascending=False,
-                                                                na_position="last")[:self.k_num]
-
+                                                        na_position="last")[:self.k_num]
         # if params["base_dir"] == ">":
         #     top_k_df = top_k_df[top_k_df[key] > params["base"]]
         # elif params["base_dir"] == "<":
@@ -274,7 +269,6 @@ class PlanHandler:
         # else:
         #     logging.error("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<'")
         #     return
-
         logging.debug(top_k_df[['symbol', params["key"]]])
 
         symbols = top_k_df['symbol']
@@ -334,25 +328,24 @@ class DateHandler:
         fs_metrics = pd.merge(fs, metrics, how='left', on=['symbol', 'date'])
         
         # 1 Q 전 fs, metrics 와 모든 column 빼서 1-year diff column 만들기
-        prev_Q = self.date - relativedelta(months=3)
+        prev_q = self.date - relativedelta(months=3)
         prev = self.date - relativedelta(months=6)
-        prev_Q_fs = backtest.fs_table.copy()
-        prev_Q_fs = prev_Q_fs[prev_Q_fs.fillingDate <=  prev_Q]
-        prev_Q_fs = prev_Q_fs[prev <= prev_Q_fs.fillingDate]
-        prev_Q_fs = prev_Q_fs.drop_duplicates('symbol', keep='first')
-        prev_Q_fs_metrics = pd.merge(prev_Q_fs, metrics, how='left', on=['symbol', 'date'])
+        prev_q_fs = backtest.fs_table.copy()
+        prev_q_fs = prev_q_fs[prev_q_fs.fillingDate <= prev_q]
+        prev_q_fs = prev_q_fs[prev <= prev_q_fs.fillingDate]
+        prev_q_fs = prev_q_fs.drop_duplicates('symbol', keep='first')
+        prev_q_fs_metrics = pd.merge(prev_q_fs, metrics, how='left', on=['symbol', 'date'])
         
-        symbols = prev_Q_fs_metrics['symbol']
-        prev_Q_fs_metrics = prev_Q_fs_metrics[use_col_list]
-        prev_Q_fs_metrics = prev_Q_fs_metrics.rename(columns = lambda x: "prevQ_" + x)
-        prev_Q_fs_metrics['symbol'] = symbols
-        fs_metrics = pd.merge(fs_metrics, prev_Q_fs_metrics, how='left', on=['symbol'])
+        symbols = prev_q_fs_metrics['symbol']
+        prev_q_fs_metrics = prev_q_fs_metrics[use_col_list]
+        prev_q_fs_metrics = prev_q_fs_metrics.rename(columns = lambda x: "prevQ_" + x)
+        prev_q_fs_metrics['symbol'] = symbols
+        fs_metrics = pd.merge(fs_metrics, prev_q_fs_metrics, how='left', on=['symbol'])
         
         for col in use_col_list:
             new_col_name = 'Qdiff_' + col
             fs_metrics[new_col_name] = fs_metrics["prevQ_"+col] - fs_metrics[col]
             fs_metrics = fs_metrics.drop(["prevQ_"+col], axis=1)
-
 
         # 1년 전 fs, metrics 와 모든 column 빼서 1-year diff column 만들기
         prev_year = self.date - relativedelta(months=10)
@@ -373,7 +366,6 @@ class DateHandler:
             new_col_name = 'Ydiff_' + col
             fs_metrics[new_col_name] = fs_metrics["prevY_"+col] - fs_metrics[col]
             fs_metrics = fs_metrics.drop(["prevY_"+col], axis=1)
-   
 
         highlow = pd.read_csv('./sort.csv', header=0)
         for feature in fs_metrics.columns:
@@ -399,8 +391,6 @@ class DateHandler:
                         logging.info(str(e))
                         continue
             
-            
-                    
             # normalization ( 0~20000 ). range is not fixed
             feature_normal_col_name = feature + "_normal"
             try:
@@ -410,8 +400,6 @@ class DateHandler:
                     = (((fs_metrics[feature_sortedvalue_col_name] - min_value) * 20000) / (max_value - min_value))
                 # fs_metrics = fs_metrics.astype({feature_normal_col_name: 'float16'})
                 # fs_metrics = fs_metrics.astype({feature_sortedvalue_col_name: 'float16'})
-
-
             except Exception as e:
                 logging.info(str(e))
                 continue        
@@ -420,6 +408,7 @@ class DateHandler:
         
         self.dtable = pd.merge(self.dtable, fs_metrics, how='left', on='symbol')
         logging.info("END init_data in date handler ")
+
 
 class EvaluationHandler:
     def __init__(self, backtest):
@@ -461,9 +450,9 @@ class EvaluationHandler:
         if latest == False:
             period_price_diff_tmp = df_for_reg['period_price_diff']
         
-        use_col_list_wYdiff = list(map(lambda x: "Ydiff_"+x, use_col_list))
-        use_col_list_wQdiff = list(map(lambda x: "Qdiff_"+x, use_col_list))
-        use_col_list_wprev = use_col_list + use_col_list_wYdiff + use_col_list_wQdiff
+        use_col_list_wydiff = list(map(lambda x: "Ydiff_"+x, use_col_list))
+        use_col_list_wqdiff = list(map(lambda x: "Qdiff_"+x, use_col_list))
+        use_col_list_wprev = use_col_list + use_col_list_wydiff + use_col_list_wqdiff
         print(use_col_list_wprev)
         df_for_reg = df_for_reg[use_col_list_wprev]
         df_for_reg['symbol'] = symbols_tmp
@@ -495,14 +484,13 @@ class EvaluationHandler:
                 #     df_for_reg = df_for_reg.drop(index=outlier_list_col, axis=0)
 
                 # candi 2
-                Q1 = np.nanpercentile(df_for_reg[col], 1)
-                Q3 = np.nanpercentile(df_for_reg[col], 99)
+                q_1 = np.nanpercentile(df_for_reg[col], 1)
+                q_3 = np.nanpercentile(df_for_reg[col], 99)
                 # print("col : ", col , "Q1: ", Q1, "Q3 :", Q3)
-                IQR = Q3 - Q1
-                outlier_step = 0*IQR
-                outlier_list_col.extend(df_for_reg[(df_for_reg[col] < (Q1 - outlier_step))
-                                                    | (df_for_reg[col] > (Q3 + outlier_step))].index)
-                
+                iqr = q_3 - q_1
+                outlier_step = 0 * iqr
+                outlier_list_col.extend(df_for_reg[(df_for_reg[col] < (q_1 - outlier_step))
+                                                   | (df_for_reg[col] > (q_3 + outlier_step))].index)
                 # removing by count
                 # MID = self.fs_metrics[col].median()
                 # if (MID == nan) or (MID.isnan()):
@@ -514,28 +502,29 @@ class EvaluationHandler:
                 # while True:
                 #     outlier_list_col = self.fs_metrics[(self.fs_metrics[col] < (MID - threshold))
                 #                                     | (self.fs_metrics[col] > (MID + threshold))].index
-
-                    # if outlier_list_col.shape[0] <= 200:
-
-                    #     # logging.debug("outlier undercut col cnt : " +  str(outlier_list_col.shape[0]) + " threshold : "+ str(threshold))
-                    #     # print(outlier_list_col.shape)
-                    #     threshold -= 5
-                    # elif outlier_list_col.shape[0] > 1000:
-                    #     # logging.debug("outlier overcut col cnt : " + str(outlier_list_col.shape[0]) + " threshold : " + str(threshold))
-                    #     # print(outlier_list_col.shape)
-                    #     threshold += 5
-                    # if (outlier_list_col.shape[0] <= 1000) & (outlier_list_col.shape[0] > 200) :
-                    #     logging.debug("@@@@@@@@ proper outlier col cnt : " +  str(outlier_list_col.shape[0])+ " threshold : " + str(threshold))
-                    #     print(outlier_list_col.shape)
-                    #     break
-                    # if threshold <= 0:
-                    #     print(outlier_list_col.shape)
-                    #     break
-                    # if threshold > 1000:
-                    #     logging.debug("there is no proper threshold in col : " + col)
-                    #     print(outlier_list_col.shape)
-                    #     outlier_list_col = []
-                    #     break
+                #     if outlier_list_col.shape[0] <= 200:
+                #         # logging.debug("outlier undercut col cnt : "
+                #                         +  str(outlier_list_col.shape[0]) + " threshold : "+ str(threshold))
+                #         # print(outlier_list_col.shape)
+                #         threshold -= 5
+                #     elif outlier_list_col.shape[0] > 1000:
+                #         # logging.debug("outlier overcut col cnt : "
+                #                         + str(outlier_list_col.shape[0]) + " threshold : " + str(threshold))
+                #         # print(outlier_list_col.shape)
+                #         threshold += 5
+                #     if (outlier_list_col.shape[0] <= 1000) & (outlier_list_col.shape[0] > 200) :
+                #         logging.debug("@@@@@@@@ proper outlier col cnt : "
+                #                       +  str(outlier_list_col.shape[0])+ " threshold : " + str(threshold))
+                #         print(outlier_list_col.shape)
+                #         break
+                #     if threshold <= 0:
+                #         print(outlier_list_col.shape)
+                #         break
+                #     if threshold > 1000:
+                #         logging.debug("there is no proper threshold in col : " + col)
+                #         print(outlier_list_col.shape)
+                #         outlier_list_col = []
+                #         break
                 # self.fs_metrics = self.fs_metrics.drop(index=outlier_list_col, axis=0)
 
             except Exception as e:
@@ -543,10 +532,9 @@ class EvaluationHandler:
                 continue
         
         if latest == False:
-            Q1 = np.nanpercentile(df_for_reg['earning_diff'], 1)
-            Q3 = np.nanpercentile(df_for_reg['earning_diff'], 99)
-            outlier_list_col.extend(df_for_reg[(df_for_reg[col] < (Q1 ))
-                                                | (df_for_reg[col] > (Q3 ))].index)                    
+            q_1 = np.nanpercentile(df_for_reg['earning_diff'], 1)
+            q_3 = np.nanpercentile(df_for_reg['earning_diff'], 99)
+            outlier_list_col.extend(df_for_reg[(df_for_reg[col] < q_1) | (df_for_reg[col] > q_3)].index)
             
         mdict = dict.fromkeys(outlier_list_col)
         outlier_list_col = list(mdict)
@@ -564,8 +552,7 @@ class EvaluationHandler:
                 if f.iloc[0].sort == "low":
                     try:
                         feat_max = df_for_reg[col].max()
-                        df_for_reg[col] = \
-                            [s*(-1) if s >= 0 else (s - feat_max) for s in df_for_reg[col]]
+                        df_for_reg[col] = [s*(-1) if s >= 0 else (s - feat_max) for s in df_for_reg[col]]
                     except Exception as e:
                         logging.info(str(e))
                         continue
@@ -575,8 +562,7 @@ class EvaluationHandler:
             try:
                 max_value = df_for_reg[col].max()
                 min_value = df_for_reg[col].min()
-                df_for_reg[feature_normal_col_name] \
-                    = ((df_for_reg[col] - min_value)) / (max_value - min_value)
+                df_for_reg[feature_normal_col_name] = (df_for_reg[col] - min_value) / (max_value - min_value)
             except Exception as e:
                 logging.info(str(e))
                 continue
@@ -593,7 +579,6 @@ class EvaluationHandler:
         else:
             df_for_reg_print.to_csv(traindata_path + '{0}_{1:02d}_regressor_train_latest.csv'.format(date.year, date.month), index=False)
 
-
     def cal_price(self):
         pd.set_option('mode.chained_assignment', None)
         """best_k 의 ['price', 'rebalance_day_price'] column을 채워주는 함수"""
@@ -606,7 +591,7 @@ class EvaluationHandler:
                 self.backtest.table_year = date.year
             
             # lastest date
-            if idx == len(self.best_k)-1:
+            if idx == len(self.best_k) - 1:
                 logging.info("print latest data : ")
                 logging.info(date)
                 self.best_k[idx][3] = start_dh.dtable
@@ -667,10 +652,8 @@ class EvaluationHandler:
                         self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'rebalance_day_price']\
                             = end_dh.dtable.loc[(end_dh.dtable['symbol'] == sym), 'close'].values[0]
                 logging.debug(str(self.best_k[idx][2]))
-
             start_dh = copy.deepcopy(end_dh)
             logging.info(str(idx) + " " + str(date))
-
 
     @staticmethod
     def cal_earning_func(best_k):
@@ -681,14 +664,14 @@ class EvaluationHandler:
         if 'price' not in best_group.columns:
             return
         
-        TOTAL_ASSET = 100000000
-        stock_cnt = (TOTAL_ASSET / len(best_group)) / best_group['price']
+        total_asset = 100000000
+        stock_cnt = (total_asset / len(best_group)) / best_group['price']
         stock_cnt = stock_cnt.replace([np.inf, -np.inf], 0)
         stock_cnt = stock_cnt.fillna(0)
         stock_cnt = stock_cnt.astype(int)
         price_mul_stock_cnt = best_group['price'] * stock_cnt
         my_asset_period = price_mul_stock_cnt.sum()
-        remain_asset = TOTAL_ASSET - price_mul_stock_cnt.sum()
+        remain_asset = total_asset - price_mul_stock_cnt.sum()
         if my_asset_period == 0:
             return
         
@@ -713,14 +696,13 @@ class EvaluationHandler:
         # full_df = reduce(lambda df1, df2: pd.concat(df1, df2), df_list)
         # 잘들어가는지 check
         self.best_k = df_list
-        for l in df_list:
-            if l == None:
+        for elem in df_list:
+            if elem == None:
                 continue
-            (date, rebalance_date, best_group, reference_group, period_earning) = l
+            (date, rebalance_date, best_group, reference_group, period_earning) = elem
             print(date)
             print(period_earning)
             best_group.to_csv("./earning_test.csv")
-        
 
     def cal_mdd(self, price_table):
         """MDD를 계산해서 채워주는 함수"""
@@ -797,17 +779,17 @@ class EvaluationHandler:
 
     def print_report(self):
         plan_earning = 1
-        TOTAL_ASSET = 100000000
+        total_asset = 100000000
         accumulated_earning = 100
         for idx, (date, rebalance_date, eval_elem, rank_elem, period_earning_rate) in enumerate(self.best_k):
-            local_plan_earning = period_earning_rate / TOTAL_ASSET
+            local_plan_earning = period_earning_rate / total_asset
             accumulated_earning = accumulated_earning * (1.0 + local_plan_earning)
             if self.backtest.eval_report_path is not None:
                 self.write_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem)
-                fd = open(self.backtest.eval_report_path, 'a')
+                fd = open(self.backtest.eval_report_path, 'a', newline='')
                 writer = csv.writer(fd, delimiter=",")
-                writer.writerow(str(period_earning_rate))
-                writer.writerow(str(accumulated_earning))
+                writer.writerow([str(period_earning_rate)])
+                writer.writerow([str(accumulated_earning)])
                 fd.close()
             if self.backtest.rank_report_path is not None:
                 if idx <= self.backtest.conf['RANK_PERIOD']:
@@ -828,8 +810,8 @@ class EvaluationHandler:
                 reference_earning = reference_earning_df.iloc[1]['close'] - reference_earning_df.iloc[0]['close']
                 ref_total_earning_rate = (reference_earning / reference_earning_df.iloc[0]['close']) * 100
                 ref_total_earning_rates[ref_sym] = ref_total_earning_rate
-
-            # plan_earning = self.historical_earning_per_rebalanceday[len(self.historical_earning_per_rebalanceday)-1][3]\
+            # plan_earning = self.historical_earning_per_rebalanceday \
+            #                                                   [len(self.historical_earning_per_rebalanceday)-1][3]\
             #               - self.historical_earning_per_rebalanceday[0][2]
             # plan_total_earning_rate = (plan_earning / self.historical_earning_per_rebalanceday[0][2]) * 100
             plan_total_earning_rate = (accumulated_earning-100)/100

@@ -41,8 +41,8 @@ def get_config():
 
 def set_logger(config):
     log_path = "log.txt"
-    #if os.path.exists(log_path):
-        #os.remove(log_path)
+    # if os.path.exists(log_path):
+    #     os.remove(log_path)
     logging.basicConfig(level=config['LOG_LVL'],
                         format='[%(asctime)s][%(levelname)s] %(message)s (%(filename)s:%(lineno)d) ',
                         handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
@@ -109,11 +109,11 @@ if __name__ == '__main__':
         )
     plan_handler.plan_list = plan
 
-    conf['TOP_K_NUM'] = top_k_num
-    conf['MEMBER_CNT'] = mem_cnt
-    conf['ABSOLUTE_SCORE'] = int(top_k_num * 10 * (1 + score_ratio / 100))
-    logging.warning("TOP_K_NUM : " + str(conf['TOP_K_NUM']) + ", MEMBER_CNT : " + str(conf['MEMBER_CNT']) +
-                    ", ABSOLUTE_SCORE : " + str(conf['ABSOLUTE_SCORE']))
+    # conf['TOP_K_NUM'] = top_k_num
+    # conf['MEMBER_CNT'] = mem_cnt
+    # conf['ABSOLUTE_SCORE'] = int(top_k_num * 10 * (1 + score_ratio / 100))
+    # logging.warning("TOP_K_NUM : " + str(conf['TOP_K_NUM']) + ", MEMBER_CNT : " + str(conf['MEMBER_CNT']) +
+    #                 ", ABSOLUTE_SCORE : " + str(conf['ABSOLUTE_SCORE']))
     bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=conf['REBALANCE_PERIOD'])
     del plan_handler
     del bt
