@@ -1,6 +1,8 @@
 import datetime
+import calendar
 import json
 import logging
+import math
 import os
 import re
 from time import sleep
@@ -175,13 +177,14 @@ class FMP:
         elif extra_url.find("from") != -1:
             for year in range(self.main_ctx.start_year, self.main_ctx.end_year + 1):
                 for month in range(1, 13):
-                    # if dateutil.utils.today() < datetime.datetime(year, month, 1):
-                    #     break
-                    extra_url = re.sub('from=[0-9]{4}-[0-9]{1,2}-[0-9]{2}&to=[0-9]{4}-[0-9]{1,2}-[0-9]{2}', "[FT]",
+                    if dateutil.utils.today() < datetime.datetime(year, month, 1):
+                        break
+                    extra_url = re.sub('from=[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}&to=[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}', "[FT]",
                                        extra_url)
                     # file_postfix = "_" + str(year)
                     file_postfix = "_" + str(year) + "_" + str(month)
-                    extra_url = extra_url.replace("[FT]", "from={0}-{1}-01&to={0}-{1}-31".format(year, month))
+                    day = calendar.monthrange(year, month)[1]
+                    extra_url = extra_url.replace("[FT]", "from={0}-{1}-01&to={0}-{1}-{2}".format(year, month, day))
                     self.get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
         elif extra_url.find("page") != -1:
             i = 0
@@ -301,25 +304,27 @@ class FMP:
             else:
                 os.remove(os.path.join(path, file))
 
-    def remove_current_list_files(self, path):
+    def remove_current_list_files(self, base_path, check_target=True):
+        logging.info("[Check Remove Files] Path : " + str(base_path))
+        today = dateutil.utils.today()
         for symbol in self.current_list:
-            print(path + "/" + str(symbol) + ".csv")
-            if os.path.isfile(path + "/" + str(symbol) + ".csv"):
-                os.remove(path + "/" + str(symbol) + ".csv")
+            path = base_path + "/" + str(symbol) + ".csv"
+            if os.path.isfile(path):
+                if check_target is True:
+                    row = pd.read_csv(path, nrows=1)
+                    if row["date"].empty is True:
+                        os.remove(path)
+                        continue
+                    update_date = datetime.datetime.strptime(row["date"].max(), "%Y-%m-%d")
+                    if (today - update_date) < datetime.timedelta(days=75):
+                        continue
+                os.remove(path)
 
-    def remove_first_loop(self):
+    @staticmethod
+    def remove_current_month(base_path):
         today = dateutil.utils.today()
         year = today.strftime("%Y")
         month = today.strftime("%m")
-        if os.path.isfile("./allsymbol.csv"):
-            os.remove("./allsymbol.csv")
-        if os.path.isfile("./current_list.csv"):
-            os.remove("./current_list.csv")
-        # self.remove_files("./data/delisted_companies")
-        self.remove_files("./data/stock_list")
-        self.remove_files("./data/symbol_available_indexes")
-
-        base_path = "./data/earning_calendar/earning_calendar_"
         if os.path.isfile(base_path + str(year) + "_" + str(month) + ".csv"):
             os.remove(base_path + str(year) + "_" + str(month) + ".csv")
         else:
@@ -327,16 +332,60 @@ class FMP:
                 if os.path.isfile(base_path + str(year) + "_" + str(int(month)-1) + ".csv"):
                     os.remove(base_path + str(year) + "_" + str(int(month)-1) + ".csv")
 
+    @staticmethod
+    def skip_remove_check():
+        today = datetime.datetime.today()
+        if os.path.isfile("./config/update_date.txt"):
+            fd = open("./config/update_date.txt", "r")
+            update_date = fd.readline()
+            fd.close()
+            update_date = datetime.datetime.strptime(update_date, "%Y-%m-%d")
+            # today = datetime.datetime.strptime(today, "%Y-%m-%d")
+            if (today - update_date) < datetime.timedelta(days=1):
+                logging.info("Skip Remove Files")
+                return True
+        return False
+
+    def remove_first_loop(self):
+        if os.path.isfile("./allsymbol.csv"):
+            os.remove("./allsymbol.csv")
+        if os.path.isfile("./current_list.csv"):
+            os.remove("./current_list.csv")
+        self.remove_files("./data/delisted_companies")
+        self.remove_files("./data/stock_list")
+        self.remove_files("./data/symbol_available_indexes")
+
+        self.remove_current_month("./data/earning_calendar/earning_calendar_")
+
     def remove_second_loop(self):
-        self.remove_current_list_files("./data/balance_sheet_statement")
         self.remove_current_list_files("./data/income_statement")
+        self.remove_current_list_files("./data/balance_sheet_statement")
+        self.remove_current_list_files("./data/cash_flow_statement")
+
         self.remove_current_list_files("./data/key_metrics")
         self.remove_current_list_files("./data/financial_growth")
 
+        for symbol in self.current_list:
+            self.remove_current_month("./data/historical_price_full/" + str(symbol) + "_")
+
+        # 얘가 문제
+        self.remove_current_list_files("./data/historical_daily_discounted_cash_flow")
+
+        # 얘는 매번 불러 올 필요가 있는가?
+        # self.remove_current_list_files("./data/profile", False)
+        # self.remove_current_list_files("./data/historical_market_capitalization", False)
+
+        write_fd = open("./config/update_date.txt", "w")
+        today = datetime.date.today()
+        write_fd.write(str(today))
+        write_fd.close()
+
     def get_new(self):
         api_list = self.get_api_list()
-        self.remove_first_loop()
+        if self.skip_remove_check() is False:
+            self.remove_first_loop()
         self.get_fmp(api_list)
         self.set_symbol()
-        self.remove_second_loop()
+        if self.skip_remove_check() is False:
+            self.remove_second_loop()
         self.get_fmp(api_list)

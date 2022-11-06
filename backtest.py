@@ -226,7 +226,7 @@ class PlanHandler:
         assert self.plan_list is not None, "Empty Plan List"
         assert self.date_handler is not None, "Empty Date Handler"
 
-        with Pool(processes=multiprocessing.cpu_count()-2) as pool:
+        with Pool(processes=multiprocessing.cpu_count()) as pool:
             df_list = pool.map(self.plan_run, self.plan_list)
 
         full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
@@ -435,7 +435,7 @@ class EvaluationHandler:
         """plan_handler.date_handler.symbol_list에 score를 보고 best_k에 append 해주는 함수."""
         if self.backtest.eval_report_path is not None:
             best_symbol = scored_dh.dtable[scored_dh.dtable.volume > 10000]
-            best_symbol = best_symbol.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
+            best_symbol = best_symbol.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt * 2)
             best_symbol = best_symbol.assign(count=0)
         else:
             best_symbol = pd.DataFrame()
@@ -640,18 +640,24 @@ class EvaluationHandler:
                 syms = best_group['symbol']
                 for sym in syms:
                     if start_dh.dtable.loc[(start_dh.dtable['symbol'] == sym), 'close'].empty:
-                        logging.debug("there is no price in FMP API  symbol : {}".format(sym))
+                        logging.debug("there is no price in start_dh FMP API  symbol : {}".format(sym))
                         self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'price'] = 0
                     else:
                         self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'price']\
                             = start_dh.dtable.loc[(start_dh.dtable['symbol'] == sym), 'close'].values[0]
 
                     if end_dh.dtable.loc[(end_dh.dtable['symbol'] == sym), 'close'].empty:
+                        logging.debug("there is no price in end_dh FMP API  symbol : {}".format(sym))
                         self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'rebalance_day_price'] = 0
                     else:
                         self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'rebalance_day_price']\
                             = end_dh.dtable.loc[(end_dh.dtable['symbol'] == sym), 'close'].values[0]
+                        if end_dh.dtable.loc[(end_dh.dtable['symbol'] == sym), 'close'].values[0] < 0.01:
+                            logging.debug("close price already 0 : {}".format(sym))
+
                 logging.debug(str(self.best_k[idx][2]))
+            self.best_k[idx][2] = self.best_k[idx][2][self.best_k[idx][2].rebalance_day_price > 0.000001]
+            self.best_k[idx][2] = self.best_k[idx][2].head(self.member_cnt)
             start_dh = copy.deepcopy(end_dh)
             logging.info(str(idx) + " " + str(date))
 
@@ -689,7 +695,7 @@ class EvaluationHandler:
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
         logging.info("START cal_earning")
         params = copy.deepcopy(self.best_k)
-        with Pool(processes=multiprocessing.cpu_count()-2) as pool:
+        with Pool(processes=multiprocessing.cpu_count()) as pool:
             df_list = pool.map(self.cal_earning_func, params)
         df_list = list(filter(None.__ne__, df_list))
         print("in cal_earning : df_list : ", df_list)
