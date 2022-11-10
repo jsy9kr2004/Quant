@@ -2,7 +2,7 @@ import datetime
 import calendar
 import json
 import logging
-import math
+import multiprocessing
 import os
 import re
 from time import sleep
@@ -11,11 +11,13 @@ import urllib
 import urllib.error
 import urllib.request
 
+from multiprocessing import Pool
+from multiprocessing_logging import install_mp_handler
+
 import dateutil.utils
 from dateutil.relativedelta import relativedelta
 import requests
 import pandas as pd
-import numpy as np
 
 
 class FMP:
@@ -84,8 +86,8 @@ class FMP:
         for elem in data_list:
             # TODO url_data = "" 와 같은 줄이 필요할 듯? except 후 continue로 들어갈 때 이전 값이 들어있음. 초기화 필요?
             # json_data = ""
-            if (not os.path.isfile(path + "/{}.csv".format(str(elem) + file_postfix))) \
-                    and (not os.path.isfile(path + "/{}.csvx".format(str(elem) + file_postfix))):
+            if (not os.path.isfile(path + "/{}.parquet".format(str(elem) + file_postfix))) \
+                    and (not os.path.isfile(path + "/{}.parquetx".format(str(elem) + file_postfix))):
                 if is_v4 == True:
                     # TODO symbol 이 외에 list가 올 것이기에 need_symbol flag를 두고 있으나, symbol 이외에는 아직 당장 필요한 것이
                     #       없어서 이대로 두었으나 이 loop는 symbol 이외의 list에 대한 대비가 아래 if 문 이외에는 되어 있지 않음
@@ -104,7 +106,7 @@ class FMP:
                     # TODO 결제 PLAN 더 비싼거 쓰면 sleep 지워도 됨
                     # logging.info("sleep 0.2s")
                     # sleep(0.2)
-                    logging.info('Creating File "{}/{}.csv" <- "{}"'.format(path, elem + file_postfix, api_url))
+                    logging.info('Creating File "{}/{}.parquet" <- "{}"'.format(path, elem + file_postfix, api_url))
                     # json_data = pd.read_json(api_url)
                     end = time.time()
                     remain_sec = (0.2 - (end - start))
@@ -131,14 +133,15 @@ class FMP:
                         return False
                 if json_data == [] or json_data == {}:
                     logging.info("No Data in URL")
-                    f = open(path+"/{}.csvx".format(elem + file_postfix), 'w')
+                    f = open(path+"/{}.parquetx".format(elem + file_postfix), 'w')
                     f.close()
                     if need_symbol == True:
                         continue
                     else:
                         return False
                 json_data = self.flatten_json(json_data, expand_all=True)
-                json_data.to_csv(path+"/{}.csv".format(elem + file_postfix), na_rep='NaN')
+                # json_data.to_parquet(path+"/{}.csv".format(elem + file_postfix), na_rep='NaN')
+                json_data.to_parquet(path+"/{}.parquet".format(elem + file_postfix))
                 if json_data.empty == True:
                     logging.info("No Data in CSV")
                     if need_symbol == True:
@@ -149,9 +152,9 @@ class FMP:
                 if cre_flag == True:
                     # 새로 만드는 경우, 이미 csv가 있다는 건 stock list와 delisted list에 중복 값이 있는 상황 (Duplicate)
                     # 리스트에 중복값이 왜 들어가게 되었는지 반드시 확인이 필요함. (가정이 깨짐)
-                    logging.error('Already Exist "{}/{}.csv"'.format(path, elem + file_postfix))
+                    logging.error('Already Exist "{}/{}.parquet"'.format(path, elem + file_postfix))
                 else:
-                    logging.info('Alread Exist File "{}/{}.csv"'.format(path, elem + file_postfix))
+                    logging.info('Alread Exist File "{}/{}.parquet"'.format(path, elem + file_postfix))
         return True
 
     def get_fmp_data_preprocessing(self, main_url, extra_url, need_symbol, is_v4):
@@ -209,14 +212,14 @@ class FMP:
     def set_symbol(self):
         """fmp api 로 얻어온 stock_list 와 delisted companies 에서 exchange 가 NASDAQ, NYSE인 symbol들의 list 를 만드는 함수"""
         # fmp api로 얻어온 stock_list 불러오기 
-        path = self.main_ctx.root_path + "/stock_list/stock_list.csv"
+        path = self.main_ctx.root_path + "/stock_list/stock_list.parquet"
         if os.path.isfile(path) == True:
-            symbol_list = pd.read_csv(path)
+            symbol_list = pd.read_parquet(path)
         else:
             return
-        
+
         # stock_list에서 type "stock", exchange "NASDQA", "NYSE" 만 가져오기 이를 filtered_symbol에 저장
-        symbol_list = symbol_list.drop(symbol_list.columns[0], axis=1)
+        # symbol_list = symbol_list.drop(symbol_list.columns[0], axis=1)
         filtered_symbol = symbol_list[(symbol_list['type'] == "stock")
                                       & ((symbol_list['exchangeShortName'] == 'NASDAQ')
                                          | (symbol_list['exchangeShortName'] == 'NYSE'))]
@@ -226,18 +229,19 @@ class FMP:
         # target_stock_symbol 과 delisted stock symbol 합쳐 필요한 symbol list 완성
         file_list = os.listdir(self.main_ctx.root_path + "/delisted_companies/")
         for file in file_list:
-            if os.path.splitext(file)[1] == ".csv":
-                delisted = pd.read_csv(self.main_ctx.root_path + "/delisted_companies/" + file, index_col=None)
+            if os.path.splitext(file)[1] == ".parquet":
+                # delisted = pd.read_parquet(self.main_ctx.root_path + "/delisted_companies/" + file, index_col=None)
+                delisted = pd.read_parquet(self.main_ctx.root_path + "/delisted_companies/" + file)
                 if delisted.empty == True:
                     continue
                 # drop index column
-                delisted = delisted.drop(delisted.columns[0], axis=1)
+                # delisted = delisted.drop(delisted.columns[0], axis=1)
                 delisted = delisted.reset_index(drop=True)
                 delisted = delisted[((delisted['exchange'] == 'NASDAQ') | (delisted['exchange'] == 'NYSE'))]
                 delisted.rename(columns={'exchange':'exchangeShortName'}, inplace=True)
                 delisted = delisted.drop(['companyName'], axis=1)
                 all_symbol = pd.concat([all_symbol, delisted])
-        all_symbol.to_csv('./allsymbol.csv')
+        all_symbol.to_parquet('./allsymbol.parquet')
         all_symbol = all_symbol.drop_duplicates('symbol', keep='first')
         all_symbol = all_symbol.reset_index(drop=True)
         self.symbol_list = all_symbol["symbol"]
@@ -247,7 +251,7 @@ class FMP:
         recent_date -= relativedelta(months=1)
         query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(recent_date)
         current_symbol = all_symbol.query(query)
-        current_symbol.to_csv('./current_list.csv')
+        current_symbol.to_parquet('./current_list.parquet')
         current_symbol = current_symbol.drop_duplicates('symbol', keep='first')
         current_symbol = current_symbol.reset_index(drop=True)
         self.current_list = current_symbol["symbol"]
@@ -255,30 +259,33 @@ class FMP:
         # logging.info("in set_symbol() list=")
         logging.info(self.symbol_list)
 
-    def get_fmp(self, api_list):
+    def get_fmp(self, api_url):
+        # multiprocessing 할 예정이기에 로거를 다시 세팅해야 함
+        self.main_ctx.set_multi_logger()
+
         self.main_ctx.create_dir(self.main_ctx.root_path)
-        for i in range(len(api_list)):
-            need_symbol = True if api_list[i].find(self.ex_symbol) != -1 else False
-            # SYMBOL 이 없는 건, SYMBOL을 만들기 위한 file도 만들어지기 전이기 때문에 두번 돌려서 SYMBOL 안쓰는 것부터 만듦
-            if (need_symbol == True) and (self.symbol_list.empty == True):
-                continue
-            is_v4 = True if api_list[i].split('/')[2] == "v4" else False
-            # Code에 박아 넣은 값인 8은 url의 앞부분인 /api/v4/ 의 길이. v3와 v4 코드 통합을 위해 박아넣음
-            main_url = api_list[i].split('?')[0][8:]
-            extra_url = "" if api_list[i].find("?") == -1 else api_list[i].split('?')[1]
-            if need_symbol == True:
-                if is_v4 == True:
-                    extra_url = "" if len(extra_url) == 10 else extra_url[12:]
-                else:
-                    main_url = main_url[:-5]
-            # limit 제거
-            extra_url = re.sub('[&]{0,1}limit=[0-9]{2,3}[&]{0,1}', "", extra_url)
-            if extra_url != "":
-                extra_url = extra_url + "&"
-                logging.info("{}\n\textra_url : {}".format(api_list[i], extra_url))
-            logging.info("\n\t{}\n\tmain_url : {} / extra_url : {} "
-                         "/ need_symbol : {} / is_v4 : {}".format(api_list[i], main_url, extra_url, need_symbol, is_v4))
-            self.get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4)
+        # for i in range(len(api_list)):
+        need_symbol = True if api_url.find(self.ex_symbol) != -1 else False
+        # SYMBOL 이 없는 건, SYMBOL을 만들기 위한 file도 만들어지기 전이기 때문에 두번 돌려서 SYMBOL 안쓰는 것부터 만듦
+        if (need_symbol == True) and (self.symbol_list.empty == True):
+            return
+        is_v4 = True if api_url.split('/')[2] == "v4" else False
+        # Code에 박아 넣은 값인 8은 url의 앞부분인 /api/v4/ 의 길이. v3와 v4 코드 통합을 위해 박아넣음
+        main_url = api_url.split('?')[0][8:]
+        extra_url = "" if api_url.find("?") == -1 else api_url.split('?')[1]
+        if need_symbol == True:
+            if is_v4 == True:
+                extra_url = "" if len(extra_url) == 10 else extra_url[12:]
+            else:
+                main_url = main_url[:-5]
+        # limit 제거
+        extra_url = re.sub('[&]{0,1}limit=[0-9]{2,3}[&]{0,1}', "", extra_url)
+        if extra_url != "":
+            extra_url = extra_url + "&"
+            logging.info("{}\n\textra_url : {}".format(api_url, extra_url))
+        logging.info("\n\t{}\n\tmain_url : {} / extra_url : {} "
+                     "/ need_symbol : {} / is_v4 : {}".format(api_url, main_url, extra_url, need_symbol, is_v4))
+        self.get_fmp_data_preprocessing(main_url, extra_url, need_symbol, is_v4)
 
     def get_api_list(self):
         api_df = pd.read_csv(self.target_api_path, header=0, usecols=["URL"])
@@ -297,9 +304,9 @@ class FMP:
         return api_list
 
     @staticmethod
-    def remove_files(path, only_csv=False):
+    def remove_files(path, only_parquet=False):
         for file in os.listdir(path):
-            if only_csv is True and not file.endswith(".csv"):
+            if only_parquet is True and not file.endswith(".parquet"):
                 continue
             else:
                 os.remove(os.path.join(path, file))
@@ -308,10 +315,11 @@ class FMP:
         logging.info("[Check Remove Files] Path : " + str(base_path))
         today = dateutil.utils.today()
         for symbol in self.current_list:
-            path = base_path + "/" + str(symbol) + ".csv"
+            path = base_path + "/" + str(symbol) + ".parquet"
             if os.path.isfile(path):
                 if check_target is True:
-                    row = pd.read_csv(path, nrows=1)
+                    # row = pd.read_parquet(path, nrows=1)
+                    row = pd.read_parquet(path)
                     if row["date"].empty is True:
                         os.remove(path)
                         continue
@@ -325,12 +333,12 @@ class FMP:
         today = dateutil.utils.today()
         year = today.strftime("%Y")
         month = today.strftime("%m")
-        if os.path.isfile(base_path + str(year) + "_" + str(month) + ".csv"):
-            os.remove(base_path + str(year) + "_" + str(month) + ".csv")
+        if os.path.isfile(base_path + str(year) + "_" + str(month) + ".parquet"):
+            os.remove(base_path + str(year) + "_" + str(month) + ".parquet")
         else:
-            if not os.path.isfile(base_path + str(year) + "_" + str(month) + ".csvx"):
-                if os.path.isfile(base_path + str(year) + "_" + str(int(month)-1) + ".csv"):
-                    os.remove(base_path + str(year) + "_" + str(int(month)-1) + ".csv")
+            if not os.path.isfile(base_path + str(year) + "_" + str(month) + ".parquetx"):
+                if os.path.isfile(base_path + str(year) + "_" + str(int(month)-1) + ".parquet"):
+                    os.remove(base_path + str(year) + "_" + str(int(month)-1) + ".parquet")
 
     @staticmethod
     def skip_remove_check():
@@ -347,15 +355,15 @@ class FMP:
         return False
 
     def remove_first_loop(self):
-        if os.path.isfile("./allsymbol.csv"):
-            os.remove("./allsymbol.csv")
-        if os.path.isfile("./current_list.csv"):
-            os.remove("./current_list.csv")
-        self.remove_files("./data/delisted_companies")
+        if os.path.isfile("./allsymbol.parquet"):
+            os.remove("./allsymbol.parquet")
+        if os.path.isfile("./current_list.parquet"):
+            os.remove("./current_list.parquet")
+        # self.remove_files("./data/delisted_companies")
         self.remove_files("./data/stock_list")
         self.remove_files("./data/symbol_available_indexes")
 
-        self.remove_current_month("./data/earning_calendar/earning_calendar_")
+        # self.remove_current_month("./data/earning_calendar/earning_calendar_")
 
     def remove_second_loop(self):
         self.remove_current_list_files("./data/income_statement")
@@ -384,8 +392,14 @@ class FMP:
         api_list = self.get_api_list()
         if self.skip_remove_check() is False:
             self.remove_first_loop()
-        self.get_fmp(api_list)
+        # self.get_fmp(api_list)
+        install_mp_handler()
+        with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
+            pool.map(self.get_fmp, api_list)
         self.set_symbol()
         if self.skip_remove_check() is False:
             self.remove_second_loop()
-        self.get_fmp(api_list)
+        install_mp_handler()
+        with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
+            pool.map(self.get_fmp, api_list)
+        # self.get_fmp(api_list)

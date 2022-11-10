@@ -1,4 +1,5 @@
 import logging
+import multiprocessing
 import os
 import pandas as pd
 import sqlalchemy
@@ -16,7 +17,9 @@ class MainCtx:
         self.start_year = int(config['START_YEAR'])
         self.end_year = int(config['END_YEAR'])
         self.root_path = config['ROOT_PATH']
-        self.need_pq_new_year = config['NEED_NEWYEAR_CSV_TO_PQ']
+        # self.need_pq_new_year = config['NEED_NEWYEAR_CSV_TO_PQ']
+        self.need_pq_new_year = "N"
+        self.log_lvl = int(config['LOG_LVL'])
         # 다른 Class와 함수에서 connection이 자주 필요하기에 Databse Class 로 관리하지 않고 main_context로 관리
         # aws_mariadb_url = 'mysql+pymysql://' + config['MARIA_DB_USER'] + ":" + config['MARIA_DB_PASSWD'] + "@" \
         #                   + config['MARIA_DB_ADDR'] + ":" + config['MARIA_DB_PORT'] + "/" + config['MARIA_DB_NAME']
@@ -33,6 +36,13 @@ class MainCtx:
                 logging.error('Cannot Creating "{}" directory.'.format(path))
                 return False
 
+    def set_multi_logger(self):
+        log_path = "log.txt"
+        # for multiprocessing
+        multiprocessing.freeze_support()
+        logging.basicConfig(level=self.log_lvl,
+                            format='[%(asctime)s][%(processName)s] %(message)s (%(filename)s:%(lineno)d) ',
+                            handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
 
 def get_config():
     with open('config/conf.yaml') as f:
@@ -44,9 +54,8 @@ def set_logger(config):
     # if os.path.exists(log_path):
     #     os.remove(log_path)
     logging.basicConfig(level=config['LOG_LVL'],
-                        format='[%(asctime)s][%(levelname)s] %(message)s (%(filename)s:%(lineno)d) ',
+                        format='[%(asctime)s][%(levelname)s][%(processName)s] %(message)s (%(filename)s:%(lineno)d) ',
                         handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
-
 
 def conf_check(config):
     # REPORT 종류는 EVAL, RANK, AI, AVG 뿐
@@ -77,26 +86,21 @@ if __name__ == '__main__':
     if conf['GET_FMP'] == "Y":
         fmp = FMP(conf, main_ctx)
         fmp.get_new()
-
-    if conf['USE_DB'] == "Y":
-        db = Database(main_ctx)
-        if conf['NEED_INSERT_CSV_TO_DB'] == "Y":
+        if conf['STORAGE_TYPE'] == "DB":
+            db = Database(main_ctx)
             db.insert_csv()
-        if conf['NEED_NEW_VIEW_DB'] == "Y":
             db.rebuild_table_view()
-    elif conf['USE_DATAFRAME'] == 'Y':
-        df_engine = Parquet(main_ctx)
-        if conf['NEED_INSERT_CSV_TO_PQ'] == "Y":
+        elif conf['STORAGE_TYPE'] == "PARQUET":
+            df_engine = Parquet(main_ctx)
             df_engine.insert_csv()
-        if conf['NEED_NEW_VIEW_PQ'] == "Y":
             df_engine.rebuild_table_view()
-    else:
-        logging.error("Check conf.yaml. don't choose db and parquet both")
+        else:
+            logging.error("Check conf.yaml. don't choose db and parquet both")
 
     # for mem_cnt in range(30, 41, 10):
     #    for top_k_num in range(400, 2801, 400):
     #        for score_ratio in range(0, 201, 25):
-    plan_handler = PlanHandler(conf['TOP_K_NUM'], conf['ABSOLUTE_SCORE'])
+    plan_handler = PlanHandler(conf['TOP_K_NUM'], conf['ABSOLUTE_SCORE'], main_ctx)
     plan = []
     plan_df = pd.read_csv("./plan.csv")
     plan_info = plan_df.values.tolist()

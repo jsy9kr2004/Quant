@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 PQPATH = ""
 
+
 class Parquet:
     def __init__(self, main_ctx):
         global PQPATH
@@ -24,7 +25,8 @@ class Parquet:
 
     def rebuild_table_view(self):
         # 1번 Table
-        symbol_list = pd.read_parquet(self.rawpq_path + "stock_list.parquet", columns=['symbol', 'exchangeShortName', 'type'])
+        symbol_list = pd.read_parquet(self.rawpq_path + "stock_list.parquet",
+                                      columns=['symbol', 'exchangeShortName', 'type'])
         delisted = pd.read_parquet(self.rawpq_path + "delisted_companies.parquet",
                                    columns=['symbol', 'exchange', 'ipoDate', 'delistedDate'])
         profile = pd.read_parquet(self.rawpq_path + "profile.parquet",
@@ -72,7 +74,6 @@ class Parquet:
         #                              engine="pyarrow", compression="gzip")
         # logging.info("create price parquet per year")
         # del price_peryear
-
         del price_marketcap
 
         # 3번 Table
@@ -88,7 +89,8 @@ class Parquet:
         # financial_statement['acceptedDate'] = financial_statement['acceptedDate'].astype('datetime64[ns]')
         financial_statement['fillingDate'] = financial_statement['fillingDate'].astype('datetime64[ns]')
                                                 
-        financial_statement.to_parquet(self.view_path + "financial_statement.parquet", engine="pyarrow", compression="gzip")
+        financial_statement.to_parquet(self.view_path + "financial_statement.parquet",
+                                       engine="pyarrow", compression="gzip")
         
         logging.info("create financial_statement df")
         for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
@@ -151,16 +153,15 @@ class Parquet:
             df.to_csv(csv_save_path, index=False, mode='a', encoding='utf-8-sig', header=False)
         return
             
-    
     def insert_csv(self):
         # wrap your csv importer in a function that can be mapped
         # merge all csvs per directoy
         dir_list = os.listdir(self.main_ctx.root_path)
-        # dir_list = [#"key_metrics", "stock_list", "symbol_available_indexes", 
-                     # "balance_sheet_statement", "cash_flow_statement", 
-                     #"delisted_companies", "earning_calendar",
-                     #"financial_growth", "historical_daily_discounted_cash_flow", "historical_market_capitalization",
-                     #"income_statement", "profile"] 
+        # dir_list = ["key_metrics", "stock_list", "symbol_available_indexes",
+        #             "balance_sheet_statement", "cash_flow_statement",
+        #             "delisted_companies", "earning_calendar",
+        #             "financial_growth", "historical_daily_discounted_cash_flow", "historical_market_capitalization",
+        #             #"income_statement", "profile"]
         # dir_list = ["historical_price_full"]
         logging.info("directory list : {}".format(dir_list))
         for directory in tqdm(dir_list):
@@ -183,7 +184,7 @@ class Parquet:
                 pool.map(self.read_csv_mp, file_list)            
                 
             df_all_years = pd.DataFrame()
-            mp_file_list = [self.rawpq_path + file  for file in os.listdir(self.rawpq_path) if file.endswith("mp.csv")]
+            mp_file_list = [self.rawpq_path + file for file in os.listdir(self.rawpq_path) if file.endswith("mp.csv")]
             print("mpfile_list == ", mp_file_list)
             for files in mp_file_list:
                 df = pd.read_csv(files)
@@ -201,7 +202,7 @@ class Parquet:
         pq_save_path = self.rawpq_path + "key_metrics.parquet"
 
         df_all_years = pd.DataFrame()
-        mp_file_list = [self.rawpq_path + file  for file in os.listdir(self.rawpq_path) if file.endswith("mp.csv")]
+        mp_file_list = [self.rawpq_path + file for file in os.listdir(self.rawpq_path) if file.endswith("mp.csv")]
         print("mpfile_list == ", mp_file_list)
         for files in mp_file_list:
             df = pd.read_csv(files)

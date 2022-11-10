@@ -12,6 +12,7 @@ import pandas as pd
 from dateutil.relativedelta import relativedelta
 from functools import reduce
 from multiprocessing import Pool
+from multiprocessing_logging import install_mp_handler
 from warnings import simplefilter
 
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
@@ -211,11 +212,12 @@ class Backtest:
 
 
 class PlanHandler:
-    def __init__(self, k_num, absolute_score):
+    def __init__(self, k_num, absolute_score, main_ctx):
         self.plan_list = None
         self.date_handler = None
         self.k_num = k_num
         self.absolute_score = absolute_score
+        self.main_ctx = main_ctx
 
     def run(self):
         """
@@ -226,7 +228,9 @@ class PlanHandler:
         assert self.plan_list is not None, "Empty Plan List"
         assert self.date_handler is not None, "Empty Date Handler"
 
-        with Pool(processes=multiprocessing.cpu_count()) as pool:
+        # with Pool(processes=multiprocessing.cpu_count()) as pool:
+        install_mp_handler()
+        with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
             df_list = pool.map(self.plan_run, self.plan_list)
 
         full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
@@ -235,8 +239,8 @@ class PlanHandler:
         self.date_handler.dtable['score'] = self.date_handler.dtable.loc[:,score_col_list].sum(axis=1)
         logging.debug(self.date_handler.dtable.sort_values(by=['score'], ascending=False)[['symbol', 'score']])
 
-    @staticmethod
-    def plan_run(plan):
+    def plan_run(self, plan):
+        self.main_ctx.set_multi_logger()
         return plan["f_name"](plan["params"])
 
     def single_metric_plan(self, params):
@@ -661,8 +665,8 @@ class EvaluationHandler:
             start_dh = copy.deepcopy(end_dh)
             logging.info(str(idx) + " " + str(date))
 
-    @staticmethod
-    def cal_earning_func(best_k):
+    def cal_earning_func(self, best_k):
+        self.backtest.main_ctx.set_multi_logger()
         (date, rebalance_date, best_group, reference_group, period_earning_rate) = best_k
         print("in cal_earning_func")
         print(date)
@@ -695,7 +699,9 @@ class EvaluationHandler:
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
         logging.info("START cal_earning")
         params = copy.deepcopy(self.best_k)
-        with Pool(processes=multiprocessing.cpu_count()) as pool:
+        # with Pool(processes=multiprocessing.cpu_count()) as pool:
+        install_mp_handler()
+        with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
             df_list = pool.map(self.cal_earning_func, params)
         df_list = list(filter(None.__ne__, df_list))
         print("in cal_earning : df_list : ", df_list)
