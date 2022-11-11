@@ -282,8 +282,7 @@ class PlanHandler:
         pd.set_option('mode.chained_assignment', None)
         local_score_name = key + '_score'
         for sym in symbols:
-            return_df.loc[(self.date_handler.dtable.symbol == sym), local_score_name]\
-                = params["weight"] * delta
+            return_df.loc[(self.date_handler.dtable.symbol == sym), local_score_name] = params["weight"] * delta
             delta = delta - params["diff"]
         local_rank_name = key+'_rank'
         return_df[local_rank_name] = return_df[local_score_name].rank(method='min', ascending=False)
@@ -390,7 +389,6 @@ class DateHandler:
                         feat_max = fs_metrics[feature].max()
                         fs_metrics[feature_sortedvalue_col_name] = \
                             [s*(-1) if s >= 0 else (s - feat_max) for s in fs_metrics[feature]]
- 
                     except Exception as e:
                         logging.info(str(e))
                         continue
@@ -407,7 +405,6 @@ class DateHandler:
             except Exception as e:
                 logging.info(str(e))
                 continue        
-            
             # fs_metrics = fs_metrics.astype({feature: 'float16'})
         
         self.dtable = pd.merge(self.dtable, fs_metrics, how='left', on='symbol')
@@ -448,7 +445,6 @@ class EvaluationHandler:
         self.best_k.append([date, rebalance_date, best_symbol, reference_group, period_earning_rate])
 
     def print_ai_data(self, df_for_reg, date, latest):
-        
         symbols_tmp = df_for_reg['symbol']
         period_price_diff_tmp = pd.DataFrame()
         if latest == False:
@@ -668,9 +664,9 @@ class EvaluationHandler:
     def cal_earning_func(self, best_k):
         self.backtest.main_ctx.set_multi_logger()
         (date, rebalance_date, best_group, reference_group, period_earning_rate) = best_k
-        print("in cal_earning_func")
-        print(date)
-        print(best_group)
+        logging.debug("in cal_earning_func")
+        logging.debug(date)
+        logging.debug(best_group)
         if 'price' not in best_group.columns:
             return
         
@@ -704,7 +700,7 @@ class EvaluationHandler:
         with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
             df_list = pool.map(self.cal_earning_func, params)
         df_list = list(filter(None.__ne__, df_list))
-        print("in cal_earning : df_list : ", df_list)
+        logging.info("in cal_earning : df_list : ", df_list)
         # full_df = reduce(lambda df1, df2: pd.concat(df1, df2), df_list)
         # 잘들어가는지 check
         self.best_k = df_list
@@ -712,9 +708,11 @@ class EvaluationHandler:
             if elem == None:
                 continue
             (date, rebalance_date, best_group, reference_group, period_earning) = elem
-            print(date)
-            print(period_earning)
-            best_group.to_csv("./earning_test.csv")
+            logging.debug(date)
+            logging.debug(period_earning)
+            # DEBUG
+            if self.backtest.main_ctx.log_lvl == 10:
+                best_group.to_csv("./earning_test.csv")
 
     def cal_mdd(self, price_table):
         """MDD를 계산해서 채워주는 함수"""
