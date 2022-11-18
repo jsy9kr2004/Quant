@@ -141,6 +141,8 @@ class FMP:
                         return False
                 json_data = self.flatten_json(json_data, expand_all=True)
                 # json_data.to_parquet(path+"/{}.csv".format(elem + file_postfix), na_rep='NaN')
+                if 'dcf' in json_data.columns:
+                    json_data['dcf'] = json_data['dcf'].astype(float)
                 json_data.to_parquet(path+"/{}.parquet".format(elem + file_postfix))
                 if json_data.empty == True:
                     logging.info("No Data in CSV")
