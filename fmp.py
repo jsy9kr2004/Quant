@@ -181,16 +181,17 @@ class FMP:
                     self.get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
         elif extra_url.find("from") != -1:
             for year in range(self.main_ctx.start_year, self.main_ctx.end_year + 1):
-                for month in range(1, 13):
-                    if dateutil.utils.today() < datetime.datetime(year, month, 1):
-                        break
-                    extra_url = re.sub('from=[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}&to=[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}', "[FT]",
-                                       extra_url)
-                    # file_postfix = "_" + str(year)
-                    file_postfix = "_" + str(year) + "_" + str(month)
-                    day = calendar.monthrange(year, month)[1]
-                    extra_url = extra_url.replace("[FT]", "from={0}-{1}-01&to={0}-{1}-{2}".format(year, month, day))
-                    self.get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
+                # for month in range(1, 13):
+                # if dateutil.utils.today() < datetime.datetime(year, month, 1):
+                #    break
+                extra_url = re.sub('from=[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}&to=[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}', "[FT]",
+                                   extra_url)
+                file_postfix = "_" + str(year)
+                # file_postfix = "_" + str(year) + "_" + str(month)
+                # day = calendar.monthrange(year, month)[1]
+                # extra_url = extra_url.replace("[FT]", "from={0}-{1}-01&to={0}-{1}-{2}".format(year, month, day))
+                extra_url = extra_url.replace("[FT]", "from={0}-01-01&to={0}-12-31".format(year))
+                self.get_fmp_data(main_url, extra_url, need_symbol, is_v4, file_postfix)
         elif extra_url.find("page") != -1:
             i = 0
             while True:
@@ -331,7 +332,16 @@ class FMP:
                 os.remove(path)
 
     @staticmethod
-    def remove_current_month(base_path):
+    def remove_current_year(base_path):
+        # 우선은 사용되지 않는 함수
+        today = dateutil.utils.today()
+        year = today.strftime("%Y")
+        if os.path.isfile(base_path + str(year) + ".parquet"):
+            os.remove(base_path + str(year) + ".parquet")
+
+    @staticmethod
+    def xxx_remove_current_month(base_path):
+        # 우선은 사용되지 않는 함수
         today = dateutil.utils.today()
         year = today.strftime("%Y")
         month = today.strftime("%m")
@@ -361,11 +371,11 @@ class FMP:
             os.remove("./allsymbol.parquet")
         if os.path.isfile("./current_list.parquet"):
             os.remove("./current_list.parquet")
-        # self.remove_files("./data/delisted_companies")
+        self.remove_files("./data/delisted_companies")
         self.remove_files("./data/stock_list")
         self.remove_files("./data/symbol_available_indexes")
 
-        # self.remove_current_month("./data/earning_calendar/earning_calendar_")
+        self.remove_current_year("./data/earning_calendar/earning_calendar_")
 
     def remove_second_loop(self):
         self.remove_current_list_files("./data/income_statement")
@@ -376,14 +386,14 @@ class FMP:
         self.remove_current_list_files("./data/financial_growth")
 
         for symbol in self.current_list:
-            self.remove_current_month("./data/historical_price_full/" + str(symbol) + "_")
+            self.remove_current_year("./data/historical_price_full/" + str(symbol) + "_")
 
         # 얘가 문제
         self.remove_current_list_files("./data/historical_daily_discounted_cash_flow")
 
         # 얘는 매번 불러 올 필요가 있는가?
         # self.remove_current_list_files("./data/profile", False)
-        # self.remove_current_list_files("./data/historical_market_capitalization", False)
+        self.remove_current_list_files("./data/historical_market_capitalization", False)
 
         write_fd = open("./config/update_date.txt", "w")
         today = datetime.date.today()
