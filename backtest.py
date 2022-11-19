@@ -44,12 +44,8 @@ use_col_list = ["interestCoverage", "dividendYield", "inventoryTurnover", "daysP
                 "inventoryGrowth", "rdexpenseGrowth",
                 ]
 
-
-def process_init(q):
-    queue_handler = QueueHandler(q)
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
-    logger.addHandler(queue_handler)
+cal_marketcap_list = ["revenue", "netDebt", "totalCurrentAssets", "freeCashFlow", "operatingCashFlow",
+                      "netIncome_x", "netIncome_y", "operatingIncome"]
 
 
 class Backtest:
@@ -147,8 +143,7 @@ class Backtest:
             if self.price_table.empty:
                 self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
             
-            prev_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
-                                        + str(year-1) + ".parquet")
+            prev_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_" + str(year-1) + ".parquet")
             self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
                                             + str(year) + ".parquet")
             self.fs_table = pd.concat([prev_fs, self.fs_table])    
@@ -325,7 +320,8 @@ class DateHandler:
 
         trade_date = backtest.get_trade_date(self.date)
         price = backtest.price_table.query("date == @trade_date")
-        price = price[['symbol', 'date', 'close', 'volume']]
+        logging.info("Price Table : \n" + str(price))
+        price = price[['symbol', 'date', 'close', 'volume', 'marketCap']]
         price = price.drop_duplicates('symbol', keep='first')
         self.dtable = pd.merge(self.dtable, price, how='left', on='symbol')
         del price
@@ -354,7 +350,7 @@ class DateHandler:
         
         symbols = prev_q_fs_metrics['symbol']
         prev_q_fs_metrics = prev_q_fs_metrics[use_col_list]
-        prev_q_fs_metrics = prev_q_fs_metrics.rename(columns = lambda x: "prevQ_" + x)
+        prev_q_fs_metrics = prev_q_fs_metrics.rename(columns=lambda x: "prevQ_" + x)
         prev_q_fs_metrics['symbol'] = symbols
         fs_metrics = pd.merge(fs_metrics, prev_q_fs_metrics, how='left', on=['symbol'])
         
@@ -374,19 +370,45 @@ class DateHandler:
         
         symbols = prev_year_fs_metrics['symbol']
         prev_year_fs_metrics = prev_year_fs_metrics[use_col_list]
-        prev_year_fs_metrics = prev_year_fs_metrics.rename(columns = lambda x: "prevY_" + x)
+        prev_year_fs_metrics = prev_year_fs_metrics.rename(columns=lambda x: "prevY_" + x)
         prev_year_fs_metrics['symbol'] = symbols
         fs_metrics = pd.merge(fs_metrics, prev_year_fs_metrics, how='left', on=['symbol'])
-        
+
         for col in use_col_list:
             new_col_name = 'Ydiff_' + col
             fs_metrics[new_col_name] = fs_metrics["prevY_"+col] - fs_metrics[col]
             fs_metrics = fs_metrics.drop(["prevY_"+col], axis=1)
 
+        # marketCap 과의 직접 계산이 필요한 column들을 추가 해 줌
+        logging.debug("dtable : \n" + str(self.dtable))
+        cap = self.dtable.copy()
+        cap = cap[['symbol', 'marketCap']]
+        logging.debug("cap : \n" + str(cap))
+        # marketcap_fs = backtest.fs_table.copy()
+        cap.rename(columns={'marketCap': 'cal_marketCap'}, inplace=True)
+        fs_metrics = pd.merge(fs_metrics, cap, how='left', on=['symbol'])
+
+        logging.debug("COL_NAME in fs_metrics : ")
+        for col in fs_metrics.columns:
+            logging.debug(col)
+
+        for col in cal_marketcap_list:
+            new_col_name = 'PerShare_' + col
+            fs_metrics[new_col_name] = fs_metrics[col] / fs_metrics['cal_marketCap']
+        fs_metrics = fs_metrics.drop(["marketCap"], axis=1)
+
+        logging.debug("COL_NAME in fs_table : ")
+        for col in backtest.fs_table.columns:
+            logging.debug(col)
+        logging.debug("COL_NAME in fs_metrics : ")
+        for col in fs_metrics.columns:
+            logging.debug(col)
+
         highlow = pd.read_csv('./sort.csv', header=0)
         for feature in fs_metrics.columns:
             feature_sortedvalue_col_name = feature + "_sorted"
-            if str(feature).startswith("Ydiff_") or str(feature).startswith("Qdiff_"):
+            if str(feature).startswith("Ydiff_") or str(feature).startswith("Qdiff_") \
+                    or str(feature).startswith("PerShare_"):
                 feature_name = str(feature).split('_')[1]
             else:
                 feature_name = feature
