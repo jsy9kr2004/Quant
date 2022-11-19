@@ -45,6 +45,13 @@ use_col_list = ["interestCoverage", "dividendYield", "inventoryTurnover", "daysP
                 ]
 
 
+def process_init(q):
+    queue_handler = QueueHandler(q)
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(queue_handler)
+
+
 class Backtest:
     def __init__(self, main_ctx, conf, plan_handler, rebalance_period):
         self.main_ctx = main_ctx
@@ -197,7 +204,8 @@ class Backtest:
                 self.eval_handler.print_current_best(self.plan_handler.date_handler)
                 break
          
-            if (date + relativedelta(months=self.rebalance_period)) <= datetime.datetime(self.main_ctx.end_year, 11, 1):
+            # if date + (relativedelta(months=self.rebalance_period)<=datetime.datetime(self.main_ctx.end_year, 11, 1):
+            if (date + relativedelta(months=self.rebalance_period * 2)) <= recent_date:
                 date += relativedelta(months=self.rebalance_period)
             else:
                 # 마지막 loop 에 도달하면 최근 date 로 한번 돌아서 print 해준 후에 루프를 빠져 나가도록 함
@@ -229,9 +237,14 @@ class PlanHandler:
         assert self.date_handler is not None, "Empty Date Handler"
 
         # with Pool(processes=multiprocessing.cpu_count()) as pool:
-        install_mp_handler()
+        # install_mp_handler()
         with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
             df_list = pool.map(self.plan_run, self.plan_list)
+
+        # proc_pool = multiprocessing.Pool(multiprocessing.cpu_count(), process_init, [self.main_ctx.multi_q])
+        # df_list = proc_pool.map(self.plan_run, self.plan_list)
+        # proc_pool.close()
+        # proc_pool.join()
 
         full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
         self.date_handler.dtable = pd.merge(self.date_handler.dtable, full_df, how='left', on=['symbol'])
@@ -239,8 +252,8 @@ class PlanHandler:
         self.date_handler.dtable['score'] = self.date_handler.dtable.loc[:,score_col_list].sum(axis=1)
         logging.debug(self.date_handler.dtable.sort_values(by=['score'], ascending=False)[['symbol', 'score']])
 
-    def plan_run(self, plan):
-        self.main_ctx.set_multi_logger()
+    @staticmethod
+    def plan_run(plan):
         return plan["f_name"](plan["params"])
 
     def single_metric_plan(self, params):
@@ -253,12 +266,13 @@ class PlanHandler:
            params["base"]       : 특정 threshold 이상/이하의 종목은 score 주지 않음
            params["base_dir"]   : "base"로 준 threshold 이상/이하(</>) 선택
         """
-        logging.info("[plan] key : {}, key_dir : {}, weight : {}, "
-                     "diff : {}, base : {}, base_dir : {}".format(params["key"], params["key_dir"], params["weight"],
-                                                                  params["diff"], params["base"], params["base_dir"]))
+        logger = self.main_ctx.get_multi_logger()
+        logger.info("[plan] key : {}, key_dir : {}, weight : {}, "
+                    "diff : {}, base : {}, base_dir : {}".format(params["key"], params["key_dir"], params["weight"],
+                                                                 params["diff"], params["base"], params["base_dir"]))
 
         if self.absolute_score - params["diff"] * self.k_num < 0:
-            logging.warning("Wrong params['diff'] : TOO BIG! SET UNDER " + str(self.absolute_score/self.k_num))
+            logger.warning("Wrong params['diff'] : TOO BIG! SET UNDER " + str(self.absolute_score/self.k_num))
 
         key = str(params["key"])
 
@@ -273,7 +287,7 @@ class PlanHandler:
         # else:
         #     logging.error("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<'")
         #     return
-        logging.debug(top_k_df[['symbol', params["key"]]])
+        logger.debug(top_k_df[['symbol', params["key"]]])
 
         symbols = top_k_df['symbol']
         return_df = self.date_handler.dtable[['symbol']]
@@ -286,7 +300,7 @@ class PlanHandler:
             delta = delta - params["diff"]
         local_rank_name = key+'_rank'
         return_df[local_rank_name] = return_df[local_score_name].rank(method='min', ascending=False)
-        logging.debug(return_df[[local_score_name, local_rank_name]])
+        logger.debug(return_df[[local_score_name, local_rank_name]])
         return return_df
 
 
@@ -294,8 +308,7 @@ class DateHandler:
     def __init__(self, backtest, date):
         pd.set_option('mode.chained_assignment', None)
 
-        logging.info("in datehandler date : ")
-        logging.info(date)
+        logging.info("in datehandler date : " + date.strftime("%Y-%m-%d"))
 
         self.date = date
         # symbol_list와 fs_metrics는 init data에서 세팅해줌
@@ -582,18 +595,16 @@ class EvaluationHandler:
     def cal_price(self):
         pd.set_option('mode.chained_assignment', None)
         """best_k 의 ['price', 'rebalance_day_price'] column을 채워주는 함수"""
-        logging.info("best k length : ")
-        logging.info(len(self.best_k))
+        logging.info("best k length : %d", len(self.best_k))
         for idx, (date, rebalance_date, best_group, reference_group, period_earning_rate) in enumerate(self.best_k):
             if date.year != self.backtest.table_year:
                 logging.info("Reload BackTest Table. year : {} -> {}".format(self.backtest.table_year, date.year))
                 self.backtest.reload_bt_table(date.year)
                 self.backtest.table_year = date.year
-            
+
             # lastest date
-            if idx == len(self.best_k) - 1:
-                logging.info("print latest data : ")
-                logging.info(date)
+            if (idx == len(self.best_k) - 1) and (len(self.best_k) != 1):
+                logging.info("print latest data : " + date.strftime("%Y-%m-%d"))
                 self.best_k[idx][3] = start_dh.dtable
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].close > 0.000001]
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].volume > 10000]
@@ -602,7 +613,7 @@ class EvaluationHandler:
                     df_for_reg = self.best_k[idx][3].copy()
                     self.print_ai_data(df_for_reg, date, True)         
                 break
-            
+
             if idx == 0:
                 start_dh = DateHandler(self.backtest, date)
             end_dh = DateHandler(self.backtest, rebalance_date)
@@ -662,14 +673,15 @@ class EvaluationHandler:
             logging.info(str(idx) + " " + str(date))
 
     def cal_earning_func(self, best_k):
-        self.backtest.main_ctx.set_multi_logger()
+        logger = self.backtest.main_ctx.get_multi_logger()
+
         (date, rebalance_date, best_group, reference_group, period_earning_rate) = best_k
-        logging.debug("in cal_earning_func")
-        logging.debug(date)
-        logging.debug(best_group)
+        logger.debug("in cal_earning_func  " + date.strftime("%Y-%m-%d"))
         if 'price' not in best_group.columns:
+            logger.warning("No Price Column!!")
             return
-        
+        logger.debug(best_group)
+
         total_asset = 100000000
         stock_cnt = (total_asset / len(best_group)) / best_group['price']
         stock_cnt = stock_cnt.replace([np.inf, -np.inf], 0)
@@ -696,11 +708,12 @@ class EvaluationHandler:
         logging.info("START cal_earning")
         params = copy.deepcopy(self.best_k)
         # with Pool(processes=multiprocessing.cpu_count()) as pool:
-        install_mp_handler()
+        # install_mp_handler()
         with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
             df_list = pool.map(self.cal_earning_func, params)
         df_list = list(filter(None.__ne__, df_list))
-        logging.info("in cal_earning : df_list : ", df_list)
+        logging.info("in cal_earning : df_list : ")
+        logging.info(df_list)
         # full_df = reduce(lambda df1, df2: pd.concat(df1, df2), df_list)
         # 잘들어가는지 check
         self.best_k = df_list
@@ -813,13 +826,26 @@ class EvaluationHandler:
             for ref_sym in self.backtest.conf['REFERENCE_SYMBOL']:
                 start_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.start_year, 1, 1))
                 end_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.end_year, 12, 31))
+                if end_date is None:
+                    # get_trade_date는 기준일로부터 4일 이내 거래일을 가져오는 함수
+                    # 가장 마지막 년도에는 12월 31일을 기준으로 가져오면 None이 return 됨
+                    end_date = self.backtest.price_table["date"].max()
+                    logging.debug(ref_sym)
+                    logging.debug("start_date : " + start_date.strftime("%Y-%m-%d")
+                                  + "    end_date : " + end_date.strftime("%Y-%m-%d"))
                 reference_earning_df = self.backtest.price_table.query(
                     "(symbol == @ref_sym) and ((date == @start_date) or (date == @end_date))")
-                logging.debug(ref_sym)
                 logging.debug(reference_earning_df)
-                reference_earning = reference_earning_df.iloc[1]['close'] - reference_earning_df.iloc[0]['close']
-                ref_total_earning_rate = (reference_earning / reference_earning_df.iloc[0]['close']) * 100
-                ref_total_earning_rates[ref_sym] = ref_total_earning_rate
+                if len(reference_earning_df) == 2:
+                    reference_earning = reference_earning_df.iloc[1]['close'] - reference_earning_df.iloc[0]['close']
+                    ref_total_earning_rate = (reference_earning / reference_earning_df.iloc[0]['close']) * 100
+                    ref_total_earning_rates[ref_sym] = ref_total_earning_rate
+                else:
+                    logging.info("REFERENCE_SYMBOL [ " + str(ref_sym) + " ] ( "
+                                 + start_date.strftime("%Y-%m-%d") + " ~ "
+                                 + end_date.strftime("%Y-%m-%d") + " ) is Strange Value!!! NEED CHECK!!!")
+                    ref_total_earning_rates[ref_sym] = 0
+
             # plan_earning = self.historical_earning_per_rebalanceday \
             #                                                   [len(self.historical_earning_per_rebalanceday)-1][3]\
             #               - self.historical_earning_per_rebalanceday[0][2]

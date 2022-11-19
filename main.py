@@ -36,26 +36,46 @@ class MainCtx:
                 logging.error('Cannot Creating "{}" directory.'.format(path))
                 return False
 
-    def set_multi_logger(self):
+    def get_multi_logger(self):
+        # multiprocessing용 logger를 만들어서 사용한 경우, multiprocessing이 끝난 후에 logger가 내부적으로 삭제됨
+        # basicConfig를 다시 세팅하여 logger를 사용하려 했으나 계속 queue is closed 에러가 발생하여 multi 로거와 default logger를
+        # 별도로 관리함. 이 때문에 multi processor에서는 logger.info 라고, 이외에는 logging.info 라고 분리하여 작성해주어야 함(불편)
         log_path = "log.txt"
         # for multiprocessing
         multiprocessing.freeze_support()
-        logging.basicConfig(level=self.log_lvl,
-                            format='[%(asctime)s][%(processName)s] %(message)s (%(filename)s:%(lineno)d) ',
-                            handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
+        logger = logging.getLogger("multi")
+        logger.setLevel(self.log_lvl)
+
+        formatter = logging.Formatter('[%(asctime)s][%(processName)s] %(message)s (%(filename)s:%(lineno)d)')
+
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(formatter)
+        logger.addHandler(stream_handler)
+
+        file_handler = logging.FileHandler(log_path, mode="a+")
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        # logging.basicConfig(level=self.log_lvl,
+        #                     format='[%(asctime)s][%(processName)s] %(message)s (%(filename)s:%(lineno)d) ',
+        #                     handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
+
+        return logger
+
+
+def set_default_logger(config):
+    log_path = "log.txt"
+    # if os.path.exists(log_path):
+    #     os.remove(log_path)
+    logging.basicConfig(level=config['LOG_LVL'],
+                        format='[%(asctime)s][%(levelname)s][%(processName)s] '
+                               '%(message)s (%(filename)s:%(lineno)d)',
+                        handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
+
 
 def get_config():
     with open('config/conf.yaml') as f:
         return yaml.load(f, Loader=yaml.FullLoader)
 
-
-def set_logger(config):
-    log_path = "log.txt"
-    # if os.path.exists(log_path):
-    #     os.remove(log_path)
-    logging.basicConfig(level=config['LOG_LVL'],
-                        format='[%(asctime)s][%(levelname)s][%(processName)s] %(message)s (%(filename)s:%(lineno)d) ',
-                        handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
 
 def conf_check(config):
     # REPORT 종류는 EVAL, RANK, AI, AVG 뿐
@@ -67,9 +87,9 @@ def conf_check(config):
 
 if __name__ == '__main__':
     conf = get_config()
-    set_logger(conf)
-    conf_check(conf)
     main_ctx = MainCtx(conf)
+    set_default_logger(conf)
+    conf_check(conf)
 
     if conf['RUN_REGRESSION'] == "Y":
         regor = Regressor(conf)
@@ -119,6 +139,8 @@ if __name__ == '__main__':
     # logging.warning("TOP_K_NUM : " + str(conf['TOP_K_NUM']) + ", MEMBER_CNT : " + str(conf['MEMBER_CNT']) +
     #                 ", ABSOLUTE_SCORE : " + str(conf['ABSOLUTE_SCORE']))
     bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=conf['REBALANCE_PERIOD'])
+
+    logging.shutdown()
     del plan_handler
     del bt
     # TOP_K_NUM: 1500
