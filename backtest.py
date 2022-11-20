@@ -1,4 +1,3 @@
-from cmath import nan
 import copy
 import csv
 import datetime
@@ -11,41 +10,13 @@ import pandas as pd
 
 from dateutil.relativedelta import relativedelta
 from functools import reduce
+from g_variables import use_col_list, cal_marketcap_list
 from multiprocessing import Pool
 from multiprocessing_logging import install_mp_handler
 from warnings import simplefilter
 
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 CHUNK_SIZE = 20480
-
-use_col_list = ["interestCoverage", "dividendYield", "inventoryTurnover", "daysPayablesOutstanding",
-                "stockBasedCompensationToRevenue", "dcf", "capexToDepreciation", "currentRatio",
-                "daysOfInventoryOnHand", "payablesTurnover", "grahamNetNet", "capexToRevenue", "netDebtToEBITDA",
-                "receivablesTurnover", "capexToOperatingCashFlow", "evToOperatingCashFlow", "evToFreeCashFlow",
-                "debtToAssets", "tangibleBookValuePerShare", "stockBasedCompensation", "capexPerShare", "peRatio",
-                "enterpriseValueOverEBITDA", "bookValuePerShare", "shareholdersEquityPerShare", "pfcfRatio",
-                "pocfratio", "daysSalesOutstanding", "incomeQuality", "interestDebtPerShare", "revenuePerShare",
-                "freeCashFlowPerShare", "evToSales", "netIncomePerShare", "grahamNumber", "operatingCashFlowPerShare",
-                "cashPerShare", "priceToSalesRatio", "pbRatio", "ptbRatio", "investedCapital", "roic",
-                "freeCashFlowYield", "roe", "returnOnTangibleAssets", "earningsYield", "debtToEquity", "payoutRatio",
-                "salesGeneralAndAdministrativeToRevenue", "intangiblesToTotalAssets", "netDebt", "ebitdaratio",
-                "ebitda", "dividendsperShareGrowth", "freeCashFlow", "operatingCashFlow", "netIncomeGrowth",
-                "grossProfit", "epsgrowth", "epsdilutedGrowth", "revenueGrowth", "grossProfitRatio", "epsdiluted",
-                "eps", "debtGrowth", "tenYDividendperShareGrowthPerShare", "netIncomeRatio", "incomeBeforeTaxRatio",
-                "operatingCashFlowGrowth", "ebitgrowth", "operatingIncomeGrowth",
-                "threeYDividendperShareGrowthPerShare", "assetGrowth", "freeCashFlowGrowth", "sgaexpensesGrowth",
-                "fiveYDividendperShareGrowthPerShare", "receivablesGrowth", "fiveYRevenueGrowthPerShare",
-                "threeYOperatingCFGrowthPerShare", "grossProfitGrowth", "operatingIncomeRatio",
-                "threeYShareholdersEquityGrowthPerShare", "fiveYShareholdersEquityGrowthPerShare",
-                "fiveYOperatingCFGrowthPerShare", "threeYRevenueGrowthPerShare", "researchAndDdevelopementToRevenue",
-                "threeYNetIncomeGrowthPerShare", "tenYOperatingCFGrowthPerShare", "tenYRevenueGrowthPerShare",
-                "tenYShareholdersEquityGrowthPerShare", "tenYNetIncomeGrowthPerShare", "weightedAverageSharesGrowth",
-                "weightedAverageSharesDilutedGrowth", "fiveYNetIncomeGrowthPerShare", "bookValueperShareGrowth",
-                "inventoryGrowth", "rdexpenseGrowth",
-                ]
-
-cal_marketcap_list = ["revenue", "netDebt", "totalCurrentAssets", "freeCashFlow", "operatingCashFlow",
-                      "netIncome_x", "netIncome_y", "operatingIncome"]
 
 
 class Backtest:
@@ -128,15 +99,14 @@ class Backtest:
                 + str(datetime.datetime(self.main_ctx.start_year, 1, 1)) + "'" \
                 + " AND '" + str(datetime.datetime(self.main_ctx.end_year, 12, 31)) + "'"
         
-        if self.conf['USE_DB'] == "Y":
+        if self.conf['STORAGE_TYPE'] == "DB":
             self.symbol_table = self.data_from_database("SELECT * FROM symbol_list")
             self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
             self.price_table = self.data_from_database(query)
             self.fs_table = self.data_from_database("SELECT * FROM financial_statement")
             self.metrics_table = self.data_from_database("SELECT * FROM METRICS")
 
-        if self.conf['USE_DATAFRAME'] == "Y":
-            
+        if self.conf['STORAGE_TYPE'] == "PARQUET":
             if self.symbol_table.empty:
                 self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
                 self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
@@ -231,15 +201,8 @@ class PlanHandler:
         assert self.plan_list is not None, "Empty Plan List"
         assert self.date_handler is not None, "Empty Date Handler"
 
-        # with Pool(processes=multiprocessing.cpu_count()) as pool:
-        # install_mp_handler()
         with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
             df_list = pool.map(self.plan_run, self.plan_list)
-
-        # proc_pool = multiprocessing.Pool(multiprocessing.cpu_count(), process_init, [self.main_ctx.multi_q])
-        # df_list = proc_pool.map(self.plan_run, self.plan_list)
-        # proc_pool.close()
-        # proc_pool.join()
 
         full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
         self.date_handler.dtable = pd.merge(self.date_handler.dtable, full_df, how='left', on=['symbol'])
@@ -275,13 +238,6 @@ class PlanHandler:
         top_k_df = self.date_handler.dtable.sort_values(by=[key], ascending=False, na_position="last")[:self.k_num]
         top_k_df = self.date_handler.dtable.sort_values(by=[key+"_sorted"], ascending=False,
                                                         na_position="last")[:self.k_num]
-        # if params["base_dir"] == ">":
-        #     top_k_df = top_k_df[top_k_df[key] > params["base"]]
-        # elif params["base_dir"] == "<":
-        #     top_k_df = top_k_df[top_k_df[key] < params["base"]]
-        # else:
-        #     logging.error("Wrong params['base_dir'] : ", params["base_dir"], " params['base_dir'] must be '>' or '<'")
-        #     return
         logger.debug(top_k_df[['symbol', params["key"]]])
 
         symbols = top_k_df['symbol']
@@ -302,15 +258,12 @@ class PlanHandler:
 class DateHandler:
     def __init__(self, backtest, date):
         pd.set_option('mode.chained_assignment', None)
-
         logging.info("in datehandler date : " + date.strftime("%Y-%m-%d"))
-
         self.date = date
-        # symbol_list와 fs_metrics는 init data에서 세팅해줌
+        # date handler 안에서 table은 하나 (symbol + price + fs + metric )
         self.dtable = None
         self.init_data(backtest)
 
-    # date handler 안에서 table은 하나 (symbol + price + fs + metric )
     def init_data(self, backtest):
         logging.info("START init_data in date handler ")
         # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
@@ -412,7 +365,6 @@ class DateHandler:
                 feature_name = str(feature).split('_')[1]
             else:
                 feature_name = feature
-
             # 음수 처리
             f = highlow.query("name == @feature_name")
             if f.empty:
@@ -484,19 +436,19 @@ class EvaluationHandler:
         period_price_diff_tmp = pd.DataFrame()
         if latest == False:
             period_price_diff_tmp = df_for_reg['period_price_diff']
-        
-        use_col_list_wydiff = list(map(lambda x: "Ydiff_"+x, use_col_list))
-        use_col_list_wqdiff = list(map(lambda x: "Qdiff_"+x, use_col_list))
+
+        use_col_list_wydiff = list(map(lambda x: "Ydiff_" + x, use_col_list))
+        use_col_list_wqdiff = list(map(lambda x: "Qdiff_" + x, use_col_list))
         use_col_list_wprev = use_col_list + use_col_list_wydiff + use_col_list_wqdiff
         print(use_col_list_wprev)
         df_for_reg = df_for_reg[use_col_list_wprev]
         df_for_reg['symbol'] = symbols_tmp
-        
+
         if latest == False:
             df_for_reg['period_price_diff'] = period_price_diff_tmp
             df_for_reg['earning_diff'] \
                 = df_for_reg['period_price_diff'] - df_for_reg['period_price_diff'].mean()
-            
+
         print("in print_AI")
         print(df_for_reg)
         # remove outlier
@@ -565,12 +517,12 @@ class EvaluationHandler:
             except Exception as e:
                 logging.info(str(e))
                 continue
-        
+
         if latest == False:
             q_1 = np.nanpercentile(df_for_reg['earning_diff'], 1)
             q_3 = np.nanpercentile(df_for_reg['earning_diff'], 99)
             outlier_list_col.extend(df_for_reg[(df_for_reg[col] < q_1) | (df_for_reg[col] > q_3)].index)
-            
+
         mdict = dict.fromkeys(outlier_list_col)
         outlier_list_col = list(mdict)
         df_for_reg = df_for_reg.drop(index=outlier_list_col, axis=0)
@@ -587,7 +539,7 @@ class EvaluationHandler:
                 if f.iloc[0].sort == "low":
                     try:
                         feat_max = df_for_reg[col].max()
-                        df_for_reg[col] = [s*(-1) if s >= 0 else (s - feat_max) for s in df_for_reg[col]]
+                        df_for_reg[col] = [s * (-1) if s >= 0 else (s - feat_max) for s in df_for_reg[col]]
                     except Exception as e:
                         logging.info(str(e))
                         continue
@@ -603,16 +555,19 @@ class EvaluationHandler:
                 continue
 
         normal_col_list = df_for_reg.columns.str.contains("_normal")
-        df_for_reg_print = df_for_reg.loc[:,normal_col_list]
+        df_for_reg_print = df_for_reg.loc[:, normal_col_list]
         if latest == False:
             df_for_reg_print['period_price_diff'] = df_for_reg['period_price_diff']
             df_for_reg_print['earning_diff'] = df_for_reg['earning_diff']
         df_for_reg_print['symbol'] = df_for_reg['symbol']
-        traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data_0' + str(self.backtest.conf['START_MONTH']) + '/'
+        traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data_0' + str(
+            self.backtest.conf['START_MONTH']) + '/'
         if latest == False:
-            df_for_reg_print.to_csv(traindata_path + '{0}_{1:02d}_regressor_train.csv'.format(date.year, date.month), index=False)
+            df_for_reg_print.to_csv(traindata_path + '{0}_{1:02d}_regressor_train.csv'.format(date.year, date.month),
+                                    index=False)
         else:
-            df_for_reg_print.to_csv(traindata_path + '{0}_{1:02d}_regressor_train_latest.csv'.format(date.year, date.month), index=False)
+            df_for_reg_print.to_csv(
+                traindata_path + '{0}_{1:02d}_regressor_train_latest.csv'.format(date.year, date.month), index=False)
 
     def cal_price(self):
         pd.set_option('mode.chained_assignment', None)
@@ -630,10 +585,10 @@ class EvaluationHandler:
                 self.best_k[idx][3] = start_dh.dtable
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].close > 0.000001]
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].volume > 10000]
-                self.best_k[idx][3].rename(columns={'close':'price'}, inplace=True)
+                self.best_k[idx][3].rename(columns={'close': 'price'}, inplace=True)
                 if self.backtest.ai_report_path is not None:
                     df_for_reg = self.best_k[idx][3].copy()
-                    self.print_ai_data(df_for_reg, date, True)         
+                    self.print_ai_data(df_for_reg, date, True)
                 break
 
             if idx == 0:
@@ -645,7 +600,7 @@ class EvaluationHandler:
                 logging.info(date)
                 self.best_k[idx][3] = start_dh.dtable
                 rebalance_date_price_df = end_dh.dtable[['symbol', 'close']]
-                rebalance_date_price_df.rename(columns={'close':'rebalance_day_price'}, inplace=True)
+                rebalance_date_price_df.rename(columns={'close': 'rebalance_day_price'}, inplace=True)
                 self.best_k[idx][3] = pd.merge(self.best_k[idx][3], rebalance_date_price_df, how='outer', on='symbol')
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].close > 0.000001]
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].volume > 10000]
@@ -655,7 +610,7 @@ class EvaluationHandler:
 
                 if self.backtest.ai_report_path is not None:
                     df_for_reg = self.best_k[idx][3].copy()
-                    self.print_ai_data(df_for_reg, date, False)         
+                    self.print_ai_data(df_for_reg, date, False)
 
                 if self.backtest.rank_report_path is not None:
                     for feature in self.best_k[idx][3].columns:
@@ -676,14 +631,14 @@ class EvaluationHandler:
                         logging.debug("there is no price in start_dh FMP API  symbol : {}".format(sym))
                         self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'price'] = 0
                     else:
-                        self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'price']\
+                        self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'price'] \
                             = start_dh.dtable.loc[(start_dh.dtable['symbol'] == sym), 'close'].values[0]
 
                     if end_dh.dtable.loc[(end_dh.dtable['symbol'] == sym), 'close'].empty:
                         logging.debug("there is no price in end_dh FMP API  symbol : {}".format(sym))
                         self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'rebalance_day_price'] = 0
                     else:
-                        self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'rebalance_day_price']\
+                        self.best_k[idx][2].loc[(self.best_k[idx][2].symbol == sym), 'rebalance_day_price'] \
                             = end_dh.dtable.loc[(end_dh.dtable['symbol'] == sym), 'close'].values[0]
                         if end_dh.dtable.loc[(end_dh.dtable['symbol'] == sym), 'close'].values[0] < 0.01:
                             logging.debug("close price already 0 : {}".format(sym))
@@ -714,17 +669,17 @@ class EvaluationHandler:
         remain_asset = total_asset - price_mul_stock_cnt.sum()
         if my_asset_period == 0:
             return
-        
+
         # MDD 계산을 위해 이 구간에서 각 종목별 구매 개수 저장
         best_k[2]['count'] = stock_cnt
-        
+
         # rebalance date의 가격으로 구매한 종목들 판매했을 때 자산 계산
         rebalance_day_price_mul_stock_cnt = best_group['rebalance_day_price'] * stock_cnt
         best_k[2]['period_earning'] = rebalance_day_price_mul_stock_cnt - price_mul_stock_cnt
         period_earning = rebalance_day_price_mul_stock_cnt.sum() - price_mul_stock_cnt.sum()
         best_k[4] = period_earning
         return best_k
-    
+
     def cal_earning(self):
         """backtest로 계산한 plan의 수익률을 계산하는 함수"""
         logging.info("START cal_earning")
@@ -763,7 +718,6 @@ class EvaluationHandler:
                 # prev_date ~ date 까지 모든 date에 대해 자산 총액 계산
                 allday_price_allsymbol = []
                 syms = best_group['symbol']
-
                 # symbol 별로 rebalancing day 기준으로 prev_date ~ date 의 price 정보 가져오고,
                 # rebalancing day에 계산한 symbol 당 구매 수 column인 'count' 와 'close' 가격 곱해서 종목별 일별 자산 구함
                 for sym in syms:
@@ -775,7 +729,7 @@ class EvaluationHandler:
                         # FIXME SettingWithCopyWarning
                         count_per_sym = best_group.loc[(best_group.symbol == sym), 'count'].values
                         # allday_price_per_symbol['my_asset'] = allday_price_per_symbol['close'] * count_per_sym
-                        allday_price_per_symbol\
+                        allday_price_per_symbol \
                             = allday_price_per_symbol.assign(my_asset=lambda x: x.close * count_per_sym)
                         allday_price_allsymbol.append(allday_price_per_symbol)
 
@@ -801,9 +755,7 @@ class EvaluationHandler:
                 if accum_df['my_asset'].min(axis=0) < worst_asset:
                     worst_asset = accum_df['my_asset'].min(axis=0)
                     worst_date = accum_df.loc[accum_df['my_asset'].idxmin(), 'date']
-
-                # update prev_date
-                prev_date = date
+                prev_date = date    # update prev_date
         mdd = ((worst_asset / best_asset) - 1) * 100
         logging.info("MDD : {:.2f}%, best date : {}, worst date : {}".format(mdd, best_date, worst_date))
         self.MDD = mdd
@@ -872,7 +824,7 @@ class EvaluationHandler:
             #                                                   [len(self.historical_earning_per_rebalanceday)-1][3]\
             #               - self.historical_earning_per_rebalanceday[0][2]
             # plan_total_earning_rate = (plan_earning / self.historical_earning_per_rebalanceday[0][2]) * 100
-            plan_total_earning_rate = (accumulated_earning-100)/100
+            plan_total_earning_rate = (accumulated_earning - 100) / 100
 
             logging.warning("Our Earning : " + str(plan_total_earning_rate))
             fd = open(self.backtest.eval_report_path, 'a')

@@ -1,23 +1,22 @@
 import datetime
-import calendar
+import dateutil.utils
 import json
 import logging
 import multiprocessing
 import os
 import re
-from time import sleep
+import requests
 import time
 import urllib
 import urllib.error
 import urllib.request
 
+import pandas as pd
+
+from dateutil.relativedelta import relativedelta
 from multiprocessing import Pool
 from multiprocessing_logging import install_mp_handler
-
-import dateutil.utils
-from dateutil.relativedelta import relativedelta
-import requests
-import pandas as pd
+from time import sleep
 
 
 class FMP:
@@ -50,30 +49,29 @@ class FMP:
 
     def get_fmp_data(self, main_url, extra_url, need_symbol, is_v4, file_postfix=""):
         """
-        brief : 순차적으로 넣고자 하는 값을 url에 포함시켜서 돌려줌
-        input : main_url(url의 main 값), extra_url(뒤에 나머지),
+        순차적으로 넣고자 하는 값을 url에 포함시켜서 돌려줌
+        :param : main_url(url의 main 값), extra_url(뒤에 나머지),
                 need_symbol(url에 symbol 값이 들어가지는에 대한 boolean. v3는 불필요. v4 주소 처리때문에 필요)
                 v4_flag(v4 url 형식을 사용할지에 대한 flag)
-                file_postfix(csv 파일 뒤에 붙는 다른 구분자를 넣고 싶은 경우 사용 예) AAPL_2022_1.csv)
+                file_postfix(parquet 파일 뒤에 붙는 다른 구분자를 넣고 싶은 경우 사용 예) AAPL_2022_1.csv)
         TODO data_list를 완전히 없앤 이유는 나중에는 need_symbol을 data_type flag로 바꿔서 필요한 리스트를
              이 함수 내에서 알아서 넣는 것이 더 효율적이기에 list 자체는 완전히 받지 않을 예정  예) SYMBOL이 글로벌로 바뀜
-        output : none
-        example 1 : /api/v3/discounted-cash-flow/AAPL?apikey=***
+        :return : True / False : api Call 한 곳에서 더 불러야 할지 경정하기 위한 용도
+        example 1 : /api/v3/discounted-cash-flow/AAPL?apikey=*** 인 경우,
                     get_fmp_data_by_list("dicounted-cash-flow", "", True, False)
-                    ./data 폴더 아래에 discounted-cash-flow 폴더를 만들고, list element별 csv를 만듦
-        example 2 : /api/v3/income-statement-as-reported/AAPL?period=quarter&limit=50&apikey=***
+                    ./data 폴더 아래에 discounted-cash-flow 폴더를 만들고, list element별 parquet을 만듦
+        example 2 : /api/v3/income-statement-as-reported/AAPL?period=quarter&limit=50&apikey=*** 인 경우,
                    get_fmp_data_by_list("income-statement-as-reported",
                                         "period=quarter&limit=50&", symbol_list, True, False)
         """
-        # [RULE] 모든 File들은 Path가 ./data/* 로 시작해야 함. ./data나 ./data/*/* 와 같은 path는 가질 수 없음
+        # [RULE] 모든 Folder들은 Path가 ./data/* 로 시작해야 함. ./data나 ./data/*/* 와 같은 path는 가질 수 없음
         path = self.main_ctx.root_path + "/" + main_url.replace("/", "-").replace("-", "_")
         cre_flag = self.main_ctx.create_dir(path)
 
         if need_symbol == False:
             data_list = [path[path.rfind("/") + 1:]]
         else:
-            # 일부만 돌리기 위해 앞에 5개만 가져옴 (for test) / 나중에 else만 없애면 됨.
-            # data_list = self.symbol_list.head(5)
+            # data_list = self.symbol_list.head(5) # Only For Debug!
             data_list = self.symbol_list
             if main_url == "historical-price-full":
                 logging.info("add ETF symbols to get historical-price-full data")
@@ -103,11 +101,9 @@ class FMP:
                     else:
                         api_url = self.fmp_url + "/api/v3/{}?{}apikey={}".format(main_url, extra_url, self.api_key)
                 try:
-                    # TODO 결제 PLAN 더 비싼거 쓰면 sleep 지워도 됨
-                    # logging.info("sleep 0.2s")
-                    # sleep(0.2)
                     logging.info('Creating File "{}/{}.parquet" <- "{}"'.format(path, elem + file_postfix, api_url))
                     # json_data = pd.read_json(api_url)
+                    # TODO 결제 PLAN 더 비싼거 쓰면 sleep 지워도 됨
                     end = time.time()
                     remain_sec = (0.2 - (end - start))
                     if remain_sec > 0:
@@ -116,12 +112,13 @@ class FMP:
                     url_data = requests.get(api_url)
                     
                 except ValueError:
-                    # logging.warning("No Data. Or Different Data Type")
+                    logging.debug("No Data. Or Different Data Type")
                     continue
                 except urllib.error.HTTPError:
                     logging.warning("HTTP Error 400, API_URL : ", api_url)
                     continue
-                # 읽어왔는데 비어 있을 수 있음. ValueError는 Format이 안맞는 경우고 이 경우는 page=50 과 같은 extra_url 처리 때문
+                # 읽어왔는데 비어 있을 수 있음. ValueError와 다름.
+                # ValueError는 Format이 안맞는 경우고, 이 경우는 page=50 과 같은 extra_url 처리 때문
                 json_text = url_data.text
                 try:
                     json_data = json.loads(json_text)
@@ -133,16 +130,18 @@ class FMP:
                         return False
                 if json_data == [] or json_data == {}:
                     logging.info("No Data in URL")
-                    f = open(path+"/{}.parquetx".format(elem + file_postfix), 'w')
+                    # 비어있는 표시를 해주기 위해 parquet 뒤에 x를 붙인 file만 만들고 fd close
+                    f = open(path + "/{}.parquetx".format(elem + file_postfix), 'w')
                     f.close()
                     if need_symbol == True:
                         continue
                     else:
                         return False
                 json_data = self.flatten_json(json_data, expand_all=True)
-                # json_data.to_parquet(path+"/{}.csv".format(elem + file_postfix), na_rep='NaN')
+                # dcf 값에 대한 별도 예외처리 로직
                 if 'dcf' in json_data.columns:
                     json_data['dcf'] = json_data['dcf'].astype(float)
+                # json_data.to_csv(path + "/{}.csv".format(elem + file_postfix), na_rep='NaN')
                 json_data.to_parquet(path+"/{}.parquet".format(elem + file_postfix))
                 if json_data.empty == True:
                     logging.info("No Data in CSV")
@@ -213,8 +212,7 @@ class FMP:
             self.get_fmp_data(main_url, extra_url, need_symbol, is_v4)
 
     def set_symbol(self):
-        """fmp api 로 얻어온 stock_list 와 delisted companies 에서 exchange 가 NASDAQ, NYSE인 symbol들의 list 를 만드는 함수"""
-        # fmp api로 얻어온 stock_list 불러오기 
+        """fmp api 로 얻어온 stock_list 와 delisted companies 에서 exchange가 NASDAQ, NYSE인 symbol들의 list 를 만드는 함수"""
         path = self.main_ctx.root_path + "/stock_list/stock_list.parquet"
         if os.path.isfile(path) == True:
             symbol_list = pd.read_parquet(path)
@@ -222,7 +220,7 @@ class FMP:
             return
 
         # stock_list에서 type "stock", exchange "NASDQA", "NYSE" 만 가져오기 이를 filtered_symbol에 저장
-        # symbol_list = symbol_list.drop(symbol_list.columns[0], axis=1)
+        # read_parquet를 index를 가져오지 않으므로, symbol_list.drop(symbol_list.columns[0], axis=1) 를 하면 안 됨
         filtered_symbol = symbol_list[(symbol_list['type'] == "stock")
                                       & ((symbol_list['exchangeShortName'] == 'NASDAQ')
                                          | (symbol_list['exchangeShortName'] == 'NYSE'))]
@@ -237,8 +235,6 @@ class FMP:
                 delisted = pd.read_parquet(self.main_ctx.root_path + "/delisted_companies/" + file)
                 if delisted.empty == True:
                     continue
-                # drop index column
-                # delisted = delisted.drop(delisted.columns[0], axis=1)
                 delisted = delisted.reset_index(drop=True)
                 delisted = delisted[((delisted['exchange'] == 'NASDAQ') | (delisted['exchange'] == 'NYSE'))]
                 delisted.rename(columns={'exchange':'exchangeShortName'}, inplace=True)
@@ -259,11 +255,11 @@ class FMP:
         current_symbol = current_symbol.reset_index(drop=True)
         self.current_list = current_symbol["symbol"]
 
-        # logging.info("in set_symbol() list=")
-        logging.info(self.symbol_list)
+        logging.info("in set_symbol() lit = " + str(self.symbol_list))
 
     def get_fmp(self, api_url):
-        # multiprocessing 할 예정이기에 로거를 다시 세팅해야 함
+        """preprocesing 함수를 call하기 위해 url 형태를 확인하고, argument를 나누는 작업"""
+        # multiprocessing 으로 처리되므로 로거를 다시 세팅해야 함
         self.main_ctx.set_multi_logger()
 
         self.main_ctx.create_dir(self.main_ctx.root_path)
@@ -281,7 +277,6 @@ class FMP:
                 extra_url = "" if len(extra_url) == 10 else extra_url[12:]
             else:
                 main_url = main_url[:-5]
-        # limit 제거
         extra_url = re.sub('[&]{0,1}limit=[0-9]{2,3}[&]{0,1}', "", extra_url)
         if extra_url != "":
             extra_url = extra_url + "&"
@@ -315,13 +310,18 @@ class FMP:
                 os.remove(os.path.join(path, file))
 
     def remove_current_list_files(self, base_path, check_target=True):
+        """
+        현재 기준으로 지워야할 파일들을 찾아서 지움
+        :param : base_path(지워야할 Folder 경로), check_target(True인 경우 직접 row를 읽고 지울지말지 판단)
+        """
         logging.info("[Check Remove Files] Path : " + str(base_path))
         today = dateutil.utils.today()
         for symbol in self.current_list:
             path = base_path + "/" + str(symbol) + ".parquet"
             if os.path.isfile(path):
                 if check_target is True:
-                    # row = pd.read_parquet(path, nrows=1)
+                    # 현재는 한 줄만 읽어오는 함수를 찾지 못해 전체를 읽고 있음.
+                    # pd.read_parquet(path, nrows=1)와 같은 옵션은 없는 것으로 보임
                     row = pd.read_parquet(path)
                     if row["date"].empty is True:
                         os.remove(path)
@@ -333,7 +333,6 @@ class FMP:
 
     @staticmethod
     def remove_current_year(base_path):
-        # 우선은 사용되지 않는 함수
         today = dateutil.utils.today()
         year = today.strftime("%Y")
         if os.path.isfile(base_path + str(year) + ".parquet"):
@@ -341,7 +340,7 @@ class FMP:
 
     @staticmethod
     def xxx_remove_current_month(base_path):
-        # 우선은 사용되지 않는 함수
+        """우선은 사용되지 않는 함수. 월별 처리로 다시 바뀌는 경우, xxx를 지우고 사용하면 됨"""
         today = dateutil.utils.today()
         year = today.strftime("%Y")
         month = today.strftime("%m")
@@ -367,6 +366,11 @@ class FMP:
         return False
 
     def remove_first_loop(self):
+        """
+        symbol list를 현재 기준으로 다시 만들고, 지워야하기 때문에 먼저 리스트에 영향을 끼칠만한 내용부터 지움
+        remove_first (symbol list 관련 삭제) -> get_fmp (symbol list 관련 내용들을 다시 받아옴
+        -> remove_second (새로 받은 symbol list 기준으로 삭제) -> get_fmp (second로 인해 지워진 data 다시 받아옴)
+        """
         if os.path.isfile("./allsymbol.parquet"):
             os.remove("./allsymbol.parquet")
         if os.path.isfile("./current_list.parquet"):
@@ -378,40 +382,48 @@ class FMP:
         self.remove_current_year("./data/earning_calendar/earning_calendar_")
 
     def remove_second_loop(self):
+        """remove_first_loop 설명 참조"""
         self.remove_current_list_files("./data/income_statement")
         self.remove_current_list_files("./data/balance_sheet_statement")
         self.remove_current_list_files("./data/cash_flow_statement")
-
         self.remove_current_list_files("./data/key_metrics")
         self.remove_current_list_files("./data/financial_growth")
 
         for symbol in self.current_list:
             self.remove_current_year("./data/historical_price_full/" + str(symbol) + "_")
 
-        # 얘가 문제
+        # FIXME 가장 오래 걸리는 함수 Top2 이기에 다른 방식을 고민해보기
         self.remove_current_list_files("./data/historical_daily_discounted_cash_flow")
-
-        # 얘는 매번 불러 올 필요가 있는가?
-        # self.remove_current_list_files("./data/profile", False)
         self.remove_current_list_files("./data/historical_market_capitalization", False)
+
+        # profile은 굳이 update 하지 않기로 결정함
+        # self.remove_current_list_files("./data/profile", False)
+
+    def get_new(self):
+        """
+        symbol list가 없거나(전체 새로 download) 갱신이 필요한 경우, symbol list 관련 api들을 먼저 call 해주어야 하는데,
+        이렇게 되면 api가 추가되고 삭제 될 때마다 매번 코드를 수정해주어야 하며, 분류 작업이 귀찮고 get_fmp 함수 내부가 지저분해짐
+        새로 만든 symbol list가 없는 경우, get_fmp에서 api를 call하지 않고 return만 해주도록 코드 작성
+        여기서는 get_fmp만 두 번 돌려주면 됨.
+        update가 모두 완료되고 나면 "./config/update_date.txt"에 현재 날짜를 기록해 하루 이내에 다시 update한 경우 skip (실수 방지)
+        """
+        api_list = self.get_api_list()
+
+        if self.skip_remove_check() is False:
+            self.remove_first_loop()
+
+        with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
+            pool.map(self.get_fmp, api_list)
+
+        self.set_symbol()
+
+        if self.skip_remove_check() is False:
+            self.remove_second_loop()
+
+        with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
+            pool.map(self.get_fmp, api_list)
 
         write_fd = open("./config/update_date.txt", "w")
         today = datetime.date.today()
         write_fd.write(str(today))
         write_fd.close()
-
-    def get_new(self):
-        api_list = self.get_api_list()
-        if self.skip_remove_check() is False:
-            self.remove_first_loop()
-        # self.get_fmp(api_list)
-        install_mp_handler()
-        with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
-            pool.map(self.get_fmp, api_list)
-        self.set_symbol()
-        if self.skip_remove_check() is False:
-            self.remove_second_loop()
-        install_mp_handler()
-        with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
-            pool.map(self.get_fmp, api_list)
-        # self.get_fmp(api_list)

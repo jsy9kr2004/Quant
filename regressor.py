@@ -1,213 +1,39 @@
-import logging
-from xml.dom import XHTML_NAMESPACE
-import pandas as pd
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.utils.data as data_utils
-import numpy as np
-import joblib
-
 import glob
+import joblib
 import logging
-
-from datasets import Dataset
-from torch.utils.data import DataLoader
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.neural_network import MLPRegressor
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import GridSearchCV
-
+import torch
 
 import seaborn as sns
+import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
+import torch.nn as nn
+import torch.nn.functional as nn_f
 import torch.optim as optim
 
+from datasets import Dataset
+from g_variables import use_col_list
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
+from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-# use_col_list = [
-# "bookValuePerShare_normal",
-# "capexPerShare_normal",
-# "capexToOperatingCashFlow_normal",
-# "capexToRevenue_normal",
-# "cashPerShare_normal",
-# "currentRatio_normal",
-# "daysOfInventoryOnHand_normal",
-# "daysPayablesOutstanding_normal",
-# "daysSalesOutstanding_normal",
-# "dcf_normal",
-# "debtToAssets_normal",
-# "debtToEquity_normal",
-# "earningsYield_normal",
-# "ebitda_normal",
-# "ebitdaratio_normal",
-# "ebitgrowth_normal",
-# "enterpriseValueOverEBITDA_normal",
-# "eps_normal",
-# "epsdiluted_normal",
-# "epsdilutedGrowth_normal",
-# "epsgrowth_normal",
-# "evToFreeCashFlow_normal",
-# "evToOperatingCashFlow_normal",
-# "evToSales_normal",
-# "freeCashFlow_normal",
-# "freeCashFlowGrowth_normal",
-# "freeCashFlowPerShare_normal",
-# "freeCashFlowYield_normal",
-# "grossProfit_normal",
-# "grossProfitGrowth_normal",
-# "grossProfitRatio_normal",
-# "incomeBeforeTaxRatio_normal",
-# "incomeQuality_normal",
-# "intangiblesToTotalAssets_normal",
-# "interestDebtPerShare_normal",
-# "inventoryTurnover_normal",
-# "investedCapital_normal",
-# "netDebtToEBITDA_normal",
-# "netIncomeGrowth_normal",
-# "netIncomePerShare_normal",
-# "netIncomeRatio_normal",
-# "operatingCashFlow_normal",
-# "operatingCashFlowPerShare_normal",
-# "operatingIncomeGrowth_normal",
-# "operatingIncomeRatio_normal",
-# "payoutRatio_normal",
-# "pbRatio_normal",
-# "peRatio_normal",
-# "pfcfRatio_normal",
-# "pocfratio_normal",
-# "priceToSalesRatio_normal",
-# "ptbRatio_normal",
-# "rdexpenseGrowth_normal",
-# "receivablesGrowth_normal",
-# "researchAndDdevelopementToRevenue_normal",
-# "returnOnTangibleAssets_normal",
-# "revenueGrowth_normal",
-# "revenuePerShare_normal",
-# "roe_normal",
-# "roic_normal",
-# "salesGeneralAndAdministrativeToRevenue_normal",
-# "shareholdersEquityPerShare_normal",
-# "stockBasedCompensationToRevenue_normal",
-# "threeYDividendperShareGrowthPerShare_normal",
-# "threeYNetIncomeGrowthPerShare_normal",
-# "threeYOperatingCFGrowthPerShare_normal",
-# "threeYRevenueGrowthPerShare_normal",
-# "threeYShareholdersEquityGrowthPerShare_normal",
-# "period_price_diff",
-# "earning_diff",
-# "symbol"
-# ] 
+# import torch.utils.data as data_utils
+# from xml.dom import XHTML_NAMESPACE
+# from sklearn.model_selection import train_test_split
+# from sklearn.neural_network import MLPRegressor
+# from sklearn.metrics import mean_squared_error
+# from sklearn.model_selection import GridSearchCV
 
-use_col_list = [
-"interestCoverage_normal",
-"dividendYield_normal",
-"inventoryTurnover_normal",
-"daysPayablesOutstanding_normal",
-"stockBasedCompensationToRevenue_normal",
-"dcf_normal",
-"capexToDepreciation_normal",
-"currentRatio_normal",
-"daysOfInventoryOnHand_normal",
-"payablesTurnover_normal",
-"grahamNetNet_normal",
-"capexToRevenue_normal",
-"netDebtToEBITDA_normal",
-"receivablesTurnover_normal",
-"capexToOperatingCashFlow_normal",
-"evToOperatingCashFlow_normal",
-"evToFreeCashFlow_normal",
-"debtToAssets_normal",
-"tangibleBookValuePerShare_normal",
-"stockBasedCompensation_normal",
-"capexPerShare_normal",
-"peRatio_normal",
-"enterpriseValueOverEBITDA_normal",
-"bookValuePerShare_normal",
-"shareholdersEquityPerShare_normal",
-"pfcfRatio_normal",
-"pocfratio_normal",
-"daysSalesOutstanding_normal",
-"incomeQuality_normal",
-"interestDebtPerShare_normal",
-"revenuePerShare_normal",
-"freeCashFlowPerShare_normal",
-"evToSales_normal",
-"netIncomePerShare_normal",
-"grahamNumber_normal",
-"operatingCashFlowPerShare_normal",
-"cashPerShare_normal",
-"priceToSalesRatio_normal",
-"pbRatio_normal",
-"ptbRatio_normal",
-"investedCapital_normal",
-"roic_normal",
-"freeCashFlowYield_normal",
-"roe_normal",
-"returnOnTangibleAssets_normal",
-"earningsYield_normal",
-"debtToEquity_normal",
-"payoutRatio_normal",
-"salesGeneralAndAdministrativeToRevenue_normal",
-"intangiblesToTotalAssets_normal",
-"netDebt_normal",
-"ebitdaratio_normal",
-"ebitda_normal",
-"dividendsperShareGrowth_normal",
-"freeCashFlow_normal",
-"operatingCashFlow_normal",
-"netIncomeGrowth_normal",
-"grossProfit_normal",
-"epsgrowth_normal",
-"epsdilutedGrowth_normal",
-"revenueGrowth_normal",
-"grossProfitRatio_normal",
-"epsdiluted_normal",
-"eps_normal",
-"debtGrowth_normal",
-"tenYDividendperShareGrowthPerShare_normal",
-"netIncomeRatio_normal",
-"incomeBeforeTaxRatio_normal",
-"operatingCashFlowGrowth_normal",
-"ebitgrowth_normal",
-"operatingIncomeGrowth_normal",
-"threeYDividendperShareGrowthPerShare_normal",
-"assetGrowth_normal",
-"freeCashFlowGrowth_normal",
-"sgaexpensesGrowth_normal",
-"fiveYDividendperShareGrowthPerShare_normal",
-"receivablesGrowth_normal",
-"fiveYRevenueGrowthPerShare_normal",
-"threeYOperatingCFGrowthPerShare_normal",
-"grossProfitGrowth_normal",
-"operatingIncomeRatio_normal",
-"threeYShareholdersEquityGrowthPerShare_normal",
-"fiveYShareholdersEquityGrowthPerShare_normal",
-"fiveYOperatingCFGrowthPerShare_normal",
-"threeYRevenueGrowthPerShare_normal",
-"researchAndDdevelopementToRevenue_normal",
-"threeYNetIncomeGrowthPerShare_normal",
-"tenYOperatingCFGrowthPerShare_normal",
-"tenYRevenueGrowthPerShare_normal",
-"tenYShareholdersEquityGrowthPerShare_normal",
-"tenYNetIncomeGrowthPerShare_normal",
-"weightedAverageSharesGrowth_normal",
-"weightedAverageSharesDilutedGrowth_normal",
-"fiveYNetIncomeGrowthPerShare_normal",
-"bookValueperShareGrowth_normal",
-"inventoryGrowth_normal",
-"rdexpenseGrowth_normal",
-"period_price_diff",
-"earning_diff",
-"symbol"
-]
-        
+
 class Regressor:
-    
     def __init__(self, conf):
         self.conf = conf
+        self.x_train = None
+        self.y_train = None
+        self.x_test = None
+        self.y_test = None
+
         # aidata_dir = conf['ROOT_PATH'] + '/regressor_data_0' + str(conf['START_MONTH']) + '/'
         aidata_dir = conf['ROOT_PATH'] + '/regressor_data_per1/'
         
@@ -240,47 +66,39 @@ class Regressor:
         self.rfgs[1] = RandomForestRegressor(n_jobs=-1, n_estimators=400, min_samples_leaf=2)
         self.rfgs[2] = RandomForestRegressor(n_jobs=-1, n_estimators=200, min_samples_split=4, min_samples_leaf=2)
         self.rfgs[3] = RandomForestRegressor(n_jobs=-1, n_estimators=400, min_samples_split=8, min_samples_leaf=4)
+
         # self.dnns[1] = RegressionNetwork1(self.conf)
         # self.dnns[1].load_state_dict(torch.load('./model_state_dict_candi1.pt'))
-        
         # self.dnns[2] = RegressionNetwork2(self.conf)
         # self.dnns[2].load_state_dict(torch.load('./model_state_dict_255_candi2.pt'))
-        
         # self.dnns[4] = RegressionNetwork4(self.conf)
         # self.dnns[4].load_state_dict(torch.load('./model_state_dict_53_candi4.pt'))
 
         # self.nns[0] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97), 
-        #         activation='relu', solver='lbfgs', max_iter = 20000, verbose = True, alpha=0.001)
-        
-        # self.nns[1] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97), 
-        #         activation='tanh', solver='lbfgs', max_iter = 20000, verbose = True, alpha=0.01)
-        
-        # self.nns[1] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97, 64, 16), 
-        #         activation='relu', solver='lbfgs', max_iter = 20000, verbose = True, alpha=0.01)
-        
-        # self.nns[1] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97, 16), 
-        #         activation='relu', solver='lbfgs', max_iter = 10000, verbose = True, alpha=0.001)
-        
+        #               activation='relu', solver='lbfgs', max_iter = 20000, verbose = True, alpha=0.001)
+        # self.nns[1] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97),
+        #               activation='tanh', solver='lbfgs', max_iter = 20000, verbose = True, alpha=0.01)
+        # self.nns[1] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97, 64, 16),
+        #               activation='relu', solver='lbfgs', max_iter = 20000, verbose = True, alpha=0.01)
+        # self.nns[1] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97, 16),
+        #               activation='relu', solver='lbfgs', max_iter = 10000, verbose = True, alpha=0.001)
         # self.nns[2] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97, 16),
-        #       activation='relu', solver='lbfgs', max_iter = 10000, verbose = True, alpha=0.1)
-        
-        #self.nns[1] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97), 
-        #      activation='logistic', solver='adam', max_iter = 10000, verbose = True, learning_rate_init=0.01, batch_size=128, early_stopping=True, tol=0.00001, n_iter_no_change=100)     
-        
-        #self.nns[3] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97), 
-        #     activation='logistic', solver='adam', max_iter = 10000, verbose = True, learning_rate_init=0.001, batch_size=32, early_stopping=True, tol=0.00001, n_iter_no_change=100)
-        
-        # self.nns[4] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97), 
-        #      activation='tanh', solver='adam', max_iter = 10000, verbose = True, learning_rate_init=0.001, early_stopping=True, tol=0.00001)
-        
-        # self.nns[5] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97), 
-        #      activation='logistic', solver='adam', max_iter = 10000, verbose = True, learning_rate_init=0.001, early_stopping=True, tol=0.00001)
-        
-        
-        
+        #               activation='relu', solver='lbfgs', max_iter = 10000, verbose = True, alpha=0.1)
+        # self.nns[1] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97),
+        #               activation='logistic', solver='adam', max_iter = 10000, verbose = True, learning_rate_init=0.01,
+        #               batch_size=128, early_stopping=True, tol=0.00001, n_iter_no_change=100)
+        # self.nns[3] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97),
+        #               activation='logistic', solver='adam', max_iter = 10000, verbose = True,
+        #               learning_rate_init=0.001, batch_size=32, early_stopping=True, tol=0.00001, n_iter_no_change=100)
+        # self.nns[4] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97),
+        #               activation='tanh', solver='adam', max_iter = 10000, verbose = True, learning_rate_init=0.001,
+        #               early_stopping=True, tol=0.00001)
+        # self.nns[5] = MLPRegressor(hidden_layer_sizes=(len(use_col_list)-1, 97),
+        #               activation='logistic', solver='adam', max_iter = 10000, verbose = True,
+        #               learning_rate_init=0.001, early_stopping=True, tol=0.00001)
+
     def dataload(self):
-                
-        for fpath in self.train_files:     
+        for fpath in self.train_files:
             print(fpath)
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
@@ -320,16 +138,13 @@ class Regressor:
         logging.debug("test_df shape : ")
         logging.debug(self.test_df.shape)
         
-        
-                # x = self.train_df.loc[:, self.train_df.columns != 'earning_diff']
+        # x = self.train_df.loc[:, self.train_df.columns != 'earning_diff']
         self.x_train = self.train_df[self.train_df.columns.difference(['earning_diff', 'period_price_diff', 'symbol'])]
         self.y_train = self.train_df[['earning_diff']]
         self.x_test = self.test_df[self.test_df.columns.difference(['earning_diff', 'period_price_diff', 'symbol'])]
         self.y_test = self.test_df[['earning_diff']]
         
-
-    def train(self):        
-
+    def train(self):
         # x_train, x_test, y_train, y_test = train_test_split(x, y, train_size=0.8, test_size=0.2)
         logging.info("start fitting LinearRegression")
         self.mlr.fit(self.x_train, self.y_train)
@@ -363,7 +178,6 @@ class Regressor:
         # print('최적 하이퍼 파라미터: ', grid_cv.best_params_)
         # print('최고 예측 정확도: {:.4f}'.format(grid_cv.best_score_))
     
-        
         # for i, nn in self.nns.items():
         #     logging.info("start fitting " + str(i) + "-th MLPRegressor")
         #     nn.fit(self.x_train, self.y_train.values.ravel())
@@ -383,8 +197,6 @@ class Regressor:
         # print(weight_df)
            
     def evaluation(self):
-        
-        
         self.rfgs = dict()
         
         self.rfgs[0] = joblib.load('./rfg0_model_per1.sav')
@@ -392,13 +204,12 @@ class Regressor:
         self.rfgs[2] = joblib.load('./rfg2_model_per1.sav')
         self.rfgs[3] = joblib.load('./rfg3_model_per1.sav')
         
-        #self.rfgs[0] = joblib.load('rfg0_model' + str(self.conf['START_MONTH']) +'.sav')
-        #self.rfgs[1] = joblib.load('rfg1_model' + str(self.conf['START_MONTH']) +'.sav')
-        #self.rfgs[2] = joblib.load('rfg2_model' + str(self.conf['START_MONTH']) +'.sav')
-        #self.rfgs[3] = joblib.load('rfg3_model' + str(self.conf['START_MONTH']) +'.sav')
-        #self.rfgs[4] = joblib.load('rfg4_model' + str(self.conf['START_MONTH']) +'.sav')
-        #self.rfgs[5] = joblib.load('rfg5_model' + str(self.conf['START_MONTH']) +'.sav')
-        
+        # self.rfgs[0] = joblib.load('rfg0_model' + str(self.conf['START_MONTH']) +'.sav')
+        # self.rfgs[1] = joblib.load('rfg1_model' + str(self.conf['START_MONTH']) +'.sav')
+        # self.rfgs[2] = joblib.load('rfg2_model' + str(self.conf['START_MONTH']) +'.sav')
+        # self.rfgs[3] = joblib.load('rfg3_model' + str(self.conf['START_MONTH']) +'.sav')
+        # self.rfgs[4] = joblib.load('rfg4_model' + str(self.conf['START_MONTH']) +'.sav')
+        # self.rfgs[5] = joblib.load('rfg5_model' + str(self.conf['START_MONTH']) +'.sav')
         
         # self.nns = dict()
         # self.nns[0] = joblib.load('nn0_model.sav')
@@ -442,7 +253,8 @@ class Regressor:
             # preds = np.vstack((preds, y_predict[None,:]))
             if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
                 plt.scatter(y_test, y_predict, alpha=0.4)
-                # pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
+                # pd.concat([pd.DataFrame(y_test).reset_index(),
+                #           pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
                 plt.xlabel("Actual")
                 plt.ylabel("Predicted")
                 plt.title("mlr REGRESSION")
@@ -457,14 +269,14 @@ class Regressor:
                 preds = np.vstack((preds, y_predict[None,:]))
                 if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
                     plt.scatter(y_test, y_predict, alpha=0.4)
-                    # pd.concat([pd.DataFrame(y_test).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")    
+                    # pd.concat([pd.DataFrame(y_test).reset_index(),
+                    #           pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
                     plt.xlabel("Actual")
                     plt.ylabel("Predicted")
                     plt.title(rfg_pred_col_name)
                     plt.show()
             
-            
-            for i, dnn in self.dnns.items():    
+            for i, dnn in self.dnns.items():
                 dnn_pred_col_name = 'dnn_' + str(i) + '_prediction'
                 y_predict0 = dnn(torch.tensor(x_test.values, dtype=torch.float32))
                 y_predict0 = y_predict0.detach().numpy()
@@ -472,15 +284,15 @@ class Regressor:
                 df[dnn_pred_col_name] = pd.Series(y_predict0)
                 preds = np.vstack((preds, y_predict0[None,:]))
 
-                
-            for i, nn in self.nns.items():    
+            for i, nn in self.nns.items():
                 nn_pred_col_name = 'nn_' + str(i) + '_prediction'
                 y_predict = nn.predict(x_test)
                 preds = np.vstack((preds, y_predict[None,:]))
                 df[nn_pred_col_name] = y_predict
                 if self.conf['PRINT_PLT_IN_REGRESSOR'] == 'Y':
                     plt.scatter(y_test, y_predict, alpha=0.4)
-                    # pd.concat([pd.DataFrame(y_train).reset_index(),pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
+                    # pd.concat([pd.DataFrame(y_train).reset_index(),
+                    #           pd.DataFrame(y_predict).reset_index()],axis=1).to_csv("./prediction_result.csv")
                     plt.xlabel("Actual")
                     plt.ylabel("Predicted")
                     plt.title(nn_pred_col_name)
@@ -521,7 +333,6 @@ class Regressor:
         # logging.info(model_eval_hist)
         
     def latest_prediction(self, latest_data_path):
-
         ldf = pd.read_csv(latest_data_path)
         collist = use_col_list.copy()
         collist.remove("earning_diff")
@@ -533,7 +344,7 @@ class Regressor:
         
         input = ldf[ldf.columns.difference(['symbol'])]
         
-        preds = np.empty((0,input.shape[0]))
+        preds = np.empty((0, input.shape[0]))
 
         # y_predict1 = self.mlr.predict(input)
         # ldf['mlr_prediction'] = y_predict1.ravel()
@@ -546,8 +357,7 @@ class Regressor:
         #     y_predict0 = y_predict0.ravel()
         #     ldf[dnn_pred_col_name] = pd.Series(y_predict0)
         #     preds = np.vstack((preds, y_predict0[None,:]))
-        
-        
+
         # for i, nn in self.nns.items():    
         #     nn_pred_col_name = 'nn_' + str(i) + '_prediction'
         #     y_predict2 = nn.predict(input)
@@ -563,8 +373,7 @@ class Regressor:
         ldf['ai_pred_avg'] = np.average(preds, axis=0)        
         ldf.to_csv("./latest_prediction.csv")
         
-        
-        pred_col_list = ['ai_pred_avg'] 
+        pred_col_list = ['ai_pred_avg']
         for i, rfg in self.rfgs.items(): 
             rfg_pred_col_name = 'rfg_' + str(i) + '_prediction'
             pred_col_list.append(rfg_pred_col_name)
@@ -574,18 +383,15 @@ class Regressor:
         for i, dnn in self.dnns.items(): 
             dnn_pred_col_name = 'dnn_' + str(i) + '_prediction'
             pred_col_list.append(dnn_pred_col_name)
-        topk_list = [(0,10), (0,20), (0,30), (3,20), (5,20), (3,30), (10,30)]
+        topk_list = [(0, 10), (0, 20), (0, 30), (3, 20), (5, 20), (3, 30), (10, 30)]
         for s, e in topk_list:
-            logging.info("top" + str(s) + " ~ "  + str(e) )
+            logging.info("top" + str(s) + " ~ " + str(e))
             for col in pred_col_list:
                 top_k_df = ldf.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
                 top_k_df.to_csv('./reports/latest_prediction_{}_top{}-{}.csv'.format(col, s, e))
- 
-        
 
 
 class MyDataset(Dataset):
- 
     def __init__(self, conf):
         aidata_dir = conf['ROOT_PATH'] + '/regressor_data/'
         
@@ -613,7 +419,6 @@ class MyDataset(Dataset):
             # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
             self.train_df = pd.concat([self.train_df, df], axis=0)
 
-
         self.test_df_list = []
         self.test_df = pd.DataFrame()
         for fpath in self.test_files:
@@ -629,7 +434,6 @@ class MyDataset(Dataset):
             self.test_df = pd.concat([self.test_df, df], axis=0)
             self.test_df_list.append([fpath, df])
             
-        
         self.train_df = self.train_df.fillna(0)
         self.test_df = self.test_df.fillna(0)
         
@@ -652,13 +456,13 @@ class RegressionNetwork(nn.Module):
         self.fc1 = nn.Linear(len(use_col_list)-3, 97)
         self.fc2 = nn.Linear(97, 1)
         self.dropout = nn.Dropout(0.1)
+
     def forward(self, x):
-        h = self.dropout(F.sigmoid(self.fc1(x)))
+        h = self.dropout(nn_f.sigmoid(self.fc1(x)))
         h = self.fc2(h)
         return h
     
     def mtrain(self):
-
         # for regression network
         net = RegressionNetwork(self.conf)
         net2 = RegressionNetwork(self.conf)
@@ -666,19 +470,16 @@ class RegressionNetwork(nn.Module):
         loss_fn = nn.MSELoss()
         # loss_fn = nn.L1Loss(reduction='mean')
 
-        myDs = MyDataset(self.conf)
-        train_loader = DataLoader(myDs, batch_size=512, shuffle=True)
+        my_ds = MyDataset(self.conf)
+        train_loader = DataLoader(my_ds, batch_size=512, shuffle=True)
         min_loss = 9999
         
         writer = SummaryWriter('scalar/')
         val_loss_sum = 0
         loss_sum = 0
-        for epoch in range(1,10000):
-            
+        for epoch in range(1, 10000):
             net.train()
-            
             for i, (data, labels) in enumerate(train_loader):
-                
                 pred = net(data)
                 loss = loss_fn(pred,labels) 
                 loss_sum += loss
@@ -696,7 +497,7 @@ class RegressionNetwork(nn.Module):
                     torch.save(net.state_dict(), './model_state_dict.pt')  # 모델 객체의 state_dict 저장
                 loss_sum = 0
 
-            test_loader = DataLoader(myDs, batch_size=1024, shuffle=False)
+            test_loader = DataLoader(my_ds, batch_size=1024, shuffle=False)
             # net2.load_state_dict(torch.load('./model_state_dict.pt'))
             net.eval()
             preds = np.empty(shape=(0))
@@ -719,7 +520,6 @@ class RegressionNetwork(nn.Module):
         writer.close()
         # pred = net(tensor_x_test)
         
-        
 
 class RegressionNetwork1(nn.Module):
     def __init__(self, conf):
@@ -728,8 +528,9 @@ class RegressionNetwork1(nn.Module):
         self.fc1 = nn.Linear(len(use_col_list)-3, 97)
         self.fc2 = nn.Linear(97, 1)
         self.dropout = nn.Dropout(0.25)
+
     def forward(self, x):
-        h = F.leaky_relu(self.fc1(x))
+        h = nn_f.leaky_relu(self.fc1(x))
         h = self.fc2(h)
         return h
     
@@ -741,11 +542,12 @@ class RegressionNetwork2(nn.Module):
         self.fc1 = nn.Linear(len(use_col_list)-3, 97)
         self.fc2 = nn.Linear(97, 1)
         self.dropout = nn.Dropout(0.1)
+
     def forward(self, x):
-        h = self.dropout(F.sigmoid(self.fc1(x)))
+        h = self.dropout(nn_f.sigmoid(self.fc1(x)))
         h = self.fc2(h)
         return h
-    
+
 
 class RegressionNetwork4(nn.Module):
     def __init__(self, conf):
@@ -754,7 +556,8 @@ class RegressionNetwork4(nn.Module):
         self.fc1 = nn.Linear(len(use_col_list)-3, 97)
         self.fc2 = nn.Linear(97, 1)
         self.dropout = nn.Dropout(0.1)
+
     def forward(self, x):
-        h = self.dropout(F.sigmoid(self.fc1(x)))
+        h = self.dropout(nn_f.sigmoid(self.fc1(x)))
         h = self.fc2(h)
         return h

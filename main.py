@@ -1,15 +1,15 @@
 import logging
 import multiprocessing
 import os
-import pandas as pd
-import sqlalchemy
 import yaml
 
 from backtest import Backtest, PlanHandler
 from database import Database
-from parquet import Parquet
 from fmp import FMP
+from parquet import Parquet
 from regressor import Regressor, RegressionNetwork
+
+import pandas as pd
 
 
 class MainCtx:
@@ -17,8 +17,7 @@ class MainCtx:
         self.start_year = int(config['START_YEAR'])
         self.end_year = int(config['END_YEAR'])
         self.root_path = config['ROOT_PATH']
-        # self.need_pq_new_year = config['NEED_NEWYEAR_CSV_TO_PQ']
-        self.need_pq_new_year = "N"
+        # self.need_pq_new_year = "N"
         self.log_lvl = int(config['LOG_LVL'])
         # 다른 Class와 함수에서 connection이 자주 필요하기에 Databse Class 로 관리하지 않고 main_context로 관리
         # aws_mariadb_url = 'mysql+pymysql://' + config['MARIA_DB_USER'] + ":" + config['MARIA_DB_PASSWD'] + "@" \
@@ -37,12 +36,13 @@ class MainCtx:
                 return False
 
     def get_multi_logger(self):
-        # multiprocessing용 logger를 만들어서 사용한 경우, multiprocessing이 끝난 후에 logger가 내부적으로 삭제됨
-        # basicConfig를 다시 세팅하여 logger를 사용하려 했으나 계속 queue is closed 에러가 발생하여 multi 로거와 default logger를
-        # 별도로 관리함. 이 때문에 multi processor에서는 logger.info 라고, 이외에는 logging.info 라고 분리하여 작성해주어야 함(불편)
+        """
+        multiprocessing용 logger를 만들어서 사용한 경우, multiprocessing이 끝난 후에 logger가 내부적으로 삭제됨
+        basicConfig를 다시 세팅하여 logger를 사용하려 했으나 계속 queue is closed 에러가 발생하여 multi 로거와 default logger를
+        별도로 관리함. 이 때문에 multi processor에서는 logger.info 라고, 이외에는 logging.info 라고 분리하여 작성해주어야 함(불편)
+        """
         log_path = "log.txt"
-        # for multiprocessing
-        multiprocessing.freeze_support()
+        multiprocessing.freeze_support()    # for multiprocessing
         logger = logging.getLogger("multi")
         logger.setLevel(self.log_lvl)
 
@@ -55,9 +55,6 @@ class MainCtx:
         file_handler = logging.FileHandler(log_path, mode="a+")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
-        # logging.basicConfig(level=self.log_lvl,
-        #                     format='[%(asctime)s][%(processName)s] %(message)s (%(filename)s:%(lineno)d) ',
-        #                     handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
 
         return logger
 
@@ -78,7 +75,10 @@ def get_config():
 
 
 def conf_check(config):
-    # REPORT 종류는 EVAL, RANK, AI, AVG 뿐
+    """
+    config에 온 내용에 대한 기본적인 Check Logic
+    1) REPORT 종류는 EVAL, RANK, AI, AVG 뿐
+    """
     for rep_type in config['REPORT_LIST']:
         if rep_type != "EVAL" and rep_type != "RANK" and rep_type != "AI" and rep_type != "AVG":
             logging.critical("Only REPORT_LIST : EVAL, RANK, AI, AVG")
@@ -143,48 +143,3 @@ if __name__ == '__main__':
     logging.shutdown()
     del plan_handler
     del bt
-    # TOP_K_NUM: 1500
-    # MEMBER_CNT: 20
-    # ABSOLUTE_SCORE: 30000
-
-    ################################################################################################
-    # (1) tickers를 이용한 재무재표 예제
-    # import yfinance as yf
-    # import yahoo_fin.stock_info as si
-    # from pykrx import stock
-    # import pymysql
-    # symbol = 'GOOGL'
-    # sp500_ticker = si.tickers_sp500()
-    # print(si.get_balance_sheet(symbol))
-
-    # (3) DataReader 예제
-    # import FinanceDataReader as fdr
-    # symbol = 'GOOGL'
-    # web = 'yahoo'
-    # start_date = '2004-08-19'
-    # end_date = '2020-04-17'
-    # google_data = data.DataReader(symbol, web, start_date, end_date)
-    # print(google_data.head(9))
-    # google_data['Close'].plot()
-    # df = stock.get_market_fundamental("20220104", "20220206", "005930", freq="m")
-
-    # (4) dataframe을 이용한 merge 예시
-    # import numpy as np
-    # url_is = fmp_url + "income-statement/{}?limit=120&apikey={}".format(symbol, api_key)
-    # pd_is = pd.read_json(url_is)
-    # url_bs = fmp_url + "balance-sheet-statement/{}?limit=120&apikey={}".format(symbol, api_key)
-    # pd_bs = pd.read_json(url_bs)
-    # url_cf = fmp_url + "cash-flow-statement/{}?limit=120&apikey={}".format(symbol, api_key)
-    # pd_cf = pd.read_json(url_cf)
-    # 재무재표가 income, balance sheet, cash flow 로 나눠서 제공하고 있어 merge 해주는 작업을 해야함
-    # pd_mg = pd_is.merge(pd_bs, left_on=['date', 'symbol'], right_on=['date', 'symbol'], how='inner',
-    #                    suffixes=('', '_del'))
-    # pd_mg = pd_mg.merge(pd_cf, left_on=['date', 'symbol'], right_on=['date', 'symbol'], how='inner',
-    #                    suffixes=('', '_del'))
-    # pd_mg = pd_mg[[c for c in pd_mg.columns if not c.endswith('_del')]]
-    # pd_mg.to_csv("./data/fs/{}.csv".format(symbol), index=False, na_rep='NaN')
-
-    # (5) chart 그리기
-    # import mariadb
-    # import matplotlib.pyplot as plt
-    ################################################################################################

@@ -1,13 +1,14 @@
 import datetime
 import logging
 import os
+
+import multiprocessing as mp
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from dateutil.relativedelta import relativedelta
 from multiprocessing import Pool
-import multiprocessing as mp
 from pyarrow import csv
 from tqdm import tqdm
 
@@ -193,7 +194,6 @@ class Parquet:
             df_all_years.to_csv(csv_save_path, index=False)
             for files in mp_file_list:
                 os.remove(files)
-
             pq.write_table(csv.read_csv(csv_save_path), pq_save_path)
             logging.info("create df in tables dict : {}".format(directory))
  
