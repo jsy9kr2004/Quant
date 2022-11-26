@@ -6,14 +6,13 @@ import multiprocessing as mp
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-
+import numpy as np
 from dateutil.relativedelta import relativedelta
 from multiprocessing import Pool
+from multiprocessing_logging import install_mp_handler
+
 from pyarrow import csv
 from tqdm import tqdm
-
-PQPATH = ""
-
 
 class Parquet:
     def __init__(self, main_ctx):
@@ -86,7 +85,8 @@ class Parquet:
                                                      how='outer', on=['date', 'symbol']).merge(cash_flow_statement,
                                                                                                how='outer',
                                                                                                on=['date', 'symbol'])
-        financial_statement['date'] = financial_statement['date'].astype('datetime64[ns]')
+        financial_statement['date'] = pd.to_datetime(financial_statement['date'], errors = 'coerce')                                                     
+        #financial_statement['date'] = financial_statement['date'].astype('datetime64[ns]')
         # financial_statement['acceptedDate'] = financial_statement['acceptedDate'].astype('datetime64[ns]')
         financial_statement['fillingDate'] = financial_statement['fillingDate'].astype('datetime64[ns]')
                                                 
@@ -94,18 +94,18 @@ class Parquet:
                                        engine="pyarrow", compression="gzip")
         
         logging.info("create financial_statement df")
-        for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
-            fs_peryear = financial_statement[financial_statement['date'].between(datetime.datetime(year, 1, 1),
-                                                                                 datetime.datetime(year, 12, 31))]
-            fs_peryear.to_parquet(self.view_path + "financial_statement_" + str(year) + ".parquet",
-                                  engine="pyarrow", compression="gzip")
-        logging.info("create financial_statement parquet per year")
+        # for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
+        #     fs_peryear = financial_statement[financial_statement['date'].between(datetime.datetime(year, 1, 1),
+        #                                                                          datetime.datetime(year, 12, 31))]
+        #     fs_peryear.to_parquet(self.view_path + "financial_statement_" + str(year) + ".parquet",
+        #                           engine="pyarrow", compression="gzip")
+        # logging.info("create financial_statement parquet per year")
         
         del income_statement
         del balance_sheet_statement
         del cash_flow_statement
         del financial_statement
-        del fs_peryear
+        # del fs_peryear
 
         # 4번 Table
         key_metrics = pd.read_parquet(self.rawpq_path + "key_metrics.parquet")
@@ -120,18 +120,18 @@ class Parquet:
         metrics.to_parquet(self.view_path + "metrics.parquet", engine="pyarrow", compression="gzip")
         logging.info("create metrics df")
 
-        for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
-            metrics_peryear = metrics[metrics['date'].between(datetime.datetime(year, 1, 1),
-                                                              datetime.datetime(year, 12, 31))]
-            metrics_peryear.to_parquet(self.view_path + "metrics_" + str(year) + ".parquet",
-                                       engine="pyarrow", compression="gzip")
+        # for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
+        #     metrics_peryear = metrics[metrics['date'].between(datetime.datetime(year, 1, 1),
+        #                                                       datetime.datetime(year, 12, 31))]
+        #     metrics_peryear.to_parquet(self.view_path + "metrics_" + str(year) + ".parquet",
+        #                                engine="pyarrow", compression="gzip")
                    
-        logging.info("create metrics parquet per year")
+        # logging.info("create metrics parquet per year")
         
         del financial_growth
         del key_metrics
         del metrics
-        del metrics_peryear
+        # del metrics_peryear
 
         # 5번 Table
         indexes = pd.read_parquet(self.rawpq_path + "symbol_available_indexes.parquet")
@@ -139,12 +139,15 @@ class Parquet:
         logging.info("create indexes df")
 
     @staticmethod
-    def read_csv_mp(filename):
+    def read_pq_mp(filename):
         c_proc = mp.current_process()
-        PQPATH = 'D:\\dataset\\qt\\2022_11\\parquet\\'
-        csv_save_path = PQPATH + str(c_proc.pid)+"_mp.csv"
+        # PQPATH = self.main_ctx.root_path        
+        csv_save_path = './' + str(c_proc.pid)+"_mp.csv"
         try:
-            df = csv.read_csv(filename).to_pandas()
+            if filename.split('/')[1] == 'historical_price_full':
+                df = pd.read_parquet(filename, columns=['date', 'symbol', 'close', 'volume'])
+            else:
+                df = pd.read_parquet(filename)
         except Exception as e:
             logging.info(str(e))
             return
@@ -157,58 +160,42 @@ class Parquet:
     def insert_csv(self):
         # wrap your csv importer in a function that can be mapped
         # merge all csvs per directoy
-        dir_list = os.listdir(self.main_ctx.root_path)
-        # dir_list = ["key_metrics", "stock_list", "symbol_available_indexes",
-        #             "balance_sheet_statement", "cash_flow_statement",
-        #             "delisted_companies", "earning_calendar",
-        #             "financial_growth", "historical_daily_discounted_cash_flow", "historical_market_capitalization",
-        #             #"income_statement", "profile"]
-        # dir_list = ["historical_price_full"]
+        # dir_list = os.listdir(self.main_ctx.root_path)
+        dir_list = ["key_metrics", "stock_list", "symbol_available_indexes",
+                    "balance_sheet_statement", "cash_flow_statement",
+                    "delisted_companies", "earning_calendar",
+                    "financial_growth", "historical_daily_discounted_cash_flow", "historical_market_capitalization",
+                    "historical_price_full", "income_statement", "profile"]
+        
         logging.info("directory list : {}".format(dir_list))
         for directory in tqdm(dir_list):
-            csv_save_path = self.rawpq_path + directory + ".csv"
+            # csv_save_path = self.rawpq_path + directory + ".csv"
             pq_save_path = self.rawpq_path + directory + ".parquet"
             if (directory != 'stock_list') and (directory != 'symbol_available_indexes'):
-                if os.path.exists(csv_save_path):
-                    os.remove(csv_save_path)
                 if os.path.exists(pq_save_path):
                     os.remove(pq_save_path)
                 
             # TODO: historical price 는 year 별로 나눠서 csv 만들어 놓기 
             file_list = [self.main_ctx.root_path + "/" + directory + "/"
                          + file for file in os.listdir(self.main_ctx.root_path
-                                                       + "/" + directory) if file.endswith(".csv")]
+                                                       + "/" + directory) if file.endswith(".parquet")]
+
             full_df = pd.DataFrame()
-            with Pool(processes=7) as pool:
+            with Pool(processes=7, initializer=install_mp_handler()) as pool:
                 # or whatever your hardware can support
                 # have your pool map the file names to dataframes
-                pool.map(self.read_csv_mp, file_list)            
+                pool.map(self.read_pq_mp, file_list)            
                 
             df_all_years = pd.DataFrame()
-            mp_file_list = [self.rawpq_path + file for file in os.listdir(self.rawpq_path) if file.endswith("mp.csv")]
-            print("mpfile_list == ", mp_file_list)
-            for files in mp_file_list:
+            # mp_file_list = [self.rawpq_path + file for file in os.listdir(self.rawpq_path) if file.endswith("mp.csv")]
+            mp_file_list = ['./'+ file for file in os.listdir('./') if file.endswith("mp.csv")]
+            for files in mp_file_list:                
                 df = pd.read_csv(files)
                 df_all_years = pd.concat([df_all_years, df])
-            df_all_years = df_all_years.drop(df_all_years.columns[0], axis=1)
-            df_all_years.to_csv(csv_save_path, index=False)
+            # df_all_years = df_all_years.drop(df_all_years.columns[0], axis=1)
+            df_all_years.to_parquet(pq_save_path, index=False)
             for files in mp_file_list:
                 os.remove(files)
-            pq.write_table(csv.read_csv(csv_save_path), pq_save_path)
+            # pq.write_table(csv.read_csv(pq_save_path), pq_save_path)
             logging.info("create df in tables dict : {}".format(directory))
  
-    def tmp_make_preice_parquet(self):
-        csv_save_path = self.rawpq_path + "key_metrics.csv"
-        pq_save_path = self.rawpq_path + "key_metrics.parquet"
-
-        df_all_years = pd.DataFrame()
-        mp_file_list = [self.rawpq_path + file for file in os.listdir(self.rawpq_path) if file.endswith("mp.csv")]
-        print("mpfile_list == ", mp_file_list)
-        for files in mp_file_list:
-            df = pd.read_csv(files)
-            df_all_years = pd.concat([df_all_years, df])
-        df_all_years = df_all_years.drop(df_all_years.columns[0], axis=1)
-        df_all_years.to_csv(csv_save_path, index=False)
-        pq.write_table(csv.read_csv(csv_save_path), pq_save_path)        
-        for files in mp_file_list:
-            os.remove(files)

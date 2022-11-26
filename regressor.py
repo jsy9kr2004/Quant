@@ -16,7 +16,9 @@ from g_variables import use_col_list
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
+import xgboost
+
+# from torch.utils.tensorboard import SummaryWriter
 
 # import torch.utils.data as data_utils
 # from xml.dom import XHTML_NAMESPACE
@@ -58,6 +60,7 @@ class Regressor:
         self.nns = dict()
         self.rfgs = dict()
         self.dnns = dict()
+        self.xgs = dict()
         self.mlr = LinearRegression()
         # self.rfg = RandomForestRegressor(n_jobs=-1, n_estimators=10, min_samples_split=5)
         logging.info("use col list length : ")
@@ -66,6 +69,9 @@ class Regressor:
         self.rfgs[1] = RandomForestRegressor(n_jobs=-1, n_estimators=400, min_samples_leaf=2)
         self.rfgs[2] = RandomForestRegressor(n_jobs=-1, n_estimators=200, min_samples_split=4, min_samples_leaf=2)
         self.rfgs[3] = RandomForestRegressor(n_jobs=-1, n_estimators=400, min_samples_split=8, min_samples_leaf=4)
+
+        self.xgs[0] = xgboost.XGBRegressor(n_estimators=200, learning_rate=0.08, gamma=0, subsample=0.75,
+                                        colsample_bytree=1, max_depth=7)
 
         # self.dnns[1] = RegressionNetwork1(self.conf)
         # self.dnns[1].load_state_dict(torch.load('./model_state_dict_candi1.pt'))
@@ -166,7 +172,21 @@ class Regressor:
             ftr_importances = pd.Series(ftr_importances_values, index = self.x_train.columns)
             ftr_importances.to_csv('./rfg_importances.csv')
             ftr_top20 = ftr_importances.sort_values(ascending=False)[:20]
-            logging.info(ftr_top20)              
+            logging.info(ftr_top20)   
+            
+        for i, xg in self.xgs.items():
+            xg.fit(self.x_train, self.y_train.values.ravel())
+            filename = 'xg' + str(i) + '_model_per1.sav'
+            joblib.dump(xg, filename)
+            logging.info("rfg score : ")
+            logging.info(xg.score(self.x_train, self.y_train))
+            logging.info("end fitting RandomForestRegressor")
+            ftr_importances_values = xg.feature_importances_
+            ftr_importances = pd.Series(ftr_importances_values, index = self.x_train.columns)
+            ftr_importances.to_csv('./xg_importances.csv')
+            ftr_top20 = ftr_importances.sort_values(ascending=False)[:20]
+            logging.info(ftr_top20)
+            
         # params = { 'n_estimators' : [5, 25, 100],
         #    'max_depth' : [2, 4, 8, 16, 32],
         #    'min_samples_leaf' : [8, 12, 18],
