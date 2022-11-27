@@ -47,6 +47,67 @@ class FMP:
         else:
             return df
 
+    @staticmethod
+    def return_fmp(logger, run_multi, res):
+        if run_multi is True:
+            logger.handlers.clear()
+            return res
+        else:
+            return res
+
+    def get_fmp_data_loop(self, fmp_info, run_multi=True):
+        """get_fmp_data를 parallel하게 처리하기 위해 만든 함수"""
+        # multiprocessing 으로 처리되므로 로거를 다시 세팅해야 함
+        if run_multi is True:
+            logger = self.main_ctx.get_multi_logger()
+        else:
+            logger = logging.getLogger()
+        # 결제 PLAN에 관계없이 parallel로 수행하기 때문에 control 할 수 없음 (필요시 다른 방안 모색)
+        # start = time.time()
+        # end = time.time()
+        # remain_sec = (0.2 - (end - start))
+        # if remain_sec > 0:
+        #     sleep(remain_sec)
+        # start = time.time()
+        # TODO pool map 하기 위해서 fmp_info에 list로 넣고 처리한 부분인데 코드가 예쁘지가 않다..
+        path, elem, file_postfix, api_url = fmp_info
+        try:
+            logger.info('Creating File "{}/{}.parquet" <- "{}"'.format(path, elem + file_postfix, api_url))
+            # json_data = pd.read_json(api_url)
+            url_data = requests.get(api_url)
+        except ValueError:
+            logger.debug("No Data. Or Different Data Type")
+            return self.return_fmp(logger, run_multi, False)
+        except urllib.error.HTTPError:
+            logger.warning("HTTP Error 400, API_URL : ", api_url)
+            return self.return_fmp(logger, run_multi, False)
+        # 읽어왔는데 비어 있을 수 있음. ValueError와 다름.
+        # ValueError는 Format이 안맞는 경우고, 이 경우는 page=50 과 같은 extra_url 처리 때문
+        json_text = url_data.text
+        try:
+            json_data = json.loads(json_text)
+        except json.decoder.JSONDecodeError:
+            logger.error("json.decoder.JSONDecodeError")
+            return self.return_fmp(logger, run_multi, False)
+        if json_data == [] or json_data == {}:
+            logger.info("No Data in URL")
+            # 비어있는 표시를 해주기 위해 parquet 뒤에 x를 붙인 file만 만들고 fd close
+            f = open(path + "/{}.parquetx".format(elem + file_postfix), 'w')
+            f.close()
+            logger.handlers.clear()
+            return self.return_fmp(logger, run_multi, False)
+        json_data = self.flatten_json(json_data, expand_all=True)
+        # dcf 값에 대한 별도 예외처리 로직
+        if 'dcf' in json_data.columns:
+            json_data['dcf'] = json_data['dcf'].astype(float)
+        # json_data.to_csv(path + "/{}.csv".format(elem + file_postfix), na_rep='NaN')
+        json_data.to_parquet(path + "/{}.parquet".format(elem + file_postfix))
+        if json_data.empty == True:
+            logger.info("No Data in CSV")
+            logger.handlers.clear()
+            return self.return_fmp(logger, run_multi, False)
+        return self.return_fmp(logger, run_multi, True)
+
     def get_fmp_data(self, main_url, extra_url, need_symbol, is_v4, file_postfix=""):
         """
         순차적으로 넣고자 하는 값을 url에 포함시켜서 돌려줌
@@ -76,13 +137,13 @@ class FMP:
             if main_url == "historical-price-full":
                 logging.info("add ETF symbols to get historical-price-full data")
                 data_list = data_list.append(pd.Series(["SPY", "IVV", "VTI", "VOO", "QQQ", "VEA", "IEFA"]))
-            
-        # for elem in SYMBOL:
-        start = time.time()
-        if need_symbol == True:
             data_list = data_list.dropna()
+
+        fmp_info_list = []
+
         for elem in data_list:
             # TODO url_data = "" 와 같은 줄이 필요할 듯? except 후 continue로 들어갈 때 이전 값이 들어있음. 초기화 필요?
+            api_url = None
             # json_data = ""
             if (not os.path.isfile(path + "/{}.parquet".format(str(elem) + file_postfix))) \
                     and (not os.path.isfile(path + "/{}.parquetx".format(str(elem) + file_postfix))):
@@ -100,55 +161,7 @@ class FMP:
                                                                                     self.api_key)
                     else:
                         api_url = self.fmp_url + "/api/v3/{}?{}apikey={}".format(main_url, extra_url, self.api_key)
-                try:
-                    logging.info('Creating File "{}/{}.parquet" <- "{}"'.format(path, elem + file_postfix, api_url))
-                    # json_data = pd.read_json(api_url)
-                    # TODO 결제 PLAN 더 비싼거 쓰면 sleep 지워도 됨
-                    end = time.time()
-                    remain_sec = (0.2 - (end - start))
-                    if remain_sec > 0:
-                        sleep(remain_sec)
-                    start = time.time()
-                    url_data = requests.get(api_url)
-                    
-                except ValueError:
-                    logging.debug("No Data. Or Different Data Type")
-                    continue
-                except urllib.error.HTTPError:
-                    logging.warning("HTTP Error 400, API_URL : ", api_url)
-                    continue
-                # 읽어왔는데 비어 있을 수 있음. ValueError와 다름.
-                # ValueError는 Format이 안맞는 경우고, 이 경우는 page=50 과 같은 extra_url 처리 때문
-                json_text = url_data.text
-                try:
-                    json_data = json.loads(json_text)
-                except json.decoder.JSONDecodeError:
-                    logging.error("json.decoder.JSONDecodeError")
-                    if need_symbol == True:
-                        continue
-                    else:
-                        return False
-                if json_data == [] or json_data == {}:
-                    logging.info("No Data in URL")
-                    # 비어있는 표시를 해주기 위해 parquet 뒤에 x를 붙인 file만 만들고 fd close
-                    f = open(path + "/{}.parquetx".format(elem + file_postfix), 'w')
-                    f.close()
-                    if need_symbol == True:
-                        continue
-                    else:
-                        return False
-                json_data = self.flatten_json(json_data, expand_all=True)
-                # dcf 값에 대한 별도 예외처리 로직
-                if 'dcf' in json_data.columns:
-                    json_data['dcf'] = json_data['dcf'].astype(float)
-                # json_data.to_csv(path + "/{}.csv".format(elem + file_postfix), na_rep='NaN')
-                json_data.to_parquet(path+"/{}.parquet".format(elem + file_postfix))
-                if json_data.empty == True:
-                    logging.info("No Data in CSV")
-                    if need_symbol == True:
-                        continue
-                    else:
-                        return False
+                fmp_info_list.append([path, elem, file_postfix, api_url])
             else:
                 if cre_flag == True:
                     # 새로 만드는 경우, 이미 csv가 있다는 건 stock list와 delisted list에 중복 값이 있는 상황 (Duplicate)
@@ -156,7 +169,15 @@ class FMP:
                     logging.error('Already Exist "{}/{}.parquet"'.format(path, elem + file_postfix))
                 else:
                     logging.info('Alread Exist File "{}/{}.parquet"'.format(path, elem + file_postfix))
-        return True
+
+        if need_symbol == True:
+            with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
+                pool.map(self.get_fmp_data_loop, fmp_info_list)
+        else:
+            # symbol list가 들어가지 않는 경우 data list는 단 하나만 존재함을 가정하고 있기에 return 해주는 거라 assert 체크 필요
+            assert len(fmp_info_list) == 1, "DATA List only 1"
+            return self.get_fmp_data_loop(fmp_info_list[0], False)
+        return None
 
     def get_fmp_data_preprocessing(self, main_url, extra_url, need_symbol, is_v4):
         if extra_url.find("year") != -1:
@@ -259,9 +280,6 @@ class FMP:
 
     def get_fmp(self, api_url):
         """preprocesing 함수를 call하기 위해 url 형태를 확인하고, argument를 나누는 작업"""
-        # multiprocessing 으로 처리되므로 로거를 다시 세팅해야 함
-        self.main_ctx.set_multi_logger()
-
         self.main_ctx.create_dir(self.main_ctx.root_path)
         # for i in range(len(api_list)):
         need_symbol = True if api_url.find(self.ex_symbol) != -1 else False
@@ -323,7 +341,11 @@ class FMP:
                     # 현재는 한 줄만 읽어오는 함수를 찾지 못해 전체를 읽고 있음.
                     # pd.read_parquet(path, nrows=1)와 같은 옵션은 없는 것으로 보임
                     row = pd.read_parquet(path)
-                    if row["date"].empty is True:
+                    if "date" in row.columns:
+                        if row["date"].empty is True:
+                            os.remove(path)
+                            continue
+                    else:
                         os.remove(path)
                         continue
                     update_date = datetime.datetime.strptime(row["date"].max(), "%Y-%m-%d")
@@ -412,16 +434,16 @@ class FMP:
         if self.skip_remove_check() is False:
             self.remove_first_loop()
 
-        with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
-            pool.map(self.get_fmp, api_list)
+        for url in api_list:
+            self.get_fmp(url)
 
         self.set_symbol()
 
         if self.skip_remove_check() is False:
             self.remove_second_loop()
 
-        with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
-            pool.map(self.get_fmp, api_list)
+        for url in api_list:
+            self.get_fmp(url)
 
         write_fd = open("./config/update_date.txt", "w")
         today = datetime.date.today()

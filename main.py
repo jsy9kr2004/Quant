@@ -42,7 +42,7 @@ class MainCtx:
         별도로 관리함. 이 때문에 multi processor에서는 logger.info 라고, 이외에는 logging.info 라고 분리하여 작성해주어야 함(불편)
         """
         log_path = "log.txt"
-        multiprocessing.freeze_support()    # for multiprocessing
+        multiprocessing.freeze_support()  # for multiprocessing
         logger = logging.getLogger("multi")
         logger.setLevel(self.log_lvl)
 
