@@ -321,6 +321,8 @@ class FMP:
 
     @staticmethod
     def remove_files(path, only_parquet=False):
+        if os.path.isdir(path) is False:
+            return
         for file in os.listdir(path):
             if only_parquet is True and not file.endswith(".parquet"):
                 continue
@@ -333,6 +335,8 @@ class FMP:
         :param : base_path(지워야할 Folder 경로), check_target(True인 경우 직접 row를 읽고 지울지말지 판단)
         """
         logging.info("[Check Remove Files] Path : " + str(base_path))
+        if os.path.isdir(base_path) is False:
+            return
         today = dateutil.utils.today()
         for symbol in self.current_list:
             path = base_path + "/" + str(symbol) + ".parquet"
