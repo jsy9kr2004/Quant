@@ -23,6 +23,7 @@ class MainCtx:
         # aws_mariadb_url = 'mysql+pymysql://' + config['MARIA_DB_USER'] + ":" + config['MARIA_DB_PASSWD'] + "@" \
         #                   + config['MARIA_DB_ADDR'] + ":" + config['MARIA_DB_PORT'] + "/" + config['MARIA_DB_NAME']
         # self.conn = sqlalchemy.create_engine(aws_mariadb_url)
+        self.set_default_logger()
 
     @staticmethod
     def create_dir(path):
@@ -58,15 +59,14 @@ class MainCtx:
 
         return logger
 
-
-def set_default_logger(config):
-    log_path = "log.txt"
-    # if os.path.exists(log_path):
-    #     os.remove(log_path)
-    logging.basicConfig(level=config['LOG_LVL'],
-                        format='[%(asctime)s][%(levelname)s][%(processName)s] '
-                               '%(message)s (%(filename)s:%(lineno)d)',
-                        handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
+    def set_default_logger(self):
+        log_path = "log.txt"
+        # if os.path.exists(log_path):
+        #     os.remove(log_path)
+        logging.basicConfig(level=self.log_lvl,
+                            format='[%(asctime)s][%(levelname)s][%(processName)s] '
+                                   '%(message)s (%(filename)s:%(lineno)d)',
+                            handlers=[logging.FileHandler(log_path, mode='a+'), logging.StreamHandler()])
 
 
 def get_config():
@@ -88,7 +88,6 @@ def conf_check(config):
 if __name__ == '__main__':
     conf = get_config()
     main_ctx = MainCtx(conf)
-    set_default_logger(conf)
     conf_check(conf)
 
     if conf['RUN_REGRESSION'] == "Y":

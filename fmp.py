@@ -47,12 +47,12 @@ class FMP:
         else:
             return df
 
-    @staticmethod
-    def return_fmp(logger, run_multi, res):
+    def return_fmp(self, logger, run_multi, res):
         if run_multi is True:
             logger.handlers.clear()
             return res
         else:
+            self.main_ctx.set_default_logger()
             return res
 
     def get_fmp_data_loop(self, fmp_info, run_multi=True):
@@ -168,7 +168,7 @@ class FMP:
                     # 리스트에 중복값이 왜 들어가게 되었는지 반드시 확인이 필요함. (가정이 깨짐)
                     logging.error('Already Exist "{}/{}.parquet"'.format(path, elem + file_postfix))
                 else:
-                    logging.info('Alread Exist File "{}/{}.parquet"'.format(path, elem + file_postfix))
+                    logging.info('Already Exist File "{}/{}.parquet"'.format(path, elem + file_postfix))
 
         if need_symbol is False:
             # symbol list가 들어가지 않는 경우 data list는 단 하나만 존재함을 가정하고 있기에 return 해주는 거라 assert 체크 필요

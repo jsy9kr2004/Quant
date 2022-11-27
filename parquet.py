@@ -23,6 +23,10 @@ class Parquet:
         self.rawpq_path = self.main_ctx.root_path + "/parquet/"
         PQPATH = self.main_ctx.root_path + "/parquet/"
 
+        self.main_ctx.create_dir(self.view_path)
+        self.main_ctx.create_dir(self.rawpq_path)
+        self.main_ctx.create_dir(PQPATH)
+
     def rebuild_table_view(self):
         # 1번 Table
         symbol_list = pd.read_parquet(self.rawpq_path + "stock_list.parquet",
