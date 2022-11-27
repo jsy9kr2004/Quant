@@ -170,14 +170,17 @@ class FMP:
                 else:
                     logging.info('Alread Exist File "{}/{}.parquet"'.format(path, elem + file_postfix))
 
-        if need_symbol == True:
+        if need_symbol is False:
+            # symbol list가 들어가지 않는 경우 data list는 단 하나만 존재함을 가정하고 있기에 return 해주는 거라 assert 체크 필요
+            # (정정) symbol list가 들어가더라도 모두 다 존재해서 fmp_info_list가 1개 혹은 그 이하 일 수 있음
+            # assert만 체크하자
+            assert len(fmp_info_list) <= 1, "DATA List 0 or 1 != len(fmp_info_list):{}".format(len(fmp_info_list))
+
+        if len(fmp_info_list) == 1:
+            return self.get_fmp_data_loop(fmp_info_list[0], False)
+        elif len(fmp_info_list) > 1:
             with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
                 pool.map(self.get_fmp_data_loop, fmp_info_list)
-        else:
-            # symbol list가 들어가지 않는 경우 data list는 단 하나만 존재함을 가정하고 있기에 return 해주는 거라 assert 체크 필요
-            assert len(fmp_info_list) == 1, "DATA List only 1"
-            return self.get_fmp_data_loop(fmp_info_list[0], False)
-        return None
 
     def get_fmp_data_preprocessing(self, main_url, extra_url, need_symbol, is_v4):
         if extra_url.find("year") != -1:
