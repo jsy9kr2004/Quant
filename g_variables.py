@@ -1,3 +1,40 @@
+col_list = [
+"commonStockRepurchased", "interestCoverage", "dividendYield", "averageInventory", "dividendsPaid", "deferredRevenueNonCurrent",
+"inventoryTurnover", "purchasesOfInvestments", "accountsReceivables", "tangibleAssetValue", "daysPayablesOutstanding", "dcf",
+"averagePayables", "acquisitionsNet", "accountsPayables", "averageReceivables", "workingCapital", "capexToDepreciation",
+"currentRatio", "netCurrentAssetValue", "daysOfInventoryOnHand", "payablesTurnover", "grahamNetNet", "capexToRevenue",
+"netDebtToEBITDA",  "receivablesTurnover", "capexToOperatingCashFlow", "evToOperatingCashFlow", "evToFreeCashFlow","debtToAssets",
+"tangibleBookValuePerShare","stockBasedCompensation", "capexPerShare", "peRatio", "otherAssets",  "enterpriseValueOverEBITDA",
+"enterpriseValue", "bookValuePerShare", "shareholdersEquityPerShare", "pfcfRatio","pocfratio", "daysSalesOutstanding",
+"marketCap_y", "incomeQuality", "interestDebtPerShare", "revenuePerShare", "investmentsInPropertyPlantAndEquipment", "freeCashFlowPerShare",
+"evToSales", "netIncomePerShare", "grahamNumber", "operatingCashFlowPerShare", "cashPerShare", "priceToSalesRatio",
+"pbRatio", "ptbRatio", "investedCapital", "roic","preferredStock",  "marketCap_x", "freeCashFlowYield", "roe",
+"otherLiabilities", "taxPayables", "returnOnTangibleAssets", "otherCurrentAssets", "earningsYield", "capitalExpenditure",
+"debtToEquity", "payoutRatio", "otherNonCashItems", "totalEquity", "costAndExpenses", "totalLiabilities", "totalCurrentLiabilities",
+"operatingExpenses", "totalCurrentAssets", "totalNonCurrentAssets", "netCashUsedProvidedByFinancingActivities", "propertyPlantEquipmentNet",
+"accountPayables", "salesGeneralAndAdministrativeToRevenue", "otherCurrentLiabilities", "sellingGeneralAndAdministrativeExpenses",
+"intangiblesToTotalAssets", "otherInvestingActivites", "totalStockholdersEquity", "netDebt", "totalLiabilitiesAndStockholdersEquity",
+"totalAssets", "totalLiabilitiesAndTotalEquity", "totalNonCurrentLiabilities", "netIncome_y", "capitalLeaseObligations",
+"revenue", "depreciationAndAmortization_y", "ebitdaratio", "ebitda", "dividendsperShareGrowth", "othertotalStockholdersEquity",
+"netChangeInCash", "changeInWorkingCapital", "netIncome_x", "depreciationAndAmortization_x", "netReceivables","cashAtBeginningOfPeriod",
+"netCashUsedForInvestingActivites", "freeCashFlow", "otherWorkingCapital", "incomeBeforeTax", "cashAtEndOfPeriod",
+"sellingAndMarketingExpenses", "netCashProvidedByOperatingActivities", "operatingCashFlow", "netIncomeGrowth",
+"otherNonCurrentAssets", "cashAndShortTermInvestments", "accumulatedOtherComprehensiveIncomeLoss", "grossProfit","cashAndCashEquivalents",
+"epsgrowth", "commonStock", "totalDebt", "epsdilutedGrowth", "incomeTaxExpense", "retainedEarnings", "revenueGrowth",
+"grossProfitRatio", "epsdiluted", "eps", "debtGrowth", "tenYDividendperShareGrowthPerShare", "operatingIncome", "netIncomeRatio",
+"totalOtherIncomeExpensesNet", "incomeBeforeTaxRatio", "costOfRevenue", "operatingCashFlowGrowth", "totalInvestments", "ebitgrowth",
+"operatingIncomeGrowth", "threeYDividendperShareGrowthPerShare", "assetGrowth", "freeCashFlowGrowth", "sgaexpensesGrowth",
+"fiveYDividendperShareGrowthPerShare", "receivablesGrowth", "minorityInterest", "fiveYRevenueGrowthPerShare", "deferredIncomeTax",
+"threeYOperatingCFGrowthPerShare", "longTermDebt", "grossProfitGrowth", "operatingIncomeRatio", "otherNonCurrentLiabilities",
+"threeYShareholdersEquityGrowthPerShare",  "fiveYShareholdersEquityGrowthPerShare", "fiveYOperatingCFGrowthPerShare", "inventory_y",
+"threeYRevenueGrowthPerShare", "researchAndDdevelopementToRevenue", "goodwillAndIntangibleAssets", "threeYNetIncomeGrowthPerShare",
+"tenYOperatingCFGrowthPerShare", "tenYRevenueGrowthPerShare", "tenYShareholdersEquityGrowthPerShare", "interestExpense",
+"tenYNetIncomeGrowthPerShare", "weightedAverageSharesGrowth", "longTermInvestments", "fiveYNetIncomeGrowthPerShare", "bookValueperShareGrowth",
+"inventoryGrowth", "generalAndAdministrativeExpenses", "shortTermDebt", "interestIncome", "rdexpenseGrowth", "effectOfForexChangesOnCash",
+"inventory_x", "intangibleAssets", "otherExpenses", "deferredRevenue", "shortTermInvestments", "deferredTaxLiabilitiesNonCurrent", "taxAssets",
+"researchAndDevelopmentExpenses"
+]
+
 use_col_list = ["interestCoverage", "dividendYield", "inventoryTurnover", "daysPayablesOutstanding",
                 "stockBasedCompensationToRevenue", "dcf", "capexToDepreciation", "currentRatio",
                 "daysOfInventoryOnHand", "payablesTurnover", "grahamNetNet", "capexToRevenue", "netDebtToEBITDA",
@@ -25,7 +62,21 @@ use_col_list = ["interestCoverage", "dividendYield", "inventoryTurnover", "daysP
                 ]
 
 cal_marketcap_list = ["revenue", "netDebt", "totalCurrentAssets", "freeCashFlow", "operatingCashFlow",
-                      "netIncome_x", "netIncome_y", "operatingIncome"]
+                      "netIncome_x", "netIncome_y", "operatingIncome",
+                      "dividendsPaid", # dividendsPaid/시총 = dividendyield
+                      "eps" # eps/시총 = earningyield
+                      ]
+
+cal_marketcap_other_list = [
+     # / 시총 말고, 다른 연산해야하는 애들
+    "bookValuePerShare", # 시총 / bookValuePerShare = PBR
+    "eps", # (시총/eps = 유사 PER)
+    "netdebt", # (netdebt + 시총) = EV
+    "operatingCashflow", # ev / operatingCashflow = evToOperatingCashFlow
+    "FreeCashflow", # ev / FreeCashflow = evToFreeCashflow
+    "ebitda", #  ev / ebitda = enterpriseValueOverEBITDA
+    "revenues" # ev/revenues =  evToSales
+]
 
 # use_col_list = [ "bookValuePerShare_normal", "capexPerShare_normal", "capexToOperatingCashFlow_normal",
 # "capexToRevenue_normal", "cashPerShare_normal", "currentRatio_normal", "daysOfInventoryOnHand_normal",

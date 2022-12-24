@@ -10,7 +10,7 @@ import pandas as pd
 
 from dateutil.relativedelta import relativedelta
 from functools import reduce
-from g_variables import use_col_list, cal_marketcap_list
+from g_variables import col_list, use_col_list, cal_marketcap_list, cal_marketcap_other_list
 from multiprocessing import Pool
 from multiprocessing_logging import install_mp_handler
 from warnings import simplefilter
@@ -118,7 +118,7 @@ class Backtest:
                                          + str(year) + ".parquet")
                 self.fs_table = pd.concat([tmp_fs, self.fs_table])    
                 
-            self.metrics_tabl = pd.DataFrame()
+            self.metrics_table = pd.DataFrame()
             for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
                 tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
                 self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
@@ -310,12 +310,12 @@ class DateHandler:
             prev_q_fs_metrics = pd.merge(prev_q_fs, metrics, how='left', on=['symbol', 'date'])
             
             symbols = prev_q_fs_metrics['symbol']
-            prev_q_fs_metrics = prev_q_fs_metrics[use_col_list]
+            prev_q_fs_metrics = prev_q_fs_metrics[col_list]
             prev_q_fs_metrics = prev_q_fs_metrics.rename(columns=lambda x: "prevQ_" + x)
             prev_q_fs_metrics['symbol'] = symbols
             fs_metrics = pd.merge(fs_metrics, prev_q_fs_metrics, how='left', on=['symbol'])
             
-            for col in use_col_list:
+            for col in col_list:
                 new_col_name = 'Qdiff_' + col
                 fs_metrics[new_col_name] = fs_metrics["prevQ_"+col] - fs_metrics[col]
                 fs_metrics = fs_metrics.drop(["prevQ_"+col], axis=1)
@@ -330,12 +330,12 @@ class DateHandler:
             prev_year_fs_metrics = pd.merge(prev_year_fs, metrics, how='left', on=['symbol', 'date'])
             
             symbols = prev_year_fs_metrics['symbol']
-            prev_year_fs_metrics = prev_year_fs_metrics[use_col_list]
+            prev_year_fs_metrics = prev_year_fs_metrics[col_list]
             prev_year_fs_metrics = prev_year_fs_metrics.rename(columns=lambda x: "prevY_" + x)
             prev_year_fs_metrics['symbol'] = symbols
             fs_metrics = pd.merge(fs_metrics, prev_year_fs_metrics, how='left', on=['symbol'])
 
-            for col in use_col_list:
+            for col in col_list:
                 new_col_name = 'Ydiff_' + col
                 fs_metrics[new_col_name] = fs_metrics["prevY_"+col] - fs_metrics[col]
                 fs_metrics = fs_metrics.drop(["prevY_"+col], axis=1)
@@ -354,8 +354,24 @@ class DateHandler:
                 logging.debug(col)
 
             for col in cal_marketcap_list:
-                new_col_name = 'PerShare_' + col
+                new_col_name = 'OverMC_' + col
                 fs_metrics[new_col_name] = fs_metrics[col] / fs_metrics['cal_marketCap']
+                
+    # "bookValuePerShare", # 시총 / bookValuePerShare = PBR
+    # "eps", # (시총/eps = 유사 PER)
+    # "netdebt", # (netdebt + 시총) = EV
+    # "operatingCashflow", # ev / operatingCashflow = evToOperatingCashFlow
+    # "FreeCashflow", # ev / FreeCashflow = evToFreeCashflow
+    # "ebitda", #  ev / ebitda = enterpriseValueOverEBITDA
+    # "revenues" # ev/revenues =  evToSales                
+            fs_metrics["adaptiveMC_ev"] = fs_metrics['cal_marketCap'] + fs_metrics["netdebt"]
+            for col in cal_marketcap_other_list:
+                new_col_name = 'adaptiveMC_' + col
+                if col == "bookValuePerShare" or col == "eps":
+                    fs_metrics[new_col_name] = fs_metrics['cal_marketCap']/fs_metrics[col]
+                if col == "operatingCashflow" or col == "FreeCashflow" or col == "ebitda" or col == "revenues":
+                    fs_metrics[new_col_name] = fs_metrics['adaptiveMC_ev']/fs_metrics[col]
+                            
             fs_metrics = fs_metrics.drop(["marketCap"], axis=1)
 
             # logging.debug("COL_NAME in fs_table : ")
@@ -369,7 +385,7 @@ class DateHandler:
             for feature in fs_metrics.columns:
                 feature_sortedvalue_col_name = feature + "_sorted"
                 if str(feature).startswith("Ydiff_") or str(feature).startswith("Qdiff_") \
-                        or str(feature).startswith("PerShare_"):
+                        or str(feature).startswith("OverMC_"):
                     feature_name = str(feature).split('_')[1]
                 else:
                     feature_name = feature
@@ -449,8 +465,8 @@ class EvaluationHandler:
         if latest == False:
             period_price_diff_tmp = df_for_reg['period_price_diff']
 
-        use_col_list_wydiff = list(map(lambda x: "Ydiff_" + x, use_col_list))
-        use_col_list_wqdiff = list(map(lambda x: "Qdiff_" + x, use_col_list))
+        use_col_list_wydiff = list(map(lambda x: "Ydiff_" + x, col_list))
+        use_col_list_wqdiff = list(map(lambda x: "Qdiff_" + x, col_list))
         use_col_list_wprev = use_col_list + use_col_list_wydiff + use_col_list_wqdiff
         print(use_col_list_wprev)
         df_for_reg = df_for_reg[use_col_list_wprev]
