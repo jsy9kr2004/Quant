@@ -10,7 +10,7 @@ import pandas as pd
 
 from dateutil.relativedelta import relativedelta
 from functools import reduce
-from g_variables import col_list, use_col_list, cal_marketcap_list, cal_marketcap_other_list
+from g_variables import use_col_list, cal_col_list, cal_ev_col_list
 from multiprocessing import Pool
 from multiprocessing_logging import install_mp_handler
 from warnings import simplefilter
@@ -113,15 +113,17 @@ class Backtest:
             self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
             
             self.fs_table = pd.DataFrame()
-            for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
-                tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
-                                         + str(year) + ".parquet")
-                self.fs_table = pd.concat([tmp_fs, self.fs_table])    
+            self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")
+            # for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
+            #     tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
+            #                              + str(year) + ".parquet")
+            #     self.fs_table = pd.concat([tmp_fs, self.fs_table])    
                 
             self.metrics_table = pd.DataFrame()
-            for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
-                tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
-                self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
+            self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
+            # for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
+            #     tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
+            #     self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
 
     def get_trade_date(self, pdate):
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
@@ -166,10 +168,11 @@ class Backtest:
                 self.eval_handler.print_current_best(self.plan_handler.date_handler)
                 break
          
-            # if date + (relativedelta(months=self.rebalance_period)<=datetime.datetime(self.main_ctx.end_year, 11, 1):
-            if (date + relativedelta(months=self.rebalance_period * 2)) <= recent_date:
+            if date + relativedelta(months=self.rebalance_period) <= datetime.datetime(self.main_ctx.end_year, 11, 1):
+            # if (date + relativedelta(months=self.rebalance_period * 2)) <= recent_date:
                 date += relativedelta(months=self.rebalance_period)
             else:
+                break
                 # 마지막 loop 에 도달하면 최근 date 로 한번 돌아서 print 해준 후에 루프를 빠져 나가도록 함
                 if self.eval_report_path is not None:
                     date = recent_date
@@ -265,11 +268,12 @@ class DateHandler:
     def init_data(self, backtest):
         logging.info("START init_data in date handler ")
         if backtest.conf['LOAD_GET_DATETABLE_FROM_PARQUET'] == 'Y':
+            trade_date = backtest.get_trade_date(self.date)
             dtable_path = backtest.conf['ROOT_PATH'] + "/DATE_TABLE/dtable_" +\
-                        str(self.date.year) + '_' + str(self.date.month) + '_' +\
-                        str(self.date.day) + '.parquet'
+                        str(trade_date.year) + '_' + str(trade_date.month) + '_' +\
+                        str(trade_date.day) + '.parquet'
             if not os.path.exists(dtable_path):
-                logging.CRITICAL("there is no date_table : ", self.date)
+                logging.CRITICAL("there is no date_table : ", trade_date)
                 exit()
             else:
                 self.dtable = pd.read_parquet(dtable_path)
@@ -281,14 +285,15 @@ class DateHandler:
 
             trade_date = backtest.get_trade_date(self.date)
             price = backtest.price_table.query("date == @trade_date")
-            logging.info("Price Table : \n" + str(price))
+            # logging.info("Price Table : \n" + str(price))
             price = price[['symbol', 'date', 'close', 'volume', 'marketCap']]
             price = price.drop_duplicates('symbol', keep='first')
             self.dtable = pd.merge(self.dtable, price, how='left', on='symbol')
             del price
             
             self.dtable = self.dtable[self.dtable['volume'] > 10000]
-            self.dtable = self.dtable.nlargest(int(len(self.dtable)*0.95), 'volume', keep='first')
+            self.dtable = self.dtable.nlargest(int(len(self.dtable)*0.60), 'volume', keep='first')
+            
             
             prev = self.date - relativedelta(months=3)
             # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
@@ -310,14 +315,14 @@ class DateHandler:
             prev_q_fs_metrics = pd.merge(prev_q_fs, metrics, how='left', on=['symbol', 'date'])
             
             symbols = prev_q_fs_metrics['symbol']
-            prev_q_fs_metrics = prev_q_fs_metrics[col_list]
+            prev_q_fs_metrics = prev_q_fs_metrics[cal_col_list]
             prev_q_fs_metrics = prev_q_fs_metrics.rename(columns=lambda x: "prevQ_" + x)
             prev_q_fs_metrics['symbol'] = symbols
             fs_metrics = pd.merge(fs_metrics, prev_q_fs_metrics, how='left', on=['symbol'])
             
-            for col in col_list:
+            for col in cal_col_list:
                 new_col_name = 'Qdiff_' + col
-                fs_metrics[new_col_name] = fs_metrics["prevQ_"+col] - fs_metrics[col]
+                fs_metrics[new_col_name] = (fs_metrics["prevQ_"+col] - fs_metrics[col]) / fs_metrics["prevQ_"+col] 
                 fs_metrics = fs_metrics.drop(["prevQ_"+col], axis=1)
 
             # 1년 전 fs, metrics 와 모든 column 빼서 1-year diff column 만들기
@@ -330,14 +335,14 @@ class DateHandler:
             prev_year_fs_metrics = pd.merge(prev_year_fs, metrics, how='left', on=['symbol', 'date'])
             
             symbols = prev_year_fs_metrics['symbol']
-            prev_year_fs_metrics = prev_year_fs_metrics[col_list]
+            prev_year_fs_metrics = prev_year_fs_metrics[cal_col_list]
             prev_year_fs_metrics = prev_year_fs_metrics.rename(columns=lambda x: "prevY_" + x)
             prev_year_fs_metrics['symbol'] = symbols
             fs_metrics = pd.merge(fs_metrics, prev_year_fs_metrics, how='left', on=['symbol'])
 
-            for col in col_list:
+            for col in cal_col_list:
                 new_col_name = 'Ydiff_' + col
-                fs_metrics[new_col_name] = fs_metrics["prevY_"+col] - fs_metrics[col]
+                fs_metrics[new_col_name] = (fs_metrics["prevY_"+col] - fs_metrics[col])/fs_metrics["prevY_"+col]
                 fs_metrics = fs_metrics.drop(["prevY_"+col], axis=1)
 
             # marketCap 과의 직접 계산이 필요한 column들을 추가 해 줌
@@ -350,10 +355,9 @@ class DateHandler:
             fs_metrics = pd.merge(fs_metrics, cap, how='left', on=['symbol'])
 
             logging.debug("COL_NAME in fs_metrics : ")
-            for col in fs_metrics.columns:
-                logging.debug(col)
+            logging.debug("COL LEN : ", len(fs_metrics.columns))
 
-            for col in cal_marketcap_list:
+            for col in cal_col_list:
                 new_col_name = 'OverMC_' + col
                 fs_metrics[new_col_name] = fs_metrics[col] / fs_metrics['cal_marketCap']
                 
@@ -364,13 +368,10 @@ class DateHandler:
     # "FreeCashflow", # ev / FreeCashflow = evToFreeCashflow
     # "ebitda", #  ev / ebitda = enterpriseValueOverEBITDA
     # "revenues" # ev/revenues =  evToSales                
-            fs_metrics["adaptiveMC_ev"] = fs_metrics['cal_marketCap'] + fs_metrics["netdebt"]
-            for col in cal_marketcap_other_list:
+            fs_metrics["adaptiveMC_ev"] = fs_metrics['cal_marketCap'] + fs_metrics["netDebt"]
+            for col in cal_ev_col_list:
                 new_col_name = 'adaptiveMC_' + col
-                if col == "bookValuePerShare" or col == "eps":
-                    fs_metrics[new_col_name] = fs_metrics['cal_marketCap']/fs_metrics[col]
-                if col == "operatingCashflow" or col == "FreeCashflow" or col == "ebitda" or col == "revenues":
-                    fs_metrics[new_col_name] = fs_metrics['adaptiveMC_ev']/fs_metrics[col]
+                fs_metrics[new_col_name] = fs_metrics['adaptiveMC_ev']/fs_metrics[col]
                             
             fs_metrics = fs_metrics.drop(["marketCap"], axis=1)
 
@@ -383,7 +384,10 @@ class DateHandler:
 
             highlow = pd.read_csv('./sort.csv', header=0)
             for feature in fs_metrics.columns:
-                feature_sortedvalue_col_name = feature + "_sorted"
+                if not (feature in 'use_col_list' or feature.startswith('Ydiff') or feature.startswith('Qdiff')\
+                            or feature.startswith('OverMC')):
+                    continue
+                feature_sortedvalue_col_name = feature + "_sorted"                
                 if str(feature).startswith("Ydiff_") or str(feature).startswith("Qdiff_") \
                         or str(feature).startswith("OverMC_"):
                     feature_name = str(feature).split('_')[1]
@@ -465,8 +469,8 @@ class EvaluationHandler:
         if latest == False:
             period_price_diff_tmp = df_for_reg['period_price_diff']
 
-        use_col_list_wydiff = list(map(lambda x: "Ydiff_" + x, col_list))
-        use_col_list_wqdiff = list(map(lambda x: "Qdiff_" + x, col_list))
+        use_col_list_wydiff = list(map(lambda x: "Ydiff_" + x, cal_col_list))
+        use_col_list_wqdiff = list(map(lambda x: "Qdiff_" + x, cal_col_list))
         use_col_list_wprev = use_col_list + use_col_list_wydiff + use_col_list_wqdiff
         print(use_col_list_wprev)
         df_for_reg = df_for_reg[use_col_list_wprev]
@@ -604,7 +608,7 @@ class EvaluationHandler:
         for idx, (date, rebalance_date, best_group, reference_group, period_earning_rate) in enumerate(self.best_k):
             if date.year != self.backtest.table_year:
                 logging.info("Reload BackTest Table. year : {} -> {}".format(self.backtest.table_year, date.year))
-                self.backtest.reload_bt_table(date.year)
+                self.backtest.load_bt_table(date.year)
                 self.backtest.table_year = date.year
 
             # lastest date
@@ -642,9 +646,10 @@ class EvaluationHandler:
 
                 if self.backtest.rank_report_path is not None:
                     for feature in self.best_k[idx][3].columns:
-                        feature_rank_col_name = feature + "_rank"
-                        self.best_k[idx][3][feature_rank_col_name] \
-                            = self.best_k[idx][3][feature].rank(method='min', ascending=False)
+                        if '_sorted' in feature:
+                            feature_rank_col_name = feature + "_rank"
+                            self.best_k[idx][3][feature_rank_col_name] \
+                                = self.best_k[idx][3][feature].rank(method='max', ascending=False)
                 self.best_k[idx][3] \
                     = self.best_k[idx][3].sort_values(by=["period_price_diff"],
                                                       axis=0, ascending=False)[:self.backtest.conf['TOP_K_NUM']]
@@ -672,12 +677,13 @@ class EvaluationHandler:
                             logging.debug("close price already 0 : {}".format(sym))
 
                 logging.debug(str(self.best_k[idx][2]))
-            self.best_k[idx][2] = self.best_k[idx][2][self.best_k[idx][2].rebalance_day_price > 0.000001]
+                self.best_k[idx][2] = self.best_k[idx][2][self.best_k[idx][2].rebalance_day_price > 0.000001]
             self.best_k[idx][2] = self.best_k[idx][2].head(self.member_cnt)
             start_dh = copy.deepcopy(end_dh)
             logging.info(str(idx) + " " + str(date))
 
     def cal_earning_func(self, best_k):
+        print("top")
         logger = self.backtest.main_ctx.get_multi_logger()
 
         (date, rebalance_date, best_group, reference_group, period_earning_rate) = best_k
@@ -697,7 +703,7 @@ class EvaluationHandler:
         remain_asset = total_asset - price_mul_stock_cnt.sum()
         if my_asset_period == 0:
             return
-
+        
         # MDD 계산을 위해 이 구간에서 각 종목별 구매 개수 저장
         best_k[2]['count'] = stock_cnt
 
@@ -706,6 +712,8 @@ class EvaluationHandler:
         best_k[2]['period_earning'] = rebalance_day_price_mul_stock_cnt - price_mul_stock_cnt
         period_earning = rebalance_day_price_mul_stock_cnt.sum() - price_mul_stock_cnt.sum()
         best_k[4] = period_earning
+        logger.debug("in mp cal_earning_func : best k : ")
+        logger.debug(best_k)
         return best_k
 
     def cal_earning(self):
@@ -714,9 +722,12 @@ class EvaluationHandler:
         params = copy.deepcopy(self.best_k)
         # with Pool(processes=multiprocessing.cpu_count()) as pool:
         # install_mp_handler()
-        #with Pool(processes=multiprocessing.cpu_count()-4, initializer=install_mp_handler()) as pool:
-        with Pool(processes=2, initializer=install_mp_handler()) as pool:
+        print("in cal_earning : params : ")
+        print(params)
+        with Pool(processes=multiprocessing.cpu_count()-4, initializer=install_mp_handler()) as pool:
+        #with Pool(processes=2, initializer=install_mp_handler()) as pool:
             df_list = pool.map(self.cal_earning_func, params)
+            print("return df_list : ", df_list)
         df_list = list(filter(None.__ne__, df_list))
         logging.info("in cal_earning : df_list : ")
         logging.info(df_list)
@@ -819,6 +830,8 @@ class EvaluationHandler:
                 fd.close()
             if self.backtest.rank_report_path is not None:
                 if idx <= self.backtest.conf['RANK_PERIOD']:
+                    rank_partial_path = self.backtest.rank_report_path[:-4]+'_' +str(date.year)+'_' +str(date.month) + '.csv'
+                    rank_elem.to_csv(rank_partial_path, index=False)
                     self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem)
             if self.backtest.avg_report_path is not None:
                 rank_elem.to_csv(self.backtest.avg_report_path, mode="a", index=False, header=False)
