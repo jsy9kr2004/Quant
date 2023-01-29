@@ -10,7 +10,7 @@ import pandas as pd
 
 from dateutil.relativedelta import relativedelta
 from functools import reduce
-from g_variables import use_col_list, cal_col_list, cal_ev_col_list
+from g_variables import use_col_list, cal_col_list, cal_ev_col_list, sector_map
 from multiprocessing import Pool
 from multiprocessing_logging import install_mp_handler
 from warnings import simplefilter
@@ -257,6 +257,7 @@ class PlanHandler:
 
 
 class DateHandler:
+
     def __init__(self, backtest, date):
         pd.set_option('mode.chained_assignment', None)
         logging.info("in datehandler date : " + date.strftime("%Y-%m-%d"))
@@ -277,6 +278,8 @@ class DateHandler:
                 exit()
             else:
                 self.dtable = pd.read_parquet(dtable_path)
+                # industry to sector.
+                self.dtable["sector"] = self.dtable["industry"].map(sector_map)
         else:
             # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
             query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(self.date)
@@ -423,6 +426,7 @@ class DateHandler:
                 # fs_metrics = fs_metrics.astype({feature: 'float16'})
             
             self.dtable = pd.merge(self.dtable, fs_metrics, how='left', on='symbol')
+            self.dtable["sector"] = self.dtable["industry"].map(sector_map)
             self.dtable.to_parquet(backtest.conf['ROOT_PATH'] + "/DATE_TABLE/"
                                     + 'dtable_' + str(self.date.year) + '_'
                                     + str(self.date.month) + '_' + str(self.date.day) + '.parquet',
@@ -469,12 +473,18 @@ class EvaluationHandler:
         if latest == False:
             period_price_diff_tmp = df_for_reg['period_price_diff']
 
+        print(df_for_reg.columns)
         use_col_list_wydiff = list(map(lambda x: "Ydiff_" + x, cal_col_list))
         use_col_list_wqdiff = list(map(lambda x: "Qdiff_" + x, cal_col_list))
-        use_col_list_wprev = use_col_list + use_col_list_wydiff + use_col_list_wqdiff
+        use_col_list_woverMC = list(map(lambda x: "OverMC_" + x, cal_col_list))
+        use_col_list_wadaMC = list(filter(lambda x: x.startswith('adaptiveMC_'), df_for_reg.columns))
+
+        print(use_col_list_wadaMC)
+
+        use_col_list_wprev = use_col_list + use_col_list_wydiff + use_col_list_wqdiff + use_col_list_woverMC + use_col_list_wadaMC
         print(use_col_list_wprev)
-        df_for_reg = df_for_reg[use_col_list_wprev]
-        df_for_reg['symbol'] = symbols_tmp
+        # df_for_reg = df_for_reg[[use_col_list_wprev]]
+        # df_for_reg['symbol'] = symbols_tmp
 
         if latest == False:
             df_for_reg['period_price_diff'] = period_price_diff_tmp
@@ -594,6 +604,10 @@ class EvaluationHandler:
         df_for_reg_print['symbol'] = df_for_reg['symbol']
         traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data_0' + str(
             self.backtest.conf['START_MONTH']) + '/'
+
+        if not os.path.exists(traindata_path):
+            os.makedirs(traindata_path)
+
         if latest == False:
             df_for_reg_print.to_csv(traindata_path + '{0}_{1:02d}_regressor_train.csv'.format(date.year, date.month),
                                     index=False)
