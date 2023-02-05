@@ -394,6 +394,16 @@ class FMP:
                 return True
         return False
 
+    def validation_check(self):
+        """
+        아래와 같은 에러 메시지가 발생하는 경우가 존재
+        1) Limit Reach . Please upgrade your plan or visit our documentation for more details
+           at https://site.financialmodelingprep.com/
+        2) Error Message
+        파일의 내용을 확인해보고 위와 같은 메시지를 파일에 적어놓은 경우 해당 파일을 삭제
+        :return: bool 삭제해야 할 파일이 존재하는지 여부
+        """
+
     def remove_first_loop(self):
         """
         symbol list를 현재 기준으로 다시 만들고, 지워야하기 때문에 먼저 리스트에 영향을 끼칠만한 내용부터 지움
@@ -456,3 +466,8 @@ class FMP:
         today = datetime.date.today()
         write_fd.write(str(today))
         write_fd.close()
+
+        if self.validation_check() is False:
+            logging.critical("Validation Check False!! Please run the program again after a few minutes!!")
+            exit()
+

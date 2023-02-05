@@ -193,7 +193,7 @@ class Parquet:
             df_all_years = pd.DataFrame()
             # mp_file_list = [self.rawpq_path + file for file in os.listdir(self.rawpq_path) if file.endswith("mp.csv")]
             mp_file_list = ['./'+ file for file in os.listdir('./') if file.endswith("mp.csv")]
-            for files in mp_file_list:                
+            for files in mp_file_list:
                 df = pd.read_csv(files)
                 df_all_years = pd.concat([df_all_years, df])
             # df_all_years = df_all_years.drop(df_all_years.columns[0], axis=1)
