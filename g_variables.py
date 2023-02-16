@@ -1,3 +1,8 @@
+sparse_col_list = ['Ydiff_dcf', 'Ydiff_preferredStock', 'Qdiff_otherLiabilities', 'Ydiff_capitalLeaseObligations', 'Qdiff_dcf',
+                   'Ydiff_otherLiabilities', 'Ydiff_deferredRevenueNonCurrent', 'Qdiff_otherAssets', 'Qdiff_deferredRevenueNonCurrent', 
+                   'Ydiff_sellingAndMarketingExpenses', 'Ydiff_researchAndDdevelopementToRevenue', 
+                   'dcf', 'Ydiff_otherAssets', 'OverMC_dcf', 'Qdiff_preferredStock', 'Qdiff_capitalLeaseObligations']
+
 cal_col_list = [
 "commonStockRepurchased", "interestCoverage", "dividendYield", "averageInventory", "dividendsPaid", "deferredRevenueNonCurrent",
 "inventoryTurnover", "purchasesOfInvestments", "accountsReceivables", "tangibleAssetValue", "daysPayablesOutstanding", "dcf",

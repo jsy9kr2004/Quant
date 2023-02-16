@@ -10,7 +10,7 @@ import pandas as pd
 
 from dateutil.relativedelta import relativedelta
 from functools import reduce
-from g_variables import use_col_list, cal_col_list, cal_ev_col_list, sector_map
+from g_variables import use_col_list, cal_col_list, cal_ev_col_list, sector_map, sparse_col_list
 from multiprocessing import Pool
 from multiprocessing_logging import install_mp_handler
 from warnings import simplefilter
@@ -201,8 +201,8 @@ class PlanHandler:
         assert self.plan_list is not None, "Empty Plan List"
         assert self.date_handler is not None, "Empty Date Handler"
 
-        #with Pool(processes=multiprocessing.cpu_count()-4, initializer=install_mp_handler()) as pool:
-        with Pool(processes=2, initializer=install_mp_handler()) as pool:
+        with Pool(processes=multiprocessing.cpu_count()-4, initializer=install_mp_handler()) as pool:
+        # with Pool(processes=2, initializer=install_mp_handler()) as pool:
             df_list = pool.map(self.plan_run, self.plan_list)
 
         full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
@@ -268,170 +268,175 @@ class DateHandler:
 
     def init_data(self, backtest):
         logging.info("START init_data in date handler ")
+        
+        # 미리 parquet로 저장해둔 DATE handler table을 읽어들임.
         if backtest.conf['LOAD_GET_DATETABLE_FROM_PARQUET'] == 'Y':
             trade_date = backtest.get_trade_date(self.date)
             dtable_path = backtest.conf['ROOT_PATH'] + "/DATE_TABLE/dtable_" +\
                         str(trade_date.year) + '_' + str(trade_date.month) + '_' +\
                         str(trade_date.day) + '.parquet'
             if not os.path.exists(dtable_path):
-                logging.CRITICAL("there is no date_table : ", trade_date)
-                exit()
+                logging.info("there is no date_table : ")
+                self.create_dtable(backtest)
             else:
                 self.dtable = pd.read_parquet(dtable_path)
                 # industry to sector.
                 self.dtable["sector"] = self.dtable["industry"].map(sector_map)
         else:
-            # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
-            query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(self.date)
-            self.dtable = backtest.symbol_table.query(query)
-            self.dtable = self.dtable.assign(score=0)
+            self.create_dtable(backtest)
+        
+    def create_dtable(self, backtest):
+        
+        # 미리 parquet로 저장해둔 DATE handler table이 없어서 새로 만듬. 
 
-            trade_date = backtest.get_trade_date(self.date)
-            price = backtest.price_table.query("date == @trade_date")
-            # logging.info("Price Table : \n" + str(price))
-            price = price[['symbol', 'date', 'close', 'volume', 'marketCap']]
-            price = price.drop_duplicates('symbol', keep='first')
-            self.dtable = pd.merge(self.dtable, price, how='left', on='symbol')
-            del price
+        # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
+        query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(self.date)
+        self.dtable = backtest.symbol_table.query(query)
+        self.dtable = self.dtable.assign(score=0)
+
+        trade_date = backtest.get_trade_date(self.date)
+        
+        price = backtest.price_table.query("date == @trade_date")
+        # logging.info("Price Table : \n" + str(price))
+        price = price[['symbol', 'date', 'close', 'volume', 'marketCap']]
+        price = price.drop_duplicates('symbol', keep='first')
+        self.dtable = pd.merge(self.dtable, price, how='left', on='symbol')
+        del price
+        self.dtable = self.dtable[self.dtable['volume'] > 10000]
+        self.dtable = self.dtable.nlargest(int(len(self.dtable)*0.60), 'volume', keep='first')
+        
+        prev = self.date - relativedelta(months=3)
+        # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
+        fs = backtest.fs_table.copy()
+        fs = fs[fs.fillingDate <= self.date]
+        fs = fs[prev <= fs.fillingDate]
+        fs = fs.drop_duplicates('symbol', keep='first')
+        metrics = backtest.metrics_table.copy()
+        fs_metrics = pd.merge(fs, metrics, how='left', on=['symbol', 'date'])
+        
+        # 1 Q 전 fs, metrics 와 모든 column 빼서 1-year diff column 만들기
+        prev_q = self.date - relativedelta(months=3)
+        prev = self.date - relativedelta(months=6)
+        prev_q_fs = backtest.fs_table.copy()
+        prev_q_fs = prev_q_fs[prev_q_fs.fillingDate <= prev_q]
+        prev_q_fs = prev_q_fs[prev <= prev_q_fs.fillingDate]
+        prev_q_fs = prev_q_fs.drop_duplicates('symbol', keep='first')
+        prev_q_fs_metrics = pd.merge(prev_q_fs, metrics, how='left', on=['symbol', 'date'])
+        
+        symbols = prev_q_fs_metrics['symbol']
+        prev_q_fs_metrics = prev_q_fs_metrics[cal_col_list]
+        prev_q_fs_metrics = prev_q_fs_metrics.rename(columns=lambda x: "prevQ_" + x)
+        prev_q_fs_metrics['symbol'] = symbols
+        fs_metrics = pd.merge(fs_metrics, prev_q_fs_metrics, how='left', on=['symbol'])
+        
+        for col in cal_col_list:
+            new_col_name = 'Qdiff_' + col
+            fs_metrics[new_col_name] = (fs_metrics["prevQ_"+col] - fs_metrics[col]) / fs_metrics["prevQ_"+col] 
+            fs_metrics = fs_metrics.drop(["prevQ_"+col], axis=1)
+
+        # 1년 전 fs, metrics 와 모든 column 빼서 1-year diff column 만들기
+        prev_year = self.date - relativedelta(months=10)
+        prev = self.date - relativedelta(months=12)
+        prev_year_fs = backtest.fs_table.copy()
+        prev_year_fs = prev_year_fs[prev_year_fs.fillingDate <= prev_year]
+        prev_year_fs = prev_year_fs[prev <= prev_year_fs.fillingDate]
+        prev_year_fs = prev_year_fs.drop_duplicates('symbol', keep='first')
+        prev_year_fs_metrics = pd.merge(prev_year_fs, metrics, how='left', on=['symbol', 'date'])
+        
+        symbols = prev_year_fs_metrics['symbol']
+        prev_year_fs_metrics = prev_year_fs_metrics[cal_col_list]
+        prev_year_fs_metrics = prev_year_fs_metrics.rename(columns=lambda x: "prevY_" + x)
+        prev_year_fs_metrics['symbol'] = symbols
+        fs_metrics = pd.merge(fs_metrics, prev_year_fs_metrics, how='left', on=['symbol'])
+
+        for col in cal_col_list:
+            new_col_name = 'Ydiff_' + col
+            fs_metrics[new_col_name] = (fs_metrics["prevY_"+col] - fs_metrics[col])/fs_metrics["prevY_"+col]
+            fs_metrics = fs_metrics.drop(["prevY_"+col], axis=1)
+
+        # marketCap 과의 직접 계산이 필요한 column들을 추가 해 줌
+        cap = self.dtable.copy()
+        cap = cap[['symbol', 'marketCap']]
+        logging.debug("cap : \n" + str(cap))
+        # marketcap_fs = backtest.fs_table.copy()
+        cap.rename(columns={'marketCap': 'cal_marketCap'}, inplace=True)
+        fs_metrics = pd.merge(fs_metrics, cap, how='left', on=['symbol'])
+
+        for col in cal_col_list:
+            new_col_name = 'OverMC_' + col
+            fs_metrics[new_col_name] = fs_metrics[col] / fs_metrics['cal_marketCap']
+
+
             
-            self.dtable = self.dtable[self.dtable['volume'] > 10000]
-            self.dtable = self.dtable.nlargest(int(len(self.dtable)*0.60), 'volume', keep='first')
+        # "bookValuePerShare", # 시총 / bookValuePerShare = PBR
+        # "eps", # (시총/eps = 유사 PER)
+        # "netdebt", # (netdebt + 시총) = EV
+        # "operatingCashflow", # ev / operatingCashflow = evToOperatingCashFlow
+        # "FreeCashflow", # ev / FreeCashflow = evToFreeCashflow
+        # "ebitda", #  ev / ebitda = enterpriseValueOverEBITDA
+        # "revenues" # ev/revenues =  evToSales                
+        fs_metrics["adaptiveMC_ev"] = fs_metrics['cal_marketCap'] + fs_metrics["netDebt"]
+        for col in cal_ev_col_list:
+            new_col_name = 'adaptiveMC_' + col
+            fs_metrics[new_col_name] = fs_metrics['adaptiveMC_ev']/fs_metrics[col]
+                        
+        fs_metrics = fs_metrics.drop(["marketCap"], axis=1)
+
+        # logging.debug("COL_NAME in fs_table : ")
+        # for col in backtest.fs_table.columns:
+        #     logging.debug(col)
+        # logging.debug("COL_NAME in fs_metrics : ")
+        # for col in fs_metrics.columns:
+        #     logging.debug(col)
+
+        highlow = pd.read_csv('./sort.csv', header=0)
+        for feature in fs_metrics.columns:
+            if ( feature not in use_col_list) and (not feature.startswith('Ydiff')) and (not feature.startswith('Qdiff'))\
+                        and (not feature.startswith('OverMC')) and (not feature.startswith('adaptiveMC')):
+                continue
+            feature_sortedvalue_col_name = feature + "_sorted"                
+            if str(feature).startswith("Ydiff_") or str(feature).startswith("Qdiff_") \
+                    or str(feature).startswith("OverMC_"):
+                feature_name = str(feature).split('_')[1]
+            else:
+                feature_name = feature
+            # 음수 처리
+            f = highlow.query("name == @feature_name")
+            if f.empty:
+                continue
+            else:
+                fs_metrics[feature_sortedvalue_col_name] = fs_metrics[feature]
+                if f.iloc[0].sort == "low":
+                    try:
+                        feat_max = fs_metrics[feature].max()
+                        fs_metrics[feature_sortedvalue_col_name] = \
+                            [s*(-1) if s >= 0 else (s - feat_max) for s in fs_metrics[feature]]
+                    except Exception as e:
+                        logging.info(str(e))
+                        continue
             
-            
-            prev = self.date - relativedelta(months=3)
-            # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
-            fs = backtest.fs_table.copy()
-
-            fs = fs[fs.fillingDate <= self.date]
-            fs = fs[prev <= fs.fillingDate]
-            fs = fs.drop_duplicates('symbol', keep='first')
-            metrics = backtest.metrics_table.copy()
-            fs_metrics = pd.merge(fs, metrics, how='left', on=['symbol', 'date'])
-            
-            # 1 Q 전 fs, metrics 와 모든 column 빼서 1-year diff column 만들기
-            prev_q = self.date - relativedelta(months=3)
-            prev = self.date - relativedelta(months=6)
-            prev_q_fs = backtest.fs_table.copy()
-            prev_q_fs = prev_q_fs[prev_q_fs.fillingDate <= prev_q]
-            prev_q_fs = prev_q_fs[prev <= prev_q_fs.fillingDate]
-            prev_q_fs = prev_q_fs.drop_duplicates('symbol', keep='first')
-            prev_q_fs_metrics = pd.merge(prev_q_fs, metrics, how='left', on=['symbol', 'date'])
-            
-            symbols = prev_q_fs_metrics['symbol']
-            prev_q_fs_metrics = prev_q_fs_metrics[cal_col_list]
-            prev_q_fs_metrics = prev_q_fs_metrics.rename(columns=lambda x: "prevQ_" + x)
-            prev_q_fs_metrics['symbol'] = symbols
-            fs_metrics = pd.merge(fs_metrics, prev_q_fs_metrics, how='left', on=['symbol'])
-            
-            for col in cal_col_list:
-                new_col_name = 'Qdiff_' + col
-                fs_metrics[new_col_name] = (fs_metrics["prevQ_"+col] - fs_metrics[col]) / fs_metrics["prevQ_"+col] 
-                fs_metrics = fs_metrics.drop(["prevQ_"+col], axis=1)
-
-            # 1년 전 fs, metrics 와 모든 column 빼서 1-year diff column 만들기
-            prev_year = self.date - relativedelta(months=10)
-            prev = self.date - relativedelta(months=12)
-            prev_year_fs = backtest.fs_table.copy()
-            prev_year_fs = prev_year_fs[prev_year_fs.fillingDate <= prev_year]
-            prev_year_fs = prev_year_fs[prev <= prev_year_fs.fillingDate]
-            prev_year_fs = prev_year_fs.drop_duplicates('symbol', keep='first')
-            prev_year_fs_metrics = pd.merge(prev_year_fs, metrics, how='left', on=['symbol', 'date'])
-            
-            symbols = prev_year_fs_metrics['symbol']
-            prev_year_fs_metrics = prev_year_fs_metrics[cal_col_list]
-            prev_year_fs_metrics = prev_year_fs_metrics.rename(columns=lambda x: "prevY_" + x)
-            prev_year_fs_metrics['symbol'] = symbols
-            fs_metrics = pd.merge(fs_metrics, prev_year_fs_metrics, how='left', on=['symbol'])
-
-            for col in cal_col_list:
-                new_col_name = 'Ydiff_' + col
-                fs_metrics[new_col_name] = (fs_metrics["prevY_"+col] - fs_metrics[col])/fs_metrics["prevY_"+col]
-                fs_metrics = fs_metrics.drop(["prevY_"+col], axis=1)
-
-            # marketCap 과의 직접 계산이 필요한 column들을 추가 해 줌
-            logging.debug("dtable : \n" + str(self.dtable))
-            cap = self.dtable.copy()
-            cap = cap[['symbol', 'marketCap']]
-            logging.debug("cap : \n" + str(cap))
-            # marketcap_fs = backtest.fs_table.copy()
-            cap.rename(columns={'marketCap': 'cal_marketCap'}, inplace=True)
-            fs_metrics = pd.merge(fs_metrics, cap, how='left', on=['symbol'])
-
-            logging.debug("COL_NAME in fs_metrics : ")
-            logging.debug("COL LEN : ", len(fs_metrics.columns))
-
-            for col in cal_col_list:
-                new_col_name = 'OverMC_' + col
-                fs_metrics[new_col_name] = fs_metrics[col] / fs_metrics['cal_marketCap']
-                
-    # "bookValuePerShare", # 시총 / bookValuePerShare = PBR
-    # "eps", # (시총/eps = 유사 PER)
-    # "netdebt", # (netdebt + 시총) = EV
-    # "operatingCashflow", # ev / operatingCashflow = evToOperatingCashFlow
-    # "FreeCashflow", # ev / FreeCashflow = evToFreeCashflow
-    # "ebitda", #  ev / ebitda = enterpriseValueOverEBITDA
-    # "revenues" # ev/revenues =  evToSales                
-            fs_metrics["adaptiveMC_ev"] = fs_metrics['cal_marketCap'] + fs_metrics["netDebt"]
-            for col in cal_ev_col_list:
-                new_col_name = 'adaptiveMC_' + col
-                fs_metrics[new_col_name] = fs_metrics['adaptiveMC_ev']/fs_metrics[col]
-                            
-            fs_metrics = fs_metrics.drop(["marketCap"], axis=1)
-
-            # logging.debug("COL_NAME in fs_table : ")
-            # for col in backtest.fs_table.columns:
-            #     logging.debug(col)
-            # logging.debug("COL_NAME in fs_metrics : ")
-            # for col in fs_metrics.columns:
-            #     logging.debug(col)
-
-            highlow = pd.read_csv('./sort.csv', header=0)
-            for feature in fs_metrics.columns:
-                if not (feature in 'use_col_list' or feature.startswith('Ydiff') or feature.startswith('Qdiff')\
-                            or feature.startswith('OverMC')):
-                    continue
-                feature_sortedvalue_col_name = feature + "_sorted"                
-                if str(feature).startswith("Ydiff_") or str(feature).startswith("Qdiff_") \
-                        or str(feature).startswith("OverMC_"):
-                    feature_name = str(feature).split('_')[1]
-                else:
-                    feature_name = feature
-                # 음수 처리
-                f = highlow.query("name == @feature_name")
-                if f.empty:
-                    continue
-                else:
-                    fs_metrics[feature_sortedvalue_col_name] = fs_metrics[feature]
-                    if f.iloc[0].sort == "low":
-                        try:
-                            feat_max = fs_metrics[feature].max()
-                            fs_metrics[feature_sortedvalue_col_name] = \
-                                [s*(-1) if s >= 0 else (s - feat_max) for s in fs_metrics[feature]]
-                        except Exception as e:
-                            logging.info(str(e))
-                            continue
-                
-                # normalization ( 0~20000 ). range is not fixed
-                feature_normal_col_name = feature + "_normal"
-                try:
-                    max_value = fs_metrics[feature_sortedvalue_col_name].max()
-                    min_value = fs_metrics[feature_sortedvalue_col_name].min()
-                    fs_metrics[feature_normal_col_name] \
-                        = (((fs_metrics[feature_sortedvalue_col_name] - min_value) * 20000) / (max_value - min_value))
-                    # fs_metrics = fs_metrics.astype({feature_normal_col_name: 'float16'})
-                    # fs_metrics = fs_metrics.astype({feature_sortedvalue_col_name: 'float16'})
-                except Exception as e:
-                    logging.info(str(e))
-                    continue        
-                # fs_metrics = fs_metrics.astype({feature: 'float16'})
-            
-            self.dtable = pd.merge(self.dtable, fs_metrics, how='left', on='symbol')
-            self.dtable["sector"] = self.dtable["industry"].map(sector_map)
-            self.dtable.to_parquet(backtest.conf['ROOT_PATH'] + "/DATE_TABLE/"
-                                    + 'dtable_' + str(self.date.year) + '_'
-                                    + str(self.date.month) + '_' + str(self.date.day) + '.parquet',
-                        engine="pyarrow")
-            logging.info("END init_data in date handler ")
+            # normalization ( 0~20000 ). range is not fixed
+            feature_normal_col_name = feature + "_normal"
+            try:
+                max_value = fs_metrics[feature_sortedvalue_col_name].max()
+                min_value = fs_metrics[feature_sortedvalue_col_name].min()
+                fs_metrics[feature_normal_col_name] \
+                    = (((fs_metrics[feature_sortedvalue_col_name] - min_value) * 20000) / (max_value - min_value))
+                # fs_metrics = fs_metrics.astype({feature_normal_col_name: 'float16'})
+                # fs_metrics = fs_metrics.astype({feature_sortedvalue_col_name: 'float16'})
+            except Exception as e:
+                logging.info(str(e))
+                continue        
+            # fs_metrics = fs_metrics.astype({feature: 'float16'})
+        
+        self.dtable = pd.merge(self.dtable, fs_metrics, how='left', on='symbol')
+        self.dtable["sector"] = self.dtable["industry"].map(sector_map)
+        self.dtable.to_parquet(backtest.conf['ROOT_PATH'] + "/DATE_TABLE/"
+                                + 'dtable_' + str(self.date.year) + '_'
+                                + str(self.date.month) + '_' + str(self.date.day) + '.parquet',
+                    engine="pyarrow")
+        
+        logging.info("END create dtable in date handler ")
 
 
 class EvaluationHandler:
@@ -496,8 +501,25 @@ class EvaluationHandler:
         # remove outlier
         logging.info("before removing outlier # rows : " + str(df_for_reg.shape[0]))
         logging.info("before removing outlier # columns : " + str(df_for_reg.shape[1]))
+        
+
+
+        # remove sparse cols
+        df_for_reg = df_for_reg.drop(sparse_col_list, axis=1)
+        # use_col_list_wprev - sparse_cols
+        use_col_list2 = [x for x in use_col_list if x not in sparse_col_list]
+        use_col_list_wprev = [x for x in use_col_list_wprev if x not in sparse_col_list]
+
+        # fill nan with min value per col
+        
+        # def fill_nan_with_min(df):
+        #     return df.fillna(df.min().to_dict())
+        # filled_df = fill_nan_with_min(df_for_reg)
+        # df_for_reg = filled_df
+           
+        # remove outliar rows
         outlier_list_col = []
-        for col in use_col_list_wprev:
+        for col in use_col_list2:
             try:
                 # removing outlier with IQR
                 # candi 1
@@ -513,13 +535,18 @@ class EvaluationHandler:
                 #     df_for_reg = df_for_reg.drop(index=outlier_list_col, axis=0)
 
                 # candi 2
-                q_1 = np.nanpercentile(df_for_reg[col], 1)
-                q_3 = np.nanpercentile(df_for_reg[col], 99)
+                q_1 = np.nanpercentile(df_for_reg[col], 0.5)
+                q_3 = np.nanpercentile(df_for_reg[col], 99.5)
                 # print("col : ", col , "Q1: ", Q1, "Q3 :", Q3)
                 iqr = q_3 - q_1
                 outlier_step = 0 * iqr
-                outlier_list_col.extend(df_for_reg[(df_for_reg[col] < (q_1 - outlier_step))
-                                                   | (df_for_reg[col] > (q_3 + outlier_step))].index)
+                
+                cur_outlier = df_for_reg[(df_for_reg[col] < (q_1 - outlier_step))
+                                                   | (df_for_reg[col] > (q_3 + outlier_step))].index
+                if len(cur_outlier) < 10:
+                    outlier_list_col.extend(df_for_reg[(df_for_reg[col] < (q_1 - outlier_step))
+                                                       | (df_for_reg[col] > (q_3 + outlier_step))].index)
+                
                 # removing by count
                 # MID = self.fs_metrics[col].median()
                 # if (MID == nan) or (MID.isnan()):
@@ -561,15 +588,17 @@ class EvaluationHandler:
                 continue
 
         if latest == False:
-            q_1 = np.nanpercentile(df_for_reg['earning_diff'], 1)
-            q_3 = np.nanpercentile(df_for_reg['earning_diff'], 99)
+            q_1 = np.nanpercentile(df_for_reg['earning_diff'], 2)
+            q_3 = np.nanpercentile(df_for_reg['earning_diff'], 98)
             outlier_list_col.extend(df_for_reg[(df_for_reg[col] < q_1) | (df_for_reg[col] > q_3)].index)
 
         mdict = dict.fromkeys(outlier_list_col)
         outlier_list_col = list(mdict)
+
         df_for_reg = df_for_reg.drop(index=outlier_list_col, axis=0)
         logging.info("after removing outlier # rows : " + str(df_for_reg.shape[0]))
         logging.info("after removing outlier # columns : " + str(df_for_reg.shape[1]))
+
 
         # 음수 처리
         for col in use_col_list_wprev:
@@ -602,6 +631,8 @@ class EvaluationHandler:
             df_for_reg_print['period_price_diff'] = df_for_reg['period_price_diff']
             df_for_reg_print['earning_diff'] = df_for_reg['earning_diff']
         df_for_reg_print['symbol'] = df_for_reg['symbol']
+        df_for_reg_print['sector'] = df_for_reg['sector']
+        
         traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data_0' + str(
             self.backtest.conf['START_MONTH']) + '/'
 

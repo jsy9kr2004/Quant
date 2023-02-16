@@ -12,7 +12,7 @@ import torch.nn.functional as nn_f
 import torch.optim as optim
 
 from datasets import Dataset
-from g_variables import use_col_list
+from g_variables import use_col_list, cal_col_list, cal_ev_col_list, sector_map, sparse_col_list
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from torch.utils.data import DataLoader
@@ -27,6 +27,18 @@ import xgboost
 # from sklearn.metrics import mean_squared_error
 # from sklearn.model_selection import GridSearchCV
 
+y_col_list=["period_price_diff","earning_diff","sector", "symbol"]
+
+use_col_list_wydiff = list(map(lambda x: "Ydiff_" + x, cal_col_list))
+use_col_list_wqdiff = list(map(lambda x: "Qdiff_" + x, cal_col_list))
+use_col_list_woverMC = list(map(lambda x: "OverMC_" + x, cal_col_list))
+use_col_list_wadaMC = list(map(lambda x: 'adaptiveMC_' + x, cal_ev_col_list))
+use_col_list_wprev = use_col_list + use_col_list_wydiff + use_col_list_wqdiff + use_col_list_woverMC + use_col_list_wadaMC
+
+# use_col_list_wprev - sparse_cols
+use_col_list_wprev = [x for x in use_col_list_wprev if x not in sparse_col_list]
+use_col_list_wprev = list(map(lambda x: x+'_normal', use_col_list_wprev))
+use_col_list_wprev = use_col_list_wprev+ y_col_list
 
 class Regressor:
     def __init__(self, conf):
@@ -37,7 +49,8 @@ class Regressor:
         self.y_test = None
 
         # aidata_dir = conf['ROOT_PATH'] + '/regressor_data_0' + str(conf['START_MONTH']) + '/'
-        aidata_dir = conf['ROOT_PATH'] + '/regressor_data_per1/'
+        # aidata_dir = conf['ROOT_PATH'] + '/regressor_data_per1/'
+        aidata_dir = conf['ROOT_PATH'] + '/regressor_data_01/'
         
         self.train_files = []
         for year in range(int(conf['TRAIN_START_YEAR']), int(conf['TRAIN_END_YEAR'])):
@@ -51,8 +64,8 @@ class Regressor:
             year_files = [file for file in glob.glob(path)]
             self.test_files.extend(year_files)
         
-        logging.info("train file list : ", self.train_files)
-        logging.info("test file list : ", self.test_files)
+        print("train file list : ", self.train_files)
+        print("test file list : ", self.test_files)
         self.train_df = pd.DataFrame()
         self.test_df = pd.DataFrame()
         self.test_df_list = []
@@ -63,7 +76,6 @@ class Regressor:
         self.xgs = dict()
         self.mlr = LinearRegression()
         # self.rfg = RandomForestRegressor(n_jobs=-1, n_estimators=10, min_samples_split=5)
-        logging.info("use col list length : ")
         
         self.rfgs[0] = RandomForestRegressor(n_jobs=-1, n_estimators=200)
         self.rfgs[1] = RandomForestRegressor(n_jobs=-1, n_estimators=400, min_samples_leaf=2)
@@ -108,9 +120,10 @@ class Regressor:
             print(fpath)
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
-            df = df.loc[:, use_col_list]
+            
+            df = df.loc[:, use_col_list_wprev]
             logging.debug(df.shape)  
-            df = df[df.isnull().sum(axis=1) < 5]
+            df = df[df.isnull().sum(axis=1) < 500]
             logging.debug(df.shape)  
             # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
             self.train_df = pd.concat([self.train_df, df], axis=0)
@@ -120,9 +133,10 @@ class Regressor:
             print(fpath)
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
-            df = df.loc[:, use_col_list]
+            df = df.loc[:, use_col_list_wprev]
+            
             logging.debug(df.shape)  
-            df = df[df.isnull().sum(axis=1) < 5]
+            df = df[df.isnull().sum(axis=1) < 500]
             logging.debug(df.shape)  
             # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
             df = df.fillna(0)
@@ -145,9 +159,9 @@ class Regressor:
         logging.debug(self.test_df.shape)
         
         # x = self.train_df.loc[:, self.train_df.columns != 'earning_diff']
-        self.x_train = self.train_df[self.train_df.columns.difference(['earning_diff', 'period_price_diff', 'symbol'])]
+        self.x_train = self.train_df[self.train_df.columns.difference(y_col_list)]
         self.y_train = self.train_df[['earning_diff']]
-        self.x_test = self.test_df[self.test_df.columns.difference(['earning_diff', 'period_price_diff', 'symbol'])]
+        self.x_test = self.test_df[self.test_df.columns.difference(y_col_list)]
         self.y_test = self.test_df[['earning_diff']]
         
     def train(self):
@@ -265,7 +279,7 @@ class Regressor:
             tdate = "_".join(testdate.split("\\")[4].split('_')[0:2])
             print(tdate)
             
-            x_test = df[df.columns.difference(['earning_diff', 'period_price_diff', 'symbol'])]
+            x_test = df[df.columns.difference(y_col_list)]
             y_test = df[['earning_diff']]
             
             preds = np.empty((0,x_test.shape[0]))
@@ -354,9 +368,10 @@ class Regressor:
         
     def latest_prediction(self, latest_data_path):
         ldf = pd.read_csv(latest_data_path)
-        collist = use_col_list.copy()
+        collist = use_col_list_wprev.copy()
         collist.remove("earning_diff")
         collist.remove("period_price_diff")
+        collist.remove("sector")
 
         ldf = ldf.loc[:, collist]
         ldf = ldf[ldf.isnull().sum(axis=1) < 5]
@@ -432,7 +447,7 @@ class MyDataset(Dataset):
             print(fpath)
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
-            df = df.loc[:, use_col_list]
+            df = df.loc[:, use_col_list_wprev]
             logging.debug(df.shape)  
             df = df[df.isnull().sum(axis=1) < 5]
             logging.debug(df.shape)  
@@ -445,7 +460,7 @@ class MyDataset(Dataset):
             print(fpath)
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
-            df = df.loc[:, use_col_list]
+            df = df.loc[:, use_col_list_wprev]
             logging.debug(df.shape)  
             df = df[df.isnull().sum(axis=1) < 5]
             logging.debug(df.shape)  
@@ -457,7 +472,7 @@ class MyDataset(Dataset):
         self.train_df = self.train_df.fillna(0)
         self.test_df = self.test_df.fillna(0)
         
-        x = self.train_df[self.train_df.columns.difference(['earning_diff', 'period_price_diff', 'symbol'])].values
+        x = self.train_df[self.train_df.columns.difference(y_col_list)].values
         y = self.train_df[['earning_diff']].values
         self.x_train = torch.tensor(x, dtype=torch.float32)
         self.y_train = torch.tensor(y, dtype=torch.float32)
@@ -473,7 +488,7 @@ class RegressionNetwork(nn.Module):
     def __init__(self, conf):
         super().__init__()
         self.conf = conf
-        self.fc1 = nn.Linear(len(use_col_list)-3, 97)
+        self.fc1 = nn.Linear(len(use_col_list_wprev)-3, 97)
         self.fc2 = nn.Linear(97, 1)
         self.dropout = nn.Dropout(0.1)
 
@@ -545,7 +560,7 @@ class RegressionNetwork1(nn.Module):
     def __init__(self, conf):
         super().__init__()
         self.conf = conf
-        self.fc1 = nn.Linear(len(use_col_list)-3, 97)
+        self.fc1 = nn.Linear(len(use_col_list_wprev)-3, 97)
         self.fc2 = nn.Linear(97, 1)
         self.dropout = nn.Dropout(0.25)
 
@@ -559,7 +574,7 @@ class RegressionNetwork2(nn.Module):
     def __init__(self, conf):
         super().__init__()
         self.conf = conf
-        self.fc1 = nn.Linear(len(use_col_list)-3, 97)
+        self.fc1 = nn.Linear(len(use_col_list_wprev)-3, 97)
         self.fc2 = nn.Linear(97, 1)
         self.dropout = nn.Dropout(0.1)
 
@@ -573,7 +588,7 @@ class RegressionNetwork4(nn.Module):
     def __init__(self, conf):
         super().__init__()
         self.conf = conf
-        self.fc1 = nn.Linear(len(use_col_list)-3, 97)
+        self.fc1 = nn.Linear(len(use_col_list_wprev)-3, 97)
         self.fc2 = nn.Linear(97, 1)
         self.dropout = nn.Dropout(0.1)
 
