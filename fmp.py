@@ -70,43 +70,48 @@ class FMP:
         #     sleep(remain_sec)
         # start = time.time()
         # TODO pool map 하기 위해서 fmp_info에 list로 넣고 처리한 부분인데 코드가 예쁘지가 않다..
-        path, elem, file_postfix, api_url = fmp_info
-        try:
-            logger.info('Creating File "{}/{}.parquet" <- "{}"'.format(path, elem + file_postfix, api_url))
-            # json_data = pd.read_json(api_url)
-            url_data = requests.get(api_url)
-        except ValueError:
-            logger.debug("No Data. Or Different Data Type")
-            return self.return_fmp(logger, run_multi, False)
-        except urllib.error.HTTPError:
-            logger.warning("HTTP Error 400, API_URL : ", api_url)
-            return self.return_fmp(logger, run_multi, False)
-        # 읽어왔는데 비어 있을 수 있음. ValueError와 다름.
-        # ValueError는 Format이 안맞는 경우고, 이 경우는 page=50 과 같은 extra_url 처리 때문
-        json_text = url_data.text
-        try:
-            json_data = json.loads(json_text)
-        except json.decoder.JSONDecodeError:
-            logger.error("json.decoder.JSONDecodeError")
-            return self.return_fmp(logger, run_multi, False)
-        if json_data == [] or json_data == {}:
-            logger.info("No Data in URL")
-            # 비어있는 표시를 해주기 위해 parquet 뒤에 x를 붙인 file만 만들고 fd close
-            f = open(path + "/{}.parquetx".format(elem + file_postfix), 'w')
-            f.close()
-            logger.handlers.clear()
-            return self.return_fmp(logger, run_multi, False)
-        json_data = self.flatten_json(json_data, expand_all=True)
-        # dcf 값에 대한 별도 예외처리 로직
-        if 'dcf' in json_data.columns:
-            json_data['dcf'] = json_data['dcf'].astype(float)
-        # json_data.to_csv(path + "/{}.csv".format(elem + file_postfix), na_rep='NaN')
-        json_data.to_parquet(path + "/{}.parquet".format(elem + file_postfix))
-        if json_data.empty == True:
-            logger.info("No Data in CSV")
-            logger.handlers.clear()
-            return self.return_fmp(logger, run_multi, False)
-        return self.return_fmp(logger, run_multi, True)
+        while True:
+            path, elem, file_postfix, api_url = fmp_info
+            try:
+                logger.info('Creating File "{}/{}.parquet" <- "{}"'.format(path, elem + file_postfix, api_url))
+                # json_data = pd.read_json(api_url)
+                url_data = requests.get(api_url)
+            except ValueError:
+                logger.debug("No Data. Or Different Data Type")
+                return self.return_fmp(logger, run_multi, False)
+            except urllib.error.HTTPError:
+                logger.warning("HTTP Error 400, API_URL : ", api_url)
+                return self.return_fmp(logger, run_multi, False)
+            # 읽어왔는데 비어 있을 수 있음. ValueError와 다름.
+            # ValueError는 Format이 안맞는 경우고, 이 경우는 page=50 과 같은 extra_url 처리 때문
+            json_text = url_data.text
+            if "Limit Reach" in json_text:
+                logger.error("Limit Reach. Please upgrade your plan or visit our documentation")
+                sleep(1)
+                continue
+            try:
+                json_data = json.loads(json_text)
+            except json.decoder.JSONDecodeError:
+                logger.error("json.decoder.JSONDecodeError")
+                return self.return_fmp(logger, run_multi, False)
+            if json_data == [] or json_data == {}:
+                logger.info("No Data in URL")
+                # 비어있는 표시를 해주기 위해 parquet 뒤에 x를 붙인 file만 만들고 fd close
+                f = open(path + "/{}.parquetx".format(elem + file_postfix), 'w')
+                f.close()
+                logger.handlers.clear()
+                return self.return_fmp(logger, run_multi, False)
+            json_data = self.flatten_json(json_data, expand_all=True)
+            # dcf 값에 대한 별도 예외처리 로직
+            if 'dcf' in json_data.columns:
+                json_data['dcf'] = json_data['dcf'].astype(float)
+            # json_data.to_csv(path + "/{}.csv".format(elem + file_postfix), na_rep='NaN')
+            json_data.to_parquet(path + "/{}.parquet".format(elem + file_postfix))
+            if json_data.empty == True:
+                logger.info("No Data in CSV")
+                logger.handlers.clear()
+                return self.return_fmp(logger, run_multi, False)
+            return self.return_fmp(logger, run_multi, True)
 
     def get_fmp_data(self, main_url, extra_url, need_symbol, is_v4, file_postfix=""):
         """

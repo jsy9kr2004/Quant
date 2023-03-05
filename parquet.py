@@ -198,8 +198,9 @@ class Parquet:
                 df_all_years = pd.concat([df_all_years, df])
             # df_all_years = df_all_years.drop(df_all_years.columns[0], axis=1)
             df_all_years.to_parquet(pq_save_path, index=False)
-            for files in mp_file_list:
-                os.remove(files)
+            # TODO 삭제 잠시 임시로 주석처리
+            # for files in mp_file_list:
+            #    os.remove(files)
             # pq.write_table(csv.read_csv(pq_save_path), pq_save_path)
             logging.info("create df in tables dict : {}".format(directory))
  
