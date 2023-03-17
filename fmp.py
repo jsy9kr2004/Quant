@@ -85,7 +85,7 @@ class FMP:
             # 읽어왔는데 비어 있을 수 있음. ValueError와 다름.
             # ValueError는 Format이 안맞는 경우고, 이 경우는 page=50 과 같은 extra_url 처리 때문
             json_text = url_data.text
-            if "Limit Reach" in json_text:
+            if "Limit Reach" in json_text or "Error Message" in json_text:
                 logger.error("Limit Reach. Please upgrade your plan or visit our documentation")
                 sleep(1)
                 continue
@@ -371,6 +371,8 @@ class FMP:
         year = today.strftime("%Y")
         if os.path.isfile(base_path + str(year) + ".parquet"):
             os.remove(base_path + str(year) + ".parquet")
+        if os.path.isfile(base_path + str(year) + ".parquetx"):
+            os.remove(base_path + str(year) + ".parquetx")
 
     @staticmethod
     def xxx_remove_current_month(base_path):
@@ -399,7 +401,8 @@ class FMP:
                 return True
         return False
 
-    def validation_check(self):
+    @staticmethod
+    def validation_check():
         """
         아래와 같은 에러 메시지가 발생하는 경우가 존재
         1) Limit Reach . Please upgrade your plan or visit our documentation for more details
@@ -408,6 +411,29 @@ class FMP:
         파일의 내용을 확인해보고 위와 같은 메시지를 파일에 적어놓은 경우 해당 파일을 삭제
         :return: bool 삭제해야 할 파일이 존재하는지 여부
         """
+        basepath = './data'
+        flag = True
+        del_count = 0
+        pass_count = 0
+        for dir_name in os.listdir(basepath):
+            if os.path.isdir(os.path.join(basepath, dir_name)):
+                cur_path = os.path.join(basepath, dir_name)
+                par_list = [file for file in os.listdir(cur_path) if file.endswith('parquet')]
+                for p in par_list:
+                    df = pd.read_parquet(os.path.join(cur_path, p))
+                    # df.str.contains('Limit').any().any()
+                    if df.filter(regex='Limit').empty is False or df.filter(regex='Error').empty is False:
+                        logging.debug(os.path.join(cur_path, p))
+                        os.remove(os.path.join(cur_path, p))
+                        del_count += 1
+                        flag = False
+                    else:
+                        pass_count += 1
+                logging.info("[ {} ] Delete file count : {} / Total file count {} ".format(cur_path, del_count,
+                                                                                           del_count + pass_count))
+                del_count = 0
+                pass_count = 0
+        return flag
 
     def remove_first_loop(self):
         """
