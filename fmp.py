@@ -105,6 +105,9 @@ class FMP:
             # dcf 값에 대한 별도 예외처리 로직
             if 'dcf' in json_data.columns:
                 json_data['dcf'] = json_data['dcf'].astype(float)
+            # marketCap 값에 대한 별도 예외처리 로직 (uint64 로 바꿔도 괜찮음)
+            if 'marketCap' in json_data.columns:
+                json_data['marketCap'] = json_data['marketCap'].astype(float)
             # json_data.to_csv(path + "/{}.csv".format(elem + file_postfix), na_rep='NaN')
             json_data.to_parquet(path + "/{}.parquet".format(elem + file_postfix))
             if json_data.empty == True:
