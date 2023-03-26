@@ -14,7 +14,7 @@ from g_variables import use_col_list, cal_col_list, cal_ev_col_list, sector_map,
 from multiprocessing import Pool
 from multiprocessing_logging import install_mp_handler
 from warnings import simplefilter
-
+pd.options.display.width = 30
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 CHUNK_SIZE = 20480
 
@@ -111,20 +111,54 @@ class Backtest:
             self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
             self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
             self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
-            
-            self.fs_table = pd.DataFrame()
-            self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")
-            # for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
-            #     tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
-            #                              + str(year) + ".parquet")
-            #     self.fs_table = pd.concat([tmp_fs, self.fs_table])    
-                
-            self.metrics_table = pd.DataFrame()
-            self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
-            # for year in range(self.main_ctx.start_year, self.main_ctx.end_year+1):
-            #     tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
-            #     self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
+            for c in ['close', 'marketCap']:
+                self.price_table [c] = self.price_table [c].astype('float32')
 
+            self.fs_table = pd.DataFrame()
+            # self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")    
+            for year in range(self.main_ctx.start_year-1, self.main_ctx.start_year+1):
+                tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
+                                         + str(year) + ".parquet")
+                self.fs_table = pd.concat([tmp_fs, self.fs_table])    
+            del tmp_fs
+            for col in cal_col_list:
+                if col in self.fs_table.columns:
+                    self.fs_table[col] = self.fs_table[col].astype('float32')
+
+            self.metrics_table = pd.DataFrame()
+            # self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
+            for year in range(self.main_ctx.start_year-1, self.main_ctx.start_year+1):
+                tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
+                self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
+            del tmp_metrics
+            for col in cal_col_list:
+                if col in self.metrics_table.columns:
+                    self.metrics_table[col] = self.metrics_table[col].astype('float32')
+
+    def reload_bt_table(self, year):
+            print("reload_bt_table, year : ", year)
+            self.fs_table = pd.DataFrame()
+            # self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")
+
+            for y in range(year-1, year+1):
+                tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
+                                         + str(y) + ".parquet")
+                self.fs_table = pd.concat([tmp_fs, self.fs_table])    
+            del tmp_fs
+            for col in cal_col_list:
+                if col in self.fs_table.columns:
+                    self.fs_table[col] = self.fs_table[col].astype('float32')
+            
+            self.metrics_table = pd.DataFrame()
+            # self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
+
+            for y in range(year-1, year+1):
+                tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(y) + ".parquet")
+                self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
+            del tmp_metrics
+            for col in cal_col_list:
+                if col in self.metrics_table.columns:
+                    self.metrics_table[col] = self.metrics_table[col].astype('float32')
     def get_trade_date(self, pdate):
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
         # pdate =  pdate.date()
@@ -147,9 +181,10 @@ class Backtest:
         """
         date = datetime.datetime(self.main_ctx.start_year, self.conf['START_MONTH'], self.conf['START_DATE'])
         recent_date = self.price_table["date"].max()
+        cur_year = self.main_ctx.start_year
         # START OF WHILE #
         while True:
-            
+            del self.plan_handler.date_handler
             tdate = self.get_trade_date(date)
             if tdate is None:
                 logging.info("tradable date is None. break")
@@ -171,14 +206,21 @@ class Backtest:
             if date + relativedelta(months=self.rebalance_period) <= datetime.datetime(self.main_ctx.end_year, 11, 1):
             # if (date + relativedelta(months=self.rebalance_period * 2)) <= recent_date:
                 date += relativedelta(months=self.rebalance_period)
+                if date.year != cur_year:
+                    cur_year = date.year
+                    self.reload_bt_table(cur_year)
             else:
                 break
                 # 마지막 loop 에 도달하면 최근 date 로 한번 돌아서 print 해준 후에 루프를 빠져 나가도록 함
                 if self.eval_report_path is not None:
                     date = recent_date
+                    if date.year != cur_year:
+                        cur_year = date.year
+                        self.reload_bt_table(cur_year)
                 # evaluation report 를 뽑지 않으면 current 추천을 스킵하고 나감
                 else:
                     break
+            
         # END OF WHILE #
         logging.info("START Evaluation")
         self.eval_handler.run(self.price_table)
@@ -201,11 +243,15 @@ class PlanHandler:
         assert self.plan_list is not None, "Empty Plan List"
         assert self.date_handler is not None, "Empty Date Handler"
 
-        with Pool(processes=multiprocessing.cpu_count()-4, initializer=install_mp_handler()) as pool:
-        # with Pool(processes=2, initializer=install_mp_handler()) as pool:
+        # with Pool(processes=multiprocessing.cpu_count()-4, initializer=install_mp_handler()) as pool:
+        with Pool(processes=4, initializer=install_mp_handler()) as pool:
             df_list = pool.map(self.plan_run, self.plan_list)
-
-        full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
+        
+        # full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
+        # replace reduce + merge -> concat + groupby (for memory usage optimization)
+        full_df = pd.concat(df_list, ignore_index=True)
+        full_df = full_df.groupby('symbol', as_index=False).last()
+        
         self.date_handler.dtable = pd.merge(self.date_handler.dtable, full_df, how='left', on=['symbol'])
         score_col_list = self.date_handler.dtable.columns.str.contains("_score")
         self.date_handler.dtable['score'] = self.date_handler.dtable.loc[:,score_col_list].sum(axis=1)
@@ -227,8 +273,8 @@ class PlanHandler:
         """
         logger = self.main_ctx.get_multi_logger()
         # logger.debug("[plan] key : {}, key_dir : {}, weight : {}, "
-        #             "diff : {}, base : {}, base_dir : {}".format(params["key"], params["key_dir"], params["weight"],
-        #                                                          params["diff"], params["base"], params["base_dir"]))
+        #            "diff : {}, base : {}, base_dir : {}".format(params["key"], params["key_dir"], params["weight"],
+        #                                                         params["diff"], params["base"], params["base_dir"]))
 
         if self.absolute_score - params["diff"] * self.k_num < 0:
             logger.warning("Wrong params['diff'] : TOO BIG! SET UNDER " + str(self.absolute_score/self.k_num))
@@ -236,12 +282,12 @@ class PlanHandler:
         key = str(params["key"])
 
         # all feature was preprocessed ( high is good ) in Datehandler
-        top_k_df = self.date_handler.dtable.sort_values(by=[key], ascending=False, na_position="last")[:self.k_num]
+        # top_k_df = self.date_handler.dtable.sort_values(by=[key], ascending=False, na_position="last")[:self.k_num]
         top_k_df = self.date_handler.dtable.sort_values(by=[key+"_sorted"], ascending=False,
                                                         na_position="last")[:self.k_num]
-        # logger.debug(top_k_df[['symbol', params["key"]]])
-
+        logger.debug(top_k_df[['symbol', params["key"]]])
         symbols = top_k_df['symbol']
+        del top_k_df
         return_df = self.date_handler.dtable[['symbol']]
         delta = self.absolute_score
         # 경고처리 무시
@@ -252,6 +298,9 @@ class PlanHandler:
             delta = delta - params["diff"]
         local_rank_name = key+'_rank'
         return_df[local_rank_name] = return_df[local_score_name].rank(method='min', ascending=False)
+        return_df[local_rank_name] = return_df[local_rank_name].fillna(-1).astype(int)
+        return_df[local_score_name] = return_df[local_score_name].fillna(0).astype(int)
+        print(return_df)
         # logger.debug(return_df[[local_score_name, local_rank_name]])
         return return_df
 
@@ -279,6 +328,7 @@ class DateHandler:
                 logging.info("there is no date_table : ")
                 self.create_dtable(backtest)
             else:
+                logging.info("there is parquet file for this date. read date table from parquet.")
                 self.dtable = pd.read_parquet(dtable_path)
                 # industry to sector.
                 self.dtable["sector"] = self.dtable["industry"].map(sector_map)
@@ -313,6 +363,7 @@ class DateHandler:
         fs = fs.drop_duplicates('symbol', keep='first')
         metrics = backtest.metrics_table.copy()
         fs_metrics = pd.merge(fs, metrics, how='left', on=['symbol', 'date'])
+        del fs
         
         # 1 Q 전 fs, metrics 와 모든 column 빼서 1-year diff column 만들기
         prev_q = self.date - relativedelta(months=3)
@@ -328,11 +379,16 @@ class DateHandler:
         prev_q_fs_metrics = prev_q_fs_metrics.rename(columns=lambda x: "prevQ_" + x)
         prev_q_fs_metrics['symbol'] = symbols
         fs_metrics = pd.merge(fs_metrics, prev_q_fs_metrics, how='left', on=['symbol'])
+        del prev_q_fs_metrics
+        
+        for col in cal_col_list:
+            fs_metrics[col] = fs_metrics[col].astype('float32')
         
         for col in cal_col_list:
             new_col_name = 'Qdiff_' + col
             fs_metrics[new_col_name] = (fs_metrics["prevQ_"+col] - fs_metrics[col]) / fs_metrics["prevQ_"+col] 
             fs_metrics = fs_metrics.drop(["prevQ_"+col], axis=1)
+            fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
 
         # 1년 전 fs, metrics 와 모든 column 빼서 1-year diff column 만들기
         prev_year = self.date - relativedelta(months=10)
@@ -342,17 +398,21 @@ class DateHandler:
         prev_year_fs = prev_year_fs[prev <= prev_year_fs.fillingDate]
         prev_year_fs = prev_year_fs.drop_duplicates('symbol', keep='first')
         prev_year_fs_metrics = pd.merge(prev_year_fs, metrics, how='left', on=['symbol', 'date'])
-        
+        del metrics
+
         symbols = prev_year_fs_metrics['symbol']
         prev_year_fs_metrics = prev_year_fs_metrics[cal_col_list]
         prev_year_fs_metrics = prev_year_fs_metrics.rename(columns=lambda x: "prevY_" + x)
         prev_year_fs_metrics['symbol'] = symbols
         fs_metrics = pd.merge(fs_metrics, prev_year_fs_metrics, how='left', on=['symbol'])
+        del prev_year_fs_metrics
 
         for col in cal_col_list:
             new_col_name = 'Ydiff_' + col
             fs_metrics[new_col_name] = (fs_metrics["prevY_"+col] - fs_metrics[col])/fs_metrics["prevY_"+col]
             fs_metrics = fs_metrics.drop(["prevY_"+col], axis=1)
+            fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
+
 
         # marketCap 과의 직접 계산이 필요한 column들을 추가 해 줌
         cap = self.dtable.copy()
@@ -365,6 +425,8 @@ class DateHandler:
         for col in cal_col_list:
             new_col_name = 'OverMC_' + col
             fs_metrics[new_col_name] = fs_metrics[col] / fs_metrics['cal_marketCap']
+            fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
+
 
 
             
@@ -379,6 +441,8 @@ class DateHandler:
         for col in cal_ev_col_list:
             new_col_name = 'adaptiveMC_' + col
             fs_metrics[new_col_name] = fs_metrics['adaptiveMC_ev']/fs_metrics[col]
+            fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
+
                         
         fs_metrics = fs_metrics.drop(["marketCap"], axis=1)
 
@@ -405,29 +469,32 @@ class DateHandler:
             if f.empty:
                 continue
             else:
-                fs_metrics[feature_sortedvalue_col_name] = fs_metrics[feature]
+                fs_metrics[feature_sortedvalue_col_name] = fs_metrics[feature].astype('float32')
                 if f.iloc[0].sort == "low":
                     try:
                         feat_max = fs_metrics[feature].max()
                         fs_metrics[feature_sortedvalue_col_name] = \
                             [s*(-1) if s >= 0 else (s - feat_max) for s in fs_metrics[feature]]
+                        fs_metrics[feature_sortedvalue_col_name] = fs_metrics[feature_sortedvalue_col_name].astype('float32')
                     except Exception as e:
                         logging.info(str(e))
                         continue
             
-            # normalization ( 0~20000 ). range is not fixed
-            feature_normal_col_name = feature + "_normal"
-            try:
-                max_value = fs_metrics[feature_sortedvalue_col_name].max()
-                min_value = fs_metrics[feature_sortedvalue_col_name].min()
-                fs_metrics[feature_normal_col_name] \
-                    = (((fs_metrics[feature_sortedvalue_col_name] - min_value) * 20000) / (max_value - min_value))
-                # fs_metrics = fs_metrics.astype({feature_normal_col_name: 'float16'})
-                # fs_metrics = fs_metrics.astype({feature_sortedvalue_col_name: 'float16'})
-            except Exception as e:
-                logging.info(str(e))
-                continue        
-            # fs_metrics = fs_metrics.astype({feature: 'float16'})
+            
+            # # normalization ( 0~20000 ). range is not fixed
+            # feature_normal_col_name = feature + "_normal"
+            # try:
+            #     max_value = fs_metrics[feature_sortedvalue_col_name].max()
+            #     min_value = fs_metrics[feature_sortedvalue_col_name].min()
+            #     fs_metrics[feature_normal_col_name] \
+            #         = (((fs_metrics[feature_sortedvalue_col_name] - min_value) * 20000) / (max_value - min_value))
+            #     fs_metrics[feature_normal_col_name] = fs_metrics[feature_normal_col_name].astype(int)
+            #     # fs_metrics = fs_metrics.astype({feature_normal_col_name: 'float32'})
+            #     # fs_metrics = fs_metrics.astype({feature_sortedvalue_col_name: 'float32'})
+            # except Exception as e:
+            #     logging.info(str(e))
+            #     continue        
+            # # fs_metrics = fs_metrics.astype({feature: 'float32'})
         
         self.dtable = pd.merge(self.dtable, fs_metrics, how='left', on='symbol')
         self.dtable["sector"] = self.dtable["industry"].map(sector_map)
@@ -695,6 +762,7 @@ class EvaluationHandler:
                             feature_rank_col_name = feature + "_rank"
                             self.best_k[idx][3][feature_rank_col_name] \
                                 = self.best_k[idx][3][feature].rank(method='max', ascending=False)
+                            
                 self.best_k[idx][3] \
                     = self.best_k[idx][3].sort_values(by=["period_price_diff"],
                                                       axis=0, ascending=False)[:self.backtest.conf['TOP_K_NUM']]

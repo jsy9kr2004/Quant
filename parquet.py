@@ -98,12 +98,12 @@ class Parquet:
                                        engine="pyarrow", compression="gzip")
         
         logging.info("create financial_statement df")
-        # for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
-        #     fs_peryear = financial_statement[financial_statement['date'].between(datetime.datetime(year, 1, 1),
-        #                                                                          datetime.datetime(year, 12, 31))]
-        #     fs_peryear.to_parquet(self.view_path + "financial_statement_" + str(year) + ".parquet",
-        #                           engine="pyarrow", compression="gzip")
-        # logging.info("create financial_statement parquet per year")
+        for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
+            fs_peryear = financial_statement[financial_statement['date'].between(datetime.datetime(year, 1, 1),
+                                                                                 datetime.datetime(year, 12, 31))]
+            fs_peryear.to_parquet(self.view_path + "financial_statement_" + str(year) + ".parquet",
+                                  engine="pyarrow", compression="gzip")
+        logging.info("create financial_statement parquet per year")
         
         del income_statement
         del balance_sheet_statement
@@ -124,13 +124,13 @@ class Parquet:
         metrics.to_parquet(self.view_path + "metrics.parquet", engine="pyarrow", compression="gzip")
         logging.info("create metrics df")
 
-        # for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
-        #     metrics_peryear = metrics[metrics['date'].between(datetime.datetime(year, 1, 1),
-        #                                                       datetime.datetime(year, 12, 31))]
-        #     metrics_peryear.to_parquet(self.view_path + "metrics_" + str(year) + ".parquet",
-        #                                engine="pyarrow", compression="gzip")
+        for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
+            metrics_peryear = metrics[metrics['date'].between(datetime.datetime(year, 1, 1),
+                                                              datetime.datetime(year, 12, 31))]
+            metrics_peryear.to_parquet(self.view_path + "metrics_" + str(year) + ".parquet",
+                                    engine="pyarrow", compression="gzip")
                    
-        # logging.info("create metrics parquet per year")
+        logging.info("create metrics parquet per year")
         
         del financial_growth
         del key_metrics
@@ -199,8 +199,8 @@ class Parquet:
             # df_all_years = df_all_years.drop(df_all_years.columns[0], axis=1)
             df_all_years.to_parquet(pq_save_path, index=False)
             # TODO 삭제 잠시 임시로 주석처리
-            # for files in mp_file_list:
-            #    os.remove(files)
+            for files in mp_file_list:
+               os.remove(files)
             # pq.write_table(csv.read_csv(pq_save_path), pq_save_path)
             logging.info("create df in tables dict : {}".format(directory))
  
