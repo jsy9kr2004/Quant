@@ -210,7 +210,6 @@ class Backtest:
                     cur_year = date.year
                     self.reload_bt_table(cur_year)
             else:
-                break
                 # 마지막 loop 에 도달하면 최근 date 로 한번 돌아서 print 해준 후에 루프를 빠져 나가도록 함
                 if self.eval_report_path is not None:
                     date = recent_date
@@ -285,7 +284,7 @@ class PlanHandler:
         # top_k_df = self.date_handler.dtable.sort_values(by=[key], ascending=False, na_position="last")[:self.k_num]
         top_k_df = self.date_handler.dtable.sort_values(by=[key+"_sorted"], ascending=False,
                                                         na_position="last")[:self.k_num]
-        logger.debug(top_k_df[['symbol', params["key"]]])
+        # logger.debug(top_k_df[['symbol', params["key"]]])
         symbols = top_k_df['symbol']
         del top_k_df
         return_df = self.date_handler.dtable[['symbol']]
@@ -300,7 +299,6 @@ class PlanHandler:
         return_df[local_rank_name] = return_df[local_score_name].rank(method='min', ascending=False)
         return_df[local_rank_name] = return_df[local_rank_name].fillna(-1).astype(int)
         return_df[local_score_name] = return_df[local_score_name].fillna(0).astype(int)
-        print(return_df)
         # logger.debug(return_df[[local_score_name, local_rank_name]])
         return return_df
 
@@ -545,16 +543,12 @@ class EvaluationHandler:
         if latest == False:
             period_price_diff_tmp = df_for_reg['period_price_diff']
 
-        print(df_for_reg.columns)
         use_col_list_wydiff = list(map(lambda x: "Ydiff_" + x, cal_col_list))
         use_col_list_wqdiff = list(map(lambda x: "Qdiff_" + x, cal_col_list))
         use_col_list_woverMC = list(map(lambda x: "OverMC_" + x, cal_col_list))
         use_col_list_wadaMC = list(filter(lambda x: x.startswith('adaptiveMC_'), df_for_reg.columns))
 
-        print(use_col_list_wadaMC)
-
         use_col_list_wprev = use_col_list + use_col_list_wydiff + use_col_list_wqdiff + use_col_list_woverMC + use_col_list_wadaMC
-        print(use_col_list_wprev)
         # df_for_reg = df_for_reg[[use_col_list_wprev]]
         # df_for_reg['symbol'] = symbols_tmp
 
@@ -563,19 +557,18 @@ class EvaluationHandler:
             df_for_reg['earning_diff'] \
                 = df_for_reg['period_price_diff'] - df_for_reg['period_price_diff'].mean()
 
-        print("in print_AI")
-        print(df_for_reg)
         # remove outlier
         logging.info("before removing outlier # rows : " + str(df_for_reg.shape[0]))
         logging.info("before removing outlier # columns : " + str(df_for_reg.shape[1]))
         
 
 
-        # remove sparse cols
-        df_for_reg = df_for_reg.drop(sparse_col_list, axis=1)
-        # use_col_list_wprev - sparse_cols
-        use_col_list2 = [x for x in use_col_list if x not in sparse_col_list]
-        use_col_list_wprev = [x for x in use_col_list_wprev if x not in sparse_col_list]
+        # # remove sparse cols
+        # df_for_reg = df_for_reg.drop(sparse_col_list, axis=1)
+        # # use_col_list_wprev - sparse_cols
+        # use_col_list2 = [x for x in use_col_list if x not in sparse_col_list]
+        # use_col_list_wprev = [x for x in use_col_list_wprev if x not in sparse_col_list]
+        
 
         # fill nan with min value per col
         
@@ -586,7 +579,7 @@ class EvaluationHandler:
            
         # remove outliar rows
         outlier_list_col = []
-        for col in use_col_list2:
+        for col in use_col_list_wprev:
             try:
                 # removing outlier with IQR
                 # candi 1
@@ -661,7 +654,6 @@ class EvaluationHandler:
 
         mdict = dict.fromkeys(outlier_list_col)
         outlier_list_col = list(mdict)
-
         df_for_reg = df_for_reg.drop(index=outlier_list_col, axis=0)
         logging.info("after removing outlier # rows : " + str(df_for_reg.shape[0]))
         logging.info("after removing outlier # columns : " + str(df_for_reg.shape[1]))
@@ -796,7 +788,6 @@ class EvaluationHandler:
             logging.info(str(idx) + " " + str(date))
 
     def cal_earning_func(self, best_k):
-        print("top")
         logger = self.backtest.main_ctx.get_multi_logger()
 
         (date, rebalance_date, best_group, reference_group, period_earning_rate) = best_k

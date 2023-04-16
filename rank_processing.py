@@ -3,7 +3,7 @@ import pandas as pd
 import warnings
 
 warnings.filterwarnings("ignore")
-rank_reports = ['./reports/' + file for file in os.listdir('./reports/') if file.startswith("RANK_REPORT_46_")]
+rank_reports = ['./reports/' + file for file in os.listdir('./reports/') if file.startswith("RANK_REPORT_140_")]
 
 full_df = pd.DataFrame()
 for report in rank_reports:
@@ -28,10 +28,10 @@ for row in rank_per_cols.index.tolist():
     rank_per_cols.loc[row, 'var'] = full_df[row].var()
     rank_per_cols.loc[row, 'avg'] = full_df[row].mean()
 
-CUT_EMPTY_NUM=3600
+CUT_EMPTY_NUM=540000
 rank_per_cols = rank_per_cols[rank_per_cols['empty']<CUT_EMPTY_NUM]
 
-CUT_AVG_NUM=924
+CUT_AVG_NUM=10000
 rank_per_cols = rank_per_cols[rank_per_cols['avg']<CUT_AVG_NUM]
 
 rank_per_cols['average_rank'] = rank_per_cols['avg'].rank(method='max', ascending=True)

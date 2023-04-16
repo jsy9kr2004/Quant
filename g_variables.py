@@ -13,7 +13,7 @@ cal_col_list = [
 "enterpriseValue", "bookValuePerShare", "shareholdersEquityPerShare", "pfcfRatio","pocfratio", "daysSalesOutstanding",
 "incomeQuality", "interestDebtPerShare", "revenuePerShare", "investmentsInPropertyPlantAndEquipment", "freeCashFlowPerShare",
 "evToSales", "netIncomePerShare", "grahamNumber", "operatingCashFlowPerShare", "cashPerShare", "priceToSalesRatio",
-"pbRatio", "ptbRatio", "investedCapital", "roic","preferredStock",  "marketCap", "freeCashFlowYield", "roe",
+"pbRatio", "ptbRatio", "investedCapital", "roic",  "freeCashFlowYield", "roe",
 "otherLiabilities", "taxPayables", "returnOnTangibleAssets", "otherCurrentAssets", "earningsYield", "capitalExpenditure",
 "debtToEquity", "payoutRatio", "otherNonCashItems", "totalEquity", "costAndExpenses", "totalLiabilities", "totalCurrentLiabilities",
 "operatingExpenses", "totalCurrentAssets", "totalNonCurrentAssets", "netCashUsedProvidedByFinancingActivities", "propertyPlantEquipmentNet",
