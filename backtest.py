@@ -25,15 +25,12 @@ class Backtest:
         self.conf = conf
         self.plan_handler = plan_handler
         self.rebalance_period = rebalance_period
-        self.eval_handler = EvaluationHandler(self)
-        
+
         # 아래 값들은 init_bt_from_db 에서 세팅해주나, 가려지는 값이 없도록(init만 봤을 때 calss value가 모두 보이도록) 나열함
         self.symbol_table = pd.DataFrame()
         self.price_table = pd.DataFrame()
         self.fs_table = pd.DataFrame()
         self.metrics_table = pd.DataFrame()
-        self.load_bt_table(main_ctx.start_year)
-
         self.table_year = main_ctx.start_year
         
         self.eval_report_path = self.create_report("EVAL")
@@ -41,6 +38,8 @@ class Backtest:
         self.ai_report_path = self.create_report("AI")
         self.avg_report_path = self.create_report("AVG")
 
+        self.load_bt_table(main_ctx.start_year)
+        self.eval_handler = EvaluationHandler(self)
         self.run()
 
     def create_report(self, report_type):
@@ -110,59 +109,58 @@ class Backtest:
 
             self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
             self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
+
             self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
-            for c in ['close', 'marketCap']:
-                self.price_table [c] = self.price_table [c].astype('float32')
+            # for c in ['close', 'marketCap']:
+            #     self.price_table[c] = self.price_table[c].astype('float32')
 
             self.fs_table = pd.DataFrame()
             # self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")    
-            for year in range(self.main_ctx.start_year-1, self.main_ctx.start_year+1):
+            for year in range(self.main_ctx.start_year-2, self.main_ctx.start_year+2):
                 tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
                                          + str(year) + ".parquet")
-                self.fs_table = pd.concat([tmp_fs, self.fs_table])    
+                self.fs_table = pd.concat([tmp_fs, self.fs_table])
             del tmp_fs
-            for col in cal_col_list:
-                if col in self.fs_table.columns:
-                    self.fs_table[col] = self.fs_table[col].astype('float32')
+            # for col in cal_col_list:
+            #     if col in self.fs_table.columns:
+            #        self.fs_table[col] = self.fs_table[col].astype('float32')
 
             self.metrics_table = pd.DataFrame()
             # self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
-            for year in range(self.main_ctx.start_year-1, self.main_ctx.start_year+1):
+            for year in range(self.main_ctx.start_year-2, self.main_ctx.start_year+2):
                 tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
                 self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
             del tmp_metrics
-            for col in cal_col_list:
-                if col in self.metrics_table.columns:
-                    self.metrics_table[col] = self.metrics_table[col].astype('float32')
+            # for col in cal_col_list:
+            #     if col in self.metrics_table.columns:
+            #         self.metrics_table[col] = self.metrics_table[col].astype('float32')
 
     def reload_bt_table(self, year):
-            print("reload_bt_table, year : ", year)
-            self.fs_table = pd.DataFrame()
-            # self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")
 
-            for y in range(year-1, year+1):
-                tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
-                                         + str(y) + ".parquet")
-                self.fs_table = pd.concat([tmp_fs, self.fs_table])    
-            del tmp_fs
-            for col in cal_col_list:
-                if col in self.fs_table.columns:
-                    self.fs_table[col] = self.fs_table[col].astype('float32')
-            
-            self.metrics_table = pd.DataFrame()
-            # self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
+        print("reload_bt_table, year : ", year)
+        self.fs_table = pd.DataFrame()
+        # self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")
+        for y in range(year-2, year+1):
+            tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
+                                        + str(y) + ".parquet")
+            self.fs_table = pd.concat([tmp_fs, self.fs_table])    
+        del tmp_fs
+        # for col in cal_col_list:
+        #     if col in self.fs_table.columns:
+        #         self.fs_table[col] = self.fs_table[col].astype('float32')
+        
+        self.metrics_table = pd.DataFrame()
+        # self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
+        for y in range(year-2, year+1):
+            tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(y) + ".parquet")
+            self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
+        del tmp_metrics            
 
-            for y in range(year-1, year+1):
-                tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(y) + ".parquet")
-                self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
-            del tmp_metrics
-            for col in cal_col_list:
-                if col in self.metrics_table.columns:
-                    self.metrics_table[col] = self.metrics_table[col].astype('float32')
+                    
     def get_trade_date(self, pdate):
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
         # pdate =  pdate.date()
-        post_date = pdate - relativedelta(days=4)
+        post_date = pdate - relativedelta(days=7)
         res = self.price_table.query("date >= @post_date and date <= @pdate")
         if res.empty:
             return None
@@ -279,7 +277,6 @@ class PlanHandler:
             logger.warning("Wrong params['diff'] : TOO BIG! SET UNDER " + str(self.absolute_score/self.k_num))
 
         key = str(params["key"])
-
         # all feature was preprocessed ( high is good ) in Datehandler
         # top_k_df = self.date_handler.dtable.sort_values(by=[key], ascending=False, na_position="last")[:self.k_num]
         top_k_df = self.date_handler.dtable.sort_values(by=[key+"_sorted"], ascending=False,
@@ -297,8 +294,8 @@ class PlanHandler:
             delta = delta - params["diff"]
         local_rank_name = key+'_rank'
         return_df[local_rank_name] = return_df[local_score_name].rank(method='min', ascending=False)
-        return_df[local_rank_name] = return_df[local_rank_name].fillna(-1).astype(int)
-        return_df[local_score_name] = return_df[local_score_name].fillna(0).astype(int)
+        return_df[local_rank_name] = return_df[local_rank_name].fillna(-1) # .astype(int)
+        return_df[local_score_name] = return_df[local_score_name].fillna(0) # .astype(int)
         # logger.debug(return_df[[local_score_name, local_rank_name]])
         return return_df
 
@@ -336,14 +333,12 @@ class DateHandler:
     def create_dtable(self, backtest):
         
         # 미리 parquet로 저장해둔 DATE handler table이 없어서 새로 만듬. 
-
         # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
         query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(self.date)
         self.dtable = backtest.symbol_table.query(query)
         self.dtable = self.dtable.assign(score=0)
-
         trade_date = backtest.get_trade_date(self.date)
-        
+
         price = backtest.price_table.query("date == @trade_date")
         # logging.info("Price Table : \n" + str(price))
         price = price[['symbol', 'date', 'close', 'volume', 'marketCap']]
@@ -352,8 +347,8 @@ class DateHandler:
         del price
         self.dtable = self.dtable[self.dtable['volume'] > 10000]
         self.dtable = self.dtable.nlargest(int(len(self.dtable)*0.60), 'volume', keep='first')
-        
-        prev = self.date - relativedelta(months=3)
+
+        prev = self.date - relativedelta(months=6)
         # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
         fs = backtest.fs_table.copy()
         fs = fs[fs.fillingDate <= self.date]
@@ -364,12 +359,14 @@ class DateHandler:
         del fs
         
         # 1 Q 전 fs, metrics 와 모든 column 빼서 1-year diff column 만들기
-        prev_q = self.date - relativedelta(months=3)
-        prev = self.date - relativedelta(months=6)
+        prev_q = self.date - relativedelta(months=4)
+        prev = self.date - relativedelta(months=8)
         prev_q_fs = backtest.fs_table.copy()
         prev_q_fs = prev_q_fs[prev_q_fs.fillingDate <= prev_q]
         prev_q_fs = prev_q_fs[prev <= prev_q_fs.fillingDate]
+
         prev_q_fs = prev_q_fs.drop_duplicates('symbol', keep='first')
+        metrics = backtest.metrics_table.copy()
         prev_q_fs_metrics = pd.merge(prev_q_fs, metrics, how='left', on=['symbol', 'date'])
         
         symbols = prev_q_fs_metrics['symbol']
@@ -379,24 +376,26 @@ class DateHandler:
         fs_metrics = pd.merge(fs_metrics, prev_q_fs_metrics, how='left', on=['symbol'])
         del prev_q_fs_metrics
         
-        for col in cal_col_list:
-            fs_metrics[col] = fs_metrics[col].astype('float32')
+        # for col in cal_col_list:
+        #     fs_metrics[col] = fs_metrics[col].astype('float32')
         
         for col in cal_col_list:
             new_col_name = 'Qdiff_' + col
             fs_metrics[new_col_name] = (fs_metrics["prevQ_"+col] - fs_metrics[col]) / fs_metrics["prevQ_"+col] 
             fs_metrics = fs_metrics.drop(["prevQ_"+col], axis=1)
-            fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
+            # fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
 
         # 1년 전 fs, metrics 와 모든 column 빼서 1-year diff column 만들기
         prev_year = self.date - relativedelta(months=10)
-        prev = self.date - relativedelta(months=12)
+        prev = self.date - relativedelta(months=14)
         prev_year_fs = backtest.fs_table.copy()
         prev_year_fs = prev_year_fs[prev_year_fs.fillingDate <= prev_year]
         prev_year_fs = prev_year_fs[prev <= prev_year_fs.fillingDate]
+
+
         prev_year_fs = prev_year_fs.drop_duplicates('symbol', keep='first')
+        metrics = backtest.metrics_table.copy()
         prev_year_fs_metrics = pd.merge(prev_year_fs, metrics, how='left', on=['symbol', 'date'])
-        del metrics
 
         symbols = prev_year_fs_metrics['symbol']
         prev_year_fs_metrics = prev_year_fs_metrics[cal_col_list]
@@ -409,7 +408,7 @@ class DateHandler:
             new_col_name = 'Ydiff_' + col
             fs_metrics[new_col_name] = (fs_metrics["prevY_"+col] - fs_metrics[col])/fs_metrics["prevY_"+col]
             fs_metrics = fs_metrics.drop(["prevY_"+col], axis=1)
-            fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
+            # fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
 
 
         # marketCap 과의 직접 계산이 필요한 column들을 추가 해 줌
@@ -423,7 +422,7 @@ class DateHandler:
         for col in cal_col_list:
             new_col_name = 'OverMC_' + col
             fs_metrics[new_col_name] = fs_metrics[col] / fs_metrics['cal_marketCap']
-            fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
+            # fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
 
 
 
@@ -439,7 +438,7 @@ class DateHandler:
         for col in cal_ev_col_list:
             new_col_name = 'adaptiveMC_' + col
             fs_metrics[new_col_name] = fs_metrics['adaptiveMC_ev']/fs_metrics[col]
-            fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
+            # fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
 
                         
         fs_metrics = fs_metrics.drop(["marketCap"], axis=1)
@@ -453,27 +452,29 @@ class DateHandler:
 
         highlow = pd.read_csv('./sort.csv', header=0)
         for feature in fs_metrics.columns:
-            if ( feature not in use_col_list) and (not feature.startswith('Ydiff')) and (not feature.startswith('Qdiff'))\
-                        and (not feature.startswith('OverMC')) and (not feature.startswith('adaptiveMC')):
-                continue
+            # if ( feature not in use_col_list) and (not feature.startswith('Ydiff')) and (not feature.startswith('Qdiff'))\
+            #             and (not feature.startswith('OverMC')) and (not feature.startswith('adaptiveMC')):
+            #     continue
             feature_sortedvalue_col_name = feature + "_sorted"                
             if str(feature).startswith("Ydiff_") or str(feature).startswith("Qdiff_") \
-                    or str(feature).startswith("OverMC_"):
+                    or str(feature).startswith("OverMC_") or str(feature).startswith("adaptiveMC_"):
                 feature_name = str(feature).split('_')[1]
             else:
                 feature_name = feature
+            if (feature_name not in cal_col_list) and (feature_name not in use_col_list):
+                continue
             # 음수 처리
             f = highlow.query("name == @feature_name")
             if f.empty:
                 continue
             else:
-                fs_metrics[feature_sortedvalue_col_name] = fs_metrics[feature].astype('float32')
+                fs_metrics[feature_sortedvalue_col_name] = fs_metrics[feature].copy() # .astype('float32')
                 if f.iloc[0].sort == "low":
                     try:
                         feat_max = fs_metrics[feature].max()
                         fs_metrics[feature_sortedvalue_col_name] = \
                             [s*(-1) if s >= 0 else (s - feat_max) for s in fs_metrics[feature]]
-                        fs_metrics[feature_sortedvalue_col_name] = fs_metrics[feature_sortedvalue_col_name].astype('float32')
+                        # fs_metrics[feature_sortedvalue_col_name] = fs_metrics[feature_sortedvalue_col_name].astype('float32')
                     except Exception as e:
                         logging.info(str(e))
                         continue
@@ -495,6 +496,7 @@ class DateHandler:
             # # fs_metrics = fs_metrics.astype({feature: 'float32'})
         
         self.dtable = pd.merge(self.dtable, fs_metrics, how='left', on='symbol')
+
         self.dtable["sector"] = self.dtable["industry"].map(sector_map)
         self.dtable.to_parquet(backtest.conf['ROOT_PATH'] + "/DATE_TABLE/"
                                 + 'dtable_' + str(self.date.year) + '_'
@@ -543,12 +545,18 @@ class EvaluationHandler:
         if latest == False:
             period_price_diff_tmp = df_for_reg['period_price_diff']
 
-        use_col_list_wydiff = list(map(lambda x: "Ydiff_" + x, cal_col_list))
-        use_col_list_wqdiff = list(map(lambda x: "Qdiff_" + x, cal_col_list))
-        use_col_list_woverMC = list(map(lambda x: "OverMC_" + x, cal_col_list))
-        use_col_list_wadaMC = list(filter(lambda x: x.startswith('adaptiveMC_'), df_for_reg.columns))
+        sorted_col_list = []
+        for col in df_for_reg.columns:
+            sorted_col_list.append(col)
+        sorted_col_list = list(filter(lambda x: x.endswith('_sorted'), sorted_col_list))
 
-        use_col_list_wprev = use_col_list + use_col_list_wydiff + use_col_list_wqdiff + use_col_list_woverMC + use_col_list_wadaMC
+        # use_col_list_wydiff = list(map(lambda x: "Ydiff_" + x, cal_col_list))
+        # use_col_list_wqdiff = list(map(lambda x: "Qdiff_" + x, cal_col_list))
+        # use_col_list_woverMC = list(map(lambda x: "OverMC_" + x, cal_col_list))
+        # use_col_list_wadaMC = list(filter(lambda x: x.startswith('adaptiveMC_'), df_for_reg.columns))
+
+        # use_col_list_wprev = use_col_list + use_col_list_wydiff + use_col_list_wqdiff + use_col_list_woverMC + use_col_list_wadaMC
+
         # df_for_reg = df_for_reg[[use_col_list_wprev]]
         # df_for_reg['symbol'] = symbols_tmp
 
@@ -561,8 +569,6 @@ class EvaluationHandler:
         logging.info("before removing outlier # rows : " + str(df_for_reg.shape[0]))
         logging.info("before removing outlier # columns : " + str(df_for_reg.shape[1]))
         
-
-
         # # remove sparse cols
         # df_for_reg = df_for_reg.drop(sparse_col_list, axis=1)
         # # use_col_list_wprev - sparse_cols
@@ -579,7 +585,7 @@ class EvaluationHandler:
            
         # remove outliar rows
         outlier_list_col = []
-        for col in use_col_list_wprev:
+        for col in sorted_col_list:
             try:
                 # removing outlier with IQR
                 # candi 1
@@ -659,22 +665,22 @@ class EvaluationHandler:
         logging.info("after removing outlier # columns : " + str(df_for_reg.shape[1]))
 
 
-        # 음수 처리
-        for col in use_col_list_wprev:
-            highlow = pd.read_csv('./sort.csv', header=0)
-            f = highlow.query("name == @col")
-            if f.empty:
-                continue
-            else:
-                if f.iloc[0].sort == "low":
-                    try:
-                        feat_max = df_for_reg[col].max()
-                        df_for_reg[col] = [s * (-1) if s >= 0 else (s - feat_max) for s in df_for_reg[col]]
-                    except Exception as e:
-                        logging.info(str(e))
-                        continue
+        # # 음수 처리
+        # for col in use_col_list_wprev:
+        #     highlow = pd.read_csv('./sort.csv', header=0)
+        #     f = highlow.query("name == @col")
+        #     if f.empty:
+        #         continue
+        #     else:
+        #         if f.iloc[0].sort == "low":
+        #             try:
+        #                 feat_max = df_for_reg[col].max()
+        #                 df_for_reg[col] = [s * (-1) if s >= 0 else (s - feat_max) for s in df_for_reg[col]]
+        #             except Exception as e:
+        #                 logging.info(str(e))
+        #                 continue
 
-        for col in use_col_list_wprev:
+        for col in sorted_col_list:
             feature_normal_col_name = col + "_normal"
             try:
                 max_value = df_for_reg[col].max()
@@ -801,7 +807,7 @@ class EvaluationHandler:
         stock_cnt = (total_asset / len(best_group)) / best_group['price']
         stock_cnt = stock_cnt.replace([np.inf, -np.inf], 0)
         stock_cnt = stock_cnt.fillna(0)
-        stock_cnt = stock_cnt.astype(int)
+        # stock_cnt = stock_cnt.astype(int)
         price_mul_stock_cnt = best_group['price'] * stock_cnt
         my_asset_period = price_mul_stock_cnt.sum()
         remain_asset = total_asset - price_mul_stock_cnt.sum()
