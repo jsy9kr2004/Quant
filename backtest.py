@@ -116,7 +116,7 @@ class Backtest:
 
             self.fs_table = pd.DataFrame()
             # self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")    
-            for year in range(self.main_ctx.start_year-2, self.main_ctx.start_year+2):
+            for year in range(self.main_ctx.start_year-2, self.main_ctx.start_year+1):
                 tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
                                          + str(year) + ".parquet")
                 self.fs_table = pd.concat([tmp_fs, self.fs_table])
@@ -127,7 +127,7 @@ class Backtest:
 
             self.metrics_table = pd.DataFrame()
             # self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
-            for year in range(self.main_ctx.start_year-2, self.main_ctx.start_year+2):
+            for year in range(self.main_ctx.start_year-2, self.main_ctx.start_year+1):
                 tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
                 self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
             del tmp_metrics
@@ -345,6 +345,8 @@ class DateHandler:
         price = price.drop_duplicates('symbol', keep='first')
         self.dtable = pd.merge(self.dtable, price, how='left', on='symbol')
         del price
+        
+        self.dtable = self.dtable[~self.dtable.isin([np.inf, -np.inf]).any(axis=1)]
         self.dtable = self.dtable[self.dtable['volume'] > 10000]
         self.dtable = self.dtable.nlargest(int(len(self.dtable)*0.60), 'volume', keep='first')
 
@@ -374,6 +376,7 @@ class DateHandler:
         prev_q_fs_metrics = prev_q_fs_metrics.rename(columns=lambda x: "prevQ_" + x)
         prev_q_fs_metrics['symbol'] = symbols
         fs_metrics = pd.merge(fs_metrics, prev_q_fs_metrics, how='left', on=['symbol'])
+        fs_metrics = fs_metrics[~fs_metrics.isin([np.inf, -np.inf]).any(axis=1)]        
         del prev_q_fs_metrics
         
         # for col in cal_col_list:
@@ -381,7 +384,8 @@ class DateHandler:
         
         for col in cal_col_list:
             new_col_name = 'Qdiff_' + col
-            fs_metrics[new_col_name] = (fs_metrics["prevQ_"+col] - fs_metrics[col]) / fs_metrics["prevQ_"+col] 
+            # fs_metrics[new_col_name] = (fs_metrics["prevQ_"+col] - fs_metrics[col]) / fs_metrics["prevQ_"+col] 
+            fs_metrics[new_col_name] = np.where(fs_metrics["prevQ_"+col] != 0, (fs_metrics["prevQ_"+col] - fs_metrics[col]) / fs_metrics["prevQ_"+col], 0)
             fs_metrics = fs_metrics.drop(["prevQ_"+col], axis=1)
             # fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
 
@@ -406,7 +410,8 @@ class DateHandler:
 
         for col in cal_col_list:
             new_col_name = 'Ydiff_' + col
-            fs_metrics[new_col_name] = (fs_metrics["prevY_"+col] - fs_metrics[col])/fs_metrics["prevY_"+col]
+            #fs_metrics[new_col_name] = (fs_metrics["prevY_"+col] - fs_metrics[col])/fs_metrics["prevY_"+col]
+            fs_metrics[new_col_name] = np.where(fs_metrics["prevY_"+col] != 0, (fs_metrics["prevY_"+col] - fs_metrics[col]) / fs_metrics["prevY_"+col], 0)
             fs_metrics = fs_metrics.drop(["prevY_"+col], axis=1)
             # fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
 
@@ -437,7 +442,9 @@ class DateHandler:
         fs_metrics["adaptiveMC_ev"] = fs_metrics['cal_marketCap'] + fs_metrics["netDebt"]
         for col in cal_ev_col_list:
             new_col_name = 'adaptiveMC_' + col
-            fs_metrics[new_col_name] = fs_metrics['adaptiveMC_ev']/fs_metrics[col]
+            # fs_metrics[new_col_name] = fs_metrics['adaptiveMC_ev']/fs_metrics[col]
+            fs_metrics[new_col_name] = np.where(fs_metrics[col] != 0, fs_metrics['adaptiveMC_ev']/fs_metrics[col], 0)
+
             # fs_metrics[new_col_name] = fs_metrics[new_col_name].astype('float32')
 
                         
@@ -472,6 +479,7 @@ class DateHandler:
                 if f.iloc[0].sort == "low":
                     try:
                         feat_max = fs_metrics[feature].max()
+                        # 양수는 낮을 수록 좋아지도록 만들고, 음수는 양수의 제일 낮은 값보다 더 안좋게만들고
                         fs_metrics[feature_sortedvalue_col_name] = \
                             [s*(-1) if s >= 0 else (s - feat_max) for s in fs_metrics[feature]]
                         # fs_metrics[feature_sortedvalue_col_name] = fs_metrics[feature_sortedvalue_col_name].astype('float32')
@@ -540,7 +548,9 @@ class EvaluationHandler:
         self.best_k.append([date, rebalance_date, best_symbol, reference_group, period_earning_rate])
 
     def print_ai_data(self, df_for_reg, date, latest):
+        
         symbols_tmp = df_for_reg['symbol']
+        
         period_price_diff_tmp = pd.DataFrame()
         if latest == False:
             period_price_diff_tmp = df_for_reg['period_price_diff']
@@ -568,117 +578,50 @@ class EvaluationHandler:
         # remove outlier
         logging.info("before removing outlier # rows : " + str(df_for_reg.shape[0]))
         logging.info("before removing outlier # columns : " + str(df_for_reg.shape[1]))
-        
+        df_for_reg.to_csv('./beforeremoving.csv', index=False)
         # # remove sparse cols
         # df_for_reg = df_for_reg.drop(sparse_col_list, axis=1)
         # # use_col_list_wprev - sparse_cols
         # use_col_list2 = [x for x in use_col_list if x not in sparse_col_list]
         # use_col_list_wprev = [x for x in use_col_list_wprev if x not in sparse_col_list]
         
-
+        df_for_reg.replace(-np.inf, np.nan, inplace=True)
+        df_for_reg = df_for_reg.dropna(thresh=int(len(df_for_reg.columns)*0.3))
         # fill nan with min value per col
-        
-        # def fill_nan_with_min(df):
-        #     return df.fillna(df.min().to_dict())
-        # filled_df = fill_nan_with_min(df_for_reg)
-        # df_for_reg = filled_df
-           
-        # remove outliar rows
-        outlier_list_col = []
+        def fill_nan_with_min(df):    
+            # Select only numeric columns
+            numeric_columns = df.select_dtypes(include=['number'])
+            # Compute the minimum values for numeric columns
+            min_values = numeric_columns.min().to_dict()
+            # Fill NaN values in the original dataframe using the computed minimum values
+            return df.fillna(min_values)                    
+                    
+        filled_df = fill_nan_with_min(df_for_reg)
+        df_for_reg = filled_df
+        # Define a function to remove the top 0.5%(var : high=0.995) and bottom 0.5%(var : low = 0.005) from a column
+        def get_extreme_percentile_indices(column, low, high):
+            lower_bound = column.quantile(low)
+            upper_bound = column.quantile(high)
+            return column[(column < lower_bound) | (column > upper_bound)].index
+                
+        # remove outliar rows   
+        outlier_rows = set()
         for col in sorted_col_list:
             try:
-                # removing outlier with IQR
-                # candi 1
-                # Q1 = np.nanpercentile(df_for_reg[col], 10)
-                # Q3 = np.nanpercentile(df_for_reg[col], 90)
-                # print("col : ", col , "Q1: ", Q1, "Q3 :", Q3)
-                # IQR = Q3 - Q1
-                # # 0.5 is not fixed.   reference :  1.5 => remove 0.7%,  0 =>  remove 50%
-                # outlier_step = 1.5*IQR
-                # outlier_list_col = df_for_reg[(df_for_reg[col] < (Q1 - outlier_step))
-                #                                     | (df_for_reg[col] > (Q3 + outlier_step))].index
-                # if outlier_list_col.shape[0] < 200:
-                #     df_for_reg = df_for_reg.drop(index=outlier_list_col, axis=0)
-
-                # candi 2
-                q_1 = np.nanpercentile(df_for_reg[col], 0.5)
-                q_3 = np.nanpercentile(df_for_reg[col], 99.5)
-                # print("col : ", col , "Q1: ", Q1, "Q3 :", Q3)
-                iqr = q_3 - q_1
-                outlier_step = 0 * iqr
-                
-                cur_outlier = df_for_reg[(df_for_reg[col] < (q_1 - outlier_step))
-                                                   | (df_for_reg[col] > (q_3 + outlier_step))].index
-                if len(cur_outlier) < 10:
-                    outlier_list_col.extend(df_for_reg[(df_for_reg[col] < (q_1 - outlier_step))
-                                                       | (df_for_reg[col] > (q_3 + outlier_step))].index)
-                
-                # removing by count
-                # MID = self.fs_metrics[col].median()
-                # if (MID == nan) or (MID.isnan()):
-                #     print("MID is nan col : ", col)
-                #     continue
-                # logging.debug("start removing outlier col : " + col +  " mid : " + str(MID))
-
-                # threshold = 200
-                # while True:
-                #     outlier_list_col = self.fs_metrics[(self.fs_metrics[col] < (MID - threshold))
-                #                                     | (self.fs_metrics[col] > (MID + threshold))].index
-                #     if outlier_list_col.shape[0] <= 200:
-                #         # logging.debug("outlier undercut col cnt : "
-                #                         +  str(outlier_list_col.shape[0]) + " threshold : "+ str(threshold))
-                #         # print(outlier_list_col.shape)
-                #         threshold -= 5
-                #     elif outlier_list_col.shape[0] > 1000:
-                #         # logging.debug("outlier overcut col cnt : "
-                #                         + str(outlier_list_col.shape[0]) + " threshold : " + str(threshold))
-                #         # print(outlier_list_col.shape)
-                #         threshold += 5
-                #     if (outlier_list_col.shape[0] <= 1000) & (outlier_list_col.shape[0] > 200) :
-                #         logging.debug("@@@@@@@@ proper outlier col cnt : "
-                #                       +  str(outlier_list_col.shape[0])+ " threshold : " + str(threshold))
-                #         print(outlier_list_col.shape)
-                #         break
-                #     if threshold <= 0:
-                #         print(outlier_list_col.shape)
-                #         break
-                #     if threshold > 1000:
-                #         logging.debug("there is no proper threshold in col : " + col)
-                #         print(outlier_list_col.shape)
-                #         outlier_list_col = []
-                #         break
-                # self.fs_metrics = self.fs_metrics.drop(index=outlier_list_col, axis=0)
-
+                column_indices = get_extreme_percentile_indices(df_for_reg[col], 0.005, 0.995)
+                if len(column_indices) < 10:
+                    outlier_rows.update(column_indices)
             except Exception as e:
                 logging.info(str(e))
                 continue
 
         if latest == False:
-            q_1 = np.nanpercentile(df_for_reg['earning_diff'], 2)
-            q_3 = np.nanpercentile(df_for_reg['earning_diff'], 98)
-            outlier_list_col.extend(df_for_reg[(df_for_reg[col] < q_1) | (df_for_reg[col] > q_3)].index)
+            column_indices = get_extreme_percentile_indices(df_for_reg['earning_diff'], 0.02, 0.98)
+            outlier_rows.update(column_indices)
 
-        mdict = dict.fromkeys(outlier_list_col)
-        outlier_list_col = list(mdict)
-        df_for_reg = df_for_reg.drop(index=outlier_list_col, axis=0)
+        df_for_reg = df_for_reg.drop(index=outlier_rows, axis=0)
         logging.info("after removing outlier # rows : " + str(df_for_reg.shape[0]))
         logging.info("after removing outlier # columns : " + str(df_for_reg.shape[1]))
-
-
-        # # 음수 처리
-        # for col in use_col_list_wprev:
-        #     highlow = pd.read_csv('./sort.csv', header=0)
-        #     f = highlow.query("name == @col")
-        #     if f.empty:
-        #         continue
-        #     else:
-        #         if f.iloc[0].sort == "low":
-        #             try:
-        #                 feat_max = df_for_reg[col].max()
-        #                 df_for_reg[col] = [s * (-1) if s >= 0 else (s - feat_max) for s in df_for_reg[col]]
-        #             except Exception as e:
-        #                 logging.info(str(e))
-        #                 continue
 
         for col in sorted_col_list:
             feature_normal_col_name = col + "_normal"
@@ -706,6 +649,8 @@ class EvaluationHandler:
 
         if latest == False:
             df_for_reg_print.to_csv(traindata_path + '{0}_{1:02d}_regressor_train.csv'.format(date.year, date.month),
+                                    index=False)
+            df_for_reg.to_csv(traindata_path + '{0}_{1:02d}_full_regressor_train.csv'.format(date.year, date.month),
                                     index=False)
         else:
             df_for_reg_print.to_csv(
