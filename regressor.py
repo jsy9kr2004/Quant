@@ -12,7 +12,7 @@ import torch.nn.functional as nn_f
 import torch.optim as optim
 
 from datasets import Dataset
-from g_variables import use_col_list, cal_col_list, cal_ev_col_list, sector_map, sparse_col_list
+from g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, sparse_col_list
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from torch.utils.data import DataLoader
@@ -35,20 +35,20 @@ PER_SECTOR=True
 y_col_list=["period_price_diff","earning_diff","sector", "symbol"]
 
 if USE_COL == 'FULL':
-    use_col_list_wydiff = list(map(lambda x: "Ydiff_" + x, cal_col_list))
-    use_col_list_wqdiff = list(map(lambda x: "Qdiff_" + x, cal_col_list))
-    use_col_list_woverMC = list(map(lambda x: "OverMC_" + x, cal_col_list))
-    use_col_list_wadaMC = list(map(lambda x: 'adaptiveMC_' + x, cal_ev_col_list))
-    use_col_list_wprev = use_col_list + use_col_list_wydiff + use_col_list_wqdiff + use_col_list_woverMC + use_col_list_wadaMC
-    # use_col_list_wprev - sparse_cols
-    use_col_list_wprev = [x for x in use_col_list_wprev if x not in sparse_col_list]
-    use_col_list_wprev = list(map(lambda x: x+'_normal', use_col_list_wprev))
-    use_col_list_wprev = use_col_list_wprev+ y_col_list
+    ratio_col_list_wydiff = list(map(lambda x: "Ydiff_" + x, meaning_col_list))
+    ratio_col_list_wqdiff = list(map(lambda x: "Qdiff_" + x, meaning_col_list))
+    ratio_col_list_woverMC = list(map(lambda x: "OverMC_" + x, meaning_col_list))
+    ratio_col_list_wadaMC = list(map(lambda x: 'adaptiveMC_' + x, cal_ev_col_list))
+    ratio_col_list_wprev = ratio_col_list + ratio_col_list_wydiff + ratio_col_list_wqdiff + ratio_col_list_woverMC + ratio_col_list_wadaMC
+    # ratio_col_list_wprev - sparse_cols
+    ratio_col_list_wprev = [x for x in ratio_col_list_wprev if x not in sparse_col_list]
+    ratio_col_list_wprev = list(map(lambda x: x+'_normal', ratio_col_list_wprev))
+    ratio_col_list_wprev = ratio_col_list_wprev+ y_col_list
 
 if USE_COL == '97':
-    print("just use use_col_list")
-    use_col_list_wprev = list(map(lambda x: x+'_normal', use_col_list))
-    use_col_list_wprev = use_col_list_wprev + y_col_list
+    print("just use ratio_col_list")
+    ratio_col_list_wprev = list(map(lambda x: x+'_normal', ratio_col_list))
+    ratio_col_list_wprev = ratio_col_list_wprev + y_col_list
 
 class Regressor:
     def __init__(self, conf):
@@ -59,22 +59,25 @@ class Regressor:
         self.y_test = None
 
         # aidata_dir = conf['ROOT_PATH'] + '/regressor_data_0' + str(conf['START_MONTH']) + '/'
-        aidata_dir = conf['ROOT_PATH'] + '/regressor_data_01/'
+        aidata_dir = conf['ROOT_PATH'] + '/regressor_data_04/'
         
         self.train_files = []
         for year in range(int(conf['TRAIN_START_YEAR']), int(conf['TRAIN_END_YEAR'])):
-            path = aidata_dir + str(year) + "*train.csv"
+            path = aidata_dir + str(year) + "*train_norm.csv"
             year_files = [file for file in glob.glob(path)]
+            year_files = [file for file in year_files if 'full' not in file]
+            
             self.train_files.extend(year_files)
         
         self.test_files = []
         for year in range(int(conf['TEST_START_YEAR']), int(conf['TEST_END_YEAR'])):
-            path = aidata_dir + str(year) + "*train.csv"
+            path = aidata_dir + str(year) + "*train_norm.csv"
             year_files = [file for file in glob.glob(path)]
+            year_files = [file for file in year_files if 'full' not in file]
+            
             self.test_files.extend(year_files)
         print("train file list : ", self.train_files)
         print("test file list : ", self.test_files)
-        
         self.train_df = pd.DataFrame()
         self.test_df = pd.DataFrame()
         self.test_df_list = []
@@ -90,10 +93,13 @@ class Regressor:
 
     def dataload(self):
         for fpath in self.train_files:
+            
             print(fpath)
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
-            df = df.loc[:, use_col_list_wprev]
+            print(df)
+            
+            # df = df.loc[:, ratio_col_list_wprev]
             logging.debug(df.shape)  
             df = df[df.isnull().sum(axis=1) < 500]
             logging.debug(df.shape)  
@@ -117,7 +123,7 @@ class Regressor:
             print(fpath)
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
-            df = df.loc[:, use_col_list_wprev]
+            # df = df.loc[:, ratio_col_list_wprev]
             
             logging.debug(df.shape)  
             df = df[df.isnull().sum(axis=1) < 500]
@@ -156,8 +162,8 @@ class Regressor:
         self.y_test = self.test_df[['earning_diff']]
     
     def def_model(self):
-        self.models[0] = RandomForestRegressor(n_jobs=-1, n_estimators=400, min_samples_leaf=2)
-        self.models[1] = RandomForestRegressor(n_jobs=-1, n_estimators=400, min_samples_split=8, min_samples_leaf=4)
+        self.models[0] = RandomForestRegressor(n_jobs=-1, n_estimators=200, min_samples_leaf=2)
+        self.models[1] = RandomForestRegressor(n_jobs=-1, n_estimators=200, min_samples_split=8, min_samples_leaf=4)
         self.models[2] = xgboost.XGBRegressor(n_estimators=450, learning_rate=0.05, gamma=0, subsample=0.899,
                                         colsample_bytree=0.8, max_depth=9)
         for sec in self.sector_list:
@@ -357,12 +363,12 @@ class Regressor:
             pred_col_list.append(pred_col_name)  
 
         ldf = pd.read_csv(latest_data_path)
-        collist = use_col_list_wprev.copy()
+        collist = ratio_col_list_wprev.copy()
         collist.remove("earning_diff")
         collist.remove("period_price_diff")
         collist.remove("sector")
 
-        ldf = ldf.loc[:, collist]
+        # ldf = ldf.loc[:, collist]
         ldf = ldf[ldf.isnull().sum(axis=1) < 500]
         ldf = ldf.fillna(0)
         
@@ -392,12 +398,12 @@ class Regressor:
             ldf = pd.read_csv(latest_data_path)
             for sec in self.sector_list:
                 sec_df = ldf[ldf['sector']==sec]
-                collist = use_col_list_wprev.copy()
+                collist = ratio_col_list_wprev.copy()
                 collist.remove("earning_diff")
                 collist.remove("period_price_diff")
                 collist.remove("sector")
 
-                sec_df = sec_df.loc[:, collist]
+                # sec_df = sec_df.loc[:, collist]
                 sec_df = sec_df[sec_df.isnull().sum(axis=1) < 5]
                 sec_df = sec_df.fillna(0)
             
@@ -444,7 +450,7 @@ class MyDataset(Dataset):
             print(fpath)
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
-            df = df.loc[:, use_col_list_wprev]
+            # df = df.loc[:, ratio_col_list_wprev]
             logging.debug(df.shape)  
             df = df[df.isnull().sum(axis=1) < 5]
             logging.debug(df.shape)  
@@ -457,7 +463,7 @@ class MyDataset(Dataset):
             print(fpath)
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
-            df = df.loc[:, use_col_list_wprev]
+            # df = df.loc[:, ratio_col_list_wprev]
             logging.debug(df.shape)  
             df = df[df.isnull().sum(axis=1) < 5]
             logging.debug(df.shape)  
@@ -485,7 +491,7 @@ class RegressionNetwork(nn.Module):
     def __init__(self, conf):
         super().__init__()
         self.conf = conf
-        self.fc1 = nn.Linear(len(use_col_list_wprev)-3, 97)
+        self.fc1 = nn.Linear(len(ratio_col_list_wprev)-3, 97)
         self.fc2 = nn.Linear(97, 1)
         self.dropout = nn.Dropout(0.1)
 
@@ -557,7 +563,7 @@ class RegressionNetwork1(nn.Module):
     def __init__(self, conf):
         super().__init__()
         self.conf = conf
-        self.fc1 = nn.Linear(len(use_col_list_wprev)-3, 97)
+        self.fc1 = nn.Linear(len(ratio_col_list_wprev)-3, 97)
         self.fc2 = nn.Linear(97, 1)
         self.dropout = nn.Dropout(0.25)
 
@@ -571,7 +577,7 @@ class RegressionNetwork2(nn.Module):
     def __init__(self, conf):
         super().__init__()
         self.conf = conf
-        self.fc1 = nn.Linear(len(use_col_list_wprev)-3, 97)
+        self.fc1 = nn.Linear(len(ratio_col_list_wprev)-3, 97)
         self.fc2 = nn.Linear(97, 1)
         self.dropout = nn.Dropout(0.1)
 
@@ -585,7 +591,7 @@ class RegressionNetwork4(nn.Module):
     def __init__(self, conf):
         super().__init__()
         self.conf = conf
-        self.fc1 = nn.Linear(len(use_col_list_wprev)-3, 97)
+        self.fc1 = nn.Linear(len(ratio_col_list_wprev)-3, 97)
         self.fc2 = nn.Linear(97, 1)
         self.dropout = nn.Dropout(0.1)
 

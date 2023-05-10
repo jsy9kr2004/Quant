@@ -3,7 +3,7 @@ sparse_col_list = ['Ydiff_dcf', 'Ydiff_preferredStock', 'Qdiff_otherLiabilities'
                    'Ydiff_sellingAndMarketingExpenses', 'Ydiff_researchAndDdevelopementToRevenue', 
                    'dcf', 'Ydiff_otherAssets', 'OverMC_dcf', 'Qdiff_preferredStock', 'Qdiff_capitalLeaseObligations']
 
-cal_col_list = [
+meaning_col_list = [
 "commonStockRepurchased", "interestCoverage", "dividendYield", "averageInventory", "dividendsPaid", "deferredRevenueNonCurrent",
 "inventoryTurnover", "purchasesOfInvestments", "accountsReceivables", "tangibleAssetValue", "daysPayablesOutstanding", "dcf",
 "averagePayables", "acquisitionsNet", "accountsPayables", "averageReceivables", "workingCapital", "capexToDepreciation",
@@ -37,10 +37,10 @@ cal_col_list = [
 "tenYNetIncomeGrowthPerShare", "weightedAverageSharesGrowth", "longTermInvestments", "fiveYNetIncomeGrowthPerShare", "bookValueperShareGrowth",
 "inventoryGrowth", "generalAndAdministrativeExpenses", "shortTermDebt", "interestIncome", "rdexpenseGrowth", "effectOfForexChangesOnCash",
 "intangibleAssets", "otherExpenses", "deferredRevenue", "shortTermInvestments", "deferredTaxLiabilitiesNonCurrent", "taxAssets",
-"researchAndDevelopmentExpenses"
+"researchAndDevelopmentExpenses",
 ]
 
-use_col_list = ["interestCoverage", "dividendYield", "inventoryTurnover", "daysPayablesOutstanding",
+ratio_col_list = ["interestCoverage", "dividendYield", "inventoryTurnover", "daysPayablesOutstanding",
                 "stockBasedCompensationToRevenue", "dcf", "capexToDepreciation", "currentRatio",
                 "daysOfInventoryOnHand", "payablesTurnover", "grahamNetNet", "capexToRevenue", "netDebtToEBITDA",
                 "receivablesTurnover", "capexToOperatingCashFlow", "evToOperatingCashFlow", "evToFreeCashFlow",
