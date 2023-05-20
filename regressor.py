@@ -2,7 +2,7 @@ import glob
 import joblib
 import logging
 import torch
-
+import os
 import seaborn as sns
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -10,6 +10,8 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as nn_f
 import torch.optim as optim
+from dateutil.relativedelta import relativedelta
+import datetime
 
 from datasets import Dataset
 from g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, sparse_col_list
@@ -31,17 +33,21 @@ from sklearn.model_selection import RandomizedSearchCV
 
 USE_COL='FULL'
 PER_SECTOR=True
-
+MODEL_SAVE_PATH=""
 y_col_list=["period_price_diff","earning_diff","sector", "symbol"]
 
+
 if USE_COL == 'FULL':
-    ratio_col_list_wydiff = list(map(lambda x: "Ydiff_" + x, meaning_col_list))
-    ratio_col_list_wqdiff = list(map(lambda x: "Qdiff_" + x, meaning_col_list))
+    ratio_col_list_wdiff4 = list(map(lambda x: "diff4_" + x, meaning_col_list))
+    ratio_col_list_wdiff12 = list(map(lambda x: "diff12_" + x, meaning_col_list))
+    ratio_col_list_wemavg = list(map(lambda x: "emavg_" + x, meaning_col_list))
     ratio_col_list_woverMC = list(map(lambda x: "OverMC_" + x, meaning_col_list))
     ratio_col_list_wadaMC = list(map(lambda x: 'adaptiveMC_' + x, cal_ev_col_list))
-    ratio_col_list_wprev = ratio_col_list + ratio_col_list_wydiff + ratio_col_list_wqdiff + ratio_col_list_woverMC + ratio_col_list_wadaMC
+    ratio_col_list_wprev = ratio_col_list + ratio_col_list_wdiff4 + ratio_col_list_wdiff12 + ratio_col_list_wemavg + ratio_col_list_woverMC + ratio_col_list_wadaMC
+    
     # ratio_col_list_wprev - sparse_cols
-    ratio_col_list_wprev = [x for x in ratio_col_list_wprev if x not in sparse_col_list]
+    # ratio_col_list_wprev = [x for x in ratio_col_list_wprev if x not in sparse_col_list]
+    
     ratio_col_list_wprev = list(map(lambda x: x+'_normal', ratio_col_list_wprev))
     ratio_col_list_wprev = ratio_col_list_wprev+ y_col_list
 
@@ -58,24 +64,26 @@ class Regressor:
         self.x_test = None
         self.y_test = None
 
-        # aidata_dir = conf['ROOT_PATH'] + '/regressor_data_0' + str(conf['START_MONTH']) + '/'
-        aidata_dir = conf['ROOT_PATH'] + '/regressor_data_04/'
-        
+        aidata_dir = conf['ROOT_PATH'] + '/regressor_data_p{0:02d}_m{1:02d}/'.format(self.conf['REBALANCE_PERIOD'], self.conf['START_MONTH'])
+        print("aidata path : " + aidata_dir)
+        if not os.path.exists(aidata_dir):
+            print("there is no ai data : " + aidata_dir)
+            return 
+            
         self.train_files = []
         for year in range(int(conf['TRAIN_START_YEAR']), int(conf['TRAIN_END_YEAR'])):
-            path = aidata_dir + str(year) + "*train_norm.csv"
-            year_files = [file for file in glob.glob(path)]
-            year_files = [file for file in year_files if 'full' not in file]
-            
-            self.train_files.extend(year_files)
+                path = aidata_dir + str(year) + "*train_norm.csv"
+                year_files = [file for file in glob.glob(path)]
+                year_files = [file for file in year_files if 'full' not in file]
+                self.train_files.extend(year_files)
         
         self.test_files = []
-        for year in range(int(conf['TEST_START_YEAR']), int(conf['TEST_END_YEAR'])):
-            path = aidata_dir + str(year) + "*train_norm.csv"
-            year_files = [file for file in glob.glob(path)]
-            year_files = [file for file in year_files if 'full' not in file]
-            
-            self.test_files.extend(year_files)
+        for year in range(int(conf['TEST_START_YEAR']), int(conf['TEST_END_YEAR'])+1):
+                path = aidata_dir + str(year) + "*train_norm.csv"
+                year_files = [file for file in glob.glob(path)]
+                year_files = [file for file in year_files if 'full' not in file]
+                self.test_files.extend(year_files)
+                
         print("train file list : ", self.train_files)
         print("test file list : ", self.test_files)
         self.train_df = pd.DataFrame()
@@ -92,16 +100,28 @@ class Regressor:
         self.sector_y_train = dict()
 
     def dataload(self):
+        
+        # TODO: remove after re-creating DTABLE
+        # 절대값 column 제거
+        abs_col_list = list(set(meaning_col_list) - set(ratio_col_list))
+        abs_col_list = [col + '_sorted_normal' for col in abs_col_list]
+        print("drop abs_col_list : ")
+        print(abs_col_list)
+        #### 
+        
         for fpath in self.train_files:
-            
             print(fpath)
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
-            print(df)
             
-            # df = df.loc[:, ratio_col_list_wprev]
+            # TODO: remove after re-creating DTABLE
+            df = df.drop(abs_col_list, axis=1) 
+            ###### 
+            
+            print("before drop null > 500")
             logging.debug(df.shape)  
             df = df[df.isnull().sum(axis=1) < 500]
+            print("after drop null > 500")
             logging.debug(df.shape)  
             # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
             self.train_df = pd.concat([self.train_df, df], axis=0)
@@ -124,6 +144,10 @@ class Regressor:
             df = pd.read_csv(fpath)
             df = df.dropna(axis=0, subset=['earning_diff'])
             # df = df.loc[:, ratio_col_list_wprev]
+            
+            # TODO: remove after re-creating DTABLE
+            df = df.drop(abs_col_list, axis=1) 
+            ##
             
             logging.debug(df.shape)  
             df = df[df.isnull().sum(axis=1) < 500]
@@ -150,6 +174,7 @@ class Regressor:
         logging.debug(self.train_df.shape)
         logging.debug("test_df shape : ")
         logging.debug(self.test_df.shape)
+    
         
         self.x_train = self.train_df[self.train_df.columns.difference(y_col_list)]
         self.y_train = self.train_df[['earning_diff']]
@@ -162,17 +187,17 @@ class Regressor:
         self.y_test = self.test_df[['earning_diff']]
     
     def def_model(self):
-        self.models[0] = RandomForestRegressor(n_jobs=-1, n_estimators=200, min_samples_leaf=2)
-        self.models[1] = RandomForestRegressor(n_jobs=-1, n_estimators=200, min_samples_split=8, min_samples_leaf=4)
-        self.models[2] = xgboost.XGBRegressor(n_estimators=450, learning_rate=0.05, gamma=0, subsample=0.899,
+        self.models[0] = RandomForestRegressor(n_jobs=-1, n_estimators=200, min_samples_split=2, min_samples_leaf=2)
+        self.models[1] = RandomForestRegressor(n_jobs=-1, n_estimators=200, min_samples_split=5, min_samples_leaf=3)
+        self.models[2] = xgboost.XGBRegressor(n_estimators=300, learning_rate=0.05, gamma=0, subsample=0.899,
                                         colsample_bytree=0.8, max_depth=9)
         for sec in self.sector_list:
             cur_key = (sec, 0)
-            self.sector_models[cur_key] = RandomForestRegressor(n_jobs=-1, n_estimators=400, min_samples_leaf=2)
+            self.sector_models[cur_key] = RandomForestRegressor(n_jobs=-1, n_estimators=200, min_samples_split=2, min_samples_leaf=2)
             cur_key = (sec, 1)
-            self.sector_models[cur_key] = RandomForestRegressor(n_jobs=-1, n_estimators=400, min_samples_split=8, min_samples_leaf=4)
+            self.sector_models[cur_key] = RandomForestRegressor(n_jobs=-1, n_estimators=200, min_samples_split=5, min_samples_leaf=3)
             cur_key = (sec, 2)
-            self.sector_models[cur_key] = xgboost.XGBRegressor(n_estimators=450, learning_rate=0.05, gamma=0, subsample=0.899,
+            self.sector_models[cur_key] = xgboost.XGBRegressor(n_estimators=300, learning_rate=0.05, gamma=0, subsample=0.899,
                                         colsample_bytree=0.8, max_depth=9)
         
     
@@ -202,46 +227,54 @@ class Regressor:
         # # Print the best hyperparameters
         # print(search.best_params_)
         # exit()
-
+        
+        MODEL_SAVE_PATH = self.conf['ROOT_PATH'] + '/MODELS_p{0:02d}_m{1:02d}/'.format(self.conf['REBALANCE_PERIOD'], self.conf['START_MONTH'])
+        self.def_model();
+        if not os.path.exists(MODEL_SAVE_PATH):
+            print("creating MODELS path : " + MODEL_SAVE_PATH)
+            os.makedirs(MODEL_SAVE_PATH)
+            
         for i, model in self.models.items():
             logging.info("start fitting RandomForestRegressor")
             model.fit(self.x_train, self.y_train.values.ravel())
             # filename = 'rfg' + str(i) + '_model' + str(self.conf['START_MONTH']) + '.sav'
-            filename = self.conf['ROOT_PATH'] + '/models/' + 'model_' + str(i) + '.sav'
+            filename = MODEL_SAVE_PATH + 'model_{}.sav'.format(str(i))
             joblib.dump(model, filename)
             logging.info("rfg score : ")
             logging.info(model.score(self.x_train, self.y_train))
             logging.info("end fitting RandomForestRegressor")
             ftr_importances_values = model.feature_importances_
             ftr_importances = pd.Series(ftr_importances_values, index = self.x_train.columns)
-            ftr_importances.to_csv('./reports/model_importances.csv')
+            ftr_importances.to_csv(MODEL_SAVE_PATH+'model_importances.csv')
             ftr_top20 = ftr_importances.sort_values(ascending=False)[:20]
             logging.info(ftr_top20)   
         
         
         if PER_SECTOR == True:
-            for sec in self.sector_list:
+            for sec_idx, sec in enumerate(self.sector_list):
                 for i in range(3):
                     k = (sec, i)
                     model = self.sector_models[k]
                     model.fit(self.sector_x_train[sec], self.sector_y_train[sec].values.ravel())
-                    filename = self.conf['ROOT_PATH'] + '/models/' + sec + '_model_' + str(i) +  '.sav'
+                    filename = MODEL_SAVE_PATH + '{}_model_{}.sav'.format(sec, str(i))
+
                     joblib.dump(model, filename)
                     logging.info("model score : ")
                     logging.info(model.score(self.sector_x_train[sec], self.sector_y_train[sec]))
                     logging.info("end fitting RandomForestRegressor")
                     ftr_importances_values = model.feature_importances_
                     ftr_importances = pd.Series(ftr_importances_values, index = self.sector_x_train[sec].columns)
-                    ftr_importances.to_csv('./reports/' + sec + '_model_importances.csv')
+                    ftr_importances.to_csv(MODEL_SAVE_PATH + sec + '_model_importances.csv')
                     ftr_top20 = ftr_importances.sort_values(ascending=False)[:20]
                     logging.info(ftr_top20)
 
            
     def evaluation(self):
+        MODEL_SAVE_PATH = self.conf['ROOT_PATH'] + '/MODELS_p{0:02d}_m{1:02d}/'.format(self.conf['REBALANCE_PERIOD'], self.conf['START_MONTH'])
         self.models = dict()
-        self.models[0] = joblib.load(self.conf['ROOT_PATH'] + '/models/' + 'model_0.sav')
-        self.models[1] = joblib.load(self.conf['ROOT_PATH'] + '/models/' + 'model_1.sav')
-        self.models[2] = joblib.load(self.conf['ROOT_PATH'] + '/models/' + 'model_2.sav')
+        self.models[0] = joblib.load(MODEL_SAVE_PATH + 'model_0.sav')
+        self.models[1] = joblib.load(MODEL_SAVE_PATH + 'model_1.sav')
+        self.models[2] = joblib.load(MODEL_SAVE_PATH + 'model_2.sav')
 
         pred_col_list = ['ai_pred_avg'] 
         for i in range(3):
@@ -251,7 +284,9 @@ class Regressor:
         model_eval_hist = []
         for test_idx, (testdate, df) in enumerate(self.test_df_list):
             print("evaluation date : ")
-            tdate = "_".join(testdate.split("\\")[4].split('_')[0:2])
+            tmp = testdate.split('\\')
+            tmp = [v for v in tmp if v.endswith('.csv')]
+            tdate = "_".join(tmp[0].split('_')[0:2])
             print(tdate)
             x_test = df[df.columns.difference(y_col_list)]
             y_test = df[['earning_diff']]
@@ -265,11 +300,11 @@ class Regressor:
                 preds = np.vstack((preds, y_predict[None,:]))
             
             df['ai_pred_avg'] = np.average(preds, axis=0)
-            df.to_csv("./reports/prediction_ai_{}.csv".format(tdate))
+            df.to_csv(MODEL_SAVE_PATH + "prediction_ai_{}.csv".format(tdate))
 
             # 각 model의 top_k 종목의 period_price_diff 합을 구해서 model 최종 평가
             topk_period_earning_sums = []
-            topk_list = [(0,9), (0,19), (0,29)]
+            topk_list = [(0,3), (0,7), (0,15)]
             for s, e in topk_list:
                 logging.info("top" + str(s) + " ~ "  + str(e) )
                 k = str(s) + '~' + str(e)
@@ -279,13 +314,17 @@ class Regressor:
                     logging.info((top_k_df['period_price_diff'].sum()/(e-s+1)))
                     topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
                     
-                    top_k_df.to_csv('./reports/prediction_{}_{}_top{}-{}.csv'.format(tdate, col, s, e))
-                    model_eval_hist.append([tdate, col, k, top_k_df['period_price_diff'].sum()/(e-s+1), top_k_df['model_0_prediction'].sum()/(e-s+1), top_k_df['model_1_prediction'].sum()/(e-s+1), top_k_df['model_2_prediction'].sum()/(e-s+1)])
+                    top_k_df.to_csv(MODEL_SAVE_PATH+'prediction_{}_{}_top{}-{}.csv'.format(tdate, col, s, e))
+                    model_eval_hist.append([tdate, col, k, top_k_df['period_price_diff'].sum()/(e-s+1), top_k_df[col].sum()/(e-s+1), 
+                                            abs(top_k_df[col].sum()/(e-s+1) - top_k_df['earning_diff'].sum()/(e-s+1)), int(top_k_df[col].sum()/(e-s+1) > 0), 
+                                            top_k_df['ai_pred_avg'].sum()/(e-s+1), top_k_df['model_0_prediction'].sum()/(e-s+1), 
+                                            top_k_df['model_1_prediction'].sum()/(e-s+1), top_k_df['model_2_prediction'].sum()/(e-s+1)])
         
-        col_name = ['start_date', 'model', 'krange', 'avg_earning_per_stock', 'avg_model0_pred', 'avg_model1_pred', 'avg_model2_pred']
+        col_name = ['start_date', 'model', 'krange', 'avg_earning_per_stock', 'cur_model_pred', 'loss_y_and_pred', 
+                    'cur_model_pred_ispositive', 'avg_pred', 'model0_pred', 'model1_pred', 'model2_pred']
         pred_df = pd.DataFrame(model_eval_hist, columns=col_name)
         print(pred_df)
-        pred_df.to_csv('./reports/pred_df.csv', index=False)
+        pred_df.to_csv(MODEL_SAVE_PATH+'pred_df.csv', index=False)
         # logging.info(model_eval_hist)
 
         if PER_SECTOR == True:
@@ -294,15 +333,17 @@ class Regressor:
             self.sector_models = dict()
             for sec in self.sector_list:
                 for i in range(3):
-                    filename = self.conf['ROOT_PATH'] + '/models/' + sec + '_model_' + str(i) +  '.sav'
+                    filename = MODEL_SAVE_PATH + '{}_model_{}.sav'.format(sec, str(i))
                     k = (sec, i)
-                    self.sector_models[k] = joblib.load(self.conf['ROOT_PATH'] + '/models/' +sec + '_model_' + str(i) + '.sav')
+                    self.sector_models[k] = joblib.load(MODEL_SAVE_PATH + '{}_model_{}.sav'.format(sec, str(i)))
             sector_model_eval_hist = []
             for test_idx, (testdate, df, sec) in enumerate(self.sector_test_df_lists):
-                tdate = "_".join(testdate.split("\\")[4].split('_')[0:2])
-                testdates.add(tdate)
                 print("evaluation date : ")
+                tmp = testdate.split('\\')
+                tmp = [v for v in tmp if v.endswith('.csv')]
+                tdate = "_".join(tmp[0].split('_')[0:2])
                 print(tdate)
+                testdates.add(tdate)
 
                 x_test = df[df.columns.difference(y_col_list)]
                 y_test = df[['earning_diff']]
@@ -317,10 +358,10 @@ class Regressor:
                     sector_preds = np.vstack((sector_preds, y_predict[None,:]))
 
                 df['ai_pred_avg'] = np.average(sector_preds, axis=0)
-                df.to_csv("./reports/sec_{}_prediction_ai_{}.csv".format(sec, tdate))
+                df.to_csv(MODEL_SAVE_PATH+ "sec_{}_prediction_ai_{}.csv".format(sec, tdate))
                 # 각 model의 top_k 종목의 period_price_diff 합을 구해서 model 최종 평가
                 topk_period_earning_sums = []
-                topk_list = [(0,2)]
+                topk_list = [(0,3), (0,7)]
                 for s, e in topk_list:
                     logging.info("top" + str(s) + " ~ "  + str(e) )
                     k = str(s) + '~' + str(e)
@@ -329,36 +370,45 @@ class Regressor:
                         logging.info(col)
                         logging.info((top_k_df['period_price_diff'].sum()/(e-s+1)))
                         topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
-                        top_k_df.to_csv('./reports/prediction_{}_{}_{}_top{}-{}.csv'.format(tdate, sec, col, s, e))
+                        top_k_df.to_csv(MODEL_SAVE_PATH+'prediction_{}_{}_{}_top{}-{}.csv'.format(tdate, sec, col, s, e))
                         top_k_df['start_date'] = tdate
                         top_k_df['col'] = col
                         allsector_topk_df = pd.concat([allsector_topk_df, top_k_df])
-                        sector_model_eval_hist.append([tdate, sec, col, k, top_k_df['period_price_diff'].sum()/(e-s+1), top_k_df['model_0_prediction'].sum()/(e-s+1), top_k_df['model_1_prediction'].sum()/(e-s+1), top_k_df['model_2_prediction'].sum()/(e-s+1)])                        
+                        sector_model_eval_hist.append([tdate, sec, col, k, top_k_df['period_price_diff'].sum()/(e-s+1), top_k_df[col].sum()/(e-s+1), 
+                                            abs(top_k_df[col].sum()/(e-s+1) - top_k_df['earning_diff'].sum()/(e-s+1)), int(top_k_df[col].sum()/(e-s+1) > 0), 
+                                            top_k_df['ai_pred_avg'].sum()/(e-s+1), top_k_df['model_0_prediction'].sum()/(e-s+1), 
+                                            top_k_df['model_1_prediction'].sum()/(e-s+1), top_k_df['model_2_prediction'].sum()/(e-s+1)])
 
-            col_name = ['start_date', 'sector', 'model', 'krange', 'avg_earning_per_stock', 'avg_model0_pred', 'avg_model1_pred', 'avg_model2_pred']
+            col_name = ['start_date', 'sector', 'model', 'krange', 'avg_earning_per_stock', 'cur_model_pred', 'loss_y_and_pred', 
+                    'cur_model_pred_ispositive', 'avg_pred', 'model0_pred', 'model1_pred', 'model2_pred']
             pred_df = pd.DataFrame(sector_model_eval_hist, columns=col_name)
             print(pred_df)
-            pred_df.to_csv('./reports/sector_{}_pred_df.csv'.format(sec), index=False)
-            allsector_topk_df.to_csv('./reports/allsector_pred_df.csv', index=False)
+            pred_df.to_csv(MODEL_SAVE_PATH+'allsector_pred_df.csv'.format(sec), index=False)
+            # allsector_topk_df.to_csv('./reports/allsector_pred_df.csv', index=False)
             
             
-            persector_hist = []                      
-            for tdate in list(testdates):
-                for model_name in pred_col_list:
-                    tmpdf = allsector_topk_df[allsector_topk_df['start_date']==tdate]
-                    tmpdf = tmpdf[tmpdf['col']==model_name]
-                    tmpdf = tmpdf.sort_values(by=[model_name], ascending=False, na_position="last")[0:10]
-                    persector_hist.append([tdate, model_name, tmpdf['period_price_diff'].sum()/10, tmpdf[model_name].sum()/10])
-            col_name = ['start_date', 'model', 'avg_earning_per_stock', 'model_preds']
-            pred_df = pd.DataFrame(persector_hist, columns=col_name)
-            pred_df.to_csv('./reports/persector_top10_pred.csv', index=False)
+            # persector_hist = []                      
+            # for tdate in list(testdates):
+            #     for model_name in pred_col_list:
+            #         tmpdf = allsector_topk_df[allsector_topk_df['start_date']==tdate]
+            #         tmpdf = tmpdf[tmpdf['col']==model_name]
+            #         tmpdf = tmpdf.sort_values(by=[model_name], ascending=False, na_position="last")[0:10]
+            #         persector_hist.append([tdate, model_name, tmpdf['period_price_diff'].sum()/10, tmpdf[model_name].sum()/10])
+            # col_name = ['start_date', 'model', 'avg_earning_per_stock', 'model_preds']
+            # pred_df = pd.DataFrame(persector_hist, columns=col_name)
+            # pred_df.to_csv('./reports/persector_top10_pred.csv', index=False)
                 
             
         
         
-    def latest_prediction(self, latest_data_path):
+    def latest_prediction(self):
+        MODEL_SAVE_PATH = self.conf['ROOT_PATH'] + '/MODELS_p{0:02d}_m{1:02d}/'.format(self.conf['REBALANCE_PERIOD'], self.conf['START_MONTH'])
+        aidata_dir = self.conf['ROOT_PATH'] + '/regressor_data_p{0:02d}_m{1:02d}/'.format(self.conf['REBALANCE_PERIOD'], self.conf['START_MONTH'])
+
+        latest_data_path = aidata_dir + '2023_04_regressor_train_latest_norm.csv'
+
         pred_col_list = ['ai_pred_avg']
-        for i, in range(3): 
+        for i in range(3): 
             pred_col_name = 'model_' + str(i) + '_prediction'
             pred_col_list.append(pred_col_name)  
 
@@ -383,14 +433,14 @@ class Regressor:
             preds = np.vstack((preds, y_predict3[None,:]))
         
         ldf['ai_pred_avg'] = np.average(preds, axis=0)        
-        ldf.to_csv("./latest_prediction.csv")
+        ldf.to_csv(MODEL_SAVE_PATH+"latest_prediction.csv")
         
-        topk_list = [(0, 10), (0, 20), (0, 30), (3, 20), (5, 20), (3, 30), (10, 30)]
+        topk_list = [(0,3), (0,7), (0, 15)]
         for s, e in topk_list:
             logging.info("top" + str(s) + " ~ " + str(e))
             for col in pred_col_list:
                 top_k_df = ldf.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
-                top_k_df.to_csv('./reports/latest_prediction_{}_top{}-{}.csv'.format(col, s, e))
+                top_k_df.to_csv(MODEL_SAVE_PATH+'latest_prediction_{}_top{}-{}.csv'.format(col, s, e))
 
 
         if PER_SECTOR == True:
@@ -419,13 +469,13 @@ class Regressor:
                     preds = np.vstack((preds, y_predict3[None,:]))
                     
                 sec_df['ai_pred_avg'] = np.average(preds, axis=0)        
-                sec_df.to_csv("./sec_{}_latest_prediction.csv".format(sec))        
-                topk_list = [(0, 2), (0, 4)]
+                sec_df.to_csv(MODEL_SAVE_PATH+"sec_{}_latest_prediction.csv".format(sec))        
+                topk_list = [(0,3), (0,7), (0, 15)]
                 for s, e in topk_list:
                     logging.info("top" + str(s) + " ~ " + str(e))
                     for col in pred_col_list:
                         top_k_df = sec_df.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
-                        top_k_df.to_csv('./reports/latest_prediction_{}_{}_top{}-{}.csv'.format(col, sec, s, e))
+                        top_k_df.to_csv(MODEL_SAVE_PATH+'latest_prediction_{}_{}_top{}-{}.csv'.format(col, sec, s, e))
         
 
 

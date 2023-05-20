@@ -17,10 +17,10 @@ from warnings import simplefilter
 from sklearn.preprocessing import StandardScaler
 from collections import defaultdict
 
-
 pd.options.display.width = 30
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 CHUNK_SIZE = 20480
+
 
 class Backtest:
     def __init__(self, main_ctx, conf, plan_handler, rebalance_period):
@@ -42,7 +42,20 @@ class Backtest:
 
         self.load_bt_table(main_ctx.start_year)
         self.eval_handler = EvaluationHandler(self)
-        self.run()
+        self.run() 
+        
+        ##################################################################################################
+        # Back test 실행 순서
+        # Backtest.run() -> start_year ~ recent_date 까지 rebalancing period 만큼 지나가면서, 
+        # date_handler(date table) load -> plan_handler.run() -> eval_handler.set_best_k()
+        # 모든 기간에 대해서 plan과 set_best_k() 마치고나서,
+        # self.eval_handler.run(self.price_table) 실행.
+        # eval_handler.run()은  self.cal_price() -> self.cal_earning() -> self.print_report() 순 실행
+        # cal_price()는 각 period에서 best_k 주식들의 시작 price, rebalance date price를 채워줌.
+        # cal_earning()은 두 price의 차이를 가지고 best_k 주식들이 얼마나 올랐는지 채워줌(y값)
+        # print_report()에서 earning, price를 포함한 RANK, EVAL report 출력.
+        ##################################################################################################
+        
 
     def create_report(self, report_type):
         if report_type in self.conf['REPORT_LIST']:
@@ -121,6 +134,7 @@ class Backtest:
                                          + str(year) + ".parquet")
                 self.fs_table = pd.concat([tmp_fs, self.fs_table])
             del tmp_fs
+            
             self.metrics_table = pd.DataFrame()
             # self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
             for year in range(self.main_ctx.start_year-3, self.main_ctx.start_year+1):
@@ -169,7 +183,7 @@ class Backtest:
         """
         date = datetime.datetime(self.main_ctx.start_year, self.conf['START_MONTH'], self.conf['START_DATE'])
         recent_date = self.price_table["date"].max()
-        cur_year = self.main_ctx.start_year
+        cur_table_year = self.main_ctx.start_year
         # START OF WHILE #
         while True:
             del self.plan_handler.date_handler
@@ -181,36 +195,34 @@ class Backtest:
             # Date에 맞게 DateHandler ( symbol, price, fs, metrics table ) 만들고 plan run
             self.plan_handler.date_handler = DateHandler(self, tdate)
             logging.info("complete set date_handler date : {}".format(tdate.strftime("%Y-%m-%d")))
-            self.plan_handler.run()
+            self.plan_handler.run(self.conf)
 
             if date != recent_date:
                 self.eval_handler.set_best_k(tdate, date+relativedelta(months=self.rebalance_period),
                                              self.plan_handler.date_handler)
-            # recent_date이면 current_best 뽑기 
-            else:
+            else: # recent_date이면 current_best 뽑기 
                 self.eval_handler.print_current_best(self.plan_handler.date_handler)
                 break
-         
-            # if date + relativedelta(months=self.rebalance_period) <= datetime.datetime(self.main_ctx.end_year, 11, 1):
-            if (date + relativedelta(months=self.rebalance_period * 2)) <= recent_date:
+            
+            if (date + relativedelta(months=self.rebalance_period)) <= recent_date:
                 date += relativedelta(months=self.rebalance_period)
-                if date.year != cur_year:
-                    cur_year = date.year
-                    self.reload_bt_table(cur_year)
-            else:
-                # 마지막 loop 에 도달하면 최근 date 로 한번 돌아서 print 해준 후에 루프를 빠져 나가도록 함
+                if date.year != cur_table_year:
+                    cur_table_year = date.year
+                    self.reload_bt_table(cur_table_year)
+            else: # 마지막 loop 에 도달하면 최근 date 로 한번 돌아서 print 해준 후에 루프를 빠져 나가도록 함
                 if self.eval_report_path is not None:
                     date = recent_date
-                    if date.year != cur_year:
-                        cur_year = date.year
-                        self.reload_bt_table(cur_year)
-                # evaluation report 를 뽑지 않으면 current 추천을 스킵하고 나감
-                else:
+                    if date.year != cur_table_year:
+                        cur_table_year = date.year
+                        self.reload_bt_table(cur_table_year)
+                else: # evaluation report 를 뽑지 않으면 current 추천을 스킵하고 나감
                     break
-        # END OF WHILE #        
-        print("DateHandler.global_sparse_col : ")        
+        # END OF WHILE # 
+               
+        logging.info("DateHandler.global_sparse_col : ")        
         for k, v in DateHandler.global_sparse_col.items():
-            print (f"{k} - {v}")
+            print(f"{k} - {v}")
+            
         logging.info("START Evaluation")
         self.eval_handler.run(self.price_table)
 
@@ -223,7 +235,7 @@ class PlanHandler:
         self.absolute_score = absolute_score
         self.main_ctx = main_ctx
 
-    def run(self):
+    def run(self, conf):
         """
         main에서 짜여진 전략(function pointer)을 순서대로 호출
         plan_list와 date_handler를 채워주고 불러워줘야 함.
@@ -231,19 +243,27 @@ class PlanHandler:
         """
         assert self.plan_list is not None, "Empty Plan List"
         assert self.date_handler is not None, "Empty Date Handler"
-
-        # with Pool(processes=multiprocessing.cpu_count()-4, initializer=install_mp_handler()) as pool:
-        with Pool(processes=4, initializer=install_mp_handler()) as pool:
-            df_list = pool.map(self.plan_run, self.plan_list)
-        
-        # full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
-        # replace reduce + merge -> concat + groupby (for memory usage optimization)
-        full_df = pd.concat(df_list, ignore_index=True)
-        full_df = full_df.groupby('symbol', as_index=False).last()
-        
-        self.date_handler.dtable = pd.merge(self.date_handler.dtable, full_df, how='left', on=['symbol'])
-        score_col_list = self.date_handler.dtable.columns.str.contains("_score")
-        self.date_handler.dtable['score'] = self.date_handler.dtable.loc[:,score_col_list].sum(axis=1)
+        # START :save / read planed dtable from csv
+        pdate = self.date_handler.date
+        planed_dtable_path = conf['ROOT_PATH'] + "/PLANED_DATE_TABLE/planed_dtable_{}.csv".format(pdate.strftime('%Y-%m-%d'))
+        if not os.path.exists(planed_dtable_path):
+            logging.info("there is no planed date_table : " + planed_dtable_path)
+            logging.info("start to create planed_date_table : " + planed_dtable_path)
+            with Pool(processes=4, initializer=install_mp_handler()) as pool:
+                df_list = pool.map(self.plan_run, self.plan_list)
+            # full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
+            # replace reduce + merge -> concat + groupby (for memory usage optimization)
+            full_df = pd.concat(df_list, ignore_index=True)
+            full_df = full_df.groupby('symbol', as_index=False).last()
+            
+            self.date_handler.dtable = pd.merge(self.date_handler.dtable, full_df, how='left', on=['symbol'])
+            score_col_list = self.date_handler.dtable.columns.str.contains("_score")
+            self.date_handler.dtable['score'] = self.date_handler.dtable.loc[:,score_col_list].sum(axis=1)
+            self.date_handler.dtable.to_csv(conf['ROOT_PATH'] + "/PLANED_DATE_TABLE/" + 'planed_dtable_{}.csv'.format(pdate.strftime('%Y-%m-%d')), index=False)
+        else:
+            logging.info("there is csv file for this date. read planed date table from csv")
+            self.date_handler.dtable = pd.read_csv(planed_dtable_path)
+        # END :save / read planed dtable from csv
         logging.debug(self.date_handler.dtable.sort_values(by=['score'], ascending=False)[['symbol', 'score']])
 
     @staticmethod
@@ -305,21 +325,19 @@ class DateHandler:
         logging.info("START init_data in date handler ")
         
         # 미리 parquet로 저장해둔 DATE handler table을 읽어들임.
-        if backtest.conf['LOAD_GET_DATETABLE_FROM_PARQUET'] == 'Y':
-            trade_date = backtest.get_trade_date(self.date)
-            dtable_path = backtest.conf['ROOT_PATH'] + "/DATE_TABLE/dtable_" +\
-                        str(trade_date.year) + '_' + str(trade_date.month) + '_' +\
-                        str(trade_date.day) + '.parquet'
-            if not os.path.exists(dtable_path):
-                logging.info("there is no date_table : ")
-                self.create_dtable(backtest)
-            else:
-                logging.info("there is parquet file for this date. read date table from parquet.")
-                self.dtable = pd.read_parquet(dtable_path)
-                # industry to sector.
-                self.dtable["sector"] = self.dtable["industry"].map(sector_map)
-        else:
+        trade_date = backtest.get_trade_date(self.date)
+        dtable_path = backtest.conf['ROOT_PATH'] + "/DATE_TABLE/dtable_" +\
+                    str(trade_date.year) + '_' + str(trade_date.month) + '_' +\
+                    str(trade_date.day) + '.parquet'
+        if not os.path.exists(dtable_path):
+            logging.info("there is no date_table : ")
             self.create_dtable(backtest)
+        else:
+            logging.info("there is parquet file for this date. read date table from parquet.")
+            self.dtable = pd.read_parquet(dtable_path)
+            # industry to sector.
+            self.dtable["sector"] = self.dtable["industry"].map(sector_map)
+
         
     def create_dtable(self, backtest):
         
@@ -369,7 +387,6 @@ class DateHandler:
             #     lambda x : x[col]/x['cal_marketCap'] \
             #     if  (x['cal_marketCap']!=0 and (not pd.isnull(x['cal_marketCap']))) \
             #     else np.nan, axis='columns')
-            
         
         
         for prev_n in [4, 8, 12, 16]:
@@ -408,7 +425,6 @@ class DateHandler:
                 #     if (x[prefix_col_name +col]!=0 and (not pd.isnull(x[prefix_col_name +col]))) \
                 #     else np.nan, \
                 #     axis='columns')
-                
         
         # 이동 평균 -> 지수 이동 평균이 최근 데이터에 가중치 부여해서 추세 변화 빠르게 감지하므로 지수 이동평균으로 대채
         # for col in meaning_col_list:        
@@ -430,7 +446,12 @@ class DateHandler:
             prefix_col_name = "prev" + str(prev_n) + "_"   
             for col in meaning_col_list:
                 fs_metrics = fs_metrics.drop([prefix_col_name+col], axis=1)
-        
+        # 절대값 column 제거
+        abs_col_list = list(set(meaning_col_list) - set(ratio_col_list))
+        for col in abs_col_list:
+            fs_metrics = fs_metrics.drop([col], axis=1)                
+            
+                
         # 50% 넘게 비어있는 row drop
         print("before fs_metric len : ", len(fs_metrics))
         fs_metrics['nan_count_per_row'] = fs_metrics.isnull().sum(axis=1)
@@ -574,6 +595,13 @@ class EvaluationHandler:
 
     def print_ai_data(self, df_for_reg, date, latest):
         
+        if date.day > 15 & date.month == 12:
+            mmonth = 1;
+        elif date.day > 15 & date.month < 12:
+            mmonth = date.month+1;
+        elif date.day < 15:
+            mmonth = date.month
+        
         symbols_tmp = df_for_reg['symbol']
         
         period_price_diff_tmp = pd.DataFrame()
@@ -633,7 +661,7 @@ class EvaluationHandler:
         outlier_rows = set()
         for col in sorted_col_list:
             try:
-                column_indices = get_extreme_percentile_indices(df_for_reg[col], 0.01, 0.99)
+                column_indices = get_extreme_percentile_indices(df_for_reg[col], 0.005, 0.995)
                 if len(column_indices) < 10:
                     outlier_rows.update(column_indices)
             except Exception as e:
@@ -650,10 +678,10 @@ class EvaluationHandler:
 
         
         #표준화
-        new_std_columns_names = [cname+"_std" for cname in sorted_col_list] 
-        scaler = StandardScaler()
-        scaled_columns = scaler.fit_transform(df_for_reg[sorted_col_list])
-        df_for_reg[new_std_columns_names] = scaled_columns
+        # new_std_columns_names = [cname+"_std" for cname in sorted_col_list] 
+        # scaler = StandardScaler()
+        # scaled_columns = scaler.fit_transform(df_for_reg[sorted_col_list])
+        # df_for_reg[new_std_columns_names] = scaled_columns
                
         #정규화
         for col in sorted_col_list:
@@ -684,24 +712,26 @@ class EvaluationHandler:
         df_for_reg_std['symbol'] = df_for_reg['symbol']
         df_for_reg_std['sector'] = df_for_reg['sector']
         
-        traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data_0' + str(
-            self.backtest.conf['START_MONTH']) + '/'
-
+        traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data_p{0:02d}_m{1:02d}/'.format(
+                                self.backtest.conf['REBALANCE_PERIOD'], self.backtest.conf['START_MONTH'])
+        
         if not os.path.exists(traindata_path):
+            print("creating traindate_path : " + traindata_path)
             os.makedirs(traindata_path)
 
         if latest == False:
-            df_for_reg_std.to_csv(traindata_path + '{0}_{1:02d}_regressor_train_std.csv'.format(date.year, date.month),
+            # df_for_reg_std.to_csv(traindata_path + '{0}_{1:02d}_regressor_train_std.csv'.format(date.year, mmonth),
+            #                         index=False)
+            df_for_reg_norm.to_csv(traindata_path + '{0}_{1:02d}_regressor_train_norm.csv'.format(date.year, mmonth),
                                     index=False)
-            df_for_reg_norm.to_csv(traindata_path + '{0}_{1:02d}_regressor_train_norm.csv'.format(date.year, date.month),
-                                    index=False)
-            df_for_reg.to_csv(traindata_path + '{0}_{1:02d}_full_regressor_train.csv'.format(date.year, date.month),
-                                    index=False)
+            print("print ai data to " + traindata_path + '{0}_{1:02d}_regressor_train_norm.csv'.format(date.year, mmonth))
+            # df_for_reg.to_csv(traindata_path + '{0}_{1:02d}_full_regressor_train.csv'.format(date.year, mmonth),
+            #                         index=False)
         else:
             df_for_reg_norm.to_csv(
-                traindata_path + '{0}_{1:02d}_regressor_train_latest_norm.csv'.format(date.year, date.month), index=False)
-            df_for_reg_std.to_csv(
-                traindata_path + '{0}_{1:02d}_regressor_train_latest_std.csv'.format(date.year, date.month), index=False)
+                traindata_path + '{}_{:02d}_regressor_train_latest_norm.csv'.format(date.year, mmonth), index=False)
+            # df_for_reg_std.to_csv(
+            #     traindata_path + '{0}_{1:02d}_regressor_train_latest_std.csv'.format(date.year, mmonth), index=False)
 
     def cal_price(self):
         pd.set_option('mode.chained_assignment', None)
@@ -932,7 +962,7 @@ class EvaluationHandler:
                 fd.close()
             if self.backtest.rank_report_path is not None:
                 if idx <= self.backtest.conf['RANK_PERIOD']:
-                    rank_partial_path = self.backtest.rank_report_path[:-4]+'_' +str(date.year)+'_' +str(date.month) + '.csv'
+                    rank_partial_path = self.backtest.rank_report_path[:-4]+'_' +str(date.year)+'_' +str(date.month) + '_' + str(date.day) + '.csv'
                     rank_elem.to_csv(rank_partial_path, index=False)
                     self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem)
             if self.backtest.avg_report_path is not None:
