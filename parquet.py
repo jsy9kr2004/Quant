@@ -142,8 +142,8 @@ class Parquet:
         indexes.to_parquet(self.view_path + "indexes.parquet", engine="pyarrow", compression="gzip")
         logging.info("create indexes df")
 
-    @staticmethod
-    def read_pq_mp(filename):
+    # @staticmethod
+    def read_pq_mp(self, filename):
         c_proc = mp.current_process()
         # PQPATH = self.main_ctx.root_path        
         csv_save_path = './' + str(c_proc.pid)+"_mp.csv"
@@ -194,7 +194,7 @@ class Parquet:
             # mp_file_list = [self.rawpq_path + file for file in os.listdir(self.rawpq_path) if file.endswith("mp.csv")]
             mp_file_list = ['./'+ file for file in os.listdir('./') if file.endswith("mp.csv")]
             for files in mp_file_list:
-                df = pd.read_csv(files)
+                df = pd.read_csv(files, low_memory=False)
                 df_all_years = pd.concat([df_all_years, df])
             # df_all_years = df_all_years.drop(df_all_years.columns[0], axis=1)
             df_all_years.to_parquet(pq_save_path, index=False)

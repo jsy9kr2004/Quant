@@ -328,6 +328,7 @@ class FMP:
                 api_list[i] = str(api_list[i])[2: str(api_list[i]).find('\\')]
             else:
                 api_list[i] = str(api_list[i])[2:-2]
+        logging.info("API_List\n{}".format(api_list))
         return api_list
 
     @staticmethod
