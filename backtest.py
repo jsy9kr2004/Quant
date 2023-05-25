@@ -141,7 +141,7 @@ class Backtest:
             del tmp_metrics
 
     def reload_bt_table(self, year):
-        print("reload_bt_table, year : ", year)
+        logging.info("reload_bt_table, year : {}".format(year))
         self.fs_table = pd.DataFrame()
         # self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")
         for y in range(year-3, year+1):
@@ -220,7 +220,7 @@ class Backtest:
                
         logging.info("DateHandler.global_sparse_col : ")        
         for k, v in DateHandler.global_sparse_col.items():
-            print(f"{k} - {v}")
+            logging.debug(f"{k} - {v}")
             
         logging.info("START Evaluation")
         self.eval_handler.run(self.price_table)
@@ -250,14 +250,21 @@ class PlanHandler:
             logging.info("there is no planed date_table : " + planed_dtable_path)
             logging.info("start to create planed_date_table : " + planed_dtable_path)
             # with Pool(processes=4, initializer=install_mp_handler()) as pool:
-            with Pool(processes=multiprocessing.cpu_count() - 4, initializer=install_mp_handler()) as pool:
-                df_list = pool.map(self.plan_run, self.plan_list)
+            # with Pool(processes=multiprocessing.cpu_count() - 4, initializer=install_mp_handler()) as pool:
+            #    df_list = pool.map(self.plan_run, self.plan_list)
+            # full_df = pd.concat(df_list, ignore_index=True)
+            # full_df = full_df.groupby('symbol', as_index=False).last()
+            # TODO multiprocessing 처리 시에 table의 크기가 비이상적으로 커지는 현상이 있어 우선 serial 하게 처리하는 것으로 변경
+            #     첫 시도 이후에는 planed_dtalbe_path의 파일을 읽을 것이기 때문에 첫 loop만 느려질 것으로 예상됨
+            i = 0
+            for plan in self.plan_list:
+                logging.debug("[{}/{}] {} processing....".format(i, len(self.plan_list), str(plan["params"]["key"])))
+                self.plan_run(plan)
+                i += 1
             # full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
             # replace reduce + merge -> concat + groupby (for memory usage optimization)
-            full_df = pd.concat(df_list, ignore_index=True)
-            full_df = full_df.groupby('symbol', as_index=False).last()
 
-            self.date_handler.dtable = pd.merge(self.date_handler.dtable, full_df, how='left', on=['symbol'])
+            # self.date_handler.dtable = pd.merge(self.date_handler.dtable, full_df, how='left', on=['symbol'])
             score_col_list = self.date_handler.dtable.columns.str.contains("_score")
             self.date_handler.dtable['score'] = self.date_handler.dtable.loc[:, score_col_list].sum(axis=1)
             self.date_handler.dtable.to_csv(conf['ROOT_PATH'] + "/PLANED_DATE_TABLE/"
@@ -271,6 +278,26 @@ class PlanHandler:
     @staticmethod
     def plan_run(plan):
         return plan["f_name"](plan["params"])
+
+    def single_metric_plan_no_parallel(self, params):
+        """
+        아래의 single metric_plan과 하는 일은 동일하나 parallel 하게 동작하지 않도록 변경한 것
+        """
+        if self.absolute_score - params["diff"] * self.k_num < 0:
+            logging.warning("Wrong params['diff'] : TOO BIG! SET UNDER " + str(self.absolute_score/self.k_num))
+        key = str(params["key"])
+        # all feature was preprocessed ( high is good ) in Datehandler
+        rank_name = key + '_rank'
+        self.date_handler.dtable[rank_name] = self.date_handler.dtable[key+"_sorted"].rank(ascending=False,
+                                                                                           method='min',
+                                                                                           na_option='bottom')
+
+        score_name = key + '_score'
+        self.date_handler.dtable.loc[self.date_handler.dtable[rank_name] <= self.k_num, score_name]\
+            = self.absolute_score - ((self.date_handler.dtable.loc[self.date_handler.dtable[rank_name] <= self.k_num,
+                                                                   rank_name] - 1) * params["diff"])
+        # 나머지 행의 결측값을 0으로 채우기
+        self.date_handler.dtable[score_name] = self.date_handler.dtable[score_name].fillna(0)
 
     def single_metric_plan(self, params):
         """
@@ -449,11 +476,11 @@ class DateHandler:
             fs_metrics = fs_metrics.drop([col], axis=1)                
             
         # 50% 넘게 비어있는 row drop
-        print("before fs_metric len : ", len(fs_metrics))
+        logging.info("before fs_metric len : {}".format(len(fs_metrics)))
         fs_metrics['nan_count_per_row'] = fs_metrics.isnull().sum(axis=1)
         filtered_row = fs_metrics['nan_count_per_row'] < int(len(fs_metrics.columns)*0.5)
         fs_metrics = fs_metrics.loc[filtered_row,:]
-        print("after fs_metric len : ", len(fs_metrics))
+        logging.info("after fs_metric len : {}".format(len(fs_metrics)))
         
         # "bookValuePerShare", # 시총 / bookValuePerShare = PBR
         # "eps", # (시총/eps = 유사 PER)
@@ -528,20 +555,20 @@ class DateHandler:
         self.dtable = pd.merge(self.dtable, fs_metrics, how='left', on='symbol')
         
         # 40% 넘게 비어있는 row drop
-        print("before dtable len : ", len(self.dtable))
+        logging.info("before dtable len : {}".format(len(self.dtable)))
         self.dtable['nan_count_per_row'] = self.dtable.isnull().sum(axis=1)
         filtered_row = self.dtable['nan_count_per_row'] < int(len(self.dtable.columns)*0.4)
         self.dtable = self.dtable.loc[filtered_row,:]
-        print("after dtable len : ", len(self.dtable))
+        logging.info("after dtable len : {}".format(len(self.dtable)))
     
         # 50% 넘게 비어있는 column 누적
         columns_with_nan_above_threshold = self.dtable.columns[self.dtable.isnull().sum(axis=0)
                                                                >= int(len(self.dtable)*0.5)].tolist()
         for c in columns_with_nan_above_threshold:
             DateHandler.global_sparse_col[c] += 1
-        print("DateHandler.global_sparse_col : ")        
+        logging.info("DateHandler.global_sparse_col : ")
         for k, v in DateHandler.global_sparse_col.items():
-            print(f"{k} - {v}")
+            logging.debug(f"{k} - {v}")
     
         self.dtable["sector"] = self.dtable["industry"].map(sector_map)
         self.dtable.to_parquet(backtest.conf['ROOT_PATH'] + "/DATE_TABLE/"

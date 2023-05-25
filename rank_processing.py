@@ -57,12 +57,12 @@ rank_per_cols.to_csv('./sample_rank_orig.csv')
 # rank_per_cols = rank_per_cols[rank_per_cols['avg']<CUT_AVG_NUM]
 
 rank_per_cols = rank_per_cols.sort_values(by='empty')
-percentage = 0.5
+percentage = 0.7
 rows_to_include = int(len(rank_per_cols) * percentage)
 rank_per_cols = rank_per_cols.iloc[:rows_to_include]
 
 rank_per_cols = rank_per_cols.sort_values(by='avg')
-percentage = 0.1
+percentage = 0.2
 rows_to_include = int(len(rank_per_cols) * percentage)
 rank_per_cols = rank_per_cols.iloc[:rows_to_include]
 

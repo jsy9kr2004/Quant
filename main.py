@@ -125,7 +125,7 @@ if __name__ == '__main__':
     plan_info = plan_df.values.tolist()
     for i in range(len(plan_info)):
         plan.append(
-            {"f_name": plan_handler.single_metric_plan,
+            {"f_name": plan_handler.single_metric_plan_no_parallel,
              "params": {"key": plan_info[i][0],
                         "key_dir": plan_info[i][1], "weight": plan_info[i][2],
                         "diff": plan_info[i][3], "base": plan_info[i][4], "base_dir": plan_info[i][5]}}
