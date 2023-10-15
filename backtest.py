@@ -3,7 +3,9 @@ import csv
 import datetime
 import logging
 import multiprocessing
+
 import os
+from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
@@ -16,6 +18,11 @@ from multiprocessing_logging import install_mp_handler
 from warnings import simplefilter
 from sklearn.preprocessing import StandardScaler
 from collections import defaultdict
+from pmdarima import auto_arima
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.stattools import acf, pacf
+from functools import partial
+
 
 pd.options.display.width = 30
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
@@ -181,12 +188,12 @@ class Backtest:
         date_handler는 다수 만들어지며 생성 주체는 backtest이며 생성 후
         backtest에서 본인에게 mapping되어 있는 plan_handler에게 달아줌.
         """
+        
         date = datetime.datetime(self.main_ctx.start_year, self.conf['START_MONTH'], self.conf['START_DATE'])
         recent_date = self.price_table["date"].max()
         cur_table_year = self.main_ctx.start_year
         # START OF WHILE #
         while True:
-            del self.plan_handler.date_handler
             tdate = self.get_trade_date(date)
             if tdate is None:
                 logging.info("tradable date is None. break")
@@ -199,12 +206,11 @@ class Backtest:
 
             if date != recent_date:
                 self.eval_handler.set_best_k(tdate, date+relativedelta(months=self.rebalance_period),
-                                             self.plan_handler.date_handler)
+                                            self.plan_handler.date_handler)
             else: # recent_date이면 current_best 뽑기 
                 self.eval_handler.print_current_best(self.plan_handler.date_handler)
                 break
-            
-            if (date + relativedelta(months=self.rebalance_period)) <= recent_date:
+            if ((date + relativedelta(months=self.rebalance_period)) <= recent_date):
                 date += relativedelta(months=self.rebalance_period)
                 if date.year != cur_table_year:
                     cur_table_year = date.year
@@ -218,7 +224,7 @@ class Backtest:
                 else: # evaluation report 를 뽑지 않으면 current 추천을 스킵하고 나감
                     break
         # END OF WHILE # 
-               
+                
         logging.info("DateHandler.global_sparse_col : ")        
         for k, v in DateHandler.global_sparse_col.items():
             print(f"{k} - {v}")
@@ -309,6 +315,21 @@ class PlanHandler:
         # logger.debug(return_df[[local_score_name, local_rank_name]])
         return return_df
 
+time_periods = [3, 6, 9, 12, 15, 18, 21, 24]
+
+def compute_ewm(feature_values):
+    ewm6 = pd.Series(feature_values).ewm(span=6).mean()
+    ewm2 = pd.Series(feature_values).ewm(span=2).mean()
+    return ewm6[0], ewm2[0]
+
+def compute_column_ewm(fs_metrics, col):
+    columns_to_select = [f"prev{t}_{col}" for t in time_periods]
+    feature_values_matrix = fs_metrics[columns_to_select].values
+    
+    results = [compute_ewm(feature_values) for feature_values in feature_values_matrix]
+    ewm6s, ewm2s = zip(*results)
+    
+    return col, ewm6s, ewm2s
 
 class DateHandler:
     global_sparse_col = defaultdict(int)
@@ -338,27 +359,28 @@ class DateHandler:
             # industry to sector.
             self.dtable["sector"] = self.dtable["industry"].map(sector_map)
 
-        
-    def create_dtable(self, backtest):
-        
-        # 미리 parquet로 저장해둔 DATE handler table이 없어서 새로 만듬. 
+    # for create_dtable()
+    def get_price_for_dtable(self, backtest):
         # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
         query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(self.date)
         self.dtable = backtest.symbol_table.query(query)
         self.dtable = self.dtable.assign(score=0)
         trade_date = backtest.get_trade_date(self.date)
-
         price = backtest.price_table.query("date == @trade_date")
         # logging.info("Price Table : \n" + str(price))
         price = price[['symbol', 'date', 'close', 'volume', 'marketCap']]
         price = price.drop_duplicates('symbol', keep='first')
-        self.dtable = pd.merge(self.dtable, price, how='left', on='symbol')
-        del price
         
+        self.dtable = pd.merge(self.dtable, price, how='left', on='symbol')        
+        self.dtable['volume_mul_price'] =  self.dtable['close'] * self.dtable['volume']
+        
+        # 총거래액 적은 주식 제외 (얼마나 버려야할까 ? -> )
         self.dtable = self.dtable[~self.dtable.isin([np.inf, -np.inf]).any(axis=1)]
-        self.dtable = self.dtable[self.dtable['volume'] > 10000]
-        self.dtable = self.dtable.nlargest(int(len(self.dtable)*0.60), 'volume', keep='first')
-
+        # self.dtable = self.dtable[self.dtable['volume_mul_price'] > 1000000] # TODO threshold
+        self.dtable = self.dtable.nlargest(int(len(self.dtable)*0.50), 'volume_mul_price', keep='first')
+    
+    # for create_dtable()
+    def get_fs_metrics(self, backtest):
         prev = self.date - relativedelta(months=6)
         # self.fs = self.get_date_latest_per_symbol(backtest.fs_table, self.date)
         fs = backtest.fs_table.copy()
@@ -367,7 +389,6 @@ class DateHandler:
         fs = fs.drop_duplicates('symbol', keep='first')
         metrics = backtest.metrics_table.copy()
         fs_metrics = pd.merge(fs, metrics, how='left', on=['symbol', 'date'])
-        del fs
         
         # marketCap 과의 직접 계산이 필요한 column들을 추가 해 줌
         cap = self.dtable.copy()
@@ -387,9 +408,20 @@ class DateHandler:
             #     lambda x : x[col]/x['cal_marketCap'] \
             #     if  (x['cal_marketCap']!=0 and (not pd.isnull(x['cal_marketCap']))) \
             #     else np.nan, axis='columns')
+        return fs_metrics
+            
+    def create_dtable(self, backtest):
+        # 미리 parquet로 저장해둔 DATE handler table이 없어서 새로 만듬. 
+        
+        # 1) dtable에 최신 price 가져와서 merge. + 총거래액 하위 50% 버리기
+        self.get_price_for_dtable(backtest)
+        
+        # 2) fs, metrics 불러오기 + marketcap으로 나누어서 모두 상대값으로 변환
+        fs_metrics = self.get_fs_metrics(backtest)
         
         
-        for prev_n in [4, 8, 12, 16]:
+        # for prev_n in range(3, 17):
+        for prev_n in time_periods:
             prefix_col_name = "prev" + str(prev_n) + "_"
             # prev_m month 전 fs, metrics 와 모든 column 빼서 diff column 만들기
             prev_q = self.date - relativedelta(months=prev_n)
@@ -409,7 +441,7 @@ class DateHandler:
             fs_metrics = fs_metrics[~fs_metrics.isin([np.inf, -np.inf]).any(axis=1)]                    
 
         # 4,8,12,16개월 변화량
-        for prev_n in [4, 12]:
+        for prev_n in time_periods:
             prefix_col_name = "prev" + str(prev_n) + "_"            
             # diff column
             for col in meaning_col_list:
@@ -434,15 +466,65 @@ class DateHandler:
         #     fs_metrics[new_col_name] = fs_metrics[time_columns].mean(axis=1)
         
         # 지수 이동평균 계산
-        for col in meaning_col_list:        
-            new_col_name = "emavg_" + col
-            alpha = 2 / ( (prev_n/4) + 1)  # n은 이동평균 기간
-            for prev_n in [4, 8, 12, 16]:
-                time_columns = 'prev' + str(prev_n) +'_' + col
-            fs_metrics[new_col_name] = fs_metrics[time_columns].ewm(alpha=alpha, adjust=False).mean()
+        # for col in meaning_col_list:        
+        #     new_col_name = "emavg_" + col
+        #     alpha = 2 / ( (prev_n/4) + 1)  # n은 이동평균 기간
+        #     for prev_n in [4, 8, 12, 16]:
+        #         time_columns = 'prev' + str(prev_n) +'_' + col
+        #     fs_metrics[new_col_name] = fs_metrics[time_columns].ewm(alpha=alpha, adjust=False).mean()
+        
+
+        func = partial(compute_column_ewm, fs_metrics)
+        with Pool(multiprocessing.cpu_count()) as pool:
+            results = list(tqdm(pool.imap(func, meaning_col_list), total=len(meaning_col_list)))
+
+        for col, ewm6s, ewm2s in results:
+            fs_metrics[f"EWM6_{col}"] = ewm6s
+            fs_metrics[f"EWM2_{col}"] = ewm2s
             
+        # ARIMA 계산
+        # for col in meaning_col_list:
+        #     for i, row in fs_metrics.iterrows():
+        #         feature_values = np.array([row[f"prev{t}_{col}"] for t in [3, 6, 9, 12, 15, 18]])                
+                
+        #         # ARIMA 모델 적합
+        #         model = ARIMA(feature_values, order=(1,1,1))
+        #         results = model.fit()
+
+        #         # 예측값
+        #         forecasted_values = results.forecast(steps=2)
+        #         print("forecast : {}".format(forecasted_values))
+        #         # 잔차
+        #         residuals = results.resid
+        #         # ARIMA 모델의 계수
+        #         ar_coefficients = results.arparams
+        #         ma_coefficients = results.maparams
+        #         fs_metrics.loc[i, f"ARIMA_ar_{col}"] = ar_coefficients
+        #         fs_metrics.loc[i, f"ARIMA_ma_{col}"] = ma_coefficients
+        #         # 잔차의 통계적 특성
+        #         mean_residual = np.mean(residuals)
+        #         std_residual = np.std(residuals)
+        #         skewness_residual = pd.Series(residuals).skew()
+        #         kurtosis_residual = pd.Series(residuals).kurt()
+        #         fs_metrics.loc[i, f"ARIMA_meanresidual_{col}"] = mean_residual
+        #         fs_metrics.loc[i, f"ARIMA_stdresidual_{col}"] = std_residual
+        #         fs_metrics.loc[i, f"ARIMA_skewnessresidual_{col}"] = skewness_residual
+        #         fs_metrics.loc[i, f"ARIMA_kurtosisresidual_{col}"] = kurtosis_residual
+
+        #         # ACF 및 PACF 값
+        #         acf_values = acf(residuals, nlags=4)
+        #         pacf_values = pacf(residuals, nlags=4, method='ols')
+        #         fs_metrics.loc[i, f"ARIMA_acf_{col}"] = acf_values
+        #         fs_metrics.loc[i, f"ARIMA_pacf_{col}"] = pacf_values
+
+        #         # 모델의 적합도 통계치
+        #         aic = results.aic
+        #         bic = results.bic                        
+        #         fs_metrics.loc[i, f"ARIMA_aic_{col}"] = aic
+        #         fs_metrics.loc[i, f"ARIMA_bic_{col}"] = bic     
+        
         # prev column 제거
-        for prev_n in [4, 8, 12, 16]:
+        for prev_n in time_periods:
             prefix_col_name = "prev" + str(prev_n) + "_"   
             for col in meaning_col_list:
                 fs_metrics = fs_metrics.drop([prefix_col_name+col], axis=1)
@@ -451,7 +533,7 @@ class DateHandler:
         for col in abs_col_list:
             fs_metrics = fs_metrics.drop([col], axis=1)                
             
-                
+                    
         # 50% 넘게 비어있는 row drop
         print("before fs_metric len : ", len(fs_metrics))
         fs_metrics['nan_count_per_row'] = fs_metrics.isnull().sum(axis=1)
@@ -490,7 +572,7 @@ class DateHandler:
             #             and (not feature.startswith('OverMC')) and (not feature.startswith('adaptiveMC')):
             #     continue
             feature_sortedvalue_col_name = feature + "_sorted"                
-            if str(feature).startswith("diff") or str(feature).startswith("emavg_")\
+            if str(feature).startswith("diff") or str(feature).startswith("EWM6_") or str(feature).startswith("EWM2_")\
                     or str(feature).startswith("OverMC_") or str(feature).startswith("adaptiveMC_"):
                 feature_name = str(feature).split('_')[1]
             else:
@@ -530,17 +612,15 @@ class DateHandler:
             # # fs_metrics = fs_metrics.astype({feature: 'float32'})
         
         
-        
-        
         self.dtable = pd.merge(self.dtable, fs_metrics, how='left', on='symbol')
         
-        # 40% 넘게 비어있는 row drop
-        print("before dtable len : ", len(self.dtable))
-        self.dtable['nan_count_per_row'] = self.dtable.isnull().sum(axis=1)
-        filtered_row = self.dtable['nan_count_per_row'] < int(len(self.dtable.columns)*0.4)
-        self.dtable = self.dtable.loc[filtered_row,:]
-        print("after dtable len : ", len(self.dtable))
-    
+        # # 40% 넘게 비어있는 row drop
+        # print("before dtable len : ", len(self.dtable))
+        # self.dtable['nan_count_per_row'] = self.dtable.isnull().sum(axis=1)
+        # filtered_row = self.dtable['nan_count_per_row'] < int(len(self.dtable.columns)*0.4)
+        # self.dtable = self.dtable.loc[filtered_row,:]
+        # print("after dtable len : ", len(self.dtable))
+
         # 50% 넘게 비어있는 column 누적
         columns_with_nan_above_threshold = self.dtable.columns[\
             self.dtable.isnull().sum(axis=0) >= int(len(self.dtable)*0.5)].tolist()
@@ -550,8 +630,11 @@ class DateHandler:
         for k, v in DateHandler.global_sparse_col.items():
             print (f"{k} - {v}")        
     
-    
         self.dtable["sector"] = self.dtable["industry"].map(sector_map)
+        self.dtable.to_csv(backtest.conf['ROOT_PATH'] + "/DATE_TABLE/"
+                + 'dtable_' + str(self.date.year) + '_'
+                + str(self.date.month) + '_' + str(self.date.day) + '.csv', index=False)
+        self.dtable = self.dtable.drop_duplicates('symbol', keep='first')
         self.dtable.to_parquet(backtest.conf['ROOT_PATH'] + "/DATE_TABLE/"
                                 + 'dtable_' + str(self.date.year) + '_'
                                 + str(self.date.month) + '_' + str(self.date.day) + '.parquet',
@@ -576,7 +659,7 @@ class EvaluationHandler:
         return self.backtest.conf['MEMBER_CNT']
 
     def print_current_best(self, scored_dh):
-        best_symbol = scored_dh.dtable[scored_dh.dtable.volume > 10000]
+        # best_symbol = scored_dh.dtable[scored_dh.dtable.volume_mul_price > 1000000]
         best_symbol = best_symbol.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
         best_symbol = best_symbol.assign(count=0)
         best_symbol.to_csv('./result.csv')
@@ -584,7 +667,7 @@ class EvaluationHandler:
     def set_best_k(self, date, rebalance_date, scored_dh):
         """plan_handler.date_handler.symbol_list에 score를 보고 best_k에 append 해주는 함수."""
         if self.backtest.eval_report_path is not None:
-            best_symbol = scored_dh.dtable[scored_dh.dtable.volume > 10000]
+            # best_symbol = scored_dh.dtable[scored_dh.dtable.volume_mul_price > 10000000]
             best_symbol = best_symbol.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt * 2)
             best_symbol = best_symbol.assign(count=0)
         else:
@@ -602,7 +685,9 @@ class EvaluationHandler:
         elif date.day < 15:
             mmonth = date.month
         
+        df_for_reg = df_for_reg.drop_duplicates('symbol', keep='first')
         symbols_tmp = df_for_reg['symbol']
+        
         
         period_price_diff_tmp = pd.DataFrame()
         if latest == False:
@@ -622,24 +707,40 @@ class EvaluationHandler:
 
         # df_for_reg = df_for_reg[[ratio_col_list_wprev]]
         # df_for_reg['symbol'] = symbols_tmp
-
+        sector_list = list(df_for_reg['sector'].unique())
+        sector_list = [x for x in sector_list if str(x) != 'nan']
         if latest == False:
+
+
             df_for_reg['period_price_diff'] = period_price_diff_tmp
             df_for_reg['earning_diff'] \
                 = df_for_reg['period_price_diff'] - df_for_reg['period_price_diff'].mean()
+
+            for sec in sector_list:
+                print("sec earning _diff")
+                print(sec)
+                # 'sector' 열이 'it'인 경우에 대해서만 'price_diff' 열 생성
+                sec_mask = df_for_reg['sector'] == sec
+                sec_mean = df_for_reg.loc[sec_mask, 'period_price_diff'].mean()
+                # df_for_reg[sec_mask, 'sec_earning_diff'] = df_for_reg.loc[sec_mask, 'period_price_diff'] - sec_mean
+                df_for_reg.loc[sec_mask, 'sec_earning_diff'] = df_for_reg.loc[sec_mask, 'period_price_diff'] - sec_mean
+                print(df_for_reg.loc[sec_mask])
+                
+            df_for_reg = df_for_reg.dropna(subset=['period_price_diff'])
 
         # remove outlier
         logging.info("before removing outlier # rows : " + str(df_for_reg.shape[0]))
         logging.info("before removing outlier # columns : " + str(df_for_reg.shape[1]))
         df_for_reg.to_csv('./beforeremoving.csv', index=False)
+        
         # # remove sparse cols
         # df_for_reg = df_for_reg.drop(sparse_col_list, axis=1)
         # # ratio_col_list_wprev - sparse_cols
         # ratio_col_list2 = [x for x in ratio_col_list if x not in sparse_col_list]
         # ratio_col_list_wprev = [x for x in ratio_col_list_wprev if x not in sparse_col_list]
         
-        df_for_reg.replace(-np.inf, np.nan, inplace=True)
-        df_for_reg = df_for_reg.dropna(thresh=int(len(df_for_reg.columns)*0.3))
+        # df_for_reg.replace(-np.inf, np.nan, inplace=True)
+        # df_for_reg = df_for_reg.dropna(thresh=int(len(df_for_reg.columns)*0.6))
         # fill nan with min value per col
         def fill_nan_with_min(df):    
             # Select only numeric columns
@@ -649,8 +750,8 @@ class EvaluationHandler:
             # Fill NaN values in the original dataframe using the computed minimum values
             return df.fillna(min_values)                    
                     
-        filled_df = fill_nan_with_min(df_for_reg)
-        df_for_reg = filled_df
+        # filled_df = fill_nan_with_min(df_for_reg)
+        # df_for_reg = filled_df
         # Define a function to remove the top 1%(var : high=0.99) and bottom 1%(var : low = 0.01) from a column
         def get_extreme_percentile_indices(column, low, high):
             lower_bound = column.quantile(low)
@@ -658,21 +759,21 @@ class EvaluationHandler:
             return column[(column < lower_bound) | (column > upper_bound)].index
                 
         # remove outliar rows   
-        outlier_rows = set()
-        for col in sorted_col_list:
-            try:
-                column_indices = get_extreme_percentile_indices(df_for_reg[col], 0.005, 0.995)
-                if len(column_indices) < 10:
-                    outlier_rows.update(column_indices)
-            except Exception as e:
-                logging.info(str(e))
-                continue
+        # outlier_rows = set()
+        # for col in sorted_col_list:
+        #     try:
+        #         column_indices = get_extreme_percentile_indices(df_for_reg[col], 0.002, 0.998)
+        #         if len(column_indices) < 10:
+        #             outlier_rows.update(column_indices)
+        #     except Exception as e:
+        #         logging.info(str(e))
+        #         continue
 
-        if latest == False:
-            column_indices = get_extreme_percentile_indices(df_for_reg['earning_diff'], 0.01, 0.99)
-            outlier_rows.update(column_indices)
+        # if latest == False:
+        #     column_indices = get_extreme_percentile_indices(df_for_reg['period_price_diff'], 0.002, 0.998)
+        #     outlier_rows.update(column_indices)
 
-        df_for_reg = df_for_reg.drop(index=outlier_rows, axis=0)
+        # df_for_reg = df_for_reg.drop(index=outlier_rows, axis=0)
         logging.info("after removing outlier # rows : " + str(df_for_reg.shape[0]))
         logging.info("after removing outlier # columns : " + str(df_for_reg.shape[1]))
 
@@ -682,8 +783,9 @@ class EvaluationHandler:
         # scaler = StandardScaler()
         # scaled_columns = scaler.fit_transform(df_for_reg[sorted_col_list])
         # df_for_reg[new_std_columns_names] = scaled_columns
-               
+
         #정규화
+        sorted_col_list.append("volume_mul_price")
         for col in sorted_col_list:
             feature_normal_col_name = col + "_normal"
             try:
@@ -699,18 +801,19 @@ class EvaluationHandler:
         normal_col_list = df_for_reg.columns.str.contains("_normal")
         df_for_reg_norm = df_for_reg.loc[:, normal_col_list]
         
-        std_col_list = df_for_reg.columns.str.contains("_std")
-        df_for_reg_std = df_for_reg.loc[:, normal_col_list]
+        # std_col_list = df_for_reg.columns.str.contains("_std")
+        # df_for_reg_std = df_for_reg.loc[:, normal_col_list]
         
         if latest == False:
             df_for_reg_norm['period_price_diff'] = df_for_reg['period_price_diff']
             df_for_reg_norm['earning_diff'] = df_for_reg['earning_diff']
-            df_for_reg_std['period_price_diff'] = df_for_reg['period_price_diff']
-            df_for_reg_std['earning_diff'] = df_for_reg['earning_diff']
+            df_for_reg_norm['sec_earning_diff'] = df_for_reg['sec_earning_diff']
+            # df_for_reg_std['period_price_diff'] = df_for_reg['period_price_diff']
+            # df_for_reg_std['earning_diff'] = df_for_reg['earning_diff']
         df_for_reg_norm['symbol'] = df_for_reg['symbol']
         df_for_reg_norm['sector'] = df_for_reg['sector']
-        df_for_reg_std['symbol'] = df_for_reg['symbol']
-        df_for_reg_std['sector'] = df_for_reg['sector']
+        # df_for_reg_std['symbol'] = df_for_reg['symbol']
+        # df_for_reg_std['sector'] = df_for_reg['sector']
         
         traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data_p{0:02d}_m{1:02d}/'.format(
                                 self.backtest.conf['REBALANCE_PERIOD'], self.backtest.conf['START_MONTH'])
@@ -748,7 +851,7 @@ class EvaluationHandler:
                 logging.info("print latest data : " + date.strftime("%Y-%m-%d"))
                 self.best_k[idx][3] = start_dh.dtable
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].close > 0.000001]
-                self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].volume > 10000]
+                # self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].volume_mul_price > 1000000]
                 self.best_k[idx][3].rename(columns={'close': 'price'}, inplace=True)
                 if self.backtest.ai_report_path is not None:
                     df_for_reg = self.best_k[idx][3].copy()
@@ -767,7 +870,7 @@ class EvaluationHandler:
                 rebalance_date_price_df.rename(columns={'close': 'rebalance_day_price'}, inplace=True)
                 self.best_k[idx][3] = pd.merge(self.best_k[idx][3], rebalance_date_price_df, how='outer', on='symbol')
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].close > 0.000001]
-                self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].volume > 10000]
+                # self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].volume_mul_price > 1000000]
                 diff = self.best_k[idx][3]['rebalance_day_price'] - self.best_k[idx][3]['close']
                 self.best_k[idx][3]['period_price_diff'] = diff / self.best_k[idx][3]['close']
                 # self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs_metrics, how='left', on='symbol')
