@@ -129,45 +129,62 @@ class Backtest:
             self.metrics_table = self.data_from_database("SELECT * FROM METRICS")
 
         if self.conf['STORAGE_TYPE'] == "PARQUET":
-            self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
+            # self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
+            self.symbol_table = pd.read_csv(self.main_ctx.root_path + "/VIEW/symbol_list.csv")
             self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
-            self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
+            # self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
+            self.price_table = pd.read_csv(self.main_ctx.root_path + "/VIEW/price.csv")
+            self.price_table['date'] = pd.to_datetime(self.price_table['date'])
+
             self.fs_table = pd.DataFrame()
             # self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")    
             for year in range(self.main_ctx.start_year-3, self.main_ctx.start_year+1):
-                tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
-                                         + str(year) + ".parquet")
+                # tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
+                #                          + str(year) + ".parquet")
+                tmp_fs = pd.read_csv(self.main_ctx.root_path + "/VIEW/financial_statement_"
+                                         + str(year) + ".csv")
                 self.fs_table = pd.concat([tmp_fs, self.fs_table])
             del tmp_fs
-            
+            self.fs_table['date'] = pd.to_datetime(self.fs_table['date'])
+            self.fs_table['fillingDate'] = pd.to_datetime(self.fs_table['fillingDate'])
+
             self.metrics_table = pd.DataFrame()
             # self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
             for year in range(self.main_ctx.start_year-3, self.main_ctx.start_year+1):
-                tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
+                # tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
+                tmp_metrics = pd.read_csv(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".csv")
                 self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
             del tmp_metrics
+            self.metrics_table['date'] = pd.to_datetime(self.metrics_table['date'])
 
     def reload_bt_table(self, year):
         logging.info("reload_bt_table, year : {}".format(year))
         self.fs_table = pd.DataFrame()
         # self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")
         for y in range(year-3, year+1):
-            tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
-                                     + str(y) + ".parquet")
+            # tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
+            #                          + str(y) + ".parquet")
+            tmp_fs = pd.read_csv(self.main_ctx.root_path + "/VIEW/financial_statement_"
+                                     + str(y) + ".csv")
             self.fs_table = pd.concat([tmp_fs, self.fs_table])    
         del tmp_fs
-       
+        self.fs_table['date'] = pd.to_datetime(self.fs_table['date'])
+        self.fs_table['fillingDate'] = pd.to_datetime(self.fs_table['fillingDate'])
+
         self.metrics_table = pd.DataFrame()
         # self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
         for y in range(year-3, year+1):
-            tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(y) + ".parquet")
+            # tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(y) + ".parquet")
+            tmp_metrics = pd.read_csv(self.main_ctx.root_path + "/VIEW/metrics_" + str(y) + ".csv")
             self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
         del tmp_metrics
+        self.metrics_table['date'] = pd.to_datetime(self.metrics_table['date'])
+
 
     def get_trade_date(self, pdate):
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
         # pdate =  pdate.date()
-        post_date = pdate - relativedelta(days=7)
+        post_date = pdate - relativedelta(days=10)
         res = self.price_table.query("date >= @post_date and date <= @pdate")
         if res.empty:
             return None
@@ -251,6 +268,7 @@ class PlanHandler:
         pdate = self.date_handler.date
         planed_dtable_path = conf['ROOT_PATH']\
                              + "/PLANED_DATE_TABLE/planed_dtable_{}.csv".format(pdate.strftime('%Y-%m-%d'))
+                             
         if not os.path.exists(planed_dtable_path):
             logging.info("there is no planed date_table : " + planed_dtable_path)
             logging.info("start to create planed_date_table : " + planed_dtable_path)
@@ -406,7 +424,7 @@ class DateHandler:
         self.dtable['volume_mul_price'] =  self.dtable['close'] * self.dtable['volume']
         
         # 총거래액 적은 주식 제외 (얼마나 버려야할까 ? -> )
-        self.dtable = self.dtable[~self.dtable.isin([np.inf, -np.inf]).any(axis=1)]
+        # self.dtable = self.dtable[~self.dtable.isin([np.inf, -np.inf]).any(axis=1)]
         # self.dtable = self.dtable[self.dtable['volume_mul_price'] > 1000000] # TODO threshold
         self.dtable = self.dtable.nlargest(int(len(self.dtable)*0.50), 'volume_mul_price', keep='first')
     
@@ -465,7 +483,7 @@ class DateHandler:
             prev_fs_metrics = prev_fs_metrics.rename(columns=lambda x: prefix_col_name + x)
             prev_fs_metrics['symbol'] = symbols
             fs_metrics = pd.merge(fs_metrics, prev_fs_metrics, how='left', on=['symbol'])
-            fs_metrics = fs_metrics[~fs_metrics.isin([np.inf, -np.inf]).any(axis=1)]                    
+            # fs_metrics = fs_metrics[~fs_metrics.isin([np.inf, -np.inf]).any(axis=1)]                    
 
         # 4,8,12,16개월 변화량
         for prev_n in time_periods:
@@ -654,10 +672,10 @@ class DateHandler:
             logging.debug(f"{k} - {v}")
     
         self.dtable["sector"] = self.dtable["industry"].map(sector_map)
+        self.dtable = self.dtable.drop_duplicates('symbol', keep='first')
         self.dtable.to_csv(backtest.conf['ROOT_PATH'] + "/DATE_TABLE/"
                 + 'dtable_' + str(self.date.year) + '_'
                 + str(self.date.month) + '_' + str(self.date.day) + '.csv', index=False)
-        self.dtable = self.dtable.drop_duplicates('symbol', keep='first')
         self.dtable.to_parquet(backtest.conf['ROOT_PATH'] + "/DATE_TABLE/"
                                + 'dtable_' + str(self.date.year) + '_' + str(self.date.month) + '_' + str(self.date.day)
                                + '.parquet', engine="pyarrow")

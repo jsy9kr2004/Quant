@@ -98,6 +98,7 @@ class FMP:
                 logger.info("No Data in URL")
                 # 비어있는 표시를 해주기 위해 parquet 뒤에 x를 붙인 file만 만들고 fd close
                 f = open(path + "/{}.parquetx".format(elem + file_postfix), 'w')
+                f = open(path + "/{}.csvx".format(elem + file_postfix), 'w')
                 f.close()
                 logger.handlers.clear()
                 return self.return_fmp(logger, run_multi, False)
@@ -108,8 +109,8 @@ class FMP:
             # marketCap 값에 대한 별도 예외처리 로직 (uint64 로 바꿔도 괜찮음)
             if 'marketCap' in json_data.columns:
                 json_data['marketCap'] = json_data['marketCap'].astype(float)
-            # json_data.to_csv(path + "/{}.csv".format(elem + file_postfix), na_rep='NaN')
-            json_data.to_parquet(path + "/{}.parquet".format(elem + file_postfix))
+            json_data.to_csv(path + "/{}.csv".format(elem + file_postfix), na_rep='NaN', index=False)
+            # json_data.to_parquet(path + "/{}.parquet".format(elem + file_postfix))
             if json_data.empty == True:
                 logger.info("No Data in CSV")
                 logger.handlers.clear()
@@ -154,6 +155,8 @@ class FMP:
             api_url = None
             # json_data = ""
             if (not os.path.isfile(path + "/{}.parquet".format(str(elem) + file_postfix))) \
+               and (not os.path.isfile(path + "/{}.csv".format(str(elem) + file_postfix))) \
+               and (not os.path.isfile(path + "/{}.csvx".format(str(elem) + file_postfix))) \
                     and (not os.path.isfile(path + "/{}.parquetx".format(str(elem) + file_postfix))):
                 if is_v4 == True:
                     # TODO symbol 이 외에 list가 올 것이기에 need_symbol flag를 두고 있으나, symbol 이외에는 아직 당장 필요한 것이
@@ -272,7 +275,8 @@ class FMP:
                 delisted.rename(columns={'exchange':'exchangeShortName'}, inplace=True)
                 delisted = delisted.drop(['companyName'], axis=1)
                 all_symbol = pd.concat([all_symbol, delisted])
-        all_symbol.to_parquet('./allsymbol.parquet')
+        # all_symbol.to_parquet('./allsymbol.parquet')
+        all_symbol.to_csv('./allsymbol.csv', index=False)
         all_symbol = all_symbol.drop_duplicates('symbol', keep='first')
         all_symbol = all_symbol.reset_index(drop=True)
         self.symbol_list = all_symbol["symbol"]
@@ -282,7 +286,8 @@ class FMP:
         recent_date -= relativedelta(months=1)
         query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(recent_date)
         current_symbol = all_symbol.query(query)
-        current_symbol.to_parquet('./current_list.parquet')
+        # current_symbol.to_parquet('./current_list.parquet')
+        current_symbol.to_csv('./current_list.csv', index=False)
         current_symbol = current_symbol.drop_duplicates('symbol', keep='first')
         current_symbol = current_symbol.reset_index(drop=True)
         self.current_list = current_symbol["symbol"]
