@@ -98,6 +98,7 @@ class FMP:
                 logger.info("No Data in URL")
                 # 비어있는 표시를 해주기 위해 parquet 뒤에 x를 붙인 file만 만들고 fd close
                 f = open(path + "/{}.parquetx".format(elem + file_postfix), 'w')
+                f = open(path + "/{}.csvx".format(elem + file_postfix), 'w')
                 f.close()
                 logger.handlers.clear()
                 return self.return_fmp(logger, run_multi, False)
@@ -108,21 +109,8 @@ class FMP:
             # marketCap 값에 대한 별도 예외처리 로직 (uint64 로 바꿔도 괜찮음)
             if 'marketCap' in json_data.columns:
                 json_data['marketCap'] = json_data['marketCap'].astype(float)
-            if 'accountPayables' in json_data.columns:
-                json_data['accountPayables'] = json_data['accountPayables'].astype(float)
-            if 'deferredRevenue' in json_data.columns:
-                json_data['deferredRevenue'] = json_data['deferredRevenue'].astype(float)
-            # json_data.to_csv(path + "/{}.csv".format(elem + file_postfix), na_rep='NaN')
-            # to_parquet을 하는 도중에 error 발생 빈도가 높아 try-expect 추가
-            try:
-                json_data.to_parquet(path + "/{}.parquet".format(elem + file_postfix))
-            except:
-                # except의 범위가 너무 광범위한거 알고 있으나 어떤 에러가 발생할지 예측할 수 없음
-                logger.error("to_parquet function Error")
-                logger.error(json_data)
-                # data가 정상이 아니거나 추가처리를 해야할 수 있으므로 프로그램을 멈추고 반드시 값 확인이 필요하다
-                exit()
-
+            json_data.to_csv(path + "/{}.csv".format(elem + file_postfix), na_rep='NaN', index=False)
+            # json_data.to_parquet(path + "/{}.parquet".format(elem + file_postfix))
             if json_data.empty == True:
                 logger.info("No Data in CSV")
                 logger.handlers.clear()
@@ -167,6 +155,8 @@ class FMP:
             api_url = None
             # json_data = ""
             if (not os.path.isfile(path + "/{}.parquet".format(str(elem) + file_postfix))) \
+               and (not os.path.isfile(path + "/{}.csv".format(str(elem) + file_postfix))) \
+               and (not os.path.isfile(path + "/{}.csvx".format(str(elem) + file_postfix))) \
                     and (not os.path.isfile(path + "/{}.parquetx".format(str(elem) + file_postfix))):
                 if is_v4 == True:
                     # TODO symbol 이 외에 list가 올 것이기에 need_symbol flag를 두고 있으나, symbol 이외에는 아직 당장 필요한 것이
@@ -200,7 +190,6 @@ class FMP:
         if len(fmp_info_list) == 1:
             return self.get_fmp_data_loop(fmp_info_list[0], False)
         elif len(fmp_info_list) > 1:
-            # with Pool(processes=1, initializer=install_mp_handler()) as pool:
             with Pool(processes=multiprocessing.cpu_count(), initializer=install_mp_handler()) as pool:
                 pool.map(self.get_fmp_data_loop, fmp_info_list)
 
@@ -286,7 +275,8 @@ class FMP:
                 delisted.rename(columns={'exchange':'exchangeShortName'}, inplace=True)
                 delisted = delisted.drop(['companyName'], axis=1)
                 all_symbol = pd.concat([all_symbol, delisted])
-        all_symbol.to_parquet('./allsymbol.parquet')
+        # all_symbol.to_parquet('./allsymbol.parquet')
+        all_symbol.to_csv('./allsymbol.csv', index=False)
         all_symbol = all_symbol.drop_duplicates('symbol', keep='first')
         all_symbol = all_symbol.reset_index(drop=True)
         self.symbol_list = all_symbol["symbol"]
@@ -296,7 +286,8 @@ class FMP:
         recent_date -= relativedelta(months=1)
         query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(recent_date)
         current_symbol = all_symbol.query(query)
-        current_symbol.to_parquet('./current_list.parquet')
+        # current_symbol.to_parquet('./current_list.parquet')
+        current_symbol.to_csv('./current_list.csv', index=False)
         current_symbol = current_symbol.drop_duplicates('symbol', keep='first')
         current_symbol = current_symbol.reset_index(drop=True)
         self.current_list = current_symbol["symbol"]
