@@ -179,6 +179,9 @@ class Backtest:
         """
         date = datetime.datetime(self.main_ctx.start_year, self.conf['START_MONTH'], self.conf['START_DATE'])
         recent_date = self.price_table["date"].max()
+        end_date = datetime.datetime(self.main_ctx.end_year, 12, 31)
+        if end_date > recent_date:
+            end_date = recent_date
         cur_table_year = self.main_ctx.start_year
         # START OF WHILE #
         while True:
@@ -201,7 +204,7 @@ class Backtest:
                 self.eval_handler.print_current_best(self.plan_handler.date_handler)
                 break
             
-            if (date + relativedelta(months=self.rebalance_period)) <= recent_date:
+            if (date + relativedelta(months=self.rebalance_period)) <= end_date:
                 date += relativedelta(months=self.rebalance_period)
                 if date.year != cur_table_year:
                     cur_table_year = date.year
@@ -246,34 +249,36 @@ class PlanHandler:
         pdate = self.date_handler.date
         planed_dtable_path = conf['ROOT_PATH']\
                              + "/PLANED_DATE_TABLE/planed_dtable_{}.csv".format(pdate.strftime('%Y-%m-%d'))
-        if not os.path.exists(planed_dtable_path):
-            logging.info("there is no planed date_table : " + planed_dtable_path)
-            logging.info("start to create planed_date_table : " + planed_dtable_path)
-            # with Pool(processes=4, initializer=install_mp_handler()) as pool:
-            # with Pool(processes=multiprocessing.cpu_count() - 4, initializer=install_mp_handler()) as pool:
-            #    df_list = pool.map(self.plan_run, self.plan_list)
-            # full_df = pd.concat(df_list, ignore_index=True)
-            # full_df = full_df.groupby('symbol', as_index=False).last()
-            # TODO multiprocessing 처리 시에 table의 크기가 비이상적으로 커지는 현상이 있어 우선 serial 하게 처리하는 것으로 변경
-            #     첫 시도 이후에는 planed_dtalbe_path의 파일을 읽을 것이기 때문에 첫 loop만 느려질 것으로 예상됨
-            i = 0
-            for plan in self.plan_list:
-                logging.debug("[{}/{}] {} processing....".format(i, len(self.plan_list), str(plan["params"]["key"])))
-                self.plan_run(plan)
-                i += 1
-            # full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
-            # replace reduce + merge -> concat + groupby (for memory usage optimization)
+        # TODO 잘못 만들어지는 경우에 대한 except 처리가 필요
+        # if os.path.exists(planed_dtable_path):
+        #    logging.info("there is csv file for this date. read planed date table from csv")
+        #    try:
+        #        self.date_handler.dtable = pd.read_csv(planed_dtable_path)
+        #    except pd.errors.DtypeWarning as e:
+        #        print(e)
+        #        logging.info("Need recreate : " + planed_dtable_path)
+        logging.info("there is no planed date_table : " + planed_dtable_path)
+        logging.info("start to create planed_date_table : " + planed_dtable_path)
+        # with Pool(processes=4, initializer=install_mp_handler()) as pool:
+        # with Pool(processes=multiprocessing.cpu_count() - 4, initializer=install_mp_handler()) as pool:
+        #    df_list = pool.map(self.plan_run, self.plan_list)
+        # full_df = pd.concat(df_list, ignore_index=True)
+        # full_df = full_df.groupby('symbol', as_index=False).last()
+        # TODO multiprocessing 처리 시에 table의 크기가 비이상적으로 커지는 현상이 있어 우선 serial 하게 처리하는 것으로 변경
+        #     첫 시도 이후에는 planed_dtalbe_path의 파일을 읽을 것이기 때문에 첫 loop만 느려질 것으로 예상됨
+        i = 0
+        for plan in self.plan_list:
+            logging.debug("[{}/{}] {} processing....".format(i, len(self.plan_list), str(plan["params"]["key"])))
+            self.plan_run(plan)
+            i += 1
+        # full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
+        # replace reduce + merge -> concat + groupby (for memory usage optimization)
 
-            # self.date_handler.dtable = pd.merge(self.date_handler.dtable, full_df, how='left', on=['symbol'])
-            score_col_list = self.date_handler.dtable.columns.str.contains("_score")
-            self.date_handler.dtable['score'] = self.date_handler.dtable.loc[:, score_col_list].sum(axis=1)
-            self.date_handler.dtable.to_csv(conf['ROOT_PATH'] + "/PLANED_DATE_TABLE/"
-                                            + 'planed_dtable_{}.csv'.format(pdate.strftime('%Y-%m-%d')), index=False)
-        else:
-            logging.info("there is csv file for this date. read planed date table from csv")
-            self.date_handler.dtable = pd.read_csv(planed_dtable_path)
-        # END :save / read planed dtable from csv
-        # logging.debug(self.date_handler.dtable.sort_values(by=['score'], ascending=False)[['symbol', 'score']])
+        # self.date_handler.dtable = pd.merge(self.date_handler.dtable, full_df, how='left', on=['symbol'])
+        score_col_list = self.date_handler.dtable.columns.str.contains("_score")
+        self.date_handler.dtable['score'] = self.date_handler.dtable.loc[:, score_col_list].sum(axis=1)
+        self.date_handler.dtable.to_csv(conf['ROOT_PATH'] + "/PLANED_DATE_TABLE/"
+                                        + 'planed_dtable_{}.csv'.format(pdate.strftime('%Y-%m-%d')), index=False)
 
     @staticmethod
     def plan_run(plan):
@@ -560,7 +565,7 @@ class DateHandler:
         filtered_row = self.dtable['nan_count_per_row'] < int(len(self.dtable.columns)*0.4)
         self.dtable = self.dtable.loc[filtered_row,:]
         logging.info("after dtable len : {}".format(len(self.dtable)))
-    
+
         # 50% 넘게 비어있는 column 누적
         columns_with_nan_above_threshold = self.dtable.columns[self.dtable.isnull().sum(axis=0)
                                                                >= int(len(self.dtable)*0.5)].tolist()
@@ -778,8 +783,7 @@ class EvaluationHandler:
             end_dh = DateHandler(self.backtest, rebalance_date)
 
             if self.backtest.rank_report_path is not None or self.backtest.ai_report_path is not None:
-                logging.info("rank/ai report cur date : ")
-                logging.info(date)
+                logging.info("rank/ai report cur date : {}".format(date))
                 self.best_k[idx][3] = start_dh.dtable
                 rebalance_date_price_df = end_dh.dtable[['symbol', 'close']]
                 rebalance_date_price_df.rename(columns={'close': 'rebalance_day_price'}, inplace=True)
@@ -800,7 +804,7 @@ class EvaluationHandler:
                             feature_rank_col_name = feature + "_rank"
                             self.best_k[idx][3][feature_rank_col_name] \
                                 = self.best_k[idx][3][feature].rank(method='max', ascending=False)
-                            
+
                 self.best_k[idx][3] \
                     = self.best_k[idx][3].sort_values(by=["period_price_diff"],
                                                       axis=0, ascending=False)[:self.backtest.conf['TOP_K_NUM']]
@@ -833,15 +837,45 @@ class EvaluationHandler:
             start_dh = copy.deepcopy(end_dh)
             logging.info(str(idx) + " " + str(date))
 
-    def cal_earning_func(self, best_k):
-        logger = self.backtest.main_ctx.get_multi_logger()
+    def cal_earning_no_parallel(self):
+        """backtest로 계산한 plan의 수익률을 serial하게 계산하는 함수"""
+        logging.info("START cal_earning")
+        params = copy.deepcopy(self.best_k)
+        logging.info("in cal_earning : params : ")
+        for best in self.best_k:
+            (date, rebalance_date, best_group, reference_group, period_earning_rate) = best
+            if 'price' not in best_group.columns:
+                logging.warning("No Price Column!!")
+                continue
+            total_asset = 100000000
+            stock_cnt = (total_asset / len(best_group)) / best_group['price']
+            stock_cnt = stock_cnt.replace([np.inf, -np.inf], 0)
+            stock_cnt = stock_cnt.fillna(0)
+            # stock_cnt = stock_cnt.astype(int)
+            price_mul_stock_cnt = best_group['price'] * stock_cnt
+            my_asset_period = price_mul_stock_cnt.sum()
+            remain_asset = total_asset - price_mul_stock_cnt.sum()
+            if my_asset_period == 0:
+                return
+            # MDD 계산을 위해 이 구간에서 각 종목별 구매 개수 저장
+            best[2]['count'] = stock_cnt
+            # rebalance date의 가격으로 구매한 종목들 판매했을 때 자산 계산
+            rebalance_day_price_mul_stock_cnt = best_group['rebalance_day_price'] * stock_cnt
+            best[2]['period_earning'] = rebalance_day_price_mul_stock_cnt - price_mul_stock_cnt
+            period_earning = rebalance_day_price_mul_stock_cnt.sum() - price_mul_stock_cnt.sum()
+            best[4] = period_earning
+
+
+    @staticmethod
+    def cal_earning_func(best_k):
+        # logger = self.backtest.main_ctx.get_multi_logger()
 
         (date, rebalance_date, best_group, reference_group, period_earning_rate) = best_k
-        logger.debug("in cal_earning_func  " + date.strftime("%Y-%m-%d"))
+        # logger.debug("in cal_earning_func  " + date.strftime("%Y-%m-%d"))
         if 'price' not in best_group.columns:
-            logger.warning("No Price Column!!")
+            # logger.warning("No Price Column!!")
             return
-        logger.debug(best_group)
+        # logger.debug(best_group)
 
         total_asset = 100000000
         stock_cnt = (total_asset / len(best_group)) / best_group['price']
@@ -862,8 +896,8 @@ class EvaluationHandler:
         best_k[2]['period_earning'] = rebalance_day_price_mul_stock_cnt - price_mul_stock_cnt
         period_earning = rebalance_day_price_mul_stock_cnt.sum() - price_mul_stock_cnt.sum()
         best_k[4] = period_earning
-        logger.debug("in mp cal_earning_func : best k : ")
-        logger.debug(best_k)
+        # logger.debug("in mp cal_earning_func : best k : ")
+        # logger.debug(best_k)
         return best_k
 
     def cal_earning(self):
@@ -872,15 +906,15 @@ class EvaluationHandler:
         params = copy.deepcopy(self.best_k)
         # with Pool(processes=multiprocessing.cpu_count()) as pool:
         # install_mp_handler()
-        print("in cal_earning : params : ")
-        print(params)
+        logging.info("in cal_earning : params : ")
+        # print(params)
         with Pool(processes=multiprocessing.cpu_count()-4, initializer=install_mp_handler()) as pool:
         #with Pool(processes=2, initializer=install_mp_handler()) as pool:
             df_list = pool.map(self.cal_earning_func, params)
-            print("return df_list : ", df_list)
+            # print("return df_list : ", df_list)
         df_list = list(filter(None.__ne__, df_list))
         logging.info("in cal_earning : df_list : ")
-        logging.info(df_list)
+        # logging.info(df_list)
         # full_df = reduce(lambda df1, df2: pd.concat(df1, df2), df_list)
         # 잘들어가는지 check
         self.best_k = df_list
@@ -968,10 +1002,16 @@ class EvaluationHandler:
         plan_earning = 1
         total_asset = 100000000
         accumulated_earning = 100
+        max_local_plan_earning = -9999999999999
+        min_local_plan_earning = 9999999999999
         for idx, (date, rebalance_date, eval_elem, rank_elem, period_earning_rate) in enumerate(self.best_k):
             local_plan_earning = period_earning_rate / total_asset
             accumulated_earning = accumulated_earning * (1.0 + local_plan_earning)
             if self.backtest.eval_report_path is not None:
+                if max_local_plan_earning < local_plan_earning:
+                    max_local_plan_earning = local_plan_earning
+                if min_local_plan_earning > local_plan_earning:
+                    min_local_plan_earning = local_plan_earning
                 self.write_csv(self.backtest.eval_report_path, date, rebalance_date, eval_elem)
                 fd = open(self.backtest.eval_report_path, 'a', newline='')
                 writer = csv.writer(fd, delimiter=",")
@@ -980,7 +1020,8 @@ class EvaluationHandler:
                 fd.close()
             if self.backtest.rank_report_path is not None:
                 if idx <= self.backtest.conf['RANK_PERIOD']:
-                    rank_partial_path = self.backtest.rank_report_path[:-4]+'_' +str(date.year)+'_' +str(date.month) + '_' + str(date.day) + '.csv'
+                    rank_partial_path = self.backtest.rank_report_path[:-4]+'_' + str(date.year)+'_' + str(date.month)\
+                                        + '_' + str(date.day) + '.csv'
                     rank_elem.to_csv(rank_partial_path, index=False)
                     self.write_csv(self.backtest.rank_report_path, date, rebalance_date, rank_elem)
             if self.backtest.avg_report_path is not None:
@@ -1018,7 +1059,13 @@ class EvaluationHandler:
             # plan_total_earning_rate = (plan_earning / self.historical_earning_per_rebalanceday[0][2]) * 100
             plan_total_earning_rate = (accumulated_earning - 100) / 100
 
-            logging.warning("Our Earning : " + str(plan_total_earning_rate))
+            logging.warning("TOP_K_NUM : " + str(self.backtest.conf['TOP_K_NUM'])
+                            + ", MEMBER_CNT : " + str(self.backtest.conf['MEMBER_CNT'])
+                            + ", ABSOLUTE_SCORE : " + str(self.backtest.conf['ABSOLUTE_SCORE'])
+                            + ", Our_Earning : " + str(plan_total_earning_rate)
+                            + ", MAX_LOCAL_PLAN_EARNING : " + str(max_local_plan_earning)
+                            + ", MIN_LOCAL_PLAN_EARNING : " + str(min_local_plan_earning)
+                            )
             fd = open(self.backtest.eval_report_path, 'a')
             writer = csv.writer(fd, delimiter=",")
             writer.writerow("")
@@ -1030,7 +1077,8 @@ class EvaluationHandler:
     def run(self, price_table):
         self.cal_price()
         if self.backtest.eval_report_path is not None:
-            self.cal_earning()
+            # self.cal_earning()
+            self.cal_earning_no_parallel()
             # self.cal_mdd(price_table)
             # self.cal_sharp()
         self.print_report()

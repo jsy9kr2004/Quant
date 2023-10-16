@@ -116,9 +116,12 @@ if __name__ == '__main__':
         else:
             logging.error("Check conf.yaml. don't choose db and parquet both")
 
-    # for mem_cnt in range(30, 41, 10):
-    #    for top_k_num in range(400, 2801, 400):
+    # for mem_cnt in range(5, 21, 5):
+    #    for top_k_num in range(200, 3001, 400):
     #        for score_ratio in range(0, 201, 25):
+    #            conf['MEMBER_CNT'] = mem_cnt
+    #            conf['TOP_K_NUM'] = top_k_num
+    #            conf['ABSOLUTE_SCORE'] = int(top_k_num * 10 * (1 + score_ratio / 100))
     plan_handler = PlanHandler(conf['TOP_K_NUM'], conf['ABSOLUTE_SCORE'], main_ctx)
     plan = []
     plan_df = pd.read_csv("./plan.csv")
@@ -132,13 +135,9 @@ if __name__ == '__main__':
         )
     plan_handler.plan_list = plan
 
-    # conf['TOP_K_NUM'] = top_k_num
-    # conf['MEMBER_CNT'] = mem_cnt
-    # conf['ABSOLUTE_SCORE'] = int(top_k_num * 10 * (1 + score_ratio / 100))
-    # logging.warning("TOP_K_NUM : " + str(conf['TOP_K_NUM']) + ", MEMBER_CNT : " + str(conf['MEMBER_CNT']) +
-    #                 ", ABSOLUTE_SCORE : " + str(conf['ABSOLUTE_SCORE']))
     bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=conf['REBALANCE_PERIOD'])
 
-    logging.shutdown()
     del plan_handler
     del bt
+
+    logging.shutdown()
