@@ -46,6 +46,7 @@ class Parquet:
         # concat (symbol_list, delisted companies)
         all_symbol = pd.concat([symbol_list, delisted])
         all_symbol = all_symbol.drop_duplicates('symbol', keep='first')
+        
         # merge ((symbol_list, delisted companies), profile)
         all_symbol = all_symbol.merge(profile, how='left', on=['symbol', 'exchangeShortName'])
         all_symbol['ipoDate'] = all_symbol['ipoDate_x'].combine_first(all_symbol['ipoDate_y'])
@@ -199,12 +200,13 @@ class Parquet:
         # wrap your csv importer in a function that can be mapped
         # merge all csvs per directoy
         # dir_list = os.listdir(self.main_ctx.root_path)
-        # dir_list = ["key_metrics", "stock_list", "symbol_available_indexes",
-        #             "balance_sheet_statement", "cash_flow_statement",
-        #             "delisted_companies", "earning_calendar",
-        #             "financial_growth", "historical_daily_discounted_cash_flow", "historical_market_capitalization",
-        #             "historical_price_full", "income_statement", "profile"]
-        dir_list = ["key_metrics"]
+        dir_list = ["balance_sheet_statement", "cash_flow_statement",
+                    "delisted_companies", "earning_calendar",
+                    "financial_growth", "historical_daily_discounted_cash_flow", 
+                    "historical_market_capitalization", "historical_price_full", 
+                    "income_statement", "key_metrics", "profile",
+                    "stock_list", "symbol_available_indexes"]
+        # dir_list = ["key_metrics"]
         
         logging.info("directory list : {}".format(dir_list))
         for directory in tqdm(dir_list):

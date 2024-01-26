@@ -90,13 +90,14 @@ if __name__ == '__main__':
     main_ctx = MainCtx(conf)
     conf_check(conf)
 
+    # backtest() 에서 print_ai_data() 돌고 ai data 뽑힌 후에 ML 학습->예측 때 사용하는 부분
+    # 파일 다 뽑히고 돌리고 있어서 main 분리하는게 나을 듯..
     if conf['RUN_REGRESSION'] == "Y":
         regor = Regressor(conf)
         regor.dataload()
         regor.train()
-        # regor.evaluation()
-        # latest_data_path = conf['ROOT_PATH'] + '/regressor_data_05/2022_7_regressor_train_latest.csv'
-        # regor.latest_prediction(latest_data_path)
+        regor.evaluation()
+        regor.latest_prediction()
         # MLP = RegressionNetwork(conf)
         # MLP.mtrain()
         exit()

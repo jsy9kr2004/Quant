@@ -25,7 +25,7 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import RandomizedSearchCV
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, classification_report, precision_recall_fscore_support
 
 # from torch.utils.tensorboard import SummaryWriter
 # import torch.utils.data as data_utils
@@ -37,7 +37,9 @@ from sklearn.metrics import accuracy_score
 USE_COL='FULL'
 PER_SECTOR=False
 MODEL_SAVE_PATH=""
-y_col_list=["period_price_diff","earning_diff","sector", "symbol"]
+
+# 입력으로 넣으면 안되는 colume들이라 중간에 drop하기 위한 list
+y_col_list=["period_price_diff", "earning_diff", "sector", "sec_earning_diff", "symbol"]
 
 
 if USE_COL == 'FULL':
@@ -73,7 +75,7 @@ class Regressor:
             return 
             
         self.train_files = []
-        for year in range(int(conf['TRAIN_START_YEAR']), int(conf['TRAIN_END_YEAR'])):
+        for year in range(int(conf['TRAIN_START_YEAR']), int(conf['TRAIN_END_YEAR'])+1):
                 path = aidata_dir + str(year) + "*train_norm.csv"
                 year_files = [file for file in glob.glob(path)]
                 year_files = [file for file in year_files if 'full' not in file]
@@ -100,6 +102,7 @@ class Regressor:
 
         self.models = dict()
         self.sector_models=dict()
+        self.sector_cls_models=dict()
         self.sector_x_train = dict()
         self.sector_y_train = dict()
 
@@ -123,12 +126,12 @@ class Regressor:
             # df = df.drop(abs_col_list, axis=1) 
             ##### 
             
-            print("before drop null > 500")
-            logging.debug(df.shape)  
-            df = df[df.isnull().sum(axis=1) < 500]
-            print("after drop null > 500")
-            logging.debug(df.shape)  
-            # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
+            print("before dtable len : ", len(df))
+            df['nan_count_per_row'] = df.isnull().sum(axis=1)
+            filtered_row = df['nan_count_per_row'] < int(len(df.columns)*0.5)
+            df = df.loc[filtered_row,:]
+            print("after dtable len : ", len(df))
+            
             self.train_df = pd.concat([self.train_df, df], axis=0)
 
         if PER_SECTOR == True:
@@ -139,7 +142,7 @@ class Regressor:
             for sec in self.sector_list:
                 print("sector : ", sec)
                 self.sector_train_dfs[sec] = self.train_df[self.train_df['sector']==sec].copy()
-                self.sector_train_dfs[sec] = self.sector_train_dfs[sec].fillna(0)
+                # self.sector_train_dfs[sec] = self.sector_train_dfs[sec].fillna(0)
                 print(self.sector_train_dfs[sec])
             print(self.sector_list)
 
@@ -156,11 +159,14 @@ class Regressor:
             # df = df.drop(abs_col_list, axis=1) 
             ##
             
-            logging.debug(df.shape)  
-            df = df[df.isnull().sum(axis=1) < 500]
-            logging.debug(df.shape)  
-            # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
-            df = df.fillna(0)
+            print("before dtable len : ", len(df))
+            df['nan_count_per_row'] = df.isnull().sum(axis=1)
+            filtered_row = df['nan_count_per_row'] < int(len(df.columns)*0.5)
+            df = df.loc[filtered_row,:]
+            print("after dtable len : ", len(df))
+            
+             
+            # df = df.fillna(0)
             self.test_df = pd.concat([self.test_df, df], axis=0)
             self.test_df_list.append([fpath, df])
             if PER_SECTOR == True:
@@ -174,14 +180,20 @@ class Regressor:
         logging.debug(self.train_df.isnull().sum(axis=0))
         logging.debug('NaN occurrences in Rows:')
         logging.debug(self.train_df.isnull().sum(axis=1))
-        self.train_df = self.train_df.fillna(0)
-        self.test_df = self.test_df.fillna(0)
+        # self.train_df = self.train_df.fillna(0)
+        # self.test_df = self.test_df.fillna(0)
         
         logging.debug("train_df shape : ")
         logging.debug(self.train_df.shape)
         logging.debug("test_df shape : ")
         logging.debug(self.test_df.shape)
-    
+
+        self.train_df.to_csv(self.conf['ROOT_PATH'] + '/train_df.csv', index=False)
+        self.test_df.to_csv(self.conf['ROOT_PATH'] + '/test_df.csv', index=False)
+
+        positive_count = (self.train_df['period_price_diff'] > 0).sum()
+        negative_count = (self.train_df['period_price_diff'] < 0).sum()
+        print("positive # : {}, negative # : {}".format(positive_count, negative_count))
         
         self.x_train = self.train_df[self.train_df.columns.difference(y_col_list)]
         # self.y_train = self.train_df[['earning_diff']]
@@ -190,28 +202,28 @@ class Regressor:
             print("sector : ", sec)
             self.sector_x_train[sec] = self.sector_train_dfs[sec][self.sector_train_dfs[sec].columns.difference(y_col_list)]
             # self.sector_y_train[sec] = self.sector_train_dfs[sec][['earning_diff']]
-            self.sector_y_train[sec] = self.sector_train_dfs[sec][['period_price_diff']]
+            self.sector_y_train[sec] = self.sector_train_dfs[sec][['sec_earning_diff']]
         
         self.x_test = self.test_df[self.test_df.columns.difference(y_col_list)]
         # self.y_test = self.test_df[['earning_diff']]
         self.y_test = self.test_df[['period_price_diff']]
     
     def def_model(self):
-        self.clsmodels[0] = xgboost.XGBClassifier(tree_method='gpu_hist', gpu_id=0, n_estimators=1000, learning_rate=0.01, gamma=0.01, subsample=0.5,
-                                        colsample_bytree=0.5, max_depth=4, objective='binary:logistic')
-        self.clsmodels[1] = xgboost.XGBClassifier(tree_method='gpu_hist', gpu_id=0, n_estimators=1000, learning_rate=0.01, gamma=0.01, subsample=0.5,
-                                        colsample_bytree=0.5, max_depth=5, objective='binary:logistic')
-        self.clsmodels[2] = xgboost.XGBClassifier(tree_method='gpu_hist', gpu_id=0, n_estimators=1000, learning_rate=0.01, gamma=0.01, subsample=0.5,
-                                        colsample_bytree=0.5, max_depth=6, objective='binary:logistic')
-        self.clsmodels[3] = xgboost.XGBClassifier(tree_method='gpu_hist', gpu_id=0, n_estimators=1000, learning_rate=0.01, gamma=0.01, subsample=0.5,
-                                        colsample_bytree=0.5, max_depth=7, objective='binary:logistic')
+        self.clsmodels[0] = xgboost.XGBClassifier(tree_method='gpu_hist', gpu_id=0, n_estimators=500, learning_rate=0.02, gamma=0.01, subsample=0.8,
+                                        colsample_bytree=0.7, max_depth=8, objective='binary:logistic')
+        self.clsmodels[1] = xgboost.XGBClassifier(tree_method='gpu_hist', gpu_id=0, n_estimators=500, learning_rate=0.02, gamma=0.01, subsample=0.8,
+                                        colsample_bytree=0.7, max_depth=9, objective='binary:logistic')
+        self.clsmodels[2] = xgboost.XGBClassifier(tree_method='gpu_hist', gpu_id=0, n_estimators=500, learning_rate=0.02, gamma=0.01, subsample=0.8,
+                                        colsample_bytree=0.7, max_depth=10, objective='binary:logistic')
+        self.clsmodels[3] = xgboost.XGBClassifier(tree_method='gpu_hist', gpu_id=0, n_estimators=500, learning_rate=0.02, gamma=0.01, subsample=0.8,
+                                        colsample_bytree=0.7, max_depth=11, objective='binary:logistic')
         
-        self.models[0] = xgboost.XGBRegressor(tree_method='gpu_hist', gpu_id=0, n_estimators=1000, learning_rate=0.01, gamma=0.01, subsample=0.5,
-                                        colsample_bytree=0.5, max_depth=8)
+        self.models[0] = xgboost.XGBRegressor(tree_method='gpu_hist', gpu_id=0, n_estimators=1000, learning_rate=0.02, gamma=0.01, subsample=0.8,
+                                        colsample_bytree=0.7, max_depth=9)
         # self.models[1] = xgboost.XGBRegressor(tree_method='gpu_hist', gpu_id=0, n_estimators=1000, learning_rate=0.03, gamma=0, subsample=0.5,
         #                                 colsample_bytree=0.5, max_depth=10)
-        self.models[1] = xgboost.XGBRegressor(tree_method='gpu_hist', gpu_id=0, n_estimators=1000, learning_rate=0.01, gamma=0.01, subsample=0.5,
-                                        colsample_bytree=0.5, max_depth=10)
+        self.models[1] = xgboost.XGBRegressor(tree_method='gpu_hist', gpu_id=0, n_estimators=1000, learning_rate=0.02, gamma=0.01, subsample=0.8,
+                                        colsample_bytree=0.7, max_depth=11)
         # self.models[3] = xgboost.XGBRegressor(tree_method='gpu_hist', gpu_id=0, n_estimators=1000, learning_rate=0.03, gamma=0, subsample=0.5,
         #                                 colsample_bytree=0.5, max_depth=11)
         # self.models[1] = MLPRegressor(hidden_layer_sizes=(800, 400), activation='relu', solver='adam', random_state=42)
@@ -220,16 +232,18 @@ class Regressor:
 
         for sec in self.sector_list:
             
+            
+            
             cur_key = (sec, 0)
             # self.sector_models[cur_key] = RandomForestRegressor(n_jobs=-1, n_estimators=200, min_samples_split=5, min_samples_leaf=3)
-            self.sector_models[cur_key] = xgboost.XGBRegressor(tree_method='gpu_hist', gpu_id=0, n_estimators=1000, learning_rate=0.05, gamma=0.01, subsample=0.7,
+            self.sector_models[cur_key] = xgboost.XGBRegressor(tree_method='gpu_hist', gpu_id=0, n_estimators=500, learning_rate=0.03, gamma=0.01, subsample=0.8,
                                         colsample_bytree=0.7, max_depth=6) #BEST
             # cur_key = (sec, 1)
             # # self.sector_models[cur_key] = RandomForestRegressor(n_jobs=-1, n_estimators=200, min_samples_split=5, min_samples_leaf=3)
             # self.sector_models[cur_key] = xgboost.XGBRegressor(tree_method='gpu_hist', gpu_id=0, n_estimators=1000, learning_rate=0.05, gamma=0, subsample=0.5,
             #                             colsample_bytree=0.7, max_depth=7)
             cur_key = (sec, 1)
-            self.sector_models[cur_key]  = xgboost.XGBRegressor(tree_method='gpu_hist', gpu_id=0, n_estimators=1000, learning_rate=0.05, gamma=0.01, subsample=0.7,
+            self.sector_models[cur_key]  = xgboost.XGBRegressor(tree_method='gpu_hist', gpu_id=0, n_estimators=500, learning_rate=0.03, gamma=0.01, subsample=0.8,
                                         colsample_bytree=0.7, max_depth=8)
             # self.sector_models[cur_key] = MLPRegressor(hidden_layer_sizes=(800, 400), activation='relu', solver='adam', random_state=42)
             # cur_key = (sec, 3)
@@ -264,7 +278,7 @@ class Regressor:
         # print(search.best_params_)
         # exit()
         
-        MODEL_SAVE_PATH = self.conf['ROOT_PATH'] + '/MODELS_p{0:02d}/'.format(self.conf['REBALANCE_PERIOD'])
+        MODEL_SAVE_PATH = self.conf['ROOT_PATH'] + '/MODELS_full_p{0:02d}/'.format(self.conf['REBALANCE_PERIOD'])
         self.def_model()
         
         if not os.path.exists(MODEL_SAVE_PATH):
@@ -321,7 +335,7 @@ class Regressor:
            
     def evaluation(self):
 
-        MODEL_SAVE_PATH = self.conf['ROOT_PATH'] + '/MODELS_p{0:02d}/'.format(self.conf['REBALANCE_PERIOD'])
+        MODEL_SAVE_PATH = self.conf['ROOT_PATH'] + '/MODELS_full_p{0:02d}/'.format(self.conf['REBALANCE_PERIOD'])
         self.models = dict()
         self.clsmodels = dict()
         self.clsmodels[0] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_0.sav')
@@ -340,7 +354,15 @@ class Regressor:
         for i in range(2):
             pred_col_name = 'model_' + str(i) + '_prediction'
             pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary'
+            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_0'
+            pred_col_list.append(pred_col_name)
+            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_1'
+            pred_col_list.append(pred_col_name)
+            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_2'
+            pred_col_list.append(pred_col_name)
+            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_3'
+            pred_col_list.append(pred_col_name)
+            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_ensemble'
             pred_col_list.append(pred_col_name)
 
         model_eval_hist = []
@@ -352,9 +374,9 @@ class Regressor:
             tdate = "_".join(tmp[0].split('_')[0:2])
             print(tdate)
             x_test = df[df.columns.difference(y_col_list)]
-            # y_test = df[['earning_diff']]
             y_test = df[['period_price_diff']]
-            y_test_binary = (y_test > 0).astype(int)
+            y_test_2 = df[['period_price_diff']]
+            y_test_binary = (y_test_2 > 0).astype(int)
 
             preds = np.empty((0,x_test.shape[0]))            
             
@@ -362,9 +384,18 @@ class Regressor:
             df['label_binary'] = y_test_binary
 
             for i, model in self.clsmodels.items():    
+                print(f"classification model # {i}")
                 pred_col_name = 'clsmodel_' + str(i) + '_prediction'
                 correct_col_name = 'clsmodel_' + str(i) + '_correct'
-                y_predict_binary = model.predict(x_test)
+                # y_predict_binary = model.predict(x_test)
+                y_probs = model.predict_proba(x_test)[:, 1]
+
+                # 상위 10%의 예측 확률값을 threshold로 설정
+                threshold = np.percentile(y_probs, 85)
+                # 새로운 threshold로 예측값 생성
+                y_predict_binary = (y_probs > threshold).astype(int)
+                print(f"20% positive threshold == {threshold}")
+                print(classification_report(y_test_binary, y_predict_binary))
                 df[pred_col_name] = y_predict_binary
                 df[correct_col_name] = (y_test_binary.values.ravel() == y_predict_binary).astype(int)
                 acc = accuracy_score(df['label_binary'], df[pred_col_name])
@@ -372,20 +403,49 @@ class Regressor:
                 
             
             for i, model in self.models.items():    
-                pred_bin_col_name = 'clsmodel_2_prediction'
+                pred_bin_col_name_0 = 'clsmodel_0_prediction'
+                pred_bin_col_name_1 = 'clsmodel_1_prediction'
+                pred_bin_col_name_2 = 'clsmodel_2_prediction'
+                pred_bin_col_name_3 = 'clsmodel_3_prediction'
                 pred_col_name = 'model_' + str(i) + '_prediction'
                 correct_col_name = 'clsmodel_' + str(i) + '_correct'
-                pred_col_name_wbinary = 'model_' + str(i) + '_prediction_wbinary'
+                pred_col_name_wbinary_0 = 'model_' + str(i) + '_prediction_wbinary_0'
+                pred_col_name_wbinary_1 = 'model_' + str(i) + '_prediction_wbinary_1'
+                pred_col_name_wbinary_2 = 'model_' + str(i) + '_prediction_wbinary_2'
+                pred_col_name_wbinary_3 = 'model_' + str(i) + '_prediction_wbinary_3'
+                pred_col_name_wbinary_ensemble = 'model_' + str(i) + '_prediction_wbinary_ensemble'
+
                 loss_col_name = 'model_' + str(i) + '_prediction_loss'
-                loss_bin_col_name = 'model_' + str(i) + '_prediction__wbinary_loss'
+                loss_bin_col_name_0 = 'model_' + str(i) + '_prediction_wbinary_loss_0'
+                loss_bin_col_name_1 = 'model_' + str(i) + '_prediction_wbinary_loss_1'
+                loss_bin_col_name_2 = 'model_' + str(i) + '_prediction_wbinary_loss_2'
+                loss_bin_col_name_3 = 'model_' + str(i) + '_prediction_wbinary_loss_3'
 
                 y_predict = model.predict(x_test)
                 
                 df[pred_col_name] = y_predict
-                df[pred_col_name_wbinary] = y_predict * df[pred_bin_col_name]
+                df[pred_col_name_wbinary_0] = np.where(df[pred_bin_col_name_0] == 0, -1, y_predict)
+                df[pred_col_name_wbinary_1] = np.where(df[pred_bin_col_name_1] == 0, -1, y_predict)
+                df[pred_col_name_wbinary_2] = np.where(df[pred_bin_col_name_2] == 0, -1, y_predict)
+                df[pred_col_name_wbinary_3] = np.where(df[pred_bin_col_name_3] == 0, -1, y_predict)
+                df[pred_col_name_wbinary_ensemble] = np.where(((df[pred_bin_col_name_1] == 0) | (df[pred_bin_col_name_3] == 0)), -1, y_predict)
+
+                # df[pred_col_name_wbinary_0] = y_predict * df[pred_bin_col_name_0]
+                # df[pred_col_name_wbinary_1] = y_predict * df[pred_bin_col_name_1]
+                # df[pred_col_name_wbinary_2] = y_predict * df[pred_bin_col_name_2]
+                # df[pred_col_name_wbinary_3] = y_predict * df[pred_bin_col_name_3]
                 preds = np.vstack((preds, y_predict[None,:]))
                 df[loss_col_name] = abs(df['label'] - y_predict)
-                df[loss_bin_col_name] = abs(df['label'] - df[pred_col_name_wbinary])
+                df[loss_bin_col_name_0] = abs(df['label'] - df[pred_col_name_wbinary_0])
+                df[loss_bin_col_name_1] = abs(df['label'] - df[pred_col_name_wbinary_1])
+                df[loss_bin_col_name_2] = abs(df['label'] - df[pred_col_name_wbinary_2])
+                df[loss_bin_col_name_3] = abs(df['label'] - df[pred_col_name_wbinary_3])
+                print(f"eval : model i : {i} loss : {df[loss_col_name].mean()} loss_wbin_0 {df[loss_bin_col_name_0].mean()} loss_wbin_1 {df[loss_bin_col_name_1].mean()}\
+                    loss_wbin_2 {df[loss_bin_col_name_2].mean()} loss_wbin_3 {df[loss_bin_col_name_3].mean()}")
+                if test_idx != 0:
+                    print(f"accumulated eval : model i : {i} loss : {full_df[loss_col_name].mean()} loss_wbin_0 {full_df[loss_bin_col_name_0].mean()} loss_wbin_1 {full_df[loss_bin_col_name_1].mean()}\
+                    loss_wbin_2 {full_df[loss_bin_col_name_2].mean()} loss_wbin_3 {full_df[loss_bin_col_name_3].mean()}")
+
             
             df['ai_pred_avg'] = np.average(preds, axis=0)
             df['ai_pred_avg_loss'] = abs(df['label']-df['ai_pred_avg'])
@@ -400,19 +460,35 @@ class Regressor:
                 k = str(s) + '~' + str(e)
                 for col in pred_col_list:
                     top_k_df = df.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
+                    logging.info("")
                     logging.info(col)
+                    logging.info(("label"))
                     logging.info((top_k_df['period_price_diff'].sum()/(e-s+1)))
+                    logging.info(("pred"))
+                    logging.info((top_k_df[col].sum()/(e-s+1)))
                     topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
                     
                     top_k_df.to_csv(MODEL_SAVE_PATH+'prediction_{}_{}_top{}-{}.csv'.format(tdate, col, s, e))
                     model_eval_hist.append([tdate, col, k, top_k_df['period_price_diff'].sum()/(e-s+1), top_k_df[col].sum()/(e-s+1), 
                                             abs(top_k_df[col].sum()/(e-s+1) - top_k_df['period_price_diff'].sum()/(e-s+1)), int(top_k_df[col].sum()/(e-s+1) > 0), 
                                             top_k_df['ai_pred_avg'].sum()/(e-s+1), top_k_df['model_0_prediction'].sum()/(e-s+1), top_k_df['model_1_prediction'].sum()/(e-s+1),
-                                            top_k_df['model_0_prediction_wbinary'].sum()/(e-s+1), top_k_df['model_1_prediction_wbinary'].sum()/(e-s+1)
+                                            top_k_df['model_0_prediction_wbinary_0'].sum()/(e-s+1), top_k_df['model_1_prediction_wbinary_0'].sum()/(e-s+1),
+                                            top_k_df['model_0_prediction_wbinary_1'].sum()/(e-s+1), top_k_df['model_1_prediction_wbinary_1'].sum()/(e-s+1),
+                                            top_k_df['model_0_prediction_wbinary_2'].sum()/(e-s+1), top_k_df['model_1_prediction_wbinary_2'].sum()/(e-s+1),
+                                            top_k_df['model_0_prediction_wbinary_3'].sum()/(e-s+1), top_k_df['model_1_prediction_wbinary_3'].sum()/(e-s+1),
+                                            top_k_df['model_0_prediction_wbinary_ensemble'].sum()/(e-s+1), top_k_df['model_1_prediction_wbinary_ensemble'].sum()/(e-s+1)
+
                                             ])
         
         col_name = ['start_date', 'model', 'krange', 'avg_earning_per_stock', 'cur_model_pred', 'loss_y_and_pred', 
-                    'cur_model_pred_ispositive', 'avg_pred', 'model0_pred', 'model1_pred', 'model0_pred_wbinary', 'model1_pred_wbinary']
+                    'cur_model_pred_ispositive', 'avg_pred', 'model0_pred', 'model1_pred', 
+                    'model0_pred_wbinary_0', 'model1_pred_wbinary_0',
+                    'model0_pred_wbinary_1', 'model1_pred_wbinary_1', 
+                    'model0_pred_wbinary_2', 'model1_pred_wbinary_2',
+                    'model0_pred_wbinary_3', 'model1_pred_wbinary_3',
+                    'model0_pred_wbinary_ensemble', 'model1_pred_wbinary_ensemble'
+                    ]
+        
         pred_df = pd.DataFrame(model_eval_hist, columns=col_name)
         print(pred_df)
         pred_df.to_csv(MODEL_SAVE_PATH+'pred_df_topk.csv', index=False)
@@ -439,20 +515,31 @@ class Regressor:
                 testdates.add(tdate)
 
                 x_test = df[df.columns.difference(y_col_list)]
-                # y_test = df[['earning_diff']]
                 y_test = df[['period_price_diff']]
+                y_test_2 = df[['period_price_diff']]
                 
                 if len(x_test) == 0:
                     continue
                 
                 sector_preds = np.empty((0,x_test.shape[0]))
                 df['label'] = y_test
+                
+                
+                y_probs = self.clsmodels[2].predict_proba(x_test)[:, 1]
+                # 상위 10%의 예측 확률값을 threshold로 설정
+                threshold = np.percentile(y_probs, 85)
+                # 새로운 threshold로 예측값 생성
+                y_predict_binary = (y_probs > threshold).astype(int)
+                
                 for i in range(2):
                     k = (sec, i)
                     model = self.sector_models[k]
                     pred_col_name = 'model_' + str(i) + '_prediction'
+                    pred_col_name_wbin = 'model_' + str(i) + '_prediction_wbinary_2'
                     y_predict = model.predict(x_test)
                     df[pred_col_name] = y_predict
+                    
+                    df[pred_col_name_wbin] = np.where(y_predict_binary == 0, -1, y_predict)
                     print(f"i{i} sec {sec}")                        
                     print(x_test.shape)
                     print(sector_preds.shape)
@@ -471,7 +558,10 @@ class Regressor:
                     for col in pred_col_list:
                         top_k_df = df.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
                         logging.info(col)
+                        logging.info(("label"))
                         logging.info((top_k_df['period_price_diff'].sum()/(e-s+1)))
+                        logging.info(("pred"))
+                        logging.info((top_k_df[col].sum()/(e-s+1)))
                         topk_period_earning_sums.append(top_k_df['period_price_diff'].sum())
                         top_k_df.to_csv(MODEL_SAVE_PATH+'prediction_{}_{}_{}_top{}-{}.csv'.format(tdate, sec, col, s, e))
                         top_k_df['start_date'] = tdate
@@ -480,10 +570,13 @@ class Regressor:
                         sector_model_eval_hist.append([tdate, sec, col, k, top_k_df['period_price_diff'].sum()/(e-s+1), top_k_df[col].sum()/(e-s+1), 
                                             abs(top_k_df[col].sum()/(e-s+1) - top_k_df['period_price_diff'].sum()/(e-s+1)), int(top_k_df[col].sum()/(e-s+1) > 0), 
                                             top_k_df['ai_pred_avg'].sum()/(e-s+1), top_k_df['model_0_prediction'].sum()/(e-s+1), 
-                                            top_k_df['model_1_prediction'].sum()/(e-s+1)])
+                                            top_k_df['model_1_prediction'].sum()/(e-s+1), 
+                                            top_k_df['model_0_prediction_wbinary_2'].sum()/(e-s+1), top_k_df['model_1_prediction_wbinary_2'].sum()/(e-s+1)])
 
+            
             col_name = ['start_date', 'sector', 'model', 'krange', 'avg_earning_per_stock', 'cur_model_pred', 'loss_y_and_pred', 
-                    'cur_model_pred_ispositive', 'avg_pred', 'model0_pred', 'model1_pred']
+                    'cur_model_pred_ispositive', 'avg_pred', 'model0_pred', 'model1_pred',
+                    'model0_pred_wbinary_2', 'model1_pred_wbinary_2']
             pred_df = pd.DataFrame(sector_model_eval_hist, columns=col_name)
             print(pred_df)
             pred_df.to_csv(MODEL_SAVE_PATH+'allsector_pred_df.csv'.format(sec), index=False)
@@ -506,10 +599,12 @@ class Regressor:
         
     def latest_prediction(self):
         
-        MODEL_SAVE_PATH = self.conf['ROOT_PATH'] + '/MODELS_p{0:02d}/'.format(self.conf['REBALANCE_PERIOD'])
+        MODEL_SAVE_PATH = self.conf['ROOT_PATH'] + '/MODELS_full_p{0:02d}/'.format(self.conf['REBALANCE_PERIOD'])
         self.clsmodels = dict()
         self.clsmodels[0] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_0.sav')
         self.clsmodels[1] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_1.sav')
+        self.clsmodels[2] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_2.sav')
+        self.clsmodels[3] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_3.sav')
         self.models = dict()
         self.models[0] = joblib.load(MODEL_SAVE_PATH + 'model_0.sav')
         self.models[1] = joblib.load(MODEL_SAVE_PATH + 'model_1.sav')
@@ -523,12 +618,22 @@ class Regressor:
         # print("drop abs_col_list : ")
         # print(abs_col_list)     
 
-        latest_data_path = aidata_dir + '2023_09_regressor_train_latest_norm.csv'
+        latest_data_path = aidata_dir + '2023_10_regressor_train_latest_norm.csv'
 
         pred_col_list = ['ai_pred_avg']
-        for i in range(2): 
+        for i in range(2):
             pred_col_name = 'model_' + str(i) + '_prediction'
-            pred_col_list.append(pred_col_name)  
+            pred_col_list.append(pred_col_name)
+            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_0'
+            pred_col_list.append(pred_col_name)
+            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_1'
+            pred_col_list.append(pred_col_name)
+            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_2'
+            pred_col_list.append(pred_col_name)
+            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_3'
+            pred_col_list.append(pred_col_name)
+            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_ensemble'
+            pred_col_list.append(pred_col_name)
 
         ldf = pd.read_csv(latest_data_path)
         
@@ -537,18 +642,60 @@ class Regressor:
         print(self.sector_list)
         # ldf = ldf.drop(abs_col_list, axis=1) 
         ldf = ldf.drop('sector', axis=1) 
-     
         ldf = ldf[ldf.isnull().sum(axis=1) < 500]
-        ldf = ldf.fillna(0)
-        input = ldf[ldf.columns.difference(['symbol'])]        
+        # ldf = ldf.fillna(0)
+        print("before dtable len : ", len(ldf))
+        ldf['nan_count_per_row'] = ldf.isnull().sum(axis=1)
+        filtered_row = ldf['nan_count_per_row'] < int(len(ldf.columns)*0.5)
+        ldf = ldf.loc[filtered_row,:]
+        print("after dtable len : ", len(ldf))
+        
+        print(ldf.columns)
+        
+        # input = ldf[ldf.columns.difference(['symbol'])]        
+        input = ldf[ldf.columns.difference(y_col_list)]        
         preds = np.empty((0, input.shape[0]))
+        
+        for i, model in self.clsmodels.items():    
+            print(f"classification model # {i}")
+            pred_col_name = 'clsmodel_' + str(i) + '_prediction'
+            y_probs = model.predict_proba(input)[:, 1]
+            # 상위 10%의 예측 확률값을 threshold로 설정
+            threshold = np.percentile(y_probs, 85)
+            # 새로운 threshold로 예측값 생성
+            y_predict_binary = (y_probs > threshold).astype(int)
+            print(f"20% positive threshold == {threshold}")
+            ldf[pred_col_name] = y_predict_binary
+        
         for i, model in self.models.items():    
+            pred_bin_col_name_0 = 'clsmodel_0_prediction'
+            pred_bin_col_name_1 = 'clsmodel_1_prediction'
+            pred_bin_col_name_2 = 'clsmodel_2_prediction'
+            pred_bin_col_name_3 = 'clsmodel_3_prediction'
             pred_col_name = 'model_' + str(i) + '_prediction'
-            y_predict3 = model.predict(input)
-            print(y_predict3)
-            print(len(y_predict3))
-            ldf[pred_col_name] = y_predict3
-            preds = np.vstack((preds, y_predict3[None,:]))
+            correct_col_name = 'clsmodel_' + str(i) + '_correct'
+            pred_col_name_wbinary_0 = 'model_' + str(i) + '_prediction_wbinary_0'
+            pred_col_name_wbinary_1 = 'model_' + str(i) + '_prediction_wbinary_1'
+            pred_col_name_wbinary_2 = 'model_' + str(i) + '_prediction_wbinary_2'
+            pred_col_name_wbinary_3 = 'model_' + str(i) + '_prediction_wbinary_3'
+            pred_col_name_wbinary_ensemble = 'model_' + str(i) + '_prediction_wbinary_ensemble'
+            loss_col_name = 'model_' + str(i) + '_prediction_loss'
+            loss_bin_col_name_0 = 'model_' + str(i) + '_prediction_wbinary_loss_0'
+            loss_bin_col_name_1 = 'model_' + str(i) + '_prediction_wbinary_loss_1'
+            loss_bin_col_name_2 = 'model_' + str(i) + '_prediction_wbinary_loss_2'
+            loss_bin_col_name_3 = 'model_' + str(i) + '_prediction_wbinary_loss_3'
+
+            y_predict = model.predict(input)
+            
+            ldf[pred_col_name] = y_predict
+            ldf[pred_col_name_wbinary_0] = np.where(ldf[pred_bin_col_name_0] == 0, -1, y_predict)
+            ldf[pred_col_name_wbinary_1] = np.where(ldf[pred_bin_col_name_1] == 0, -1, y_predict)
+            ldf[pred_col_name_wbinary_2] = np.where(ldf[pred_bin_col_name_2] == 0, -1, y_predict)
+            ldf[pred_col_name_wbinary_3] = np.where(ldf[pred_bin_col_name_3] == 0, -1, y_predict)
+            ldf[pred_col_name_wbinary_ensemble] = np.where(((ldf[pred_bin_col_name_1] == 0) | (ldf[pred_bin_col_name_3] == 0)), -1, y_predict)
+
+            preds = np.vstack((preds, y_predict[None,:]))
+
         
         ldf['ai_pred_avg'] = np.average(preds, axis=0)        
         ldf.to_csv(MODEL_SAVE_PATH+"latest_prediction.csv")
@@ -558,7 +705,6 @@ class Regressor:
             for col in pred_col_list:
                 top_k_df = ldf.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
                 top_k_df.to_csv(MODEL_SAVE_PATH+'latest_prediction_{}_top{}-{}.csv'.format(col, s, e))
-
 
         if PER_SECTOR == True:
 
@@ -578,7 +724,7 @@ class Regressor:
                 sec_df = ldf[ldf['sector']==sec]
                 sec_df = sec_df.drop('sector', axis=1) 
                 # sec_df = sec_df[sec_df.isnull().sum(axis=1) < 500]
-                sec_df = sec_df.fillna(0)
+                # sec_df = sec_df.fillna(0)
             
                 indata = sec_df[sec_df.columns.difference(['symbol'])]
                 print(indata)
@@ -657,12 +803,12 @@ class MyDataset(Dataset):
             df = df[df.isnull().sum(axis=1) < 5]
             logging.debug(df.shape)  
             # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
-            df = df.fillna(0)
+            # df = df.fillna(0)
             self.test_df = pd.concat([self.test_df, df], axis=0)
             self.test_df_list.append([fpath, df])
             
-        self.train_df = self.train_df.fillna(0)
-        self.test_df = self.test_df.fillna(0)
+        # self.train_df = self.train_df.fillna(0)
+        # self.test_df = self.test_df.fillna(0)
         
         x = self.train_df[self.train_df.columns.difference(y_col_list)].values
         # y = self.train_df[['earning_diff']].values
