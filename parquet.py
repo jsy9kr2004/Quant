@@ -196,11 +196,12 @@ class Parquet:
         # wrap your csv importer in a function that can be mapped
         # merge all csvs per directoy
         # dir_list = os.listdir(self.main_ctx.root_path)
-        dir_list = ["key_metrics", "stock_list", "symbol_available_indexes",
-                    "balance_sheet_statement", "cash_flow_statement",
+        dir_list = ["balance_sheet_statement", "cash_flow_statement",
                     "delisted_companies", "earning_calendar",
-                    "financial_growth", "historical_daily_discounted_cash_flow", "historical_market_capitalization",
-                    "historical_price_full", "income_statement", "profile"]
+                    "financial_growth", "historical_daily_discounted_cash_flow",
+                    "historical_market_capitalization", "historical_price_full",
+                    "income_statement", "key_metrics", "profile",
+                    "stock_list", "symbol_available_indexes"]
         # dir_list = ["key_metrics"]
         
         logging.info("directory list : {}".format(dir_list))

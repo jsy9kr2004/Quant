@@ -73,7 +73,7 @@ class FMP:
         while True:
             path, elem, file_postfix, api_url = fmp_info
             try:
-                logger.info('Creating File "{}/{}.parquet" <- "{}"'.format(path, elem + file_postfix, api_url))
+                logger.info('Creating File "{}/{}.csv" <- "{}"'.format(path, elem + file_postfix, api_url))
                 # json_data = pd.read_json(api_url)
                 url_data = requests.get(api_url)
             except ValueError:
@@ -97,7 +97,7 @@ class FMP:
             if json_data == [] or json_data == {}:
                 logger.info("No Data in URL")
                 # 비어있는 표시를 해주기 위해 parquet 뒤에 x를 붙인 file만 만들고 fd close
-                f = open(path + "/{}.parquetx".format(elem + file_postfix), 'w')
+                # f = open(path + "/{}.parquetx".format(elem + file_postfix), 'w')
                 f = open(path + "/{}.csvx".format(elem + file_postfix), 'w')
                 f.close()
                 logger.handlers.clear()
@@ -154,10 +154,11 @@ class FMP:
             # TODO url_data = "" 와 같은 줄이 필요할 듯? except 후 continue로 들어갈 때 이전 값이 들어있음. 초기화 필요?
             api_url = None
             # json_data = ""
-            if (not os.path.isfile(path + "/{}.parquet".format(str(elem) + file_postfix))) \
-               and (not os.path.isfile(path + "/{}.csv".format(str(elem) + file_postfix))) \
-               and (not os.path.isfile(path + "/{}.csvx".format(str(elem) + file_postfix))) \
-                    and (not os.path.isfile(path + "/{}.parquetx".format(str(elem) + file_postfix))):
+            if ((not os.path.isfile(path + "/{}.csv".format(str(elem) + file_postfix))) \
+               and (not os.path.isfile(path + "/{}.csvx".format(str(elem) + file_postfix)))):
+                #not os.path.isfile(path + "/{}.parquet".format(str(elem) + file_postfix))) \
+                #and (not os.path.isfile(path + "/{}.parquetx".format(str(elem) + file_postfix))):
+               
                 if is_v4 == True:
                     # TODO symbol 이 외에 list가 올 것이기에 need_symbol flag를 두고 있으나, symbol 이외에는 아직 당장 필요한 것이
                     #       없어서 이대로 두었으나 이 loop는 symbol 이외의 list에 대한 대비가 아래 if 문 이외에는 되어 있지 않음
@@ -177,9 +178,9 @@ class FMP:
                 if cre_flag == True:
                     # 새로 만드는 경우, 이미 csv가 있다는 건 stock list와 delisted list에 중복 값이 있는 상황 (Duplicate)
                     # 리스트에 중복값이 왜 들어가게 되었는지 반드시 확인이 필요함. (가정이 깨짐)
-                    logging.error('Already Exist "{}/{}.parquet"'.format(path, elem + file_postfix))
+                    logging.error('Already Exist "{}/{}.csv"'.format(path, elem + file_postfix))
                 else:
-                    logging.info('Already Exist File "{}/{}.parquet"'.format(path, elem + file_postfix))
+                    logging.info('Already Exist File "{}/{}.csv"'.format(path, elem + file_postfix))
 
         if need_symbol is False:
             # symbol list가 들어가지 않는 경우 data list는 단 하나만 존재함을 가정하고 있기에 return 해주는 거라 assert 체크 필요
@@ -194,6 +195,7 @@ class FMP:
                 pool.map(self.get_fmp_data_loop, fmp_info_list)
 
     def get_fmp_data_preprocessing(self, main_url, extra_url, need_symbol, is_v4):
+        logging.info("main url : {}, extra url: {}".format(main_url, extra_url))
         if extra_url.find("year") != -1:
             for year in range(self.main_ctx.start_year, self.main_ctx.end_year + 1):
                 if re.match("year=[0-9]{4}&period=Q[0-9]{1}", extra_url):
@@ -302,6 +304,11 @@ class FMP:
         # SYMBOL 이 없는 건, SYMBOL을 만들기 위한 file도 만들어지기 전이기 때문에 두번 돌려서 SYMBOL 안쓰는 것부터 만듦
         print(self.symbol_list.empty)
         if (need_symbol == True) and (self.symbol_list.empty == True):
+            print("need_symbol : {}".format(need_symbol))
+            print("need_symbol : {}".format(self.symbol_list))
+            print("there is no symbol!!")
+            print("there is no symbol!!")
+            print("there is no symbol!!")
             return
         is_v4 = True if api_url.split('/')[2] == "v4" else False
         # Code에 박아 넣은 값인 8은 url의 앞부분인 /api/v4/ 의 길이. v3와 v4 코드 통합을 위해 박아넣음
@@ -338,11 +345,11 @@ class FMP:
         return api_list
 
     @staticmethod
-    def remove_files(path, only_parquet=False):
+    def remove_files(path, only_csv=True):
         if os.path.isdir(path) is False:
             return
         for file in os.listdir(path):
-            if only_parquet is True and not file.endswith(".parquet"):
+            if only_csv is True and not file.endswith(".csv"):
                 continue
             else:
                 os.remove(os.path.join(path, file))
@@ -357,12 +364,12 @@ class FMP:
             return
         today = dateutil.utils.today()
         for symbol in self.current_list:
-            path = base_path + "/" + str(symbol) + ".parquet"
+            path = base_path + "/" + str(symbol) + ".csv"
             if os.path.isfile(path):
                 if check_target is True:
                     # 현재는 한 줄만 읽어오는 함수를 찾지 못해 전체를 읽고 있음.
                     # pd.read_parquet(path, nrows=1)와 같은 옵션은 없는 것으로 보임
-                    row = pd.read_parquet(path)
+                    row = pd.read_csv(path)
                     if "date" in row.columns:
                         if row["date"].empty is True:
                             os.remove(path)
@@ -379,10 +386,10 @@ class FMP:
     def remove_current_year(base_path):
         today = dateutil.utils.today()
         year = today.strftime("%Y")
-        if os.path.isfile(base_path + str(year) + ".parquet"):
-            os.remove(base_path + str(year) + ".parquet")
-        if os.path.isfile(base_path + str(year) + ".parquetx"):
-            os.remove(base_path + str(year) + ".parquetx")
+        if os.path.isfile(base_path + str(year) + ".csv"):
+            os.remove(base_path + str(year) + ".csv")
+        if os.path.isfile(base_path + str(year) + ".csvx"):
+            os.remove(base_path + str(year) + ".csvx")
 
     @staticmethod
     def xxx_remove_current_month(base_path):
@@ -390,12 +397,12 @@ class FMP:
         today = dateutil.utils.today()
         year = today.strftime("%Y")
         month = today.strftime("%m")
-        if os.path.isfile(base_path + str(year) + "_" + str(month) + ".parquet"):
-            os.remove(base_path + str(year) + "_" + str(month) + ".parquet")
+        if os.path.isfile(base_path + str(year) + "_" + str(month) + ".csv"):
+            os.remove(base_path + str(year) + "_" + str(month) + ".csv")
         else:
-            if not os.path.isfile(base_path + str(year) + "_" + str(month) + ".parquetx"):
-                if os.path.isfile(base_path + str(year) + "_" + str(int(month)-1) + ".parquet"):
-                    os.remove(base_path + str(year) + "_" + str(int(month)-1) + ".parquet")
+            if not os.path.isfile(base_path + str(year) + "_" + str(month) + ".csvx"):
+                if os.path.isfile(base_path + str(year) + "_" + str(int(month)-1) + ".csv"):
+                    os.remove(base_path + str(year) + "_" + str(int(month)-1) + ".csv")
 
     @staticmethod
     def skip_remove_check():
@@ -421,16 +428,16 @@ class FMP:
         파일의 내용을 확인해보고 위와 같은 메시지를 파일에 적어놓은 경우 해당 파일을 삭제
         :return: bool 삭제해야 할 파일이 존재하는지 여부
         """
-        basepath = './data'
+        basepath = 'E:\qt\data'
         flag = True
         del_count = 0
         pass_count = 0
         for dir_name in os.listdir(basepath):
             if os.path.isdir(os.path.join(basepath, dir_name)):
                 cur_path = os.path.join(basepath, dir_name)
-                par_list = [file for file in os.listdir(cur_path) if file.endswith('parquet')]
+                par_list = [file for file in os.listdir(cur_path) if file.endswith('csv')]
                 for p in par_list:
-                    df = pd.read_parquet(os.path.join(cur_path, p))
+                    df = pd.read_csv(os.path.join(cur_path, p))
                     # df.str.contains('Limit').any().any()
                     if df.filter(regex='Limit').empty is False or df.filter(regex='Error').empty is False:
                         logging.debug(os.path.join(cur_path, p))
@@ -451,33 +458,33 @@ class FMP:
         remove_first (symbol list 관련 삭제) -> get_fmp (symbol list 관련 내용들을 다시 받아옴
         -> remove_second (새로 받은 symbol list 기준으로 삭제) -> get_fmp (second로 인해 지워진 data 다시 받아옴)
         """
-        if os.path.isfile("./allsymbol.parquet"):
-            os.remove("./allsymbol.parquet")
-        if os.path.isfile("./current_list.parquet"):
-            os.remove("./current_list.parquet")
-        self.remove_files("./data/delisted_companies")
-        self.remove_files("./data/stock_list")
-        self.remove_files("./data/symbol_available_indexes")
+        if os.path.isfile("./allsymbol.csv"):
+            os.remove("./allsymbol.csv")
+        if os.path.isfile("./current_list.csv"):
+            os.remove("./current_list.csv")
+        self.remove_files(self.main_ctx.root_path+"/delisted_companies")
+        self.remove_files(self.main_ctx.root_path+"/stock_list")
+        self.remove_files(self.main_ctx.root_path+"/symbol_available_indexes")
 
-        self.remove_current_year("./data/earning_calendar/earning_calendar_")
+        self.remove_current_year(self.main_ctx.root_path+"/earning_calendar/earning_calendar_")
 
     def remove_second_loop(self):
         """remove_first_loop 설명 참조"""
-        self.remove_current_list_files("./data/income_statement")
-        self.remove_current_list_files("./data/balance_sheet_statement")
-        self.remove_current_list_files("./data/cash_flow_statement")
-        self.remove_current_list_files("./data/key_metrics")
-        self.remove_current_list_files("./data/financial_growth")
+        self.remove_current_list_files(self.main_ctx.root_path+"/income_statement")
+        self.remove_current_list_files(self.main_ctx.root_path+"/balance_sheet_statement")
+        self.remove_current_list_files(self.main_ctx.root_path+"/cash_flow_statement")
+        self.remove_current_list_files(self.main_ctx.root_path+"/key_metrics")
+        self.remove_current_list_files(self.main_ctx.root_path+"/financial_growth")
 
         for symbol in self.current_list:
-            self.remove_current_year("./data/historical_price_full/" + str(symbol) + "_")
+            self.remove_current_year(self.main_ctx.root_path+"/historical_price_full/" + str(symbol) + "_")
 
         # FIXME 가장 오래 걸리는 함수 Top2 이기에 다른 방식을 고민해보기
-        self.remove_current_list_files("./data/historical_daily_discounted_cash_flow")
-        self.remove_current_list_files("./data/historical_market_capitalization", False)
+        self.remove_current_list_files(self.main_ctx.root_path+"/historical_daily_discounted_cash_flow")
+        self.remove_current_list_files(self.main_ctx.root_path+"/historical_market_capitalization", False)
 
         # profile은 굳이 update 하지 않기로 결정함
-        # self.remove_current_list_files("./data/profile", False)
+        self.remove_current_list_files(self.main_ctx.root_path+"/profile", False)
 
     def get_new(self):
         """
@@ -496,11 +503,13 @@ class FMP:
             self.get_fmp(url)
 
         self.set_symbol()
+        print("after set_symbol : {}".format(self.symbol_list))
 
         if self.skip_remove_check() is False:
             self.remove_second_loop()
 
         for url in api_list:
+            print("cur url : {}".format(url))
             self.get_fmp(url)
 
         write_fd = open("./config/update_date.txt", "w")
