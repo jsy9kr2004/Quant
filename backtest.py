@@ -140,8 +140,10 @@ class Backtest:
             for year in range(self.main_ctx.start_year-3, self.main_ctx.start_year+1):
                 # tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
                 #                          + str(year) + ".parquet")
-                tmp_fs = pd.read_csv(self.main_ctx.root_path + "/VIEW/financial_statement_"
-                                         + str(year) + ".csv")
+                tmp_fs = pd.read_csv(self.main_ctx.root_path + "/VIEW/financial_statement_" + str(year) + ".csv",
+                                     parse_dates=['fillingDate_x', 'acceptedDate_x'],
+                                     dtype={'reportedCurrency_x': str, 'period_x': str,
+                                            'link_x': str, 'finalLink_x': str})
                 self.fs_table = pd.concat([tmp_fs, self.fs_table])
             del tmp_fs
             self.fs_table['date'] = pd.to_datetime(self.fs_table['date'])
@@ -151,7 +153,8 @@ class Backtest:
             # self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
             for year in range(self.main_ctx.start_year-3, self.main_ctx.start_year+1):
                 # tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
-                tmp_metrics = pd.read_csv(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".csv")
+                tmp_metrics = pd.read_csv(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".csv",
+                                          dtype={'period_x': str, 'period_y': str})
                 self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
             del tmp_metrics
             self.metrics_table['date'] = pd.to_datetime(self.metrics_table['date'])
@@ -163,10 +166,12 @@ class Backtest:
         for y in range(year-3, year+1):
             # tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
             #                          + str(y) + ".parquet")
-            tmp_fs = pd.read_csv(self.main_ctx.root_path + "/VIEW/financial_statement_"
-                                     + str(y) + ".csv")
-            self.fs_table = pd.concat([tmp_fs, self.fs_table])    
-        del tmp_fs
+            tmp_fs = pd.read_csv(self.main_ctx.root_path + "/VIEW/financial_statement_" + str(y) + ".csv",
+                                 parse_dates = ['fillingDate_x', 'acceptedDate_x'],
+                                 dtype = {'reportedCurrency_x': str, 'period_x': str,
+                                          'link_x': str, 'finalLink_x': str})
+            self.fs_table = pd.concat([tmp_fs, self.fs_table])
+            del tmp_fs
         self.fs_table['date'] = pd.to_datetime(self.fs_table['date'])
         self.fs_table['fillingDate'] = pd.to_datetime(self.fs_table['fillingDate'])
 
@@ -178,7 +183,6 @@ class Backtest:
             self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
         del tmp_metrics
         self.metrics_table['date'] = pd.to_datetime(self.metrics_table['date'])
-
 
     def get_trade_date(self, pdate):
         """개장일이 아닐 수도 있기에 보정해주는 함수"""
@@ -466,7 +470,6 @@ class DateHandler:
         # 2) fs, metrics 불러오기 + marketcap으로 나누어서 모두 상대값으로 변환
         fs_metrics = self.get_fs_metrics(backtest)
 
-
         # for prev_n in range(3, 17):
         for prev_n in time_periods:
             prefix_col_name = "prev" + str(prev_n) + "_"
@@ -516,7 +519,6 @@ class DateHandler:
         #     for prev_n in [4, 8, 12, 16]:
         #         time_columns = 'prev' + str(prev_n) +'_' + col
         #     fs_metrics[new_col_name] = fs_metrics[time_columns].ewm(alpha=alpha, adjust=False).mean()
-
 
         func = partial(compute_column_ewm, fs_metrics)
         with Pool(multiprocessing.cpu_count()) as pool:

@@ -116,6 +116,11 @@ if __name__ == '__main__':
         else:
             logging.error("Check conf.yaml. don't choose db and parquet both")
 
+    # TODO 잠깐 놓은거임 고쳐야댐!!!!!!!!!!!!!!!
+    # df_engine = Parquet(main_ctx)
+    # df_engine.insert_csv()
+    # df_engine.rebuild_table_view()
+
     # for mem_cnt in range(5, 21, 5):
     #    for top_k_num in range(200, 3001, 400):
     #        for score_ratio in range(0, 201, 25):

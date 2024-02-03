@@ -248,9 +248,9 @@ class FMP:
 
     def set_symbol(self):
         """fmp api 로 얻어온 stock_list 와 delisted companies 에서 exchange가 NASDAQ, NYSE인 symbol들의 list 를 만드는 함수"""
-        path = self.main_ctx.root_path + "/stock_list/stock_list.parquet"
+        path = self.main_ctx.root_path + "/stock_list/stock_list.csv"
         if os.path.isfile(path) == True:
-            symbol_list = pd.read_parquet(path)
+            symbol_list = pd.read_csv(path)
         else:
             return
 
@@ -265,9 +265,9 @@ class FMP:
         # target_stock_symbol 과 delisted stock symbol 합쳐 필요한 symbol list 완성
         file_list = os.listdir(self.main_ctx.root_path + "/delisted_companies/")
         for file in file_list:
-            if os.path.splitext(file)[1] == ".parquet":
+            if os.path.splitext(file)[1] == ".csv":
                 # delisted = pd.read_parquet(self.main_ctx.root_path + "/delisted_companies/" + file, index_col=None)
-                delisted = pd.read_parquet(self.main_ctx.root_path + "/delisted_companies/" + file)
+                delisted = pd.read_csv(self.main_ctx.root_path + "/delisted_companies/" + file)
                 if delisted.empty == True:
                     continue
                 delisted = delisted.reset_index(drop=True)
@@ -300,6 +300,7 @@ class FMP:
         # for i in range(len(api_list)):
         need_symbol = True if api_url.find(self.ex_symbol) != -1 else False
         # SYMBOL 이 없는 건, SYMBOL을 만들기 위한 file도 만들어지기 전이기 때문에 두번 돌려서 SYMBOL 안쓰는 것부터 만듦
+        print(self.symbol_list.empty)
         if (need_symbol == True) and (self.symbol_list.empty == True):
             return
         is_v4 = True if api_url.split('/')[2] == "v4" else False

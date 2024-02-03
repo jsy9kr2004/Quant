@@ -4,15 +4,15 @@ import os
 
 import multiprocessing as mp
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
-import numpy as np
-from dateutil.relativedelta import relativedelta
+# import pyarrow as pa
+# import pyarrow.parquet as pq
+# import numpy as np
+# from dateutil.relativedelta import relativedelta
 from multiprocessing import Pool
 from multiprocessing_logging import install_mp_handler
-
-from pyarrow import csv
+# from pyarrow import csv
 from tqdm import tqdm
+
 
 class Parquet:
     def __init__(self, main_ctx):
@@ -35,12 +35,11 @@ class Parquet:
         #                            columns=['symbol', 'exchange', 'ipoDate', 'delistedDate'])
         # profile = pd.read_parquet(self.rawpq_path + "profile.parquet",
         #                           columns=['symbol', 'ipoDate', 'industry', 'exchangeShortName'])
-        symbol_list = pd.read_csv(self.rawpq_path + "stock_list.csv",
-                                      usecols=['symbol', 'exchangeShortName', 'type'])
+        symbol_list = pd.read_csv(self.rawpq_path + "stock_list.csv", usecols=['symbol', 'exchangeShortName', 'type'])
         delisted = pd.read_csv(self.rawpq_path + "delisted_companies.csv",
-                                   usecols=['symbol', 'exchange', 'ipoDate', 'delistedDate'])
+                               usecols=['symbol', 'exchange', 'ipoDate', 'delistedDate'])
         profile = pd.read_csv(self.rawpq_path + "profile.csv",
-                                  usecols=['symbol', 'ipoDate', 'industry', 'exchangeShortName'])
+                              usecols=['symbol', 'ipoDate', 'industry', 'exchangeShortName'])
         delisted.rename(columns={'exchange':'exchangeShortName'}, inplace=True)
 
         # concat (symbol_list, delisted companies)
@@ -70,14 +69,14 @@ class Parquet:
         # marketcap = pd.read_parquet(self.rawpq_path + "historical_market_capitalization.parquet",
         #                             columns=['date', 'symbol', 'marketCap'])
         price = pd.read_csv(self.rawpq_path + "historical_price_full.csv",
-                                usecols=['date', 'symbol', 'close', 'volume'])
+                            usecols=['date', 'symbol', 'close', 'volume'])
         marketcap = pd.read_csv(self.rawpq_path + "historical_market_capitalization.csv",
-                                    usecols=['date', 'symbol', 'marketCap'])
+                                usecols=['date', 'symbol', 'marketCap'])
         price_marketcap = pd.merge(price, marketcap, how='left', on=['symbol', 'date'])
         del price
         del marketcap
         invalid_dates = price_marketcap[~price_marketcap['date'].str.match(r'^\d{4}-\d{2}-\d{2}$')]
-        print(invalid_dates)
+        # print(invalid_dates)
         # ['price', 'date']
         price_marketcap['date'] = price_marketcap['date'].astype('datetime64[ns]')
         # price_marketcap.to_parquet(self.view_path + "price.parquet", engine="pyarrow", compression="gzip")
@@ -105,23 +104,21 @@ class Parquet:
                                                      how='outer', on=['date', 'symbol']).merge(cash_flow_statement,
                                                                                                how='outer',
                                                                                                on=['date', 'symbol'])
-        financial_statement['date'] = pd.to_datetime(financial_statement['date'], errors = 'coerce')                                                     
-        #financial_statement['date'] = financial_statement['date'].astype('datetime64[ns]')
+        financial_statement['date'] = pd.to_datetime(financial_statement['date'], errors='coerce')
+        # financial_statement['date'] = financial_statement['date'].astype('datetime64[ns]')
         # financial_statement['acceptedDate'] = financial_statement['acceptedDate'].astype('datetime64[ns]')
         financial_statement['fillingDate'] = financial_statement['fillingDate'].astype('datetime64[ns]')
                                                 
         # financial_statement.to_parquet(self.view_path + "financial_statement.parquet",
         #                                engine="pyarrow", compression="gzip")
-        financial_statement.to_csv(self.view_path + "financial_statement.csv",
-                                       index=False)
+        financial_statement.to_csv(self.view_path + "financial_statement.csv", index=False)
         logging.info("create financial_statement df")
         for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
             fs_peryear = financial_statement[financial_statement['date'].between(datetime.datetime(year, 1, 1),
                                                                                  datetime.datetime(year, 12, 31))]
             # fs_peryear.to_parquet(self.view_path + "financial_statement_" + str(year) + ".parquet",
             #                       engine="pyarrow", compression="gzip")
-            fs_peryear.to_csv(self.view_path + "financial_statement_" + str(year) + ".csv",
-                                  index=False)
+            fs_peryear.to_csv(self.view_path + "financial_statement_" + str(year) + ".csv", index=False)
         logging.info("create financial_statement parquet per year")
         
         del income_statement
@@ -137,11 +134,10 @@ class Parquet:
         #                                                         + "historical_daily_discounted_cash_flow.parquet")
         key_metrics = pd.read_csv(self.rawpq_path + "key_metrics.csv")
         financial_growth = pd.read_csv(self.rawpq_path + "financial_growth.csv")
-        historical_daily_discounted_cash_flow = pd.read_csv(self.rawpq_path
-                                                                + "historical_daily_discounted_cash_flow.csv")
+        historical_daily_discounted_cash_flow = pd.read_csv(self.rawpq_path+"historical_daily_discounted_cash_flow.csv")
         metrics = key_metrics.merge(financial_growth,
                                     how='outer', on=['date', 'symbol']).merge(historical_daily_discounted_cash_flow,
-                                                                              how='outer', on=['date', 'symbol'])
+                                                                              how='left', on=['date', 'symbol'])
         metrics['date'] = metrics['date'].astype('datetime64[ns]')
         # metrics.to_parquet(self.view_path + "metrics.parquet", engine="pyarrow", compression="gzip")
         metrics.to_csv(self.view_path + "metrics.csv", index=False)
@@ -152,8 +148,7 @@ class Parquet:
                                                               datetime.datetime(year, 12, 31))]
             # metrics_peryear.to_parquet(self.view_path + "metrics_" + str(year) + ".parquet",
             #                         engine="pyarrow", compression="gzip")
-            metrics_peryear.to_csv(self.view_path + "metrics_" + str(year) + ".csv",
-                                    index=False)
+            metrics_peryear.to_csv(self.view_path + "metrics_" + str(year) + ".csv", index=False)
                    
         logging.info("create metrics parquet per year")
         
@@ -170,7 +165,9 @@ class Parquet:
         logging.info("create indexes df")
 
     # @staticmethod
-    def read_pq_mp(self, filename):
+    # def read_pq_mp(self, filename):
+    @staticmethod
+    def read_pq_mp(filename):
         c_proc = mp.current_process()
         # PQPATH = self.main_ctx.root_path        
         csv_save_path = './' + str(c_proc.pid)+"_mp.csv"
@@ -199,12 +196,12 @@ class Parquet:
         # wrap your csv importer in a function that can be mapped
         # merge all csvs per directoy
         # dir_list = os.listdir(self.main_ctx.root_path)
-        # dir_list = ["key_metrics", "stock_list", "symbol_available_indexes",
-        #             "balance_sheet_statement", "cash_flow_statement",
-        #             "delisted_companies", "earning_calendar",
-        #             "financial_growth", "historical_daily_discounted_cash_flow", "historical_market_capitalization",
-        #             "historical_price_full", "income_statement", "profile"]
-        dir_list = ["key_metrics"]
+        dir_list = ["key_metrics", "stock_list", "symbol_available_indexes",
+                    "balance_sheet_statement", "cash_flow_statement",
+                    "delisted_companies", "earning_calendar",
+                    "financial_growth", "historical_daily_discounted_cash_flow", "historical_market_capitalization",
+                    "historical_price_full", "income_statement", "profile"]
+        # dir_list = ["key_metrics"]
         
         logging.info("directory list : {}".format(dir_list))
         for directory in tqdm(dir_list):
@@ -215,19 +212,17 @@ class Parquet:
                     os.remove(csv_save_path)
                 
             # TODO: historical price 는 year 별로 나눠서 csv 만들어 놓기 
-            file_list = [self.main_ctx.root_path + "/" + directory + "/"
-                         + file for file in os.listdir(self.main_ctx.root_path
-                                                       + "/" + directory) if ( file.endswith(".parquet") or file.endswith(".csv"))]
+            file_list = [self.main_ctx.root_path + "/" + directory + "/" + file
+                         for file in os.listdir(self.main_ctx.root_path + "/" + directory)
+                         if (file.endswith(".parquet") or file.endswith(".csv"))]
 
             full_df = pd.DataFrame()
             with Pool(processes=7, initializer=install_mp_handler()) as pool:
-                # or whatever your hardware can support
-                # have your pool map the file names to dataframes
-                pool.map(self.read_pq_mp, file_list)            
+                pool.map(self.read_pq_mp, file_list)
                 
             df_all_years = pd.DataFrame()
             # mp_file_list = [self.rawpq_path + file for file in os.listdir(self.rawpq_path) if file.endswith("mp.csv")]
-            mp_file_list = ['./'+ file for file in os.listdir('./') if file.endswith("mp.csv")]
+            mp_file_list = ['./' + file for file in os.listdir('./') if file.endswith("mp.csv")]
             for files in mp_file_list:
                 df = pd.read_csv(files, low_memory=False)
                 df_all_years = pd.concat([df_all_years, df])
@@ -236,7 +231,7 @@ class Parquet:
             df_all_years.to_csv(csv_save_path, index=False)
             # TODO 삭제 잠시 임시로 주석처리
             for files in mp_file_list:
-               os.remove(files)
+                os.remove(files)
             # pq.write_table(csv.read_csv(pq_save_path), pq_save_path)
             logging.info("create df in tables dict : {}".format(directory))
  
