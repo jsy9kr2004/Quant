@@ -37,10 +37,10 @@ from sklearn.metrics import accuracy_score, classification_report, precision_rec
 USE_COL='FULL'
 PER_SECTOR=False
 MODEL_SAVE_PATH=""
+THRESHOLD=92
 
 # 입력으로 넣으면 안되는 colume들이라 중간에 drop하기 위한 list
 y_col_list=["period_price_diff", "earning_diff", "sector", "sec_earning_diff", "symbol"]
-
 
 if USE_COL == 'FULL':
     ratio_col_list_wdiff = list(map(lambda x: "diff" + x, meaning_col_list))
@@ -61,6 +61,7 @@ if USE_COL == '97':
     ratio_col_list_wprev = ratio_col_list_wprev + y_col_list
 
 class Regressor:
+    
     def __init__(self, conf):
         self.conf = conf
         self.x_train = None
@@ -193,7 +194,7 @@ class Regressor:
 
         positive_count = (self.train_df['period_price_diff'] > 0).sum()
         negative_count = (self.train_df['period_price_diff'] < 0).sum()
-        print("positive # : {}, negative # : {}".format(positive_count, negative_count))
+        logging.info("positive # : {}, negative # : {}".format(positive_count, negative_count))
         
         self.x_train = self.train_df[self.train_df.columns.difference(y_col_list)]
         # self.y_train = self.train_df[['earning_diff']]
@@ -368,11 +369,11 @@ class Regressor:
         model_eval_hist = []
         full_df = pd.DataFrame()
         for test_idx, (testdate, df) in enumerate(self.test_df_list):
-            print("evaluation date : ")
+            logging.info("evaluation date : ")
             tmp = testdate.split('\\')
             tmp = [v for v in tmp if v.endswith('.csv')]
             tdate = "_".join(tmp[0].split('_')[0:2])
-            print(tdate)
+            logging.info(tdate)
             x_test = df[df.columns.difference(y_col_list)]
             y_test = df[['period_price_diff']]
             y_test_2 = df[['period_price_diff']]
@@ -384,22 +385,22 @@ class Regressor:
             df['label_binary'] = y_test_binary
 
             for i, model in self.clsmodels.items():    
-                print(f"classification model # {i}")
+                logging.info(f"classification model # {i}")
                 pred_col_name = 'clsmodel_' + str(i) + '_prediction'
                 correct_col_name = 'clsmodel_' + str(i) + '_correct'
                 # y_predict_binary = model.predict(x_test)
                 y_probs = model.predict_proba(x_test)[:, 1]
 
                 # 상위 10%의 예측 확률값을 threshold로 설정
-                threshold = np.percentile(y_probs, 85)
+                threshold = np.percentile(y_probs, THRESHOLD)
                 # 새로운 threshold로 예측값 생성
                 y_predict_binary = (y_probs > threshold).astype(int)
-                print(f"20% positive threshold == {threshold}")
-                print(classification_report(y_test_binary, y_predict_binary))
+                logging.info(f"20% positive threshold == {threshold}")
+                logging.info(classification_report(y_test_binary, y_predict_binary))
                 df[pred_col_name] = y_predict_binary
                 df[correct_col_name] = (y_test_binary.values.ravel() == y_predict_binary).astype(int)
                 acc = accuracy_score(df['label_binary'], df[pred_col_name])
-                print(f"Accuracy for {pred_col_name}: {acc:.4f}")
+                logging.info(f"Accuracy for {pred_col_name}: {acc:.4f}")
                 
             
             for i, model in self.models.items():    
@@ -440,10 +441,10 @@ class Regressor:
                 df[loss_bin_col_name_1] = abs(df['label'] - df[pred_col_name_wbinary_1])
                 df[loss_bin_col_name_2] = abs(df['label'] - df[pred_col_name_wbinary_2])
                 df[loss_bin_col_name_3] = abs(df['label'] - df[pred_col_name_wbinary_3])
-                print(f"eval : model i : {i} loss : {df[loss_col_name].mean()} loss_wbin_0 {df[loss_bin_col_name_0].mean()} loss_wbin_1 {df[loss_bin_col_name_1].mean()}\
+                logging.info(f"eval : model i : {i} loss : {df[loss_col_name].mean()} loss_wbin_0 {df[loss_bin_col_name_0].mean()} loss_wbin_1 {df[loss_bin_col_name_1].mean()}\
                     loss_wbin_2 {df[loss_bin_col_name_2].mean()} loss_wbin_3 {df[loss_bin_col_name_3].mean()}")
                 if test_idx != 0:
-                    print(f"accumulated eval : model i : {i} loss : {full_df[loss_col_name].mean()} loss_wbin_0 {full_df[loss_bin_col_name_0].mean()} loss_wbin_1 {full_df[loss_bin_col_name_1].mean()}\
+                    logging.info(f"accumulated eval : model i : {i} loss : {full_df[loss_col_name].mean()} loss_wbin_0 {full_df[loss_bin_col_name_0].mean()} loss_wbin_1 {full_df[loss_bin_col_name_1].mean()}\
                     loss_wbin_2 {full_df[loss_bin_col_name_2].mean()} loss_wbin_3 {full_df[loss_bin_col_name_3].mean()}")
 
             
@@ -490,7 +491,7 @@ class Regressor:
                     ]
         
         pred_df = pd.DataFrame(model_eval_hist, columns=col_name)
-        print(pred_df)
+        logging.info(pred_df)
         pred_df.to_csv(MODEL_SAVE_PATH+'pred_df_topk.csv', index=False)
         full_df.to_csv(MODEL_SAVE_PATH+'prediction_ai.csv', index=False)
         # logging.info(model_eval_hist)
@@ -527,7 +528,7 @@ class Regressor:
                 
                 y_probs = self.clsmodels[2].predict_proba(x_test)[:, 1]
                 # 상위 10%의 예측 확률값을 threshold로 설정
-                threshold = np.percentile(y_probs, 85)
+                threshold = np.percentile(y_probs, THRESHOLD)
                 # 새로운 threshold로 예측값 생성
                 y_predict_binary = (y_probs > threshold).astype(int)
                 
@@ -618,7 +619,7 @@ class Regressor:
         # print("drop abs_col_list : ")
         # print(abs_col_list)     
 
-        latest_data_path = aidata_dir + '2023_10_regressor_train_latest_norm.csv'
+        latest_data_path = aidata_dir + '2024_02_regressor_train_latest_norm.csv'
 
         pred_col_list = ['ai_pred_avg']
         for i in range(2):
@@ -642,7 +643,7 @@ class Regressor:
         print(self.sector_list)
         # ldf = ldf.drop(abs_col_list, axis=1) 
         ldf = ldf.drop('sector', axis=1) 
-        ldf = ldf[ldf.isnull().sum(axis=1) < 500]
+        # ldf = ldf[ldf.isnull().sum(axis=1) < 500]
         # ldf = ldf.fillna(0)
         print("before dtable len : ", len(ldf))
         ldf['nan_count_per_row'] = ldf.isnull().sum(axis=1)
@@ -657,14 +658,14 @@ class Regressor:
         preds = np.empty((0, input.shape[0]))
         
         for i, model in self.clsmodels.items():    
-            print(f"classification model # {i}")
+            logging.info(f"classification model # {i}")
             pred_col_name = 'clsmodel_' + str(i) + '_prediction'
             y_probs = model.predict_proba(input)[:, 1]
             # 상위 10%의 예측 확률값을 threshold로 설정
-            threshold = np.percentile(y_probs, 85)
+            threshold = np.percentile(y_probs, THRESHOLD)
             # 새로운 threshold로 예측값 생성
             y_predict_binary = (y_probs > threshold).astype(int)
-            print(f"20% positive threshold == {threshold}")
+            logging.info(f"20% positive threshold == {threshold}")
             ldf[pred_col_name] = y_predict_binary
         
         for i, model in self.models.items():    
@@ -759,179 +760,3 @@ class Regressor:
                 pred_df = pd.DataFrame(all_preds, columns=col_name)
                 print(pred_df)
                 pred_df.to_csv(MODEL_SAVE_PATH+'allsector_latest_pred_df.csv', index=False)
-
-class MyDataset(Dataset):
-    def __init__(self, conf):
-        aidata_dir = conf['ROOT_PATH'] + '/regressor_data/'
-        
-        self.train_files = []
-        for year in range(int(conf['TRAIN_START_YEAR']), int(conf['TRAIN_END_YEAR'])):
-            path = aidata_dir + str(year) + "*train.csv"
-            year_files = [file for file in glob.glob(path)]
-            self.train_files.extend(year_files)
-        
-        self.test_files = []
-        for year in range(int(conf['TEST_START_YEAR']), int(conf['TEST_END_YEAR'])):
-            path = aidata_dir + str(year) + "*train.csv"
-            year_files = [file for file in glob.glob(path)]
-            self.test_files.extend(year_files)
-        
-        self.train_df = pd.DataFrame()
-        for fpath in self.train_files:     
-            print(fpath)
-            df = pd.read_csv(fpath)
-            # df = df.dropna(axis=0, subset=['earning_diff'])
-            df = df.dropna(axis=0, subset=['period_price_diff'])
-            
-            # df = df.loc[:, ratio_col_list_wprev]
-            logging.debug(df.shape)  
-            df = df[df.isnull().sum(axis=1) < 5]
-            logging.debug(df.shape)  
-            # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
-            self.train_df = pd.concat([self.train_df, df], axis=0)
-
-        self.test_df_list = []
-        self.test_df = pd.DataFrame()
-        for fpath in self.test_files:
-            print(fpath)
-            df = pd.read_csv(fpath)
-            # df = df.dropna(axis=0, subset=['earning_diff'])
-            df = df.dropna(axis=0, subset=['period_price_diff'])
-        
-            # df = df.loc[:, ratio_col_list_wprev]
-            logging.debug(df.shape)  
-            df = df[df.isnull().sum(axis=1) < 5]
-            logging.debug(df.shape)  
-            # df = df.loc[:, df.isnull().sum(axis=0) < 100]       
-            # df = df.fillna(0)
-            self.test_df = pd.concat([self.test_df, df], axis=0)
-            self.test_df_list.append([fpath, df])
-            
-        # self.train_df = self.train_df.fillna(0)
-        # self.test_df = self.test_df.fillna(0)
-        
-        x = self.train_df[self.train_df.columns.difference(y_col_list)].values
-        # y = self.train_df[['earning_diff']].values
-        y = self.train_df[['period_price_diff']].values
-        self.x_train = torch.tensor(x, dtype=torch.float32)
-        self.y_train = torch.tensor(y, dtype=torch.float32)
-        
-    def __len__(self):
-        return len(self.y_train)
-    
-    def __getitem__(self,idx):
-        return self.x_train[idx],self.y_train[idx]
-
-
-class RegressionNetwork(nn.Module):
-    def __init__(self, conf):
-        super().__init__()
-        self.conf = conf
-        self.fc1 = nn.Linear(len(ratio_col_list_wprev)-3, 97)
-        self.fc2 = nn.Linear(97, 1)
-        self.dropout = nn.Dropout(0.1)
-
-    def forward(self, x):
-        h = self.dropout(nn_f.sigmoid(self.fc1(x)))
-        h = self.fc2(h)
-        return h
-    
-    def mtrain(self):
-        # for regression network
-        net = RegressionNetwork(self.conf)
-        net2 = RegressionNetwork(self.conf)
-        optimizer = optim.AdamW(net.parameters(), lr=0.005)
-        loss_fn = nn.MSELoss()
-        # loss_fn = nn.L1Loss(reduction='mean')
-
-        my_ds = MyDataset(self.conf)
-        train_loader = DataLoader(my_ds, batch_size=512, shuffle=True)
-        min_loss = 9999
-        
-        writer = SummaryWriter('scalar/')
-        val_loss_sum = 0
-        loss_sum = 0
-        for epoch in range(1, 10000):
-            net.train()
-            for i, (data, labels) in enumerate(train_loader):
-                pred = net(data)
-                loss = loss_fn(pred,labels) 
-                loss_sum += loss
-                writer.add_scalar("Loss/train", loss, epoch)
-                
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-            if epoch % 50 == 0:
-                print("epoch : ", epoch)
-                print("min_loss : ", min_loss)
-                print("train loss : ", loss_sum)
-                if (loss_sum < min_loss) and epoch > 100:
-                    min_loss = loss_sum
-                    torch.save(net.state_dict(), './model_state_dict.pt')  # 모델 객체의 state_dict 저장
-                loss_sum = 0
-
-            test_loader = DataLoader(my_ds, batch_size=1024, shuffle=False)
-            # net2.load_state_dict(torch.load('./model_state_dict.pt'))
-            net.eval()
-            preds = np.empty(shape=(0))
-            labels = np.empty(shape=(0))
-            
-            for i, (data, label) in enumerate(test_loader):
-                optimizer.zero_grad()
-                pred = net(data)
-                loss = loss_fn(pred,label)
-                val_loss_sum += loss
-                preds = np.append(preds, pred.detach().numpy())
-                labels = np.append(labels, label)
-            if epoch % 50 == 0:    
-                print("val loss : ", val_loss_sum)
-                val_loss_sum = 0
-        plt.scatter(preds, labels, alpha=0.4)
-        plt.xlabel("pred")
-        plt.ylabel("labels")
-        plt.show()
-        writer.close()
-        # pred = net(tensor_x_test)
-        
-
-class RegressionNetwork1(nn.Module):
-    def __init__(self, conf):
-        super().__init__()
-        self.conf = conf
-        self.fc1 = nn.Linear(len(ratio_col_list_wprev)-3, 97)
-        self.fc2 = nn.Linear(97, 1)
-        self.dropout = nn.Dropout(0.25)
-
-    def forward(self, x):
-        h = nn_f.leaky_relu(self.fc1(x))
-        h = self.fc2(h)
-        return h
-    
-
-class RegressionNetwork2(nn.Module):
-    def __init__(self, conf):
-        super().__init__()
-        self.conf = conf
-        self.fc1 = nn.Linear(len(ratio_col_list_wprev)-3, 97)
-        self.fc2 = nn.Linear(97, 1)
-        self.dropout = nn.Dropout(0.1)
-
-    def forward(self, x):
-        h = self.dropout(nn_f.sigmoid(self.fc1(x)))
-        h = self.fc2(h)
-        return h
-
-
-class RegressionNetwork4(nn.Module):
-    def __init__(self, conf):
-        super().__init__()
-        self.conf = conf
-        self.fc1 = nn.Linear(len(ratio_col_list_wprev)-3, 97)
-        self.fc2 = nn.Linear(97, 1)
-        self.dropout = nn.Dropout(0.1)
-
-    def forward(self, x):
-        h = self.dropout(nn_f.sigmoid(self.fc1(x)))
-        h = self.fc2(h)
-        return h

@@ -437,8 +437,11 @@ class FMP:
                 cur_path = os.path.join(basepath, dir_name)
                 par_list = [file for file in os.listdir(cur_path) if file.endswith('csv')]
                 for p in par_list:
-                    df = pd.read_csv(os.path.join(cur_path, p))
+                    try:
+                        df = pd.read_csv(os.path.join(cur_path, p))
                     # df.str.contains('Limit').any().any()
+                    except:
+                        logging.critical(f"During Validation check, Occur read_csv except. please check following file: {cur_path}/{p}")
                     if df.filter(regex='Limit').empty is False or df.filter(regex='Error').empty is False:
                         logging.debug(os.path.join(cur_path, p))
                         os.remove(os.path.join(cur_path, p))
