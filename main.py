@@ -2,14 +2,14 @@ import logging
 import multiprocessing
 import os
 import yaml
+import pandas as pd
 
 from backtest import Backtest, PlanHandler
 from database import Database
 from fmp import FMP
 from parquet import Parquet
-from regressor import Regressor, RegressionNetwork
-
-import pandas as pd
+from make_mldata import AIDataMaker
+from regressor import Regressor
 
 
 class MainCtx:
@@ -90,18 +90,6 @@ if __name__ == '__main__':
     main_ctx = MainCtx(conf)
     conf_check(conf)
 
-    # backtest() 에서 print_ai_data() 돌고 ai data 뽑힌 후에 ML 학습->예측 때 사용하는 부분
-    # 파일 다 뽑히고 돌리고 있어서 main 분리하는게 나을 듯..
-    if conf['RUN_REGRESSION'] == "Y":
-        regor = Regressor(conf)
-        regor.dataload()
-        regor.train()
-        regor.evaluation()
-        regor.latest_prediction()
-        # MLP = RegressionNetwork(conf)
-        # MLP.mtrain()
-        exit()
-
     main_ctx.create_dir("./reports")
     if conf['GET_FMP'] == "Y":
         fmp = FMP(conf, main_ctx)
@@ -128,6 +116,18 @@ if __name__ == '__main__':
     #            conf['MEMBER_CNT'] = mem_cnt
     #            conf['TOP_K_NUM'] = top_k_num
     #            conf['ABSOLUTE_SCORE'] = int(top_k_num * 10 * (1 + score_ratio / 100))
+
+
+    if conf['RUN_REGRESSION'] == "Y":
+        AIDataMaker(main_ctx, conf)
+        regor = Regressor(conf)
+        regor.dataload()
+        regor.train()
+        regor.evaluation()
+        regor.latest_prediction()
+        exit()
+
+    
     plan_handler = PlanHandler(conf['TOP_K_NUM'], conf['ABSOLUTE_SCORE'], main_ctx)
     plan = []
     plan_df = pd.read_csv("./plan.csv")

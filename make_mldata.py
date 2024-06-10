@@ -1,41 +1,23 @@
-import copy
-import csv
 import datetime
 import logging
-import multiprocessing
-import sys
 import os
-import ray
-
 import numpy as np
 import pandas as pd
+
 from tqdm import tqdm
 from tsfresh import extract_features
 from tsfresh.feature_extraction import EfficientFCParameters, ComprehensiveFCParameters, MinimalFCParameters        
-from tsfresh.utilities.dataframe_functions import roll_time_series
-from tsfresh.utilities.dataframe_functions import make_forecasting_frame
-from tsfresh import select_features
-from tsfresh.utilities.dataframe_functions import impute
-
-from collections import defaultdict
 from dateutil.relativedelta import relativedelta
 from functools import reduce
 from g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, cal_timefeature_col_list
-from multiprocessing import Pool
-from multiprocessing_logging import install_mp_handler
 from sklearn.preprocessing import StandardScaler, RobustScaler
-from collections import defaultdict
-from pmdarima import auto_arima
-from statsmodels.tsa.arima.model import ARIMA
-from statsmodels.tsa.stattools import acf, pacf
-from functools import partial
 from warnings import simplefilter
 
 pd.options.display.width = 30
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 class AIDataMaker:
-    # 각 키워드 쌍에 대한 접미사 리스트
+    # tsfresh로 시계열 feature 뽑으면 feature 수가 너무 많아서 feature(column)수 줄이기 위해 특정 feature 명 추출
     suffixes_dict = {
         "standard_deviation": ["__r_0.0", "__r_0.25", "__r_0.6", "__r_0.9"],
         "quantile": ["__q_0.2", "__q_0.8"],
@@ -48,9 +30,8 @@ class AIDataMaker:
     
     def __init__(self, main_ctx, conf):
         """
-        1) 각 start~end 까지 rebalance period만큼 뛰며 date table 만들기 -> 
+        각 start~end 까지 rebalance period만큼 뛰며 date table 만들기 -> 
         rebalance period 에서 이전 N개월을 date table을 한 번에 보면서 시계열 feature 및 y(price 변화) 채우기
-        -> 
         """
         self.main_ctx = main_ctx
         self.conf = conf
@@ -230,34 +211,22 @@ class AIDataMaker:
     def make_ml_data(self, start_year, end_year):
         for cur_year in range(start_year, end_year+1):
             table_for_ai = self.symbol_table.copy()
-            print(table_for_ai)
             cur_price_table = self.price_table.copy()
-            cur_price_table = self.filter_dates(cur_price_table, 'date', cur_year-3, cur_year)
-            
-            print("***price table after filter_dates")
-            print(cur_price_table)
+            cur_price_table = self.filter_dates(cur_price_table, 'date', cur_year-4, cur_year)
             # 각 symbol 별로 volume_mul_price의 평균을 계산
             symbol_means = cur_price_table.groupby('symbol')['volume_mul_price'].mean().reset_index()
-            # 평균 값이 상위 50%에 해당하는 symbol만 선택
+            # 평균 값이 상위 50%에 해당하는 symbol만 선택(총거래액 작은 50% drop)
             top_symbols = symbol_means.nlargest(int(len(symbol_means) * 0.50), 'volume_mul_price')
             # 원래 데이터프레임에서 상위 50%에 해당하는 symbol의 데이터만 남김
             cur_price_table = cur_price_table[cur_price_table['symbol'].isin(top_symbols['symbol'])]
-            print("***price table after filter_volume")
-            print(cur_price_table)
             
             table_for_ai = pd.merge(table_for_ai, cur_price_table, how='inner', on='symbol')
             table_for_ai.rename(columns={'date': 'rebalance_date'}, inplace=True)
-            print("***table for ai after merge(table, price)")
-            print(table_for_ai)
             
             fs = self.fs_table.copy()
-            print("***fs origin")
-            print(fs)
             fs = fs[fs['symbol'].isin(top_symbols['symbol'])]
-            fs = self.filter_dates(fs, 'fillingDate', cur_year-3, cur_year)
+            fs = self.filter_dates(fs, 'fillingDate', cur_year-4, cur_year)
             fs = fs.drop_duplicates(['symbol', 'date'], keep='first')
-            print("***fs after filter, dedup")
-            print(fs)
             
             metrics = self.metrics_table
             metrics = metrics[metrics['symbol'].isin(top_symbols['symbol'])]
@@ -267,18 +236,9 @@ class AIDataMaker:
             common_columns = fs.columns.intersection(metrics.columns)
             # 겹치는 컬럼을 metrics에서 제외
             fs = fs.drop(columns=common_columns.difference(['symbol', 'date']))
-            
-            print("222")
-            print("*** metrics")
-            print(metrics)
             fs_metrics = pd.merge(fs, metrics, how='inner', on=['symbol', 'date'])
-            print("*** fs_metrics")
-            print(fs_metrics)
-            print("333")
             fs_metrics = fs_metrics.drop_duplicates(['symbol', 'date'], keep='first')
-            # fs_metrics = efficient_merge_columns(fs_metrics)
 
-            print("444")        
             # df1의 'date' 컬럼을 datetime 타입으로 변환합니다.
             fs_metrics['date'] = pd.to_datetime(fs_metrics['date'])
             fs_metrics.rename(columns={'date': 'report_date'}, inplace=True)
@@ -291,7 +251,6 @@ class AIDataMaker:
                 # 필터링된 날짜들 중 가장 이른 날짜를 반환
                 return future_dates.min() if not future_dates.empty else pd.NaT
             date_index = pd.DatetimeIndex(self.trade_date_list.copy())
-            # 'date3' 컬럼에 적용합니다.
             # fs_metrics['rebalance_date'] = fs_metrics['fillingDate_x'].apply(lambda x: find_nearest_date(x, date_index))
             # 날짜 인덱스 생성 및 정렬
             date_index = np.sort(date_index)
@@ -343,7 +302,9 @@ class AIDataMaker:
             
             for quarter_str, quarter in [('Q1', 0.2), ('Q2', 0.4), ('Q3', 0.6), ('Q4', 0.8)]: #1Q, 2Q, 3Q, 4Q
                 base_year_period = cur_year + quarter            
+                # y값 없는 데이터
                 file_path = os.path.join(self.main_ctx.root_path, "ml_per_year", f"rnorm_fs_{str(cur_year)}_{quarter_str}.csv")
+                # y값(가격 변화량)있는 데이터
                 file2_path = os.path.join(self.main_ctx.root_path, "ml_per_year", f"rnorm_ml_{str(cur_year)}_{quarter_str}.csv")
                 if os.path.isfile(file2_path):
                     print(f"*** there is csv file {str(cur_year)}_{quarter_str}")
@@ -352,7 +313,6 @@ class AIDataMaker:
                 
                 print(base_year_period)
                 filtered_data = fs_metrics[fs_metrics['year_period'] <= float(base_year_period)]
-                # filtered_data.to_csv(self.main_ctx.root_path + f"/window_data1_{str(cur_year)}.csv", index=False)
                 # 각 symbol 별로 최근 12개의 row만 선택하는 함수
                 def get_last_12_rows(group):
                     return group.tail(12)

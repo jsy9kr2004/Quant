@@ -56,7 +56,6 @@ class Backtest:
         
         self.eval_report_path = self.create_report("EVAL")
         self.rank_report_path = self.create_report("RANK")
-        self.ai_report_path = self.create_report("AI")
         self.avg_report_path = self.create_report("AVG")
 
         # backtest 시 이용될 디렉토리를 만들고 시작
@@ -383,20 +382,6 @@ class PlanHandler:
 
 time_periods = [3, 6, 9, 12, 15, 18, 21, 24]
 
-def compute_ewm(feature_values):
-    ewm6 = pd.Series(feature_values).ewm(span=6).mean()
-    ewm2 = pd.Series(feature_values).ewm(span=2).mean()
-    return ewm6[0], ewm2[0]
-
-def compute_column_ewm(fs_metrics, col):
-    columns_to_select = [f"prev{t}_{col}" for t in time_periods]
-    feature_values_matrix = fs_metrics[columns_to_select].values
-
-    results = [compute_ewm(feature_values) for feature_values in feature_values_matrix]
-    ewm6s, ewm2s = zip(*results)
-
-    return col, ewm6s, ewm2s
-
 class DateHandler:
     global_sparse_col = defaultdict(int)
 
@@ -581,7 +566,6 @@ class DateHandler:
             extracted_features = extract_features(long_format_df, column_id='id', column_sort='time', column_kind='kind', column_value='value', default_fc_parameters=settings)
             print(extracted_features.head())
             extracted_features.columns = ['fresh_' + col for col in extracted_features.columns]
-            extracted_features.head().to_csv("./feature_extraction.csv")
             fs_metrics = fs_metrics.reset_index().merge(extracted_features, left_on='symbol', right_index=True).set_index('index')
         except:
             print("failed extract features : ")
@@ -721,171 +705,6 @@ class EvaluationHandler:
         period_earning_rate = 0
         self.best_k.append([date, rebalance_date, best_symbol, reference_group, period_earning_rate])
 
-    #TODO: 정리필요(to US)
-    def print_ai_data(self, df_for_reg, date, latest):
-        
-        if date.day > 15 & date.month == 12:
-            mmonth = 1;
-        elif date.day > 15 & date.month < 12:
-            mmonth = date.month+1;
-        elif date.day < 15:
-            mmonth = date.month
-        
-        df_for_reg = df_for_reg.drop_duplicates('symbol', keep='first')
-        symbols_tmp = df_for_reg['symbol']
-
-        period_price_diff_tmp = pd.DataFrame()
-        if latest == False:
-            period_price_diff_tmp = df_for_reg['period_price_diff']
-
-        sorted_col_list = []
-        for col in df_for_reg.columns:
-            sorted_col_list.append(col)
-        sorted_col_list = list(filter(lambda x: x.endswith('_sorted'), sorted_col_list))
-
-        # ratio_col_list_wydiff = list(map(lambda x: "Ydiff_" + x, meaning_col_list))
-        # ratio_col_list_wqdiff = list(map(lambda x: "Qdiff_" + x, meaning_col_list))
-        col_list1 = list(map(lambda x: x+"__", ratio_col_list))
-        col_list2 = list(map(lambda x: "OverMC_" + x, meaning_col_list))
-        col_list3 = list(filter(lambda x: x.startswith('adaptiveMC_'), df_for_reg.columns))
-        col_list4 = list(filter(lambda x: x.startswith('diff'), df_for_reg.columns))
-        col_list = col_list1+col_list2+col_list3+col_list4
-        # ratio_col_list_wprev = ratio_col_list + ratio_col_list_wydiff + ratio_col_list_wqdiff + ratio_col_list_woverMC + ratio_col_list_wadaMC
-
-        # df_for_reg = df_for_reg[[ratio_col_list_wprev]]
-        # df_for_reg['symbol'] = symbols_tmp
-        sector_list = list(df_for_reg['sector'].unique())
-        sector_list = [x for x in sector_list if str(x) != 'nan']
-        if latest == False:
-
-
-            df_for_reg['period_price_diff'] = period_price_diff_tmp
-            df_for_reg['earning_diff'] \
-                = df_for_reg['period_price_diff'] - df_for_reg['period_price_diff'].mean()
-
-            for sec in sector_list:
-                print("sec earning _diff")
-                print(sec)
-                # 'sector' 열이 'it'인 경우에 대해서만 'price_diff' 열 생성
-                sec_mask = df_for_reg['sector'] == sec
-                sec_mean = df_for_reg.loc[sec_mask, 'period_price_diff'].mean()
-                # df_for_reg[sec_mask, 'sec_earning_diff'] = df_for_reg.loc[sec_mask, 'period_price_diff'] - sec_mean
-                df_for_reg.loc[sec_mask, 'sec_earning_diff'] = df_for_reg.loc[sec_mask, 'period_price_diff'] - sec_mean
-                print(df_for_reg.loc[sec_mask])
-
-            df_for_reg = df_for_reg.dropna(subset=['period_price_diff'])
-
-        # remove outlier
-        logging.info("before removing outlier # rows : " + str(df_for_reg.shape[0]))
-        logging.info("before removing outlier # columns : " + str(df_for_reg.shape[1]))
-        df_for_reg.to_csv('./beforeremoving.csv', index=False)
-
-        # # remove sparse cols
-        # df_for_reg = df_for_reg.drop(sparse_col_list, axis=1)
-        # # ratio_col_list_wprev - sparse_cols
-        # ratio_col_list2 = [x for x in ratio_col_list if x not in sparse_col_list]
-        # ratio_col_list_wprev = [x for x in ratio_col_list_wprev if x not in sparse_col_list]
-        
-        # df_for_reg.replace(-np.inf, np.nan, inplace=True)
-        # df_for_reg = df_for_reg.dropna(thresh=int(len(df_for_reg.columns)*0.6))
-        # fill nan with min value per col
-        def fill_nan_with_min(df):    
-            # Select only numeric columns
-            numeric_columns = df.select_dtypes(include=['number'])
-            # Compute the minimum values for numeric columns
-            min_values = numeric_columns.min().to_dict()
-            # Fill NaN values in the original dataframe using the computed minimum values
-            return df.fillna(min_values)                    
-                    
-        # filled_df = fill_nan_with_min(df_for_reg)
-        # df_for_reg = filled_df
-        # Define a function to remove the top 1%(var : high=0.99) and bottom 1%(var : low = 0.01) from a column
-        def get_extreme_percentile_indices(column, low, high):
-            lower_bound = column.quantile(low)
-            upper_bound = column.quantile(high)
-            return column[(column < lower_bound) | (column > upper_bound)].index
-                
-        # remove outliar rows   
-        # outlier_rows = set()
-        # for col in sorted_col_list:
-        #     try:
-        #         column_indices = get_extreme_percentile_indices(df_for_reg[col], 0.002, 0.998)
-        #         if len(column_indices) < 10:
-        #             outlier_rows.update(column_indices)
-        #     except Exception as e:
-        #         logging.info(str(e))
-        #         continue
-
-        # if latest == False:
-        #     column_indices = get_extreme_percentile_indices(df_for_reg['period_price_diff'], 0.002, 0.998)
-        #     outlier_rows.update(column_indices)
-
-        # df_for_reg = df_for_reg.drop(index=outlier_rows, axis=0)
-        logging.info("after removing outlier # rows : " + str(df_for_reg.shape[0]))
-        logging.info("after removing outlier # columns : " + str(df_for_reg.shape[1]))
-
-        
-        #표준화
-        # new_std_columns_names = [cname+"_std" for cname in sorted_col_list] 
-        # scaler = StandardScaler()
-        # scaled_columns = scaler.fit_transform(df_for_reg[sorted_col_list])
-        # df_for_reg[new_std_columns_names] = scaled_columns
-
-        #정규화
-        col_list.append("volume_mul_price")
-        for col in col_list:
-            feature_normal_col_name = col + "_normal"
-            try:
-                max_value = df_for_reg[col].max()
-                min_value = df_for_reg[col].min()
-                df_for_reg[feature_normal_col_name] = (df_for_reg[col] - min_value) / (max_value - min_value)
-                            
-            except Exception as e:
-                logging.info(str(e))
-                continue
-
-
-        normal_col_list = df_for_reg.columns.str.contains("_normal")
-        df_for_reg_norm = df_for_reg.loc[:, normal_col_list]
-        
-        # std_col_list = df_for_reg.columns.str.contains("_std")
-        # df_for_reg_std = df_for_reg.loc[:, normal_col_list]
-        
-        if latest == False:
-            df_for_reg_norm['period_price_diff'] = df_for_reg['period_price_diff']
-            df_for_reg_norm['earning_diff'] = df_for_reg['earning_diff']
-            try:
-                df_for_reg_norm['sec_earning_diff'] = df_for_reg['sec_earning_diff']
-            except:
-                pass
-            # df_for_reg_std['period_price_diff'] = df_for_reg['period_price_diff']
-            # df_for_reg_std['earning_diff'] = df_for_reg['earning_diff']
-        df_for_reg_norm['symbol'] = df_for_reg['symbol']
-        df_for_reg_norm['sector'] = df_for_reg['sector']
-        # df_for_reg_std['symbol'] = df_for_reg['symbol']
-        # df_for_reg_std['sector'] = df_for_reg['sector']
-        
-        traindata_path = self.backtest.conf['ROOT_PATH'] + '/regressor_data_p{0:02d}_m{1:02d}/'.format(
-                                self.backtest.conf['REBALANCE_PERIOD'], self.backtest.conf['START_MONTH'])
-        
-        if not os.path.exists(traindata_path):
-            print("creating traindate_path : " + traindata_path)
-            os.makedirs(traindata_path)
-
-        if latest == False:
-            # df_for_reg.to_csv(traindata_path + '{0}_{1:02d}_full_regressor_train.csv'.format(date.year, mmonth),
-            #                         index=False)
-            # df_for_reg_std.to_csv(traindata_path + '{0}_{1:02d}_regressor_train_std.csv'.format(date.year, mmonth),
-            #                         index=False)
-            df_for_reg_norm.to_csv(traindata_path + '{0}_{1:02d}_regressor_train_norm.csv'.format(date.year, mmonth),
-                                    index=False)
-            print("print ai data to " + traindata_path + '{0}_{1:02d}_regressor_train_norm.csv'.format(date.year, mmonth))
-
-        else:
-            df_for_reg_norm.to_csv(
-                traindata_path + '{}_{:02d}_regressor_train_latest_norm.csv'.format(date.year, mmonth), index=False)
-            # df_for_reg_std.to_csv(
-            #     traindata_path + '{0}_{1:02d}_regressor_train_latest_std.csv'.format(date.year, mmonth), index=False)
 
     def cal_price(self):
         pd.set_option('mode.chained_assignment', None)
@@ -903,16 +722,13 @@ class EvaluationHandler:
                 self.best_k[idx][3] = start_dh.dtable
                 self.best_k[idx][3] = self.best_k[idx][3][self.best_k[idx][3].close > 0.000001]
                 self.best_k[idx][3].rename(columns={'close': 'price'}, inplace=True)
-                if self.backtest.ai_report_path is not None:
-                    df_for_reg = self.best_k[idx][3].copy()
-                    self.print_ai_data(df_for_reg, date, True)
                 break
 
             if idx == 0:
                 start_dh = DateHandler(self.backtest, date)
             end_dh = DateHandler(self.backtest, rebalance_date)
 
-            if self.backtest.rank_report_path is not None or self.backtest.ai_report_path is not None:
+            if self.backtest.rank_report_path is not None:
                 logging.info("rank/ai report cur date : {}".format(date))
                 self.best_k[idx][3] = start_dh.dtable
                 rebalance_date_price_df = end_dh.dtable[['symbol', 'close']]
@@ -922,10 +738,6 @@ class EvaluationHandler:
                 diff = self.best_k[idx][3]['rebalance_day_price'] - self.best_k[idx][3]['close']
                 self.best_k[idx][3]['period_price_diff'] = diff / self.best_k[idx][3]['close']
                 # self.best_k[idx][3] = pd.merge(self.best_k[idx][3], start_dh.fs_metrics, how='left', on='symbol')
-
-                if self.backtest.ai_report_path is not None:
-                    df_for_reg = self.best_k[idx][3].copy()
-                    self.print_ai_data(df_for_reg, date, False)
 
                 if self.backtest.rank_report_path is not None:
                     for feature in self.best_k[idx][3].columns:
