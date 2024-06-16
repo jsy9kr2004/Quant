@@ -1,2 +1,9 @@
+.ipynb_checkpoints/
+__pycache__/
 /reports/
 /data/
+/Quant-refactoring/data/
+conf.yaml
+allsymbol.csv
+current_list.csv
+log.txt
