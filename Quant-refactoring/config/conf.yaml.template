@@ -1,0 +1,142 @@
+# Quant Trading System Configuration Template
+# Copy this file to conf.yaml and fill in your settings
+
+# ============================================================================
+# DATA Configuration
+# ============================================================================
+DATA:
+  # Years to process
+  START_YEAR: 2015
+  END_YEAR: 2023
+
+  # Data root path (will create subdirectories here)
+  ROOT_PATH: /home/user/Quant/data
+
+  # FMP API settings
+  FMP_URL: https://financialmodelingprep.com
+  API_KEY: YOUR_FMP_API_KEY_HERE  # Get from https://site.financialmodelingprep.com/
+  TARGET_STOCK_LIST: /home/user/Quant/stocks.csv
+  TARGET_API_LIST: target_api_list.csv
+
+  # Data collection
+  GET_FMP: N  # Y = Fetch new data from FMP, N = Use existing data
+  STORAGE_TYPE: PARQUET  # PARQUET (recommended) or DB
+
+# ============================================================================
+# ML Configuration
+# ============================================================================
+ML:
+  # Enable ML training
+  RUN_REGRESSION: Y  # Y = Train models, N = Skip
+
+  # Training/test split by year
+  TRAIN_START_YEAR: 2015
+  TRAIN_END_YEAR: 2021
+  TEST_START_YEAR: 2022
+  TEST_END_YEAR: 2023
+
+  # Model selection (use new models or legacy)
+  USE_NEW_MODELS: N  # Y = Use new CatBoost/MLflow, N = Use legacy regressor.py
+
+  # Models to train (if USE_NEW_MODELS = Y)
+  MODELS:
+    - xgboost_default
+    - xgboost_depth_9
+    - xgboost_depth_10
+    - lightgbm_default
+    - catboost_default
+    - catboost_deep
+
+  # Ensemble
+  USE_ENSEMBLE: N  # Y = Use stacking ensemble
+  ENSEMBLE_TYPE: stacking  # stacking or voting
+
+  # Hyperparameter optimization
+  USE_OPTUNA: N  # Y = Auto-tune hyperparameters (takes time)
+  OPTUNA_TRIALS: 50
+  OPTUNA_CV_FOLDS: 5
+
+  # MLflow experiment tracking
+  USE_MLFLOW: N  # Y = Track experiments with MLflow
+  MLFLOW_EXPERIMENT: quant_trading_v2
+  MLFLOW_TRACKING_URI: null  # null for local, or http://server:5000
+
+  # Exit after ML (don't run backtest)
+  EXIT_AFTER_ML: Y  # Y = Exit after ML, N = Continue to backtest
+
+# ============================================================================
+# BACKTEST Configuration
+# ============================================================================
+BACKTEST:
+  # Run backtesting (only if ML EXIT_AFTER_ML = N)
+  RUN_BACKTEST: N  # Y = Run backtest, N = Skip
+
+  # Rebalancing
+  REBALANCE_PERIOD: 3  # months
+  START_MONTH: 1
+  START_DATE: 1
+
+  # Stock selection
+  TOP_K_NUM: 100  # Select top K stocks
+  ABSOLUTE_SCORE: 500
+
+  # Reports to generate
+  REPORT_LIST:
+    - EVAL
+    - RANK
+    - AI
+    - AVG
+
+# ============================================================================
+# FEATURE ENGINEERING Configuration
+# ============================================================================
+FEATURES:
+  # Minimum trading volume (percentile)
+  MIN_VOLUME_PERCENTILE: 50
+
+  # Time series window
+  TS_WINDOW: 12  # quarters
+
+  # Feature selection thresholds
+  MISSING_THRESHOLD: 0.8  # Remove columns with > 80% missing
+  SAME_VALUE_THRESHOLD: 0.95  # Remove columns with > 95% same value
+  ROW_MISSING_THRESHOLD: 0.6  # Remove rows with > 60% missing
+
+  # Normalization
+  SCALER: RobustScaler  # RobustScaler or StandardScaler
+
+# ============================================================================
+# GENERAL Configuration
+# ============================================================================
+# Logging level (10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR)
+LOG_LVL: 20
+
+# Model selection threshold
+THRESHOLD_PERCENTILE: 92  # Top 8% selection
+
+# ============================================================================
+# USAGE EXAMPLES
+# ============================================================================
+#
+# 1. First time setup (fetch data):
+#    DATA.GET_FMP: Y
+#    ML.RUN_REGRESSION: N
+#    BACKTEST.RUN_BACKTEST: N
+#
+# 2. Train ML models:
+#    DATA.GET_FMP: N
+#    ML.RUN_REGRESSION: Y
+#    ML.EXIT_AFTER_ML: Y
+#
+# 3. Run backtest only:
+#    DATA.GET_FMP: N
+#    ML.RUN_REGRESSION: N
+#    ML.EXIT_AFTER_ML: N
+#    BACKTEST.RUN_BACKTEST: Y
+#
+# 4. Full pipeline:
+#    DATA.GET_FMP: Y
+#    ML.RUN_REGRESSION: Y
+#    ML.EXIT_AFTER_ML: N
+#    BACKTEST.RUN_BACKTEST: Y
+#
