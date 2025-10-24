@@ -81,9 +81,12 @@ def __fmp_worker(worker_id, main_ctx, file_path, symbol, file_postfix, url):
 
 def fetch_fmp(main_ctx, api_list):
     logger = main_ctx.get_logger('fmp_fetch')
-    worker_num = os.cpu_count()
+    # Limit workers to avoid API rate limits (was: cpu_count())
+    # Ray handles I/O-bound tasks efficiently, but FMP API has rate limits
+    # Recommended: 4-8 workers for external API calls
+    worker_num = min(8, os.cpu_count())
     ray.init(num_cpus=worker_num, local_mode=False) # True면 디버깅모드
-    logger.info(f'ray init / worker num: {worker_num}')
+    logger.info(f'ray init / worker num: {worker_num} (max: {os.cpu_count()})')
 
 
     # normal api

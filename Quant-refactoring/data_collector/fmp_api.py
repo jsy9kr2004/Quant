@@ -60,7 +60,9 @@ class FMPAPI():
             raise Exception(f'Directory {self.file_path} is not created')
 
         self.page_num = 0
-        self.page_set_num = os.cpu_count()
+        # Limit page batch size to avoid API rate limits (was: cpu_count())
+        # This controls how many pages are fetched per batch, not worker count
+        self.page_set_num = min(8, os.cpu_count())
 
     @property
     def converted_category(self):
