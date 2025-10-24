@@ -230,6 +230,53 @@ class BaseModel(ABC):
             raise ValueError("Model not built. Call build_model() first.")
         self.model.set_params(**params)
 
+    def cross_validate(self, X, y, dates=None, cv_splits=5, verbose=True):
+        """
+        교차 검증을 사용한 모델 평가
+
+        Args:
+            X: 특징 데이터
+            y: 타겟 데이터
+            dates: 날짜 정보 (시계열 교차검증에 사용, 선택)
+            cv_splits: Cross-validation fold 수
+            verbose: 상세 로그 출력 여부
+
+        Returns:
+            (평균 점수, 각 fold 점수 리스트)
+        """
+        from validation.time_series_cv import TimeSeriesCV
+
+        cv = TimeSeriesCV(n_splits=cv_splits)
+        avg_scores, all_scores = cv.cross_validate_model(
+            self, X, y, dates=dates, verbose=verbose
+        )
+
+        return avg_scores, all_scores
+
+    def fit_with_cv(self, X, y, dates=None, cv_splits=5):
+        """
+        교차 검증 후 전체 데이터로 학습
+
+        Args:
+            X: 특징 데이터
+            y: 타겟 데이터
+            dates: 날짜 정보 (선택)
+            cv_splits: Cross-validation fold 수
+
+        Returns:
+            (평균 점수, 각 fold 점수 리스트)
+        """
+        # 교차 검증
+        avg_scores, all_scores = self.cross_validate(X, y, dates, cv_splits)
+
+        # 전체 데이터로 최종 학습
+        logging.info(f"\n{'='*60}")
+        logging.info("전체 데이터로 최종 모델 학습 중...")
+        logging.info(f"{'='*60}")
+        self.fit(X, y)
+
+        return avg_scores, all_scores
+
     def __repr__(self):
         status = "trained" if self.is_trained else "not trained"
         return f"{self.model_type.upper()} {self.task} model ({status})"

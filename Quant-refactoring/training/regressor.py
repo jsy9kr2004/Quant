@@ -15,7 +15,8 @@ from dateutil.relativedelta import relativedelta
 import datetime
 import lightgbm as lgb
 
-from datasets import Dataset
+# datasets 라이브러리는 사용되지 않으므로 import 제거
+# from datasets import Dataset
 from config.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, sparse_col_list
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression

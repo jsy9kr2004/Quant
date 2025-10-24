@@ -1,0 +1,27 @@
+# 호환성 문제 해결을 위한 패키지 버전
+
+# PyArrow 및 Datasets 라이브러리 호환성 수정
+pyarrow>=14.0.0
+datasets>=2.14.0
+
+# 핵심 라이브러리
+pandas>=1.5.0
+numpy>=1.23.0
+scikit-learn>=1.2.0
+xgboost>=1.7.0
+lightgbm>=3.3.0
+catboost>=1.2.0
+
+# 시계열 분석
+tsfresh>=0.20.0
+pmdarima>=2.0.0
+statsmodels>=0.14.0
+
+# 유틸리티
+scipy>=1.10.0
+matplotlib>=3.7.0
+tqdm>=4.65.0
+
+# 추가 (필요 시)
+seaborn>=0.12.0
+plotly>=5.14.0
