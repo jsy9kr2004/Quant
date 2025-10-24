@@ -2,30 +2,24 @@ import datetime
 import logging
 import os
 
-import multiprocessing as mp
 import pandas as pd
 # import pyarrow as pa
 # import pyarrow.parquet as pq
 # import numpy as np
 # from dateutil.relativedelta import relativedelta
-from multiprocessing import Pool
-from multiprocessing_logging import install_mp_handler
 # from pyarrow import csv
 from tqdm import tqdm
 
 
 class Parquet:
     def __init__(self, main_ctx):
-        global PQPATH
         self.main_ctx = main_ctx
         self.tables = dict()
         self.view_path = self.main_ctx.root_path + "/VIEW/"
         self.rawpq_path = self.main_ctx.root_path + "/parquet/"
-        PQPATH = self.main_ctx.root_path + "/parquet/"
 
         self.main_ctx.create_dir(self.view_path)
         self.main_ctx.create_dir(self.rawpq_path)
-        self.main_ctx.create_dir(PQPATH)
 
     def rebuild_table_view(self):
         # 1번 Table
@@ -164,33 +158,9 @@ class Parquet:
         indexes.to_csv(self.view_path + "indexes.csv", index=False)
         logging.info("create indexes df")
 
-    # @staticmethod
-    # def read_pq_mp(self, filename):
-    @staticmethod
-    def read_pq_mp(filename):
-        c_proc = mp.current_process()
-        # PQPATH = self.main_ctx.root_path        
-        csv_save_path = './' + str(c_proc.pid)+"_mp.csv"
-        try:
-            if filename.split('/')[1] == 'historical_price_full':
-                if filename.endswith('.csv'):
-                    df = pd.read_csv(filename, usecols=['date', 'symbol', 'close', 'volume'])
-                elif filename.endswith('.parquet'):
-                    df = pd.read_parquet(filename, columns=['date', 'symbol', 'close', 'volume'])
-            else:
-                if filename.endswith('.csv'):
-                    df = pd.read_csv(filename)
-                elif filename.endswith('.parquet'):
-                    df = pd.read_parquet(filename)
-                
-        except Exception as e:
-            logging.info(str(e))
-            return
-        if not os.path.exists(csv_save_path):
-            df.to_csv(csv_save_path, index=False, mode='w', encoding='utf-8-sig')
-        else:
-            df.to_csv(csv_save_path, index=False, mode='a', encoding='utf-8-sig', header=False)
-        return
+    # Removed inefficient multiprocessing method (read_pq_mp)
+    # Previous approach: multiprocessing -> temp files -> sequential read
+    # New approach: direct sequential reading (faster due to no file I/O overhead)
             
     def insert_csv(self):
         # wrap your csv importer in a function that can be mapped
@@ -212,27 +182,36 @@ class Parquet:
                 if os.path.exists(csv_save_path):
                     os.remove(csv_save_path)
                 
-            # TODO: historical price 는 year 별로 나눠서 csv 만들어 놓기 
+            # TODO: historical price 는 year 별로 나눠서 csv 만들어 놓기
             file_list = [self.main_ctx.root_path + "/" + directory + "/" + file
                          for file in os.listdir(self.main_ctx.root_path + "/" + directory)
                          if (file.endswith(".parquet") or file.endswith(".csv"))]
 
-            full_df = pd.DataFrame()
-            with Pool(processes=7, initializer=install_mp_handler()) as pool:
-                pool.map(self.read_pq_mp, file_list)
-                
-            df_all_years = pd.DataFrame()
-            # mp_file_list = [self.rawpq_path + file for file in os.listdir(self.rawpq_path) if file.endswith("mp.csv")]
-            mp_file_list = ['./' + file for file in os.listdir('./') if file.endswith("mp.csv")]
-            for files in mp_file_list:
-                df = pd.read_csv(files, low_memory=False)
-                df_all_years = pd.concat([df_all_years, df])
-            # df_all_years = df_all_years.drop(df_all_years.columns[0], axis=1)
-            # df_all_years.to_parquet(pq_save_path, index=False)
-            df_all_years.to_csv(csv_save_path, index=False)
-            # TODO 삭제 잠시 임시로 주석처리
-            for files in mp_file_list:
-                os.remove(files)
-            # pq.write_table(csv.read_csv(pq_save_path), pq_save_path)
-            logging.info("create df in tables dict : {}".format(directory))
+            # Improved: Direct sequential reading (faster than multiprocessing with file I/O)
+            # Removed inefficient multiprocessing that wrote temp files and read them back
+            df_list = []
+            for filename in file_list:
+                try:
+                    if directory == 'historical_price_full':
+                        if filename.endswith('.csv'):
+                            df = pd.read_csv(filename, usecols=['date', 'symbol', 'close', 'volume'])
+                        elif filename.endswith('.parquet'):
+                            df = pd.read_parquet(filename, columns=['date', 'symbol', 'close', 'volume'])
+                    else:
+                        if filename.endswith('.csv'):
+                            df = pd.read_csv(filename, low_memory=False)
+                        elif filename.endswith('.parquet'):
+                            df = pd.read_parquet(filename)
+                    df_list.append(df)
+                except Exception as e:
+                    logging.warning(f"Error reading {filename}: {str(e)}")
+                    continue
+
+            # Concatenate all dataframes at once (more efficient than incremental concat)
+            if df_list:
+                df_all_years = pd.concat(df_list, ignore_index=True)
+                df_all_years.to_csv(csv_save_path, index=False)
+                logging.info("create df in tables dict : {}".format(directory))
+            else:
+                logging.warning(f"No data found for directory: {directory}")
  
