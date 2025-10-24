@@ -30,12 +30,14 @@ class AIDataMaker:
     
     def __init__(self, main_ctx, conf):
         """
-        각 start~end 까지 rebalance period만큼 뛰며 date table 만들기 -> 
+        각 start~end 까지 rebalance period만큼 뛰며 date table 만들기 ->
         rebalance period 에서 이전 N개월을 date table을 한 번에 보면서 시계열 feature 및 y(price 변화) 채우기
         """
         self.main_ctx = main_ctx
         self.conf = conf
-        self.rebalance_period = conf['REBALANCE_PERIOD']
+        # BACKTEST 섹션에서 REBALANCE_PERIOD 가져오기 (기본값: 3개월)
+        backtest_config = conf.get('BACKTEST', {})
+        self.rebalance_period = backtest_config.get('REBALANCE_PERIOD', 3)
         
         self.symbol_table = pd.DataFrame()
         self.price_table = pd.DataFrame()
@@ -43,9 +45,9 @@ class AIDataMaker:
         self.metrics_table = pd.DataFrame()
         self.date_table_list = []
         self.trade_date_list = []
-       
+
         # backtest 시 이용될 디렉토리를 만들고 시작
-        self.main_ctx.create_dir(self.conf['ROOT_PATH'] + "/DATE_TABLE")
+        self.main_ctx.create_dir(self.main_ctx.root_path + "/DATE_TABLE")
 
         # VIEW에서 필요한 데이터 읽어오기        
         self.load_bt_table(main_ctx.start_year)
@@ -104,7 +106,11 @@ class AIDataMaker:
     def generate_date_list(self):
         """rebalance date list 뽑기"""
         date_list = []
-        date = datetime.datetime(int(self.main_ctx.start_year)-3, self.conf['START_MONTH'], self.conf['START_DATE'])
+        # BACKTEST 섹션에서 START_MONTH, START_DATE 가져오기 (기본값: 1월 1일)
+        backtest_config = self.conf.get('BACKTEST', {})
+        start_month = backtest_config.get('START_MONTH', 1)
+        start_date = backtest_config.get('START_DATE', 1)
+        date = datetime.datetime(int(self.main_ctx.start_year)-3, start_month, start_date)
         print(date)
         recent_date = self.price_table["date"].max()
         end_date = datetime.datetime(self.main_ctx.end_year, 12, 31)
