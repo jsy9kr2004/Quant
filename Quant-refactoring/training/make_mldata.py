@@ -9,7 +9,7 @@ from tsfresh import extract_features
 from tsfresh.feature_extraction import EfficientFCParameters, ComprehensiveFCParameters, MinimalFCParameters        
 from dateutil.relativedelta import relativedelta
 from functools import reduce
-from g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, cal_timefeature_col_list
+from config.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, cal_timefeature_col_list
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from warnings import simplefilter
 

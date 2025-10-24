@@ -58,7 +58,7 @@ class FMP:
         if os.path.isfile(path):
             symbol_list = pd.read_csv(path)
         else:
-            self.logge.error(f'file({path}) is not existed')
+            self.logger.error(f'file({path}) is not existed')
             return
 
         # stock_list에서 type "stock", exchange "NASDQA", "NYSE" 만 가져오기 이를 filtered_symbol에 저장
