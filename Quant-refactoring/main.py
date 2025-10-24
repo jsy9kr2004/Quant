@@ -33,7 +33,7 @@ class RegressorIntegrated:
 
         # 기존 Regressor import (fallback)
         try:
-            from regressor import Regressor
+            from training.regressor import Regressor
             self.legacy_regressor = Regressor(conf)
         except ImportError:
             logging.warning("Legacy regressor not found, using new models only")
@@ -176,7 +176,7 @@ def main():
                 )
 
                 # 기존 parquet.py의 로직 사용 (CSV → Parquet)
-                from parquet import Parquet
+                from storage.parquet_converter import Parquet
                 df_engine = Parquet(main_ctx)
                 df_engine.insert_csv()
                 df_engine.rebuild_table_view()
