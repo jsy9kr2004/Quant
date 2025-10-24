@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config.context_loader import load_config, MainContext
 from storage import ParquetStorage
 from data_collector.fmp import FMP
-from make_mldata import AIDataMaker
+from training.make_mldata import AIDataMaker
 from models import XGBoostModel, LightGBMModel, CatBoostModel, StackingEnsemble
 from training import OptunaOptimizer, MLflowTracker
 from backtest import Backtest, PlanHandler
