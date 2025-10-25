@@ -215,6 +215,10 @@ class AIDataMaker:
     
 
     def make_ml_data(self, start_year, end_year):
+        # ml_per_year 디렉토리가 없으면 생성
+        ml_dir = os.path.join(self.main_ctx.root_path, "ml_per_year")
+        self.main_ctx.create_dir(ml_dir)
+
         for cur_year in range(start_year, end_year+1):
             table_for_ai = self.symbol_table.copy()
             cur_price_table = self.price_table.copy()

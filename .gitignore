@@ -1,9 +1,78 @@
-.ipynb_checkpoints/
+# Python
 __pycache__/
-/reports/
-/data/
-/Quant-refactoring/data/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Data files (크기가 큰 데이터 파일들)
+*.csv
+!target_api_list.csv
+!**/target_api_list.csv
+*.parquet
+*.feather
+*.h5
+*.hdf5
+
+# ML Models (학습된 모델 파일들)
+*.pkl
+*.pickle
+*.joblib
+*.pt
+*.pth
+*.onnx
+*.h5
+
+# Data directories
+data/
+*/data/
+Quant-refactoring/data/
+ml_per_year/
+*/ml_per_year/
+DATE_TABLE/
+*/DATE_TABLE/
+VIEW/
+*/VIEW/
+
+# Reports
+reports/
+*/reports/
+
+# Logs
+*.log
+log.txt
+*.txt.lock
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Config (API 키 등 민감 정보)
 conf.yaml
+**/conf.yaml
 allsymbol.csv
 current_list.csv
-log.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
