@@ -12,9 +12,12 @@ from functools import reduce
 from config.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, cal_timefeature_col_list
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from warnings import simplefilter
+import warnings
 
 pd.options.display.width = 30
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
+# Numpy의 All-NaN slice 경고 무시 (데이터 검증은 코드에서 수행)
+warnings.filterwarnings('ignore', category=RuntimeWarning, message='All-NaN slice encountered')
 
 class AIDataMaker:
     # tsfresh로 시계열 feature 뽑으면 feature 수가 너무 많아서 feature(column)수 줄이기 위해 특정 feature 명 추출
@@ -281,7 +284,8 @@ class AIDataMaker:
                 return group
 
             # symbol 별로 groupby 한 후, time 값을 할당(시계열 feature 추출 시 사용)
-            fs_metrics = fs_metrics.groupby('symbol').apply(assign_time).reset_index(drop=True)
+            # FutureWarning 방지: group_keys=False 추가
+            fs_metrics = fs_metrics.groupby('symbol', group_keys=False).apply(assign_time).reset_index(drop=True)
             
             for col in meaning_col_list:
                 if col not in fs_metrics.columns:
@@ -327,7 +331,8 @@ class AIDataMaker:
                 def get_last_12_rows(group):
                     return group.tail(12)
                 # symbol 별로 groupby 한 후, 각 그룹에서 최근 12개의 row를 선택
-                window_data = filtered_data.groupby('symbol').apply(get_last_12_rows).reset_index(drop=True)
+                # FutureWarning 방지: include_groups=False 추가
+                window_data = filtered_data.groupby('symbol', group_keys=False).apply(get_last_12_rows).reset_index(drop=True)
                 print(window_data)
                 # 'symbol' 별로 row 수를 세는 코드
                 symbol_counts = window_data['symbol'].value_counts()
@@ -339,7 +344,10 @@ class AIDataMaker:
 
                 df_for_extract_feature = pd.DataFrame()
                 for target_col in cal_timefeature_col_list:
-                    if target_col in window_data.columns and not window_data[target_col].isna().any():
+                    # NaN 체크 강화: 컬럼이 존재하고, NaN이 없고, 유한한 값만 포함하는지 확인
+                    if (target_col in window_data.columns and
+                        not window_data[target_col].isna().any() and
+                        np.isfinite(window_data[target_col]).all()):
                         # print("***window_data***")
                         # print(window_data)
                         temp_df = pd.DataFrame({
@@ -347,7 +355,7 @@ class AIDataMaker:
                             'kind' : target_col,
                             'time': window_data['time_for_sort'],
                             'value': window_data[target_col].values,
-                            'year_period' : window_data['year_period'] 
+                            'year_period' : window_data['year_period']
                         })
                         df_for_extract_feature = pd.concat([df_for_extract_feature, temp_df])
                     
@@ -360,8 +368,8 @@ class AIDataMaker:
                     df_w_time_feature = pd.DataFrame()
                     # 모든 조건을 적용하여 컬럼 필터링
                     filtered_columns = self.filter_columns_by_suffixes(features)
-                    # 필터링된 컬럼으로 새로운 DataFrame 생성
-                    df_w_time_feature = features[filtered_columns]
+                    # 필터링된 컬럼으로 새로운 DataFrame 생성 (SettingWithCopyWarning 방지: .copy() 사용)
+                    df_w_time_feature = features[filtered_columns].copy()
                     df_w_time_feature['symbol'] = features.index
                     window_data = window_data[window_data['year_period'] == float(base_year_period)]
                     df_w_time_feature = pd.merge(window_data, df_w_time_feature, how='inner', on='symbol')

@@ -57,7 +57,7 @@ y_col_list= ["symbol",
 ]
 
 
-class Regressor:   
+class Regressor:
     def __init__(self, conf):
         self.conf = conf
         self.x_train = None
@@ -65,20 +65,30 @@ class Regressor:
         self.x_test = None
         self.y_test = None
         print(self.conf)
-        aidata_dir = conf['ROOT_PATH'] + '/ml_per_year/'
+
+        # Config 중첩 구조에서 값 가져오기
+        data_config = conf.get('DATA', {})
+        ml_config = conf.get('ML', {})
+        self.root_path = data_config.get('ROOT_PATH', '/home/user/Quant/data')
+
+        aidata_dir = self.root_path + '/ml_per_year/'
         print("aidata path : " + aidata_dir)
         if not os.path.exists(aidata_dir):
             print("there is no ai data : " + aidata_dir)
-            return 
-            
+            return
+
         self.train_files = []
-        for year in range(int(conf['TRAIN_START_YEAR']), int(conf['TRAIN_END_YEAR'])+1):
+        train_start = int(ml_config.get('TRAIN_START_YEAR', 2015))
+        train_end = int(ml_config.get('TRAIN_END_YEAR', 2021))
+        for year in range(train_start, train_end + 1):
             for Q in ['Q1', 'Q2', 'Q3', 'Q4']:
                 path = aidata_dir + "rnorm_ml_" + str(year) + f"_{Q}.csv"
                 self.train_files.append(path)
-        
+
         self.test_files = []
-        for year in range(int(conf['TEST_START_YEAR']), int(conf['TEST_END_YEAR'])+1):
+        test_start = int(ml_config.get('TEST_START_YEAR', 2022))
+        test_end = int(ml_config.get('TEST_END_YEAR', 2023))
+        for year in range(test_start, test_end + 1):
             for Q in ['Q1', 'Q2', 'Q3', 'Q4']:
                 path = aidata_dir + "rnorm_ml_" + str(year) + f"_{Q}.csv"
                 self.test_files.append(path)
@@ -201,8 +211,8 @@ class Regressor:
         logging.debug("test_df shape : ")
         logging.debug(self.test_df.shape)
 
-        # self.train_df.to_csv(self.conf['ROOT_PATH'] + '/train_df.csv', index=False)
-        # self.test_df.to_csv(self.conf['ROOT_PATH'] + '/test_df.csv', index=False)
+        # self.train_df.to_csv(self.root_path + '/train_df.csv', index=False)
+        # self.test_df.to_csv(self.root_path + '/test_df.csv', index=False)
 
         positive_count = (self.train_df['price_dev'] > 0).sum()
         negative_count = (self.train_df['price_dev'] < 0).sum()
@@ -299,7 +309,7 @@ class Regressor:
         # print(search.best_params_)
         # exit()
         
-        MODEL_SAVE_PATH = self.conf['ROOT_PATH'] + '/MODELS/'
+        MODEL_SAVE_PATH = self.root_path + '/MODELS/'
         self.def_model()
         
         if not os.path.exists(MODEL_SAVE_PATH):
@@ -352,7 +362,7 @@ class Regressor:
            
     def evaluation(self):
 
-        MODEL_SAVE_PATH = self.conf['ROOT_PATH'] + '/MODELS/'
+        MODEL_SAVE_PATH = self.root_path + '/MODELS/'
         self.models = dict()
         self.clsmodels = dict()
         self.clsmodels[0] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_0.sav')
@@ -611,8 +621,8 @@ class Regressor:
         
         
     def latest_prediction(self):
-        
-        MODEL_SAVE_PATH = self.conf['ROOT_PATH'] + '/MODELS/'
+
+        MODEL_SAVE_PATH = self.root_path + '/MODELS/'
         self.clsmodels = dict()
         self.clsmodels[0] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_0.sav')
         self.clsmodels[1] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_1.sav')
@@ -621,8 +631,8 @@ class Regressor:
         self.models = dict()
         self.models[0] = joblib.load(MODEL_SAVE_PATH + 'model_0.sav')
         self.models[1] = joblib.load(MODEL_SAVE_PATH + 'model_1.sav')
-        
-        aidata_dir = self.conf['ROOT_PATH'] + '/ml_per_year/'
+
+        aidata_dir = self.root_path + '/ml_per_year/'
         pred_col_list = ['ai_pred_avg']
         for i in range(2):
             pred_col_name = 'model_' + str(i) + '_prediction'
