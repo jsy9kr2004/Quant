@@ -45,7 +45,7 @@
    │   ├─ set_date() → 리밸런싱 날짜 생성
    │   ├─ process_price_table_wdate() → 가격 변동 계산
    │   └─ make_ml_data() → tsfresh 시계열 피처 추출
-   │       └─ 저장: ROOT_PATH/ml_per_year/rnorm_ml_{year}_{Q}.csv
+   │       └─ 저장: ROOT_PATH/ml_per_year/rnorm_ml_{year}_{Q}.parquet (Parquet 형식, 5-10배 빠름 🚀)
 
 4. Model Training
    ├─ Regressor(conf)

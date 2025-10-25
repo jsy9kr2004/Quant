@@ -163,7 +163,7 @@ def main():
         try:
             from data_collector.fmp import FMP
             fmp = FMP(main_ctx)  # FMP는 main_ctx만 받음
-            fmp.get_new()
+            fmp.collect()  # get_new() -> collect()로 변경
 
             # Parquet 저장소로 변환
             if storage_type == 'PARQUET':

@@ -82,7 +82,8 @@ class Regressor:
         train_end = int(ml_config.get('TRAIN_END_YEAR', 2021))
         for year in range(train_start, train_end + 1):
             for Q in ['Q1', 'Q2', 'Q3', 'Q4']:
-                path = aidata_dir + "rnorm_ml_" + str(year) + f"_{Q}.csv"
+                # Parquet 형식으로 변경 (5-10배 빠른 읽기)
+                path = aidata_dir + "rnorm_ml_" + str(year) + f"_{Q}.parquet"
                 self.train_files.append(path)
 
         self.test_files = []
@@ -90,7 +91,8 @@ class Regressor:
         test_end = int(ml_config.get('TEST_END_YEAR', 2023))
         for year in range(test_start, test_end + 1):
             for Q in ['Q1', 'Q2', 'Q3', 'Q4']:
-                path = aidata_dir + "rnorm_ml_" + str(year) + f"_{Q}.csv"
+                # Parquet 형식으로 변경 (5-10배 빠른 읽기)
+                path = aidata_dir + "rnorm_ml_" + str(year) + f"_{Q}.parquet"
                 self.test_files.append(path)
                 
         print("train file list : ", self.train_files)
@@ -130,8 +132,8 @@ class Regressor:
                 logging.warning(f"Train file not found, skipping: {fpath}")
                 print(f"WARNING: Train file not found, skipping: {fpath}")
                 continue
-            # DtypeWarning 방지: low_memory=False 추가
-            df = pd.read_csv(fpath, low_memory=False)
+            # Parquet 읽기 (CSV 대비 5-10배 빠름, 70-90% 압축)
+            df = pd.read_parquet(fpath, engine='pyarrow')
             df = df.dropna(axis=0, subset=['price_diff'])
             self.train_df = pd.concat([self.train_df, df], axis=0)
         # 의미없는 column 날리기
@@ -191,8 +193,8 @@ class Regressor:
                 logging.warning(f"Test file not found, skipping: {fpath}")
                 print(f"WARNING: Test file not found, skipping: {fpath}")
                 continue
-            # DtypeWarning 방지: low_memory=False 추가
-            df = pd.read_csv(fpath, low_memory=False)
+            # Parquet 읽기 (CSV 대비 5-10배 빠름, 70-90% 압축)
+            df = pd.read_parquet(fpath, engine='pyarrow')
             df = df.dropna(axis=0, subset=['price_diff'])
             df = df.drop(columns=columns_to_drop, errors='ignore')
             
