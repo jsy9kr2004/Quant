@@ -15,6 +15,7 @@ DATA:
   # FMP API settings
   FMP_URL: https://financialmodelingprep.com
   API_KEY: YOUR_FMP_API_KEY_HERE  # Get from https://site.financialmodelingprep.com/
+  EX_SYMBOL: AAPL  # Example symbol used for URL parsing (usually don't need to change)
   TARGET_STOCK_LIST: /home/user/Quant/stocks.csv
   TARGET_API_LIST: data_collector/target_api_list.csv
 

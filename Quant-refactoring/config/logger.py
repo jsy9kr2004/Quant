@@ -151,10 +151,10 @@ def setup_logging(
     # Full log file path
     log_file_path = log_path / log_file
 
-    # Default format
+    # Default format (use processName which is always available)
     if format_string is None:
         format_string = (
-            '[%(asctime)s][%(levelname)-8s][%(process_name)s] '
+            '[%(asctime)s][%(levelname)-8s][%(processName)s] '
             '%(message)s (%(name)s:%(lineno)d)'
         )
 
