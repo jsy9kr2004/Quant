@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config.context_loader import load_config, MainContext
+from config.logger import get_logger
 from storage import ParquetStorage
 from data_collector.fmp import FMP
 from training.make_mldata import AIDataMaker
@@ -36,7 +37,7 @@ class RegressorIntegrated:
             from training.regressor import Regressor
             self.legacy_regressor = Regressor(conf)
         except ImportError:
-            logging.warning("Legacy regressor not found, using new models only")
+            logger.warning("Legacy regressor not found, using new models only")
             self.legacy_regressor = None
 
     def dataload(self):
@@ -44,7 +45,7 @@ class RegressorIntegrated:
         if self.legacy_regressor:
             self.legacy_regressor.dataload()
         else:
-            logging.warning("Using new data loading method")
+            logger.warning("Using new data loading method")
             # TODO: 새로운 데이터 로딩 구현
 
     def train(self):
@@ -54,11 +55,11 @@ class RegressorIntegrated:
         elif self.legacy_regressor:
             self.legacy_regressor.train()
         else:
-            logging.error("No training method available")
+            logger.error("No training method available")
 
     def _train_with_new_models(self):
         """새로운 모델 구조로 학습 (MLflow 포함)"""
-        logging.info("Training with new model structure + MLflow")
+        logger.info("Training with new model structure + MLflow")
 
         ml_config = self.conf.get('ML', {})
 
@@ -72,7 +73,7 @@ class RegressorIntegrated:
         # X_train = self.legacy_regressor.x_train
         # y_train = self.legacy_regressor.y_train
 
-        logging.info("New model training completed (placeholder)")
+        logger.info("New model training completed (placeholder)")
 
     def evaluation(self):
         """기존 evaluation 호출"""
@@ -107,22 +108,24 @@ def conf_check(config):
     """
     설정 파일 검증
     """
+    logger = get_logger('config_check')
+
     # REPORT_LIST 체크
     valid_reports = ["EVAL", "RANK", "AI", "AVG"]
     report_list = config.get('BACKTEST', {}).get('REPORT_LIST', [])
 
     for rep_type in report_list:
         if rep_type not in valid_reports:
-            logging.critical(f"Invalid REPORT_LIST: {rep_type}. Valid: {valid_reports}")
+            logger.critical(f"Invalid REPORT_LIST: {rep_type}. Valid: {valid_reports}")
             sys.exit(1)
 
     # 필수 설정 체크
     data_config = config.get('DATA', {})
     if not data_config.get('ROOT_PATH'):
-        logging.critical("ROOT_PATH not set in config")
+        logger.critical("ROOT_PATH not set in config")
         sys.exit(1)
 
-    logging.info("✅ Configuration validated")
+    logger.info("✅ Configuration validated")
 
 
 def main():
@@ -136,15 +139,16 @@ def main():
     try:
         config_path = get_config_path()
         config = load_config(config_path)
-        logging.info(f"✅ Configuration loaded from: {config_path}")
     except FileNotFoundError as e:
         print(f"\n❌ {e}")
         print("\nPlease create config/conf.yaml with your settings.")
         print("See config/conf.yaml.template for reference.")
         sys.exit(1)
 
-    # 2. 컨텍스트 초기화
+    # 2. 컨텍스트 초기화 (로거 자동 설정됨)
     main_ctx = MainContext(config)
+    logger = get_logger('main')
+
     conf_check(config)
 
     # 3. 디렉토리 생성
@@ -156,9 +160,9 @@ def main():
 
     # 5. FMP 데이터 수집 (선택적)
     if data_config.get('GET_FMP') == 'Y':
-        logging.info("="*80)
-        logging.info("Step 1: FMP Data Collection")
-        logging.info("="*80)
+        logger.info("="*80)
+        logger.info("Step 1: FMP Data Collection")
+        logger.info("="*80)
 
         try:
             from data_collector.fmp import FMP
@@ -167,7 +171,7 @@ def main():
 
             # Parquet 저장소로 변환
             if storage_type == 'PARQUET':
-                logging.info("Converting to Parquet format...")
+                logger.info("Converting to Parquet format...")
 
                 # 새 ParquetStorage 사용
                 storage = ParquetStorage(
@@ -181,32 +185,32 @@ def main():
                 df_engine.insert_csv()
                 df_engine.rebuild_table_view()
 
-                logging.info("✅ Data saved in Parquet format")
+                logger.info("✅ Data saved in Parquet format")
 
             elif storage_type == 'DB':
-                logging.warning("Database storage not recommended. Use PARQUET instead.")
+                logger.warning("Database storage not recommended. Use PARQUET instead.")
                 from database import Database
                 db = Database(main_ctx)
                 db.insert_csv()
                 db.rebuild_table_view()
 
         except Exception as e:
-            logging.error(f"FMP data collection failed: {e}")
-            logging.info("Continuing with existing data...")
+            logger.error(f"FMP data collection failed: {e}")
+            logger.info("Continuing with existing data...")
 
     # 6. ML 파이프라인 (선택적)
     ml_config = config.get('ML', {})
     if ml_config.get('RUN_REGRESSION') == 'Y':
-        logging.info("="*80)
-        logging.info("Step 2: ML Pipeline")
-        logging.info("="*80)
+        logger.info("="*80)
+        logger.info("Step 2: ML Pipeline")
+        logger.info("="*80)
 
         # 6.1 ML 데이터 준비
-        logging.info("Preparing ML training data...")
+        logger.info("Preparing ML training data...")
         AIDataMaker(main_ctx, config)
 
         # 6.2 모델 학습
-        logging.info("Training models...")
+        logger.info("Training models...")
         regressor = RegressorIntegrated(
             config,
             use_new_models=ml_config.get('USE_NEW_MODELS', False)
@@ -216,19 +220,19 @@ def main():
         regressor.evaluation()
         regressor.latest_prediction()
 
-        logging.info("✅ ML pipeline completed")
+        logger.info("✅ ML pipeline completed")
 
         # ML만 실행하고 종료
         if ml_config.get('EXIT_AFTER_ML', True):
-            logging.info("Exiting after ML (set EXIT_AFTER_ML=N to continue to backtest)")
+            logger.info("Exiting after ML (set EXIT_AFTER_ML=N to continue to backtest)")
             sys.exit(0)
 
     # 7. 백테스팅 (선택적)
     backtest_config = config.get('BACKTEST', {})
     if backtest_config.get('RUN_BACKTEST', True):
-        logging.info("="*80)
-        logging.info("Step 3: Backtesting")
-        logging.info("="*80)
+        logger.info("="*80)
+        logger.info("Step 3: Backtesting")
+        logger.info("="*80)
 
         # Plan 로드
         plan_handler = PlanHandler(
@@ -259,8 +263,8 @@ def main():
 
             plan_handler.plan_list = plan
         else:
-            logging.warning(f"Plan file not found: {plan_file}")
-            logging.info("Using default plan (empty)")
+            logger.warning(f"Plan file not found: {plan_file}")
+            logger.info("Using default plan (empty)")
 
         # 백테스트 실행
         bt = Backtest(
@@ -270,24 +274,25 @@ def main():
             rebalance_period=backtest_config.get('REBALANCE_PERIOD', 3)
         )
 
-        logging.info("✅ Backtesting completed")
+        logger.info("✅ Backtesting completed")
 
         del plan_handler
         del bt
 
     # 8. 종료
-    logging.info("="*80)
-    logging.info("Pipeline completed successfully!")
-    logging.info("="*80)
-    logging.shutdown()
+    logger.info("="*80)
+    logger.info("Pipeline completed successfully!")
+    logger.info("="*80)
 
 
 if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        logging.info("\n\nInterrupted by user")
+        err_logger = get_logger('main')
+        err_logger.info("\n\nInterrupted by user")
         sys.exit(0)
     except Exception as e:
-        logging.error(f"\n\n❌ Fatal error: {e}", exc_info=True)
+        err_logger = get_logger('main')
+        err_logger.error(f"\n\n❌ Fatal error: {e}", exc_info=True)
         sys.exit(1)

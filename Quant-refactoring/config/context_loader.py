@@ -7,6 +7,9 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+# Import new logging system
+from config.logger import setup_logging, get_logger
+
 
 class ConfigLoader:
     """설정 파일 로더 (개선 버전)"""
@@ -159,48 +162,52 @@ class MainContext:
         # FMP 관련 설정
         self.target_api_list = data_config.get('TARGET_API_LIST', 'data_collector/target_api_list.csv')
 
-        # 로깅 설정
-        self.log_lvl = int(config.get('LOG_LVL', 20))
+        # 로깅 설정 (새로운 통합 시스템 사용)
+        log_level_map = {10: 'DEBUG', 20: 'INFO', 30: 'WARNING', 40: 'ERROR', 50: 'CRITICAL'}
+        log_lvl_int = int(config.get('LOG_LVL', 20))
+        self.log_lvl = log_lvl_int
+        self.log_level_name = log_level_map.get(log_lvl_int, 'INFO')
         self.log_path = "log.txt"
-        self.set_default_logger()
 
-        logging.info("="*80)
-        logging.info("Quant Trading System - Refactored")
-        logging.info("="*80)
-        logging.info(f"Data period: {self.start_year} - {self.end_year}")
-        logging.info(f"Root path: {self.root_path}")
-        logging.info("="*80)
+        # Setup unified logging system
+        setup_logging(
+            log_level=self.log_level_name,
+            log_file=self.log_path,
+            log_dir='.',
+            console_output=True,
+            file_output=True,
+            use_colors=True,
+            max_bytes=10 * 1024 * 1024,  # 10MB
+            backup_count=5
+        )
+
+        logger = get_logger('MainContext')
+        logger.info("="*80)
+        logger.info("Quant Trading System - Refactored")
+        logger.info("="*80)
+        logger.info(f"Data period: {self.start_year} - {self.end_year}")
+        logger.info(f"Root path: {self.root_path}")
+        logger.info("="*80)
 
     @staticmethod
     def create_dir(path: str) -> bool:
         """디렉토리 생성"""
+        logger = get_logger('MainContext')
         path_obj = Path(path)
         if not path_obj.exists():
-            logging.info(f'Creating directory: {path}')
+            logger.info(f'Creating directory: {path}')
             try:
                 path_obj.mkdir(parents=True, exist_ok=True)
                 return True
             except OSError as e:
-                logging.error(f'Cannot create directory "{path}": {e}')
+                logger.error(f'Cannot create directory "{path}": {e}')
                 return False
         return True
-
-    def set_default_logger(self):
-        """로거 설정"""
-        log_path = "log.txt"
-        logging.basicConfig(
-            level=self.log_lvl,
-            format='[%(asctime)s][%(levelname)s][%(processName)s] '
-                   '%(message)s (%(filename)s:%(lineno)d)',
-            handlers=[
-                logging.FileHandler(log_path, mode='a+'),
-                logging.StreamHandler()
-            ]
-        )
 
     def get_logger(self, logger_name: str):
         """
         로거 생성 (기존 FMP 호환성을 위해)
+        새로운 통합 로거 시스템 사용
 
         Args:
             logger_name: 로거 이름
@@ -208,29 +215,7 @@ class MainContext:
         Returns:
             로거 인스턴스
         """
-        logger = logging.getLogger(logger_name)
-
-        # 최초 호출 시만 핸들러 추가
-        if len(logger.handlers) == 0:
-            logger.setLevel(self.log_lvl)
-
-            formatter = logging.Formatter(
-                '[%(asctime)s][%(levelname)s][%(logger_name)s] '
-                '%(message)s (%(filename)s:%(lineno)d)'
-            )
-
-            stream_handler = logging.StreamHandler()
-            stream_handler.setFormatter(formatter)
-            logger.addHandler(stream_handler)
-
-            file_handler = logging.FileHandler(self.log_path, mode="a+")
-            file_handler.setFormatter(formatter)
-            logger.addHandler(file_handler)
-
-        extra = {'logger_name': logger_name}
-        logger = logging.LoggerAdapter(logger, extra)
-
-        return logger
+        return get_logger(logger_name)
 
 
 def load_config(config_path: str = "config/conf.yaml") -> Dict[str, Any]:

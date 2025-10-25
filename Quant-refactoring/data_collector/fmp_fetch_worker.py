@@ -7,6 +7,10 @@ import urllib.request
 from time import sleep
 import json
 import pandas as pd
+import logging
+
+# Import unified logging
+from config.logger import get_logger, setup_logger_for_multiprocessing
 
 def __flatten_json(js, expand_all=False):
     df = pd.json_normalize(json.loads(js) if type(js) == str else js)
@@ -27,7 +31,10 @@ def __flatten_json(js, expand_all=False):
 
 @ray.remote
 def __fmp_worker(worker_id, main_ctx, file_path, symbol, file_postfix, url):
-    logger = main_ctx.get_logger(f'worker-{worker_id}')
+    # Setup multiprocessing logger for Ray worker
+    setup_logger_for_multiprocessing()
+    logger = get_logger(f'fmp.worker-{worker_id}')
+
     ret = True
     while True:
         try:
@@ -80,13 +87,14 @@ def __fmp_worker(worker_id, main_ctx, file_path, symbol, file_postfix, url):
     return worker_id, ret
 
 def fetch_fmp(main_ctx, api_list):
-    logger = main_ctx.get_logger('fmp_fetch')
+    logger = get_logger('fmp.fetch')
+
     # Limit workers to avoid API rate limits (was: cpu_count())
     # Ray handles I/O-bound tasks efficiently, but FMP API has rate limits
     # Recommended: 4-8 workers for external API calls
     worker_num = min(8, os.cpu_count())
     ray.init(num_cpus=worker_num, local_mode=False) # True면 디버깅모드
-    logger.info(f'ray init / worker num: {worker_num} (max: {os.cpu_count()})')
+    logger.info(f'✅ Ray initialized: {worker_num} workers (max: {os.cpu_count()})')
 
 
     # normal api
