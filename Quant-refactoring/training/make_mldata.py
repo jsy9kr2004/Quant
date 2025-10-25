@@ -6,10 +6,11 @@ import pandas as pd
 
 from tqdm import tqdm
 from tsfresh import extract_features
-from tsfresh.feature_extraction import EfficientFCParameters, ComprehensiveFCParameters, MinimalFCParameters        
+from tsfresh.feature_extraction import EfficientFCParameters, ComprehensiveFCParameters, MinimalFCParameters
 from dateutil.relativedelta import relativedelta
 from functools import reduce
 from config.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, cal_timefeature_col_list
+from config.logger import get_logger
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from warnings import simplefilter
 import warnings
@@ -40,10 +41,12 @@ class AIDataMaker:
         """
         self.main_ctx = main_ctx
         self.conf = conf
+        self.logger = get_logger('AIDataMaker')
+
         # BACKTEST 섹션에서 REBALANCE_PERIOD 가져오기 (기본값: 3개월)
         backtest_config = conf.get('BACKTEST', {})
         self.rebalance_period = backtest_config.get('REBALANCE_PERIOD', 3)
-        
+
         self.symbol_table = pd.DataFrame()
         self.price_table = pd.DataFrame()
         self.fs_table = pd.DataFrame()
@@ -82,7 +85,7 @@ class AIDataMaker:
         for year in range(self.main_ctx.start_year-3, self.main_ctx.end_year+1):
             fs_file = self.main_ctx.root_path + "/VIEW/financial_statement_" + str(year) + ".csv"
             if not os.path.exists(fs_file):
-                logging.warning(f"Financial statement file not found, skipping: {fs_file}")
+                self.logger.warning(f"Financial statement file not found, skipping: {fs_file}")
                 print(f"WARNING: Financial statement file not found for year {year}")
                 continue
             tmp_fs = pd.read_csv(fs_file,
@@ -100,7 +103,7 @@ class AIDataMaker:
         for year in range(self.main_ctx.start_year-3, self.main_ctx.end_year+1):
             metrics_file = self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".csv"
             if not os.path.exists(metrics_file):
-                logging.warning(f"Metrics file not found, skipping: {metrics_file}")
+                self.logger.warning(f"Metrics file not found, skipping: {metrics_file}")
                 print(f"WARNING: Metrics file not found for year {year}")
                 continue
             tmp_metrics = pd.read_csv(metrics_file,
@@ -150,9 +153,9 @@ class AIDataMaker:
             tdate = self.get_trade_date(date)
             if tdate is None:
                 # trade date를 못찾은 경우: price_table에 해당 기간 데이터가 없음
-                logging.warning(f"⚠️  Cannot find tradable date for {date.strftime('%Y-%m-%d')}")
-                logging.warning(f"   Price data range: {price_min_date.strftime('%Y-%m-%d')} to {price_max_date.strftime('%Y-%m-%d')}")
-                logging.warning(f"   Skipping dates before price data is available...")
+                self.logger.warning(f"⚠️  Cannot find tradable date for {date.strftime('%Y-%m-%d')}")
+                self.logger.warning(f"   Price data range: {price_min_date.strftime('%Y-%m-%d')} to {price_max_date.strftime('%Y-%m-%d')}")
+                self.logger.warning(f"   Skipping dates before price data is available...")
                 print(f"⚠️  WARNING: Skipping {date.strftime('%Y-%m-%d')} - no price data available")
                 # 데이터가 없는 초기 날짜는 건너뛰고 계속 진행
                 continue
@@ -160,10 +163,10 @@ class AIDataMaker:
 
         if not trade_date_list:
             error_msg = f"❌ FATAL: No valid trading dates found! Price data range: {price_min_date} to {price_max_date}"
-            logging.error(error_msg)
+            self.logger.error(error_msg)
             raise ValueError(error_msg)
 
-        logging.info(f"✅ Found {len(trade_date_list)} valid trading dates")
+        self.logger.info(f"✅ Found {len(trade_date_list)} valid trading dates")
         return trade_date_list
         
         
@@ -364,7 +367,7 @@ class AIDataMaker:
 
                 # window_data가 비어있는 경우 처리
                 if window_data.empty:
-                    logging.warning(f"No data available for {cur_year}_{quarter_str}. Skipping...")
+                    self.logger.warning(f"No data available for {cur_year}_{quarter_str}. Skipping...")
                     print(f"⚠️  WARNING: No data for {cur_year}_{quarter_str} - skipping file generation")
                     continue
 
@@ -377,7 +380,7 @@ class AIDataMaker:
 
                 # 필터링 후에도 비어있는지 확인
                 if window_data.empty:
-                    logging.warning(f"No symbols with sufficient data (12+ rows) for {cur_year}_{quarter_str}. Skipping...")
+                    self.logger.warning(f"No symbols with sufficient data (12+ rows) for {cur_year}_{quarter_str}. Skipping...")
                     print(f"⚠️  WARNING: No symbols with 12+ data points for {cur_year}_{quarter_str} - skipping")
                     continue                
                 # window_data.to_csv(self.main_ctx.root_path + f"/window_data2_{str(cur_year)}.csv", index=False)
@@ -463,11 +466,11 @@ class AIDataMaker:
                         cur_table_for_ai.loc[sec_mask, 'sec_price_dev_subavg'] = cur_table_for_ai.loc[sec_mask, 'price_dev'] - sec_mean
                     # Parquet 형식으로 저장 (70-90% 압축, 5-10배 빠른 읽기)
                     cur_table_for_ai.to_parquet(file2_path, engine='pyarrow', compression='snappy', index=False)
-                    logging.info(f"✅ Saved ML data: {os.path.basename(file2_path)}")
+                    self.logger.info(f"✅ Saved ML data: {os.path.basename(file2_path)}")
                         
                     # # N% 넘게 비어있는 row drop
-                    # logging.info("before fs_metric len : {}".format(len(cur_table_for_ai)))
+                    # self.logger.info("before fs_metric len : {}".format(len(cur_table_for_ai)))
                     # cur_table_for_ai['nan_count_per_row'] = cur_table_for_ai.isnull().sum(axis=1)
                     # filtered_row = cur_table_for_ai['nan_count_per_row'] < int(len(cur_table_for_ai.columns)*0.7)
                     # cur_table_for_ai = cur_table_for_ai.loc[filtered_row,:]
-                    # logging.info("after fs_metric len : {}".format(len(cur_table_for_ai)))
+                    # self.logger.info("after fs_metric len : {}".format(len(cur_table_for_ai)))
