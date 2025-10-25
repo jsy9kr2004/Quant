@@ -78,22 +78,34 @@ class AIDataMaker:
 
         self.fs_table = pd.DataFrame()
         for year in range(self.main_ctx.start_year-3, self.main_ctx.end_year+1):
-            tmp_fs = pd.read_csv(self.main_ctx.root_path + "/VIEW/financial_statement_" + str(year) + ".csv",
+            fs_file = self.main_ctx.root_path + "/VIEW/financial_statement_" + str(year) + ".csv"
+            if not os.path.exists(fs_file):
+                logging.warning(f"Financial statement file not found, skipping: {fs_file}")
+                print(f"WARNING: Financial statement file not found for year {year}")
+                continue
+            tmp_fs = pd.read_csv(fs_file,
                                     parse_dates=['fillingDate_x', 'acceptedDate_x'],
                                     dtype={'reportedCurrency_x': str, 'period_x': str,
                                         'link_x': str, 'finalLink_x': str})
             self.fs_table = pd.concat([tmp_fs, self.fs_table])
-        del tmp_fs
+        if not self.fs_table.empty:
+            pass  # tmp_fs는 마지막 iteration에서만 정의됨
         self.fs_table['date'] = pd.to_datetime(self.fs_table['date'])
         self.fs_table['fillingDate'] = pd.to_datetime(self.fs_table['fillingDate'])
         self.fs_table['acceptedDate'] = pd.to_datetime(self.fs_table['acceptedDate'])
 
         self.metrics_table = pd.DataFrame()
         for year in range(self.main_ctx.start_year-3, self.main_ctx.end_year+1):
-            tmp_metrics = pd.read_csv(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".csv",
+            metrics_file = self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".csv"
+            if not os.path.exists(metrics_file):
+                logging.warning(f"Metrics file not found, skipping: {metrics_file}")
+                print(f"WARNING: Metrics file not found for year {year}")
+                continue
+            tmp_metrics = pd.read_csv(metrics_file,
                                         dtype={'period_x': str, 'period_y': str})
             self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
-        del tmp_metrics
+        if not self.metrics_table.empty:
+            pass  # tmp_metrics는 마지막 iteration에서만 정의됨
         self.metrics_table['date'] = pd.to_datetime(self.metrics_table['date'])
         
     def get_trade_date(self, pdate):
