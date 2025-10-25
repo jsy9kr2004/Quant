@@ -125,7 +125,13 @@ class Regressor:
     def dataload(self):
         for fpath in self.train_files:
             print(fpath)
-            df = pd.read_csv(fpath)
+            # 파일이 없으면 건너뛰기
+            if not os.path.exists(fpath):
+                logging.warning(f"Train file not found, skipping: {fpath}")
+                print(f"WARNING: Train file not found, skipping: {fpath}")
+                continue
+            # DtypeWarning 방지: low_memory=False 추가
+            df = pd.read_csv(fpath, low_memory=False)
             df = df.dropna(axis=0, subset=['price_diff'])
             self.train_df = pd.concat([self.train_df, df], axis=0)
         # 의미없는 column 날리기
@@ -180,7 +186,13 @@ class Regressor:
         self.test_df_list = []
         for fpath in self.test_files:
             print(fpath)
-            df = pd.read_csv(fpath)
+            # 파일이 없으면 건너뛰기
+            if not os.path.exists(fpath):
+                logging.warning(f"Test file not found, skipping: {fpath}")
+                print(f"WARNING: Test file not found, skipping: {fpath}")
+                continue
+            # DtypeWarning 방지: low_memory=False 추가
+            df = pd.read_csv(fpath, low_memory=False)
             df = df.dropna(axis=0, subset=['price_diff'])
             df = df.drop(columns=columns_to_drop, errors='ignore')
             
