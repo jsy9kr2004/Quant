@@ -156,8 +156,12 @@ class MainContext:
         self.end_year = int(data_config.get('END_YEAR', 2023))
         self.root_path = data_config.get('ROOT_PATH', '/home/user/Quant/data')
 
+        # FMP 관련 설정
+        self.target_api_list = data_config.get('TARGET_API_LIST', 'data_collector/target_api_list.csv')
+
         # 로깅 설정
         self.log_lvl = int(config.get('LOG_LVL', 20))
+        self.log_path = "log.txt"
         self.set_default_logger()
 
         logging.info("="*80)
@@ -193,6 +197,40 @@ class MainContext:
                 logging.StreamHandler()
             ]
         )
+
+    def get_logger(self, logger_name: str):
+        """
+        로거 생성 (기존 FMP 호환성을 위해)
+
+        Args:
+            logger_name: 로거 이름
+
+        Returns:
+            로거 인스턴스
+        """
+        logger = logging.getLogger(logger_name)
+
+        # 최초 호출 시만 핸들러 추가
+        if len(logger.handlers) == 0:
+            logger.setLevel(self.log_lvl)
+
+            formatter = logging.Formatter(
+                '[%(asctime)s][%(levelname)s][%(logger_name)s] '
+                '%(message)s (%(filename)s:%(lineno)d)'
+            )
+
+            stream_handler = logging.StreamHandler()
+            stream_handler.setFormatter(formatter)
+            logger.addHandler(stream_handler)
+
+            file_handler = logging.FileHandler(self.log_path, mode="a+")
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+
+        extra = {'logger_name': logger_name}
+        logger = logging.LoggerAdapter(logger, extra)
+
+        return logger
 
 
 def load_config(config_path: str = "config/conf.yaml") -> Dict[str, Any]:
