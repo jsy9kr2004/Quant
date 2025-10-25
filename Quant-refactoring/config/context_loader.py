@@ -160,6 +160,9 @@ class MainContext:
         self.root_path = data_config.get('ROOT_PATH', '/home/user/Quant/data')
 
         # FMP 관련 설정
+        self.fmp_url = data_config.get('FMP_URL', 'https://financialmodelingprep.com')
+        self.api_key = data_config.get('API_KEY', '')
+        self.ex_symbol = data_config.get('EX_SYMBOL', 'AAPL')  # Example symbol for URL parsing
         self.target_api_list = data_config.get('TARGET_API_LIST', 'data_collector/target_api_list.csv')
 
         # 로깅 설정 (새로운 통합 시스템 사용)
