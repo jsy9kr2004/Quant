@@ -342,14 +342,14 @@ class AIDataMaker:
             root_path = self.main_ctx.root_path
             
             for quarter_str, quarter in [('Q1', 0.2), ('Q2', 0.4), ('Q3', 0.6), ('Q4', 0.8)]: #1Q, 2Q, 3Q, 4Q
-                base_year_period = cur_year + quarter            
-                # y값 없는 데이터
-                file_path = os.path.join(self.main_ctx.root_path, "ml_per_year", f"rnorm_fs_{str(cur_year)}_{quarter_str}.csv")
-                # y값(가격 변화량)있는 데이터
-                file2_path = os.path.join(self.main_ctx.root_path, "ml_per_year", f"rnorm_ml_{str(cur_year)}_{quarter_str}.csv")
+                base_year_period = cur_year + quarter
+                # y값 없는 데이터 (Parquet 형식으로 변경)
+                file_path = os.path.join(self.main_ctx.root_path, "ml_per_year", f"rnorm_fs_{str(cur_year)}_{quarter_str}.parquet")
+                # y값(가격 변화량)있는 데이터 (Parquet 형식으로 변경)
+                file2_path = os.path.join(self.main_ctx.root_path, "ml_per_year", f"rnorm_ml_{str(cur_year)}_{quarter_str}.parquet")
                 if os.path.isfile(file2_path):
-                    print(f"*** there is csv file {str(cur_year)}_{quarter_str}")
-                    print(f"*** there is csv file {str(cur_year)}_{quarter_str}")
+                    print(f"*** there is parquet file {str(cur_year)}_{quarter_str}")
+                    print(f"*** there is parquet file {str(cur_year)}_{quarter_str}")
                     continue
                 
                 print(base_year_period)
@@ -440,10 +440,11 @@ class AIDataMaker:
 
                     # price 정보가 없는 최신 데이터를 위한 처리
                     symbol_industry = table_for_ai[['symbol', 'industry', 'volume_mul_price']]
-                    symbol_industry = symbol_industry.drop_duplicates('symbol', keep='first')                    
+                    symbol_industry = symbol_industry.drop_duplicates('symbol', keep='first')
                     fs_df = pd.merge(symbol_industry, scaled_df, how='inner', on=['symbol'])
                     fs_df["sector"] = fs_df["industry"].map(sector_map)
-                    fs_df.to_csv(file_path)
+                    # Parquet 형식으로 저장 (70-90% 압축, 빠른 읽기)
+                    fs_df.to_parquet(file_path, engine='pyarrow', compression='snappy', index=False)
                         
                     cur_table_for_ai = pd.merge(table_for_ai, scaled_df, how='inner', on=['symbol','rebalance_date'])                                        
                     
@@ -460,7 +461,9 @@ class AIDataMaker:
                         sec_mask = cur_table_for_ai['sector'] == sec
                         sec_mean = cur_table_for_ai.loc[sec_mask, 'price_dev'].mean()
                         cur_table_for_ai.loc[sec_mask, 'sec_price_dev_subavg'] = cur_table_for_ai.loc[sec_mask, 'price_dev'] - sec_mean
-                    cur_table_for_ai.to_csv(file2_path, index=False)
+                    # Parquet 형식으로 저장 (70-90% 압축, 5-10배 빠른 읽기)
+                    cur_table_for_ai.to_parquet(file2_path, engine='pyarrow', compression='snappy', index=False)
+                    logging.info(f"✅ Saved ML data: {os.path.basename(file2_path)}")
                         
                     # # N% 넘게 비어있는 row drop
                     # logging.info("before fs_metric len : {}".format(len(cur_table_for_ai)))
