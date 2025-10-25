@@ -18,6 +18,8 @@ pd.options.display.width = 30
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 # Numpy의 All-NaN slice 경고 무시 (데이터 검증은 코드에서 수행)
 warnings.filterwarnings('ignore', category=RuntimeWarning, message='All-NaN slice encountered')
+# Pandas FutureWarning: groupby().apply() 경고 무시 (group_keys=False 사용 중)
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*grouping columns.*')
 
 class AIDataMaker:
     # tsfresh로 시계열 feature 뽑으면 feature 수가 너무 많아서 feature(column)수 줄이기 위해 특정 feature 명 추출
@@ -141,14 +143,27 @@ class AIDataMaker:
     def set_trade_date_list(self, date_list):
         """rebalance date list를 실제 거래일로 보정"""
         trade_date_list = []
+        price_min_date = self.price_table["date"].min()
+        price_max_date = self.price_table["date"].max()
+
         for date in date_list:
             tdate = self.get_trade_date(date)
             if tdate is None:
-                # trade date를 못찾은 경우인데 있으면 안됨
-                logging.error("tradable date is None. break")
-                print("tradable date is None. break")
-                break  
-            trade_date_list.append(tdate)        
+                # trade date를 못찾은 경우: price_table에 해당 기간 데이터가 없음
+                logging.warning(f"⚠️  Cannot find tradable date for {date.strftime('%Y-%m-%d')}")
+                logging.warning(f"   Price data range: {price_min_date.strftime('%Y-%m-%d')} to {price_max_date.strftime('%Y-%m-%d')}")
+                logging.warning(f"   Skipping dates before price data is available...")
+                print(f"⚠️  WARNING: Skipping {date.strftime('%Y-%m-%d')} - no price data available")
+                # 데이터가 없는 초기 날짜는 건너뛰고 계속 진행
+                continue
+            trade_date_list.append(tdate)
+
+        if not trade_date_list:
+            error_msg = f"❌ FATAL: No valid trading dates found! Price data range: {price_min_date} to {price_max_date}"
+            logging.error(error_msg)
+            raise ValueError(error_msg)
+
+        logging.info(f"✅ Found {len(trade_date_list)} valid trading dates")
         return trade_date_list
         
         
@@ -346,12 +361,25 @@ class AIDataMaker:
                 # FutureWarning 방지: include_groups=False 추가
                 window_data = filtered_data.groupby('symbol', group_keys=False).apply(get_last_12_rows).reset_index(drop=True)
                 print(window_data)
+
+                # window_data가 비어있는 경우 처리
+                if window_data.empty:
+                    logging.warning(f"No data available for {cur_year}_{quarter_str}. Skipping...")
+                    print(f"⚠️  WARNING: No data for {cur_year}_{quarter_str} - skipping file generation")
+                    continue
+
                 # 'symbol' 별로 row 수를 세는 코드
                 symbol_counts = window_data['symbol'].value_counts()
                 # row 수가 12개 미만인 'symbol'을 필터링하는 코드
                 symbols_to_remove = symbol_counts[symbol_counts < 12].index
                 # window_data에서 해당 'symbol'을 제거하는 코드
-                window_data = window_data[~window_data['symbol'].isin(symbols_to_remove)]                
+                window_data = window_data[~window_data['symbol'].isin(symbols_to_remove)]
+
+                # 필터링 후에도 비어있는지 확인
+                if window_data.empty:
+                    logging.warning(f"No symbols with sufficient data (12+ rows) for {cur_year}_{quarter_str}. Skipping...")
+                    print(f"⚠️  WARNING: No symbols with 12+ data points for {cur_year}_{quarter_str} - skipping")
+                    continue                
                 # window_data.to_csv(self.main_ctx.root_path + f"/window_data2_{str(cur_year)}.csv", index=False)
 
                 df_for_extract_feature = pd.DataFrame()

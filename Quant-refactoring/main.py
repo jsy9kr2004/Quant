@@ -162,7 +162,7 @@ def main():
 
         try:
             from data_collector.fmp import FMP
-            fmp = FMP(config, main_ctx)
+            fmp = FMP(main_ctx)  # FMP는 main_ctx만 받음
             fmp.get_new()
 
             # Parquet 저장소로 변환

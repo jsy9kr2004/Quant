@@ -226,10 +226,17 @@ class Regressor:
         # self.train_df.to_csv(self.root_path + '/train_df.csv', index=False)
         # self.test_df.to_csv(self.root_path + '/test_df.csv', index=False)
 
+        # 학습 데이터가 없는 경우 처리 (치명적 오류)
+        if self.train_df.empty:
+            error_msg = "❌ FATAL ERROR: No training data available! Cannot train models without data."
+            logging.error(error_msg)
+            print(f"\n{error_msg}\n")
+            raise ValueError("No training data files found. Please check your data directory and configuration.")
+
         positive_count = (self.train_df['price_dev'] > 0).sum()
         negative_count = (self.train_df['price_dev'] < 0).sum()
         logging.info("positive # : {}, negative # : {}".format(positive_count, negative_count))
-        
+
         self.x_train = self.train_df[self.train_df.columns.difference(y_col_list)]
         self.y_train = self.train_df[['price_dev_subavg']]
         self.y_train_cls = self.train_df[['price_dev']]
@@ -238,10 +245,23 @@ class Regressor:
             print("sector : ", sec)
             self.sector_x_train[sec] = self.sector_train_dfs[sec][self.sector_train_dfs[sec].columns.difference(y_col_list)]
             self.sector_y_train[sec] = self.sector_train_dfs[sec][['sec_price_dev_subavg']]
-        
-        self.x_test = self.test_df[self.test_df.columns.difference(y_col_list)]
-        self.y_test = self.test_df[['price_dev_subavg']]
-        self.y_test_cls = self.test_df[['price_dev']]
+
+        # 테스트 데이터가 없는 경우 처리
+        if self.test_df.empty:
+            logging.warning("=" * 80)
+            logging.warning("⚠️  No test data available!")
+            logging.warning("All test files were missing. Creating empty test datasets.")
+            logging.warning("Model evaluation and testing will be skipped.")
+            logging.warning("=" * 80)
+            print("\n⚠️  WARNING: No test data available. Creating empty test datasets.\n")
+            # 빈 DataFrame 생성 (학습 데이터와 같은 컬럼 구조)
+            self.x_test = pd.DataFrame(columns=self.x_train.columns)
+            self.y_test = pd.DataFrame(columns=['price_dev_subavg'])
+            self.y_test_cls = pd.DataFrame(columns=['price_dev'])
+        else:
+            self.x_test = self.test_df[self.test_df.columns.difference(y_col_list)]
+            self.y_test = self.test_df[['price_dev_subavg']]
+            self.y_test_cls = self.test_df[['price_dev']]
     
     def def_model(self):
         self.clsmodels[0] = xgboost.XGBClassifier(tree_method='gpu_hist', gpu_id=0, n_estimators=500, learning_rate=0.1, gamma=0, subsample=0.8,
