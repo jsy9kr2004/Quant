@@ -124,10 +124,9 @@ class FMP:
         if os.path.isdir(path) is False:
             return
         for file in os.listdir(path):
-            if only_csv is True and not file.endswith(".csv"):
+            if only_csv is True and not (file.endswith(".csv") or file.endswith(".csvx")):
                 continue
-            else:
-                os.remove(os.path.join(path, file))
+            os.remove(os.path.join(path, file))
 
     def remove_current_list_files(self, base_path, check_target=True):
         """
@@ -258,15 +257,15 @@ class FMP:
         
         api_list = self.__get_api_list() # query_parmas_str -> condition_str
 
-        # if self.skip_remove_check() is False:
-        #     self.remove_first_loop()
+        if self.skip_remove_check() is False:
+            self.remove_first_loop()
 
         self.__fetch_ticker_list(api_list)
         self.__set_symbol() # symbol에 etf symbol 추가하는거 빼먹음
         print("after set_symbol : {}".format(self.symbol_list))
 
-        # if self.skip_remove_check() is False:
-        #     self.remove_second_loop()
+        if self.skip_remove_check() is False:
+            self.remove_second_loop()
 
         self.__fetch_data(api_list)
 
