@@ -92,9 +92,9 @@ class FMPAPI():
         for symbol in self.symbol_list:
             if os.path.isfile(f'{self.file_path}/{symbol+file_postfix}.csv') \
                or os.path.isfile(f'{self.file_path}/{symbol+file_postfix}.csvx'):
-                self.fmp_api_logger.error(f'Already Exist {self.file_path}/{symbol+file_postfix}.csv/csvx')
-                raise Exception(f'Already Exist {self.file_path}/{symbol+file_postfix}.csv/csvx')
-                
+                self.fmp_api_logger.info(f'Skip existing file: {self.file_path}/{symbol+file_postfix}.csv/csvx')
+                continue
+
             api_list.append([self.file_path, symbol, file_postfix, self.__full_url(symbol)])
         return api_list
             
