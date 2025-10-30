@@ -1,32 +1,31 @@
-"""Data validation module for Parquet files.
+"""Parquet 파일을 위한 데이터 검증 모듈입니다.
 
-This module provides comprehensive data quality validation for Parquet files
-used in financial data pipelines. It validates schema compliance, data types,
-null values, data quality metrics, and domain-specific business rules.
+이 모듈은 금융 데이터 파이프라인에서 사용되는 Parquet 파일에 대한 포괄적인
+데이터 품질 검증을 제공합니다. 스키마 준수, 데이터 타입, null 값, 데이터 품질 메트릭,
+도메인 특정 비즈니스 규칙을 검증합니다.
 
-The DataValidator class implements configurable validation rules for different
-table types and generates detailed validation reports including errors,
-warnings, and statistics.
+DataValidator 클래스는 다양한 테이블 유형에 대한 설정 가능한 검증 규칙을 구현하고
+오류, 경고, 통계를 포함한 상세한 검증 보고서를 생성합니다.
 
-Validation checks include:
-    - Required column presence
-    - Null value validation for critical columns
-    - Minimum row count thresholds
-    - Data type validation (especially datetime columns)
-    - Duplicate detection
-    - Data quality metrics (null percentages, etc.)
-    - Date range validation
+검증 항목:
+    - 필수 컬럼 존재 여부
+    - 중요 컬럼의 null 값 검증
+    - 최소 행 수 임계값
+    - 데이터 타입 검증 (특히 datetime 컬럼)
+    - 중복 감지
+    - 데이터 품질 메트릭 (null 비율 등)
+    - 날짜 범위 검증
 
 Example:
-    Basic validation workflow::
+    기본 검증 워크플로우::
 
         from storage import DataValidator
         import pandas as pd
 
-        # Initialize validator
+        # 검증기 초기화
         validator = DataValidator()
 
-        # Validate a single file
+        # 단일 파일 검증
         result = validator.validate_file(
             file_path='/data/parquet/stock_prices.parquet',
             table_name='price'
@@ -40,10 +39,10 @@ Example:
             for error in result['errors']:
                 print(f"  - {error}")
 
-        # Validate all files in a directory
+        # 디렉토리의 모든 파일 검증
         all_results = validator.validate_all('/data/parquet/')
 
-        # Generate a detailed report
+        # 상세 보고서 생성
         report_path = validator.generate_report(
             all_results,
             output_file='validation_report.txt'
