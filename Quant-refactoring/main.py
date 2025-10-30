@@ -455,10 +455,45 @@ def main() -> None:
         logger.info("Step 1: FMP Data Collection")
         logger.info("="*80)
 
+        # Check if we should use legacy FMP or refactored FMP
+        use_legacy = data_config.get('USE_LEGACY_FMP', 'N') == 'Y'
+
         try:
-            from data_collector.fmp import FMP
-            fmp = FMP(main_ctx)
-            fmp.collect()
+            if use_legacy:
+                logger.info("🔄 Using LEGACY FMP (root fmp.py)")
+                # Import legacy FMP from parent directory
+                sys.path.insert(0, str(Path(__file__).parent.parent))
+                from fmp import FMP as LegacyFMP
+
+                # Legacy FMP uses old config format
+                legacy_config = {
+                    'START_YEAR': data_config.get('START_YEAR'),
+                    'END_YEAR': data_config.get('END_YEAR'),
+                    'ROOT_PATH': data_config.get('ROOT_PATH'),
+                    'FMP_URL': data_config.get('FMP_URL'),
+                    'API_KEY': data_config.get('API_KEY'),
+                    'EX_SYMBOL': data_config.get('EX_SYMBOL'),
+                    'TARGET_STOCK_LIST': data_config.get('TARGET_STOCK_LIST'),
+                    'TARGET_API_LIST': data_config.get('TARGET_API_LIST'),
+                }
+
+                # Create legacy MainCtx object
+                class LegacyMainCtx:
+                    def __init__(self, conf):
+                        self.start_year = int(conf['START_YEAR'])
+                        self.end_year = int(conf['END_YEAR'])
+                        self.root_path = conf['ROOT_PATH']
+
+                legacy_ctx = LegacyMainCtx(legacy_config)
+                fmp = LegacyFMP(legacy_config, legacy_ctx)
+                fmp.get_new()
+
+                logger.info("✅ Legacy FMP data collection completed")
+            else:
+                logger.info("✨ Using REFACTORED FMP (data_collector/fmp.py)")
+                from data_collector.fmp import FMP
+                fmp = FMP(main_ctx)
+                fmp.collect()
 
             # Convert to Parquet format for efficient storage and retrieval
             if storage_type == 'PARQUET':
