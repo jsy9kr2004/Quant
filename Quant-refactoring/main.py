@@ -483,6 +483,55 @@ def main() -> None:
                         self.start_year = int(conf['START_YEAR'])
                         self.end_year = int(conf['END_YEAR'])
                         self.root_path = conf['ROOT_PATH']
+                        self.log_lvl = config.get('LOG_LVL', 20)  # Default INFO level
+                        self.set_default_logger()
+
+                    @staticmethod
+                    def create_dir(path):
+                        """Create directory if it doesn't exist"""
+                        if not os.path.exists(path):
+                            logging.info('Creating Folder "{}" ...'.format(path))
+                            try:
+                                os.makedirs(path)
+                                return True
+                            except OSError:
+                                logging.error('Cannot Creating "{}" directory.'.format(path))
+                                return False
+
+                    def get_multi_logger(self):
+                        """Get multiprocessing-safe logger"""
+                        log_path = "log.txt"
+                        import multiprocessing
+                        multiprocessing.freeze_support()
+                        multi_logger = logging.getLogger("multi")
+                        multi_logger.setLevel(self.log_lvl)
+
+                        formatter = logging.Formatter(
+                            '[%(asctime)s][%(processName)s] %(message)s (%(filename)s:%(lineno)d)'
+                        )
+
+                        stream_handler = logging.StreamHandler()
+                        stream_handler.setFormatter(formatter)
+                        multi_logger.addHandler(stream_handler)
+
+                        file_handler = logging.FileHandler(log_path, mode="a+")
+                        file_handler.setFormatter(formatter)
+                        multi_logger.addHandler(file_handler)
+
+                        return multi_logger
+
+                    def set_default_logger(self):
+                        """Set default logger configuration"""
+                        log_path = "log.txt"
+                        logging.basicConfig(
+                            level=self.log_lvl,
+                            format='[%(asctime)s][%(levelname)s][%(processName)s] '
+                                   '%(message)s (%(filename)s:%(lineno)d)',
+                            handlers=[
+                                logging.FileHandler(log_path, mode='a+'),
+                                logging.StreamHandler()
+                            ]
+                        )
 
                 legacy_ctx = LegacyMainCtx(legacy_config)
                 fmp = LegacyFMP(legacy_config, legacy_ctx)
