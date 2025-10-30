@@ -1,39 +1,147 @@
-"""
-Parquet storage module with automatic validation and sample generation
+"""Parquet storage module with automatic validation and sample generation.
+
+This module provides a comprehensive ParquetStorage class for managing Parquet files
+with built-in validation, sample generation, and metadata tracking. It supports
+automatic compression, partitioning, and data quality checks.
+
+The ParquetStorage class wraps PyArrow Parquet operations and adds:
+    - Automatic data validation after saving
+    - Sample CSV generation for quick inspection
+    - Compression statistics and reporting
+    - Metadata querying without loading full datasets
+    - Batch validation of all stored tables
+
+Example:
+    Basic usage with automatic validation::
+
+        from storage import ParquetStorage
+        import pandas as pd
+
+        # Initialize storage with auto-validation enabled
+        storage = ParquetStorage(
+            root_path="/data/stocks",
+            auto_validate=True
+        )
+
+        # Save a DataFrame with compression
+        df = pd.DataFrame({
+            'symbol': ['AAPL', 'GOOGL', 'MSFT'],
+            'price': [150.0, 2800.0, 300.0]
+        })
+
+        success = storage.save_parquet(
+            df=df,
+            name='stock_prices',
+            compression='snappy',
+            save_sample=True
+        )
+
+        # Load data with column filtering
+        df_loaded = storage.load_parquet(
+            name='stock_prices',
+            columns=['symbol', 'price']
+        )
+
+        # Get file info without loading data
+        info = storage.get_info('stock_prices')
+        print(f"Rows: {info['rows']}, Size: {info['size_mb']:.2f} MB")
+
+Attributes:
+    Module-level exports: ParquetStorage, DataValidator
 """
 
 import logging
 import pandas as pd
 from pathlib import Path
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Dict, Any
 from .data_validator import DataValidator
 
 
 class ParquetStorage:
-    """
-    개선된 Parquet 저장소 (검증 기능 포함)
+    """Enhanced Parquet storage manager with validation and sample generation.
 
-    Features:
-    - Automatic validation after saving
-    - Sample CSV generation for quick inspection
-    - Efficient compression with configurable algorithms
-    - Metadata tracking
+    This class provides a high-level interface for storing and retrieving Parquet
+    files with automatic data validation, sample CSV generation, and comprehensive
+    metadata tracking. It handles directory structure creation, compression,
+    partitioning, and quality checks.
+
+    The storage creates three main directories:
+        - parquet/: Main storage for Parquet files
+        - VIEW/: View tables for processed data
+        - samples/: CSV samples for quick inspection
+
+    Attributes:
+        root_path (Path): Root directory for all storage operations.
+        parquet_path (Path): Directory where Parquet files are stored.
+        view_path (Path): Directory for view tables.
+        sample_path (Path): Directory for sample CSV files.
+        auto_validate (bool): Whether to automatically validate data after saving.
+        validator (DataValidator): Validator instance for data quality checks.
+
+    Example:
+        Initialize storage and save data with partitioning::
+
+            storage = ParquetStorage(
+                root_path="/data/financial",
+                auto_validate=True
+            )
+
+            # Save with year partitioning
+            df = pd.DataFrame({
+                'date': pd.date_range('2020-01-01', periods=1000),
+                'symbol': ['AAPL'] * 1000,
+                'price': range(1000),
+                'year': [2020] * 1000
+            })
+
+            storage.save_parquet(
+                df=df,
+                name='prices',
+                partition_cols=['year'],
+                compression='zstd'
+            )
+
+            # List all stored tables
+            tables = storage.list_tables()
+            print(f"Stored tables: {tables}")
+
+            # Validate all tables
+            results = storage.validate_all_tables()
     """
 
-    def __init__(self, root_path: str, auto_validate: bool = True):
-        """
-        Initialize ParquetStorage
+    def __init__(self, root_path: str, auto_validate: bool = True) -> None:
+        """Initialize ParquetStorage with directory structure.
+
+        Creates necessary directories for Parquet storage, views, and samples.
+        Initializes the data validator for quality checks.
 
         Args:
-            root_path: 루트 데이터 경로
-            auto_validate: 저장 후 자동 검증 여부
+            root_path (str): Root directory path for all data storage. Will be
+                created if it doesn't exist.
+            auto_validate (bool, optional): If True, automatically validates data
+                after saving. Defaults to True.
+
+        Example:
+            Initialize storage with custom validation settings::
+
+                # With auto-validation
+                storage = ParquetStorage(
+                    root_path="/data/stocks",
+                    auto_validate=True
+                )
+
+                # Without auto-validation (faster for trusted data)
+                storage_fast = ParquetStorage(
+                    root_path="/data/stocks",
+                    auto_validate=False
+                )
         """
         self.root_path = Path(root_path)
         self.parquet_path = self.root_path / "parquet"
         self.view_path = self.root_path / "VIEW"
         self.sample_path = self.root_path / "samples"
 
-        # 디렉토리 생성
+        # Create directory structure
         self.parquet_path.mkdir(parents=True, exist_ok=True)
         self.view_path.mkdir(parents=True, exist_ok=True)
         self.sample_path.mkdir(parents=True, exist_ok=True)
@@ -50,28 +158,71 @@ class ParquetStorage:
                     save_sample: bool = True,
                     sample_size: int = 100,
                     partition_cols: Optional[List[str]] = None) -> bool:
-        """
-        Parquet 저장 + 검증 + 샘플 CSV 생성
+        """Save DataFrame as Parquet with validation and sample generation.
+
+        Saves a DataFrame to Parquet format with optional compression, partitioning,
+        and automatic validation. Also generates a sample CSV for quick inspection.
+        Logs detailed statistics including file size, compression ratio, and
+        validation results.
 
         Args:
-            df: 저장할 DataFrame
-            name: 테이블 이름
-            compression: 압축 알고리즘 ('snappy', 'gzip', 'zstd', 'brotli')
-            save_sample: 샘플 CSV 생성 여부
-            sample_size: 샘플 행 수
-            partition_cols: 파티션 컬럼 (예: ['year'] - 연도별 분할)
+            df (pd.DataFrame): DataFrame to save. Must not be empty.
+            name (str): Table name (without .parquet extension). Used as filename
+                or directory name if partitioned.
+            compression (str, optional): Compression algorithm. Supported values:
+                'snappy' (fast, default), 'gzip' (smaller), 'zstd' (balanced),
+                'brotli' (smallest). Defaults to 'snappy'.
+            save_sample (bool, optional): If True, saves a sample CSV for quick
+                inspection. Defaults to True.
+            sample_size (int, optional): Number of rows in sample CSV. Defaults to 100.
+            partition_cols (Optional[List[str]], optional): Column names for
+                partitioning. Creates directory structure with partition values.
+                Example: ['year'] creates year=2020/, year=2021/ subdirectories.
+                Defaults to None.
 
         Returns:
-            성공 여부
+            bool: True if save and validation succeeded, False otherwise.
+
+        Raises:
+            Exception: Logs exception if save operation fails, returns False.
+
+        Example:
+            Save with different compression algorithms::
+
+                # Fast compression (default)
+                storage.save_parquet(df, 'fast_data', compression='snappy')
+
+                # Maximum compression
+                storage.save_parquet(df, 'archive_data', compression='brotli')
+
+                # With partitioning by year
+                storage.save_parquet(
+                    df=df,
+                    name='historical_prices',
+                    partition_cols=['year'],
+                    compression='zstd'
+                )
+
+                # Save without sample generation
+                storage.save_parquet(
+                    df=large_df,
+                    name='huge_dataset',
+                    save_sample=False
+                )
+
+        Note:
+            - Partitioned datasets skip automatic validation
+            - Compression ratio is calculated as memory_size / file_size
+            - Validation errors are logged but don't raise exceptions
         """
         file_path = self.parquet_path / f"{name}.parquet"
 
         try:
-            # 1. Parquet 저장
+            # 1. Save to Parquet format
             logging.info(f"Saving {name}.parquet...")
 
             if partition_cols:
-                # 파티셔닝 저장 (디렉토리 구조)
+                # Partitioned save (directory structure)
                 df.to_parquet(
                     self.parquet_path / name,
                     engine='pyarrow',
@@ -81,7 +232,7 @@ class ParquetStorage:
                 )
                 file_path = self.parquet_path / name
             else:
-                # 단일 파일 저장
+                # Single file save
                 df.to_parquet(
                     file_path,
                     engine='pyarrow',
@@ -89,11 +240,11 @@ class ParquetStorage:
                     index=False
                 )
 
-            # 2. 저장 정보 로깅
+            # 2. Calculate and log storage statistics
             if file_path.is_file():
                 file_size = file_path.stat().st_size / 1024**2
             else:
-                # 파티션된 경우 디렉토리 크기 계산
+                # For partitioned datasets, calculate total directory size
                 file_size = sum(f.stat().st_size for f in file_path.rglob('*.parquet')) / 1024**2
 
             memory_size = df.memory_usage(deep=True).sum() / 1024**2
@@ -105,15 +256,15 @@ class ParquetStorage:
             logging.info(f"   💾 Memory size: {memory_size:.2f} MB")
             logging.info(f"   🗜️  Compression ratio: {compression_ratio:.1f}x")
 
-            # 3. 샘플 CSV 생성 (빠른 확인용)
+            # 3. Generate sample CSV for quick inspection
             if save_sample:
                 sample_file = self.sample_path / f"{name}_sample.csv"
                 df.head(sample_size).to_csv(sample_file, index=False)
                 sample_size_kb = sample_file.stat().st_size / 1024
                 logging.info(f"   📄 Sample saved: {sample_file.name} ({sample_size_kb:.1f} KB)")
 
-            # 4. 자동 검증
-            if self.auto_validate and not partition_cols:  # 파티션은 검증 스킵
+            # 4. Automatic validation (skip for partitioned datasets)
+            if self.auto_validate and not partition_cols:
                 logging.info(f"   🔍 Validating {name}...")
                 result = self.validator.validate_file(str(file_path), name)
 
@@ -125,7 +276,7 @@ class ParquetStorage:
                 else:
                     logging.info(f"   ✅ Validation passed")
 
-                    # 경고가 있으면 출력
+                    # Log warnings if present
                     for warning in result['warnings']:
                         logging.warning(f"      ⚠️  {warning}")
 
@@ -139,21 +290,62 @@ class ParquetStorage:
                     name: str,
                     columns: Optional[List[str]] = None,
                     filters: Optional[List] = None) -> pd.DataFrame:
-        """
-        Parquet 파일 로드
+        """Load Parquet file or partitioned dataset into DataFrame.
+
+        Efficiently loads Parquet data with optional column selection and row
+        filtering. Supports both single-file and partitioned datasets. Uses
+        PyArrow for fast I/O operations.
 
         Args:
-            name: 테이블 이름
-            columns: 로드할 컬럼 리스트 (None이면 전체)
-            filters: PyArrow 필터 (예: [('year', '=', 2020)])
+            name (str): Table name (without .parquet extension).
+            columns (Optional[List[str]], optional): List of columns to load.
+                If None, loads all columns. Column filtering reduces memory usage.
+                Defaults to None.
+            filters (Optional[List], optional): PyArrow filter expressions for
+                row filtering. Format: [('column', 'operator', value)].
+                Example: [('year', '=', 2020), ('price', '>', 100)].
+                Defaults to None.
 
         Returns:
-            DataFrame
+            pd.DataFrame: Loaded DataFrame with specified columns and filters applied.
+
+        Raises:
+            FileNotFoundError: If the specified Parquet file or partition doesn't exist.
+
+        Example:
+            Load with various filtering options::
+
+                # Load all data
+                df = storage.load_parquet('stock_prices')
+
+                # Load specific columns only
+                df = storage.load_parquet(
+                    'stock_prices',
+                    columns=['symbol', 'close', 'volume']
+                )
+
+                # Load with row filtering
+                df = storage.load_parquet(
+                    'stock_prices',
+                    filters=[('date', '>=', '2020-01-01')]
+                )
+
+                # Combine column selection and filtering
+                df = storage.load_parquet(
+                    'stock_prices',
+                    columns=['symbol', 'close'],
+                    filters=[('symbol', 'in', ['AAPL', 'GOOGL'])]
+                )
+
+        Note:
+            - Column filtering happens at read time, reducing I/O
+            - PyArrow filters support: =, !=, <, <=, >, >=, in, not in
+            - For partitioned datasets, filters can use partition columns
         """
         file_path = self.parquet_path / f"{name}.parquet"
 
         if not file_path.exists():
-            # 파티션 디렉토리인지 확인
+            # Check if it's a partitioned directory
             partition_path = self.parquet_path / name
             if partition_path.exists() and partition_path.is_dir():
                 file_path = partition_path
@@ -172,22 +364,59 @@ class ParquetStorage:
         logging.info(f"✅ Loaded: {len(df):,} rows, {len(df.columns)} columns")
         return df
 
-    def get_info(self, name: str) -> dict:
-        """
-        Parquet 파일 정보 조회 (메타데이터만, 데이터 로드 없음)
+    def get_info(self, name: str) -> Dict[str, Any]:
+        """Get Parquet file metadata without loading data.
+
+        Retrieves file metadata including schema, row count, and file size without
+        reading the actual data. This is much faster than loading the full dataset.
+        Uses PyArrow's metadata reading capabilities.
 
         Args:
-            name: 테이블 이름
+            name (str): Table name (without .parquet extension).
 
         Returns:
-            파일 정보 딕셔너리
+            Dict[str, Any]: Dictionary containing metadata with keys:
+                - name (str): Table name
+                - rows (int): Number of rows
+                - row_groups (int): Number of row groups
+                - columns (int): Number of columns
+                - column_names (List[str]): List of column names
+                - dtypes (Dict[str, str]): Mapping of column names to data types
+                - size_mb (float): File size in megabytes
+                - created (Optional[str]): Creation metadata if available
+
+                Returns {'error': 'File not found'} if file doesn't exist.
+
+        Example:
+            Query metadata without loading data::
+
+                # Get basic info
+                info = storage.get_info('stock_prices')
+                print(f"Rows: {info['rows']:,}")
+                print(f"Columns: {info['column_names']}")
+                print(f"Size: {info['size_mb']:.2f} MB")
+
+                # Check schema before loading
+                info = storage.get_info('financial_data')
+                if 'revenue' in info['column_names']:
+                    df = storage.load_parquet('financial_data')
+
+                # Get all table sizes
+                for table in storage.list_tables():
+                    info = storage.get_info(table)
+                    print(f"{table}: {info['size_mb']:.2f} MB")
+
+        Note:
+            - Only reads file metadata, not actual data
+            - Much faster than loading the full DataFrame
+            - Does not work with partitioned datasets (directory structure)
         """
         file_path = self.parquet_path / f"{name}.parquet"
 
         if not file_path.exists():
             return {'error': 'File not found'}
 
-        # PyArrow로 메타데이터만 읽기 (빠름)
+        # Read metadata only using PyArrow (fast operation)
         import pyarrow.parquet as pq
 
         parquet_file = pq.ParquetFile(file_path)
@@ -206,14 +435,38 @@ class ParquetStorage:
         }
 
     def list_tables(self) -> List[str]:
-        """저장된 모든 테이블 이름 반환"""
+        """List all stored table names.
+
+        Scans the Parquet directory for both single-file tables and partitioned
+        datasets (directories containing Parquet files). Returns sorted list of
+        table names without file extensions.
+
+        Returns:
+            List[str]: Sorted list of table names (without .parquet extension).
+
+        Example:
+            List and iterate over all tables::
+
+                # Get all table names
+                tables = storage.list_tables()
+                print(f"Found {len(tables)} tables: {tables}")
+
+                # Process all tables
+                for table_name in storage.list_tables():
+                    df = storage.load_parquet(table_name)
+                    print(f"{table_name}: {len(df)} rows")
+
+                # Check if table exists
+                if 'stock_prices' in storage.list_tables():
+                    df = storage.load_parquet('stock_prices')
+        """
         tables = []
 
-        # 파일
+        # Find single Parquet files
         for file_path in self.parquet_path.glob("*.parquet"):
             tables.append(file_path.stem)
 
-        # 파티션 디렉토리
+        # Find partitioned directories
         for dir_path in self.parquet_path.iterdir():
             if dir_path.is_dir() and list(dir_path.glob("*.parquet")):
                 tables.append(dir_path.name)
@@ -221,7 +474,38 @@ class ParquetStorage:
         return sorted(tables)
 
     def delete_table(self, name: str) -> bool:
-        """테이블 삭제"""
+        """Delete a table and its associated files.
+
+        Removes the Parquet file or partitioned directory and any associated
+        sample CSV files. Handles both single-file and partitioned datasets.
+
+        Args:
+            name (str): Table name to delete (without .parquet extension).
+
+        Returns:
+            bool: True if deletion succeeded, False if table not found or error occurred.
+
+        Example:
+            Delete tables with confirmation::
+
+                # Delete a single table
+                if storage.delete_table('old_data'):
+                    print("Table deleted successfully")
+
+                # Delete multiple tables
+                tables_to_delete = ['temp1', 'temp2', 'test_data']
+                for table in tables_to_delete:
+                    storage.delete_table(table)
+
+                # Delete with existence check
+                if 'deprecated_table' in storage.list_tables():
+                    storage.delete_table('deprecated_table')
+
+        Note:
+            - Also deletes associated sample CSV files
+            - For partitioned datasets, removes entire directory tree
+            - Logs warnings if table not found
+        """
         file_path = self.parquet_path / f"{name}.parquet"
         partition_path = self.parquet_path / name
 
@@ -237,7 +521,7 @@ class ParquetStorage:
                 logging.warning(f"Table not found: {name}")
                 return False
 
-            # 샘플 파일도 삭제
+            # Delete associated sample file
             sample_file = self.sample_path / f"{name}_sample.csv"
             if sample_file.exists():
                 sample_file.unlink()
@@ -248,17 +532,128 @@ class ParquetStorage:
             logging.error(f"Failed to delete {name}: {e}")
             return False
 
-    def validate_all_tables(self) -> dict:
-        """모든 테이블 검증"""
+    def validate_all_tables(self) -> Dict[str, Dict[str, Any]]:
+        """Validate all stored Parquet tables.
+
+        Runs comprehensive validation on all tables in the storage directory.
+        Checks data quality, schema consistency, required columns, and data types.
+        Uses the DataValidator for detailed validation rules.
+
+        Returns:
+            Dict[str, Dict[str, Any]]: Nested dictionary mapping table names to
+                validation results. Each result contains:
+                - passed (bool): Overall validation status
+                - errors (List[str]): List of validation errors
+                - warnings (List[str]): List of warnings
+                - info (Dict): Metadata and statistics
+
+        Example:
+            Validate all tables and check results::
+
+                # Run validation on all tables
+                results = storage.validate_all_tables()
+
+                # Check which tables passed
+                for table_name, result in results.items():
+                    if result['passed']:
+                        print(f"✅ {table_name}: OK")
+                    else:
+                        print(f"❌ {table_name}: FAILED")
+                        for error in result['errors']:
+                            print(f"   - {error}")
+
+                # Count validation issues
+                failed = sum(1 for r in results.values() if not r['passed'])
+                print(f"{failed} tables failed validation")
+
+        See Also:
+            generate_validation_report: Generate a text report from validation results.
+        """
         return self.validator.validate_all(str(self.parquet_path))
 
     def generate_validation_report(self, output_file: str = "validation_report.txt") -> str:
-        """검증 리포트 생성"""
+        """Generate a text report of validation results.
+
+        Validates all tables and writes a detailed report to a text file.
+        The report includes validation status, errors, warnings, and statistics
+        for each table in a human-readable format.
+
+        Args:
+            output_file (str, optional): Path to output report file. Can be
+                absolute or relative path. Defaults to "validation_report.txt".
+
+        Returns:
+            str: Path to the generated report file.
+
+        Example:
+            Generate and review validation report::
+
+                # Generate report with default name
+                report_path = storage.generate_validation_report()
+                print(f"Report saved to: {report_path}")
+
+                # Generate with custom name
+                report_path = storage.generate_validation_report(
+                    output_file="/reports/parquet_validation_2024.txt"
+                )
+
+                # Read and print report
+                with open(report_path, 'r') as f:
+                    print(f.read())
+
+        Note:
+            - Report includes summary statistics for all tables
+            - Lists all errors and warnings in detail
+            - Output file is overwritten if it exists
+        """
         results = self.validate_all_tables()
         return self.validator.generate_report(results, output_file)
 
-    def get_statistics(self) -> dict:
-        """저장소 전체 통계"""
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get comprehensive statistics for the entire storage.
+
+        Aggregates information about all stored tables including total size,
+        row counts, and per-table statistics. Useful for monitoring storage
+        usage and data volume.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing:
+                - total_tables (int): Number of stored tables
+                - total_size_mb (float): Total storage size in MB
+                - total_rows (int): Total number of rows across all tables
+                - tables (List[Dict]): Per-table statistics with keys:
+                    - name (str): Table name
+                    - rows (int): Number of rows
+                    - size_mb (float): File size in MB
+
+        Example:
+            Monitor storage usage::
+
+                # Get overall statistics
+                stats = storage.get_statistics()
+                print(f"Total tables: {stats['total_tables']}")
+                print(f"Total size: {stats['total_size_mb']:.2f} MB")
+                print(f"Total rows: {stats['total_rows']:,}")
+
+                # Find largest tables
+                tables = sorted(
+                    stats['tables'],
+                    key=lambda x: x['size_mb'],
+                    reverse=True
+                )
+                print("\nTop 5 largest tables:")
+                for table in tables[:5]:
+                    print(f"  {table['name']}: {table['size_mb']:.2f} MB")
+
+                # Calculate average table size
+                avg_size = stats['total_size_mb'] / stats['total_tables']
+                print(f"Average table size: {avg_size:.2f} MB")
+
+        Note:
+            - Statistics calculation may be slow for many large tables
+            - Skips tables that cannot be read (logs warning)
+            - Does not include sample CSV files in size calculations
+        """
         tables = self.list_tables()
         total_size = 0
         total_rows = 0
