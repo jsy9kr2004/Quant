@@ -275,6 +275,11 @@ def fetch_fmp(main_ctx, api_list: List[Any]) -> None:
             params_idx = 0
             stop_flag = False
 
+            # Check if this is a year-based API
+            # Year-based APIs generate all params at once (all years in range)
+            # Page-only APIs (like delisted_companies) generate params in batches
+            is_year_based = 'year' in api.condition.keys()
+
             # Initialize worker pool
             tasks = []
             for worker_id in range(worker_num):
@@ -287,8 +292,10 @@ def fetch_fmp(main_ctx, api_list: List[Any]) -> None:
                 done_ids, tasks = ray.wait(tasks, num_returns=1)
                 done_worker_id, ret = ray.get(done_ids[0])
 
-                # If worker returned False, this page was empty - stop fetching
-                if not ret:
+                # If worker returned False, this page was empty
+                # For page-only APIs (delisted_companies): stop fetching new batches
+                # For year-based APIs: continue processing all years (some years may be empty)
+                if not ret and not is_year_based:
                     stop_flag = not ret
 
                 # Assign new task to completed worker
@@ -298,7 +305,8 @@ def fetch_fmp(main_ctx, api_list: List[Any]) -> None:
 
                 # If all current batch is done and we haven't hit empty page,
                 # fetch next batch of pages
-                if params_idx == len(params) and not stop_flag:
+                # Note: Year-based APIs already generated all params, so skip this
+                if params_idx == len(params) and not stop_flag and not is_year_based:
                     params.extend(api.make_api_list())
 
     logger.info(f'fetching "page" api done')
