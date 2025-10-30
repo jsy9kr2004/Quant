@@ -465,8 +465,8 @@ class FMP:
         api_list = self.__get_api_list()
 
         # First loop: Remove old symbol list files before fetching new ones
-        # if self.skip_remove_check() is False:
-        #     self.remove_first_loop()
+        if self.skip_remove_check() is False:
+            self.remove_first_loop()
 
         # Fetch ticker lists and build symbol lists
         self.__fetch_ticker_list(api_list)
@@ -474,8 +474,8 @@ class FMP:
         print("after set_symbol : {}".format(self.symbol_list))
 
         # Second loop: Remove outdated data files based on new symbol list
-        # if self.skip_remove_check() is False:
-        #     self.remove_second_loop()
+        if self.skip_remove_check() is False:
+            self.remove_second_loop()
 
         # Fetch all remaining data
         self.__fetch_data(api_list)
