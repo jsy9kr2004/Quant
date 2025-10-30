@@ -1,41 +1,41 @@
-"""Ensemble models for combining multiple base learners.
+"""여러 기본 학습기를 결합하기 위한 앙상블 모델입니다.
 
-This module provides two ensemble strategies for combining predictions from multiple
-base models: Stacking and Voting. Ensemble methods often outperform individual models
-by leveraging the strengths of different algorithms.
+이 모듈은 여러 기본 모델의 예측을 결합하기 위한 두 가지 앙상블 전략을 제공합니다:
+Stacking과 Voting. 앙상블 방법은 다양한 알고리즘의 장점을 활용하여 개별 모델보다
+우수한 성능을 발휘하는 경우가 많습니다.
 
-Ensemble Strategies:
+앙상블 전략:
 1. Stacking Ensemble:
-   - Uses meta-learning to combine base model predictions
-   - Trains a meta-learner (e.g., Ridge, Lasso) on base model outputs
-   - Generally provides better performance than simple averaging
-   - Uses cross-validation to generate meta-features
+   - 메타 학습을 사용하여 기본 모델 예측 결합
+   - 기본 모델 출력에 대해 메타 학습기(예: Ridge, Lasso) 학습
+   - 일반적으로 단순 평균보다 나은 성능 제공
+   - 교차 검증을 사용하여 메타 특성 생성
 
 2. Voting Ensemble:
-   - Simple but effective combination method
-   - Hard voting: Majority vote (classification)
-   - Soft voting: Averaged probabilities (classification)
-   - Averaged predictions (regression)
-   - Optional weighted voting for different model contributions
+   - 간단하지만 효과적인 결합 방법
+   - Hard voting: 다수결 투표 (분류)
+   - Soft voting: 평균 확률 (분류)
+   - 평균 예측 (회귀)
+   - 다양한 모델 기여도에 대한 가중 투표 옵션
 
-Usage Example:
+사용 예제:
     Stacking Ensemble:
         from models.ensemble import StackingEnsemble
         from models.xgboost_model import XGBoostModel
         from models.lightgbm_model import LightGBMModel
         from models.catboost_model import CatBoostModel
 
-        # Create base models
+        # 기본 모델 생성
         xgb = XGBoostModel(task='classification').build_model()
         lgb = LightGBMModel(task='classification').build_model()
         cat = CatBoostModel(task='classification').build_model()
 
-        # Train base models
+        # 기본 모델 학습
         xgb.fit(X_train, y_train, X_val, y_val)
         lgb.fit(X_train, y_train, X_val, y_val)
         cat.fit(X_train, y_train, X_val, y_val)
 
-        # Create stacking ensemble
+        # 스태킹 앙상블 생성
         base_models = [('xgb', xgb.model), ('lgb', lgb.model), ('cat', cat.model)]
         stacking = StackingEnsemble(
             base_models=base_models,
@@ -46,14 +46,14 @@ Usage Example:
         stacking.build_ensemble()
         stacking.fit(X_train, y_train)
 
-        # Make predictions
+        # 예측
         predictions = stacking.predict(X_test)
         probabilities = stacking.predict_proba(X_test)
 
     Voting Ensemble:
         from models.ensemble import VotingEnsemble
 
-        # Create voting ensemble with soft voting
+        # soft voting으로 투표 앙상블 생성
         base_models = [('xgb', xgb.model), ('lgb', lgb.model), ('cat', cat.model)]
         voting = VotingEnsemble(
             base_models=base_models,

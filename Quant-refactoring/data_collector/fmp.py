@@ -1,21 +1,21 @@
-"""Financial Modeling Prep (FMP) Data Collector Module.
+"""Financial Modeling Prep (FMP) 데이터 수집 모듈입니다.
 
-This module provides the main FMP data collection interface for fetching financial data
-from the Financial Modeling Prep API. It handles symbol list management, data collection,
-file cleanup, and validation of downloaded data.
+이 모듈은 Financial Modeling Prep API에서 금융 데이터를 가져오기 위한 메인 FMP 데이터
+수집 인터페이스를 제공합니다. 심볼 리스트 관리, 데이터 수집, 파일 정리, 다운로드된
+데이터 검증을 처리합니다.
 
-The FMP class orchestrates the entire data collection workflow:
-1. Fetches stock and delisted company lists
-2. Builds symbol lists for NASDAQ and NYSE exchanges
-3. Collects financial data for all symbols
-4. Validates and cleans up outdated files
+FMP 클래스는 전체 데이터 수집 워크플로우를 조율합니다:
+1. 주식 및 상장폐지 회사 리스트 가져오기
+2. NASDAQ 및 NYSE 거래소의 심볼 리스트 구축
+3. 모든 심볼에 대한 금융 데이터 수집
+4. 오래된 파일 검증 및 정리
 
-Typical usage example:
+사용 예제:
     from context import MainContext
 
     main_ctx = MainContext()
     fmp = FMP(main_ctx)
-    fmp.collect()  # Start the data collection process
+    fmp.collect()  # 데이터 수집 프로세스 시작
 """
 
 from data_collector.fmp_api import FMPAPI
@@ -31,17 +31,17 @@ from typing import List, Optional
 
 
 class FMP:
-    """Main class for collecting financial data from Financial Modeling Prep API.
+    """Financial Modeling Prep API에서 금융 데이터를 수집하는 메인 클래스입니다.
 
-    This class manages the entire data collection workflow including fetching ticker lists,
-    building symbol lists for NASDAQ and NYSE exchanges, collecting financial data,
-    and cleaning up outdated files.
+    이 클래스는 티커 리스트 가져오기, NASDAQ 및 NYSE 거래소의 심볼 리스트 구축,
+    금융 데이터 수집, 오래된 파일 정리를 포함한 전체 데이터 수집 워크플로우를
+    관리합니다.
 
     Attributes:
-        main_ctx: Main context object containing configuration and shared resources.
-        symbol_list (list): Complete list of stock symbols including delisted companies.
-        current_list (list): List of currently active stock symbols.
-        logger: Logger instance for this class.
+        main_ctx: 설정과 공유 리소스를 포함하는 메인 컨텍스트 객체.
+        symbol_list (list): 상장폐지 회사를 포함한 전체 주식 심볼 리스트.
+        current_list (list): 현재 활성 주식 심볼 리스트.
+        logger: 이 클래스의 로거 인스턴스.
 
     Example:
         >>> from context import MainContext
@@ -51,11 +51,11 @@ class FMP:
     """
 
     def __init__(self, main_ctx) -> None:
-        """Initialize the FMP data collector.
+        """FMP 데이터 수집기를 초기화합니다.
 
         Args:
-            main_ctx: Main context object containing configuration like API keys,
-                root paths, and logging setup.
+            main_ctx: API 키, 루트 경로, 로깅 설정 등의 설정을 포함하는
+                메인 컨텍스트 객체.
         """
         self.main_ctx = main_ctx
         self.symbol_list: List[str] = pd.DataFrame()
@@ -64,17 +64,17 @@ class FMP:
         self.logger = self.main_ctx.get_logger('fmp')
 
     def __get_api_list(self) -> List[FMPAPI]:
-        """Create a list of FMPAPI objects from the target API list CSV.
+        """타겟 API 리스트 CSV에서 FMPAPI 객체 리스트를 생성합니다.
 
-        Reads the API list from the configured CSV file and creates FMPAPI objects
-        for each URL entry. Empty rows are dropped.
+        설정된 CSV 파일에서 API 리스트를 읽고 각 URL 항목에 대해 FMPAPI 객체를
+        생성합니다. 빈 행은 제거됩니다.
 
         Returns:
-            List[FMPAPI]: List of initialized FMPAPI objects for data collection.
+            List[FMPAPI]: 데이터 수집을 위해 초기화된 FMPAPI 객체 리스트.
 
         Raises:
-            FileNotFoundError: If the target API list file doesn't exist.
-            KeyError: If the CSV doesn't have a 'URL' column.
+            FileNotFoundError: 타겟 API 리스트 파일이 존재하지 않는 경우.
+            KeyError: CSV에 'URL' 컬럼이 없는 경우.
         """
         url_df = pd.read_csv(self.main_ctx.target_api_list, header=0, usecols=["URL"])
         url_df = url_df.dropna()
@@ -84,16 +84,16 @@ class FMP:
         return api_list
 
     def __fetch_ticker_list(self, api_list: List[FMPAPI]) -> None:
-        """Fetch stock list and delisted companies data from FMP API.
+        """FMP API에서 주식 리스트 및 상장폐지 회사 데이터를 가져옵니다.
 
-        Filters the API list to find stock_list and delisted_companies endpoints,
-        validates that both exist, and fetches data from both.
+        API 리스트를 필터링하여 stock_list 및 delisted_companies 엔드포인트를
+        찾고, 둘 다 존재하는지 검증한 후 데이터를 가져옵니다.
 
         Args:
-            api_list (List[FMPAPI]): Complete list of FMPAPI objects to filter.
+            api_list (List[FMPAPI]): 필터링할 FMPAPI 객체의 전체 리스트.
 
         Raises:
-            Exception: If stock_list or delisted_companies API is not found in the list.
+            Exception: 리스트에서 stock_list 또는 delisted_companies API를 찾을 수 없는 경우.
         """
         self.logger.info('fetching ticker list start (stock_list, delisted_companies)')
 
@@ -116,21 +116,21 @@ class FMP:
         return fetch_fmp(self.main_ctx, [stock_list_api, delisted_companies_api])
 
     def __set_symbol(self) -> None:
-        """Build symbol lists from stock_list and delisted_companies data.
+        """stock_list 및 delisted_companies 데이터에서 심볼 리스트를 구축합니다.
 
-        This method:
-        1. Loads the stock_list CSV file
-        2. Filters for stocks on NASDAQ and NYSE exchanges
-        3. Merges with delisted companies from the same exchanges
-        4. Creates two lists:
-           - symbol_list: All symbols (including delisted)
-           - current_list: Recently active symbols (delisted within 1 month or currently active)
+        이 메서드는:
+        1. stock_list CSV 파일 로드
+        2. NASDAQ 및 NYSE 거래소의 주식만 필터링
+        3. 동일한 거래소의 상장폐지 회사와 병합
+        4. 두 개의 리스트 생성:
+           - symbol_list: 모든 심볼 (상장폐지 포함)
+           - current_list: 최근 활성 심볼 (1개월 내 상장폐지 또는 현재 활성)
 
-        The symbol lists are saved to CSV files (allsymbol.csv and current_list.csv)
-        for debugging and validation purposes.
+        심볼 리스트는 디버깅 및 검증 목적으로 CSV 파일(allsymbol.csv 및 current_list.csv)에
+        저장됩니다.
 
         Raises:
-            FileNotFoundError: If stock_list.csv doesn't exist.
+            FileNotFoundError: stock_list.csv가 존재하지 않는 경우.
         """
         self.logger.info('set symbol list start')
         path = self.main_ctx.root_path + "/stock_list/stock_list.csv"
@@ -191,13 +191,13 @@ class FMP:
         self.logger.info('set symbol list done')
 
     def __fetch_data(self, api_list: List[FMPAPI]) -> None:
-        """Fetch data from all APIs except stock_list and delisted_companies.
+        """stock_list 및 delisted_companies를 제외한 모든 API에서 데이터를 가져옵니다.
 
-        Filters out the ticker list APIs and fetches data from remaining endpoints.
-        For APIs that require symbols, the symbol_list is assigned before fetching.
+        티커 리스트 API를 필터링하고 나머지 엔드포인트에서 데이터를 가져옵니다.
+        심볼이 필요한 API에는 가져오기 전에 symbol_list가 할당됩니다.
 
         Args:
-            api_list (List[FMPAPI]): Complete list of FMPAPI objects.
+            api_list (List[FMPAPI]): FMPAPI 객체의 전체 리스트.
         """
         self.logger.info('fetching the rest start')
 
@@ -215,12 +215,12 @@ class FMP:
 
     @staticmethod
     def remove_files(path: str, only_csv: bool = True) -> None:
-        """Remove files from the specified directory.
+        """지정된 디렉토리에서 파일을 제거합니다.
 
         Args:
-            path (str): Directory path to clean up.
-            only_csv (bool, optional): If True, only removes CSV files.
-                If False, removes all files. Defaults to True.
+            path (str): 정리할 디렉토리 경로.
+            only_csv (bool, optional): True인 경우 CSV 파일만 제거.
+                False인 경우 모든 파일 제거. 기본값은 True.
         """
         if os.path.isdir(path) is False:
             return
@@ -230,20 +230,20 @@ class FMP:
             os.remove(os.path.join(path, file))
 
     def remove_current_list_files(self, base_path: str, check_target: bool = True) -> None:
-        """Remove outdated files for symbols in the current list.
+        """현재 리스트의 심볼에 대한 오래된 파일을 제거합니다.
 
-        Iterates through current_list symbols and removes their data files if:
-        1. check_target is False: Removes all files unconditionally
-        2. check_target is True: Removes files only if they're older than 75 days
+        current_list 심볼을 순회하며 다음 경우 데이터 파일을 제거합니다:
+        1. check_target이 False: 무조건 모든 파일 제거
+        2. check_target이 True: 75일보다 오래된 파일만 제거
 
         Args:
-            base_path (str): Base directory path containing symbol data files.
-            check_target (bool, optional): If True, checks file age before removal.
-                Defaults to True.
+            base_path (str): 심볼 데이터 파일이 포함된 기본 디렉토리 경로.
+            check_target (bool, optional): True인 경우 제거 전에 파일 날짜 확인.
+                기본값은 True.
 
         Note:
-            Files must have a 'date' column to check age. Files without a date
-            column or with empty date values are removed immediately.
+            파일의 날짜를 확인하려면 'date' 컬럼이 있어야 합니다. date 컬럼이 없거나
+            빈 date 값을 가진 파일은 즉시 제거됩니다.
         """
         logging.info("[Check Remove Files] Path : " + str(base_path))
         if os.path.isdir(base_path) is False:
@@ -277,18 +277,18 @@ class FMP:
 
     @staticmethod
     def remove_current_year(base_path: str) -> None:
-        """Remove files for the current year from the specified base path.
+        """지정된 기본 경로에서 현재 연도의 파일을 제거합니다.
 
-        Removes both .csv and .csvx files with the current year suffix.
+        현재 연도 접미사를 가진 .csv 및 .csvx 파일을 모두 제거합니다.
 
         Args:
-            base_path (str): Base path pattern (e.g., 'path/to/data_').
-                Current year will be appended to form 'path/to/data_2025.csv'.
+            base_path (str): 기본 경로 패턴 (예: 'path/to/data_').
+                현재 연도가 추가되어 'path/to/data_2025.csv' 형태가 됩니다.
 
         Example:
             >>> FMP.remove_current_year('/data/historical_price_full/AAPL_')
-            # Removes: /data/historical_price_full/AAPL_2025.csv
-            #          /data/historical_price_full/AAPL_2025.csvx
+            # 제거: /data/historical_price_full/AAPL_2025.csv
+            #       /data/historical_price_full/AAPL_2025.csvx
         """
         today = dateutil.utils.today()
         year = today.strftime("%Y")
@@ -298,14 +298,14 @@ class FMP:
             os.remove(base_path + str(year) + ".csvx")
 
     def skip_remove_check(self) -> bool:
-        """Check if file removal should be skipped based on last update time.
+        """마지막 업데이트 시간을 기준으로 파일 제거를 건너뛸지 확인합니다.
 
-        Reads the last update date from './config/update_date.txt' and checks
-        if less than 1 day has passed since the last update.
+        './config/update_date.txt'에서 마지막 업데이트 날짜를 읽고
+        마지막 업데이트 이후 1일 미만이 경과했는지 확인합니다.
 
         Returns:
-            bool: True if less than 1 day since last update (skip removal),
-                False otherwise.
+            bool: 마지막 업데이트 이후 1일 미만인 경우 True (제거 건너뛰기),
+                그렇지 않으면 False.
 
         Example:
             >>> if not fmp.skip_remove_check():
@@ -326,20 +326,20 @@ class FMP:
 
     @staticmethod
     def validation_check() -> bool:
-        """Validate downloaded files for API error messages.
+        """다운로드된 파일에 API 오류 메시지가 있는지 검증합니다.
 
-        Checks all CSV files in the data directory for FMP API error messages:
-        1. "Limit Reach" - API rate limit exceeded
-        2. "Error Message" - Generic error from API
+        데이터 디렉토리의 모든 CSV 파일에서 FMP API 오류 메시지를 확인합니다:
+        1. "Limit Reach" - API 요청 제한 초과
+        2. "Error Message" - API의 일반 오류
 
-        Files containing these messages are deleted as they contain invalid data.
+        이러한 메시지가 포함된 파일은 유효하지 않은 데이터를 포함하므로 삭제됩니다.
 
         Returns:
-            bool: True if no files were deleted (all valid), False otherwise.
+            bool: 삭제된 파일이 없으면 True (모두 유효), 그렇지 않으면 False.
 
         Note:
-            This method uses a hardcoded path 'E:\qt\data'.
-            FIXME: Should use configurable path from main_ctx.
+            이 메서드는 하드코딩된 경로 'E:\qt\data'를 사용합니다.
+            FIXME: main_ctx에서 설정 가능한 경로를 사용해야 합니다.
         """
         basepath = 'E:\qt\data'
         flag = True

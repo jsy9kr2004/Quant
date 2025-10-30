@@ -1,21 +1,21 @@
-"""FMP Data Fetching Worker Module with Ray Parallel Processing.
+"""Ray 병렬 처리를 사용한 FMP 데이터 가져오기 워커 모듈입니다.
 
-This module provides parallel data fetching from Financial Modeling Prep API
-using Ray distributed computing framework. It handles HTTP requests, JSON parsing,
-data validation, and CSV file creation with robust error handling.
+이 모듈은 Ray 분산 컴퓨팅 프레임워크를 사용하여 Financial Modeling Prep API에서
+병렬 데이터 가져오기를 제공합니다. HTTP 요청, JSON 파싱, 데이터 검증, 강력한 오류
+처리를 통한 CSV 파일 생성을 처리합니다.
 
-Key features:
-- Parallel API requests using Ray workers
-- Automatic retry on rate limit errors
-- JSON flattening for nested data structures
-- Data type conversion for special fields (dcf, marketCap)
-- Empty data handling with .csvx marker files
-- Unified logging for multiprocessing environments
+주요 기능:
+- Ray 워커를 사용한 병렬 API 요청
+- 속도 제한 오류 시 자동 재시도
+- 중첩된 데이터 구조를 위한 JSON 평탄화
+- 특수 필드(dcf, marketCap)에 대한 데이터 타입 변환
+- .csvx 마커 파일을 사용한 빈 데이터 처리
+- 멀티프로세싱 환경을 위한 통합 로깅
 
-Typical usage example:
+사용 예제:
     from data_collector.fmp_fetch_worker import fetch_fmp
 
-    # api_list contains FMPAPI objects with URL configurations
+    # api_list에는 URL 설정이 포함된 FMPAPI 객체들이 있습니다
     fetch_fmp(main_ctx, api_list)
 """
 
@@ -36,18 +36,18 @@ from config.logger import get_logger, setup_logger_for_multiprocessing
 
 
 def __flatten_json(js: Any, expand_all: bool = False) -> pd.DataFrame:
-    """Flatten nested JSON data into a pandas DataFrame.
+    """중첩된 JSON 데이터를 pandas DataFrame으로 평탄화합니다.
 
-    Recursively flattens JSON objects and arrays into a tabular format.
-    Handles nested lists by exploding them and expanding embedded dictionaries.
+    JSON 객체와 배열을 테이블 형식으로 재귀적으로 평탄화합니다.
+    중첩된 리스트를 확장하고 임베디드 딕셔너리를 펼쳐서 처리합니다.
 
     Args:
-        js (Any): JSON data as string or dict/list object to flatten.
-        expand_all (bool, optional): If True, recursively flattens all nested
-            lists. Defaults to False (flattens only first level).
+        js (Any): 평탄화할 문자열 또는 dict/list 객체로 된 JSON 데이터.
+        expand_all (bool, optional): True인 경우 중첩된 모든 리스트를 재귀적으로
+            평탄화. 기본값은 False (첫 번째 레벨만 평탄화).
 
     Returns:
-        pd.DataFrame: Flattened data in tabular format.
+        pd.DataFrame: 테이블 형식으로 평탄화된 데이터.
 
     Example:
         >>> json_data = {"symbol": "AAPL", "data": [{"date": "2023-01-01", "price": 150}]}
@@ -56,7 +56,7 @@ def __flatten_json(js: Any, expand_all: bool = False) -> pd.DataFrame:
         Index(['symbol', 'date', 'price'])
 
     Note:
-        Uses pandas.json_normalize for initial flattening, then explodes list columns.
+        초기 평탄화에 pandas.json_normalize를 사용한 다음 리스트 컬럼을 확장합니다.
     """
     # Normalize JSON to DataFrame
     df = pd.json_normalize(json.loads(js) if type(js) == str else js)

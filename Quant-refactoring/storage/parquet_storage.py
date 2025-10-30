@@ -1,29 +1,29 @@
-"""Parquet storage module with automatic validation and sample generation.
+"""자동 검증 및 샘플 생성 기능이 있는 Parquet 저장소 모듈입니다.
 
-This module provides a comprehensive ParquetStorage class for managing Parquet files
-with built-in validation, sample generation, and metadata tracking. It supports
-automatic compression, partitioning, and data quality checks.
+이 모듈은 내장 검증, 샘플 생성, 메타데이터 추적 기능이 있는 Parquet 파일 관리를 위한
+포괄적인 ParquetStorage 클래스를 제공합니다. 자동 압축, 파티셔닝, 데이터 품질 검사를
+지원합니다.
 
-The ParquetStorage class wraps PyArrow Parquet operations and adds:
-    - Automatic data validation after saving
-    - Sample CSV generation for quick inspection
-    - Compression statistics and reporting
-    - Metadata querying without loading full datasets
-    - Batch validation of all stored tables
+ParquetStorage 클래스는 PyArrow Parquet 작업을 래핑하고 다음을 추가합니다:
+    - 저장 후 자동 데이터 검증
+    - 빠른 검사를 위한 샘플 CSV 생성
+    - 압축 통계 및 리포팅
+    - 전체 데이터셋 로드 없이 메타데이터 쿼리
+    - 저장된 모든 테이블의 배치 검증
 
 Example:
-    Basic usage with automatic validation::
+    자동 검증을 사용한 기본 사용법::
 
         from storage import ParquetStorage
         import pandas as pd
 
-        # Initialize storage with auto-validation enabled
+        # 자동 검증이 활성화된 저장소 초기화
         storage = ParquetStorage(
             root_path="/data/stocks",
             auto_validate=True
         )
 
-        # Save a DataFrame with compression
+        # 압축과 함께 DataFrame 저장
         df = pd.DataFrame({
             'symbol': ['AAPL', 'GOOGL', 'MSFT'],
             'price': [150.0, 2800.0, 300.0]
@@ -36,13 +36,13 @@ Example:
             save_sample=True
         )
 
-        # Load data with column filtering
+        # 컬럼 필터링으로 데이터 로드
         df_loaded = storage.load_parquet(
             name='stock_prices',
             columns=['symbol', 'price']
         )
 
-        # Get file info without loading data
+        # 데이터 로드 없이 파일 정보 가져오기
         info = storage.get_info('stock_prices')
         print(f"Rows: {info['rows']}, Size: {info['size_mb']:.2f} MB")
 

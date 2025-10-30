@@ -1,48 +1,48 @@
-"""CatBoost model wrapper for gradient boosting with Yandex's CatBoost.
+"""Yandex CatBoost를 사용한 그래디언트 부스팅 모델 래퍼입니다.
 
-This module provides a wrapper class for CatBoost (Categorical Boosting), supporting
-both classification and regression tasks with GPU acceleration.
+이 모듈은 GPU 가속을 지원하는 CatBoost (Categorical Boosting) 래퍼 클래스를 제공하며,
+분류 및 회귀 작업을 모두 지원합니다.
 
-CatBoost is a gradient boosting framework developed by Yandex that excels at handling
-categorical features and provides robust performance out of the box. Key advantages:
-- Robust to overfitting (critical for trading models)
-- Handles categorical features automatically without preprocessing
-- Ordered boosting reduces prediction bias
-- Fast GPU training with minimal memory usage
-- Built-in handling of missing values
-- Lower hyperparameter tuning requirements
-- Symmetric tree structure for faster prediction
+CatBoost는 Yandex가 개발한 그래디언트 부스팅 프레임워크로, 범주형 특성 처리에
+탁월하며 즉시 사용 가능한 강력한 성능을 제공합니다. 주요 장점:
+- 과적합에 강함 (트레이딩 모델에 중요)
+- 전처리 없이 범주형 특성 자동 처리
+- Ordered boosting으로 예측 편향 감소
+- 최소 메모리 사용량으로 빠른 GPU 학습
+- 결측치 내장 처리
+- 낮은 하이퍼파라미터 튜닝 요구사항
+- 빠른 예측을 위한 대칭 트리 구조
 
-The CatBoostModel class extends BaseModel and provides:
-- Pre-configured settings optimized for trading (default and deep)
-- Native categorical feature support
-- Support for custom hyperparameters
-- GPU-accelerated training
-- Early stopping support
-- Multiple feature importance types
-- Easy integration with the training pipeline
+CatBoostModel 클래스는 BaseModel을 확장하여 다음을 제공합니다:
+- 트레이딩에 최적화된 사전 구성 설정 (default 및 deep)
+- 네이티브 범주형 특성 지원
+- 커스텀 하이퍼파라미터 지원
+- GPU 가속 학습
+- 조기 종료 지원
+- 다양한 특성 중요도 유형
+- 학습 파이프라인과의 쉬운 통합
 
-Usage Example:
-    Basic classification:
+사용 예제:
+    기본 분류:
         from models.catboost_model import CatBoostModel
 
-        # Create and build model
+        # 모델 생성 및 빌드
         model = CatBoostModel(task='classification', config_name='default')
         model.build_model()
 
-        # Train with early stopping
+        # 조기 종료와 함께 학습
         model.fit(X_train, y_train, X_val, y_val, early_stopping_rounds=50)
 
-        # Make predictions
+        # 예측
         predictions = model.predict(X_test)
         probabilities = model.predict_proba(X_test)
 
-        # Evaluate
+        # 평가
         metrics = model.evaluate(X_test, y_test)
         print(f"Accuracy: {metrics['accuracy']:.4f}")
 
-    Custom configuration:
-        # Use custom hyperparameters
+    커스텀 설정:
+        # 커스텀 하이퍼파라미터 사용
         custom_params = {
             'depth': 10,
             'learning_rate': 0.05,
@@ -52,12 +52,12 @@ Usage Example:
         model = CatBoostModel(task='classification')
         model.build_model(custom_params)
 
-    Deep model for complex patterns:
-        # Use pre-configured deeper model
+    복잡한 패턴을 위한 깊은 모델:
+        # 사전 구성된 더 깊은 모델 사용
         model = CatBoostModel(task='classification', config_name='deep')
         model.build_model()
 
-    Regression:
+    회귀:
         model = CatBoostModel(task='regression')
         model.build_model()
         model.fit(X_train, y_train)
