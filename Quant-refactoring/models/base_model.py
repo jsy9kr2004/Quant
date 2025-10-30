@@ -1,60 +1,160 @@
-"""
-Base model class for all ML models
+"""Base model class for all machine learning models.
+
+This module provides an abstract base class for all ML models used in the quantitative
+trading system. It defines a consistent interface for model training, prediction,
+evaluation, and persistence.
+
+The BaseModel class implements common functionality like:
+- Model training with validation support
+- Prediction and probability prediction
+- Model evaluation with various metrics
+- Feature importance extraction
+- Model saving/loading
+- Cross-validation support
+
+Usage Example:
+    Create a custom model by inheriting from BaseModel:
+
+        from models.base_model import BaseModel
+        from typing import Dict, Any
+
+        class CustomModel(BaseModel):
+            def __init__(self, task: str = 'classification'):
+                super().__init__(model_type='custom', task=task)
+
+            def build_model(self, params: Dict[str, Any]):
+                # Implement model creation logic
+                self.model = YourModelClass(**params)
+                return self
+
+        # Use the model
+        model = CustomModel(task='classification')
+        model.build_model({'param1': value1})
+        model.fit(X_train, y_train, X_val, y_val)
+        predictions = model.predict(X_test)
+        metrics = model.evaluate(X_test, y_test)
+
+Attributes:
+    model_type (str): Type of model (e.g., 'xgboost', 'lightgbm', 'catboost')
+    task (str): Task type ('classification' or 'regression')
+    model: The underlying ML model instance
+    feature_names (list): List of feature names
+    is_trained (bool): Flag indicating if model has been trained
 """
 
 from abc import ABC, abstractmethod
 import joblib
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple, List, Union
 import numpy as np
 import pandas as pd
 from sklearn.metrics import accuracy_score, mean_squared_error, classification_report
 
 
 class BaseModel(ABC):
-    """
-    모든 ML 모델의 기본 클래스
+    """Abstract base class for all machine learning models.
 
-    Provides:
-    - Consistent interface for all models
-    - Model saving/loading
-    - Evaluation metrics
-    - Feature importance
+    This class provides a consistent interface for training, predicting, evaluating,
+    and persisting machine learning models. All concrete model implementations should
+    inherit from this class and implement the abstract methods.
+
+    The class supports both classification and regression tasks, and provides
+    utilities for model evaluation, feature importance analysis, and cross-validation.
+
+    Attributes:
+        model_type (str): Type of the model (e.g., 'xgboost', 'lightgbm', 'catboost').
+        task (str): Task type, either 'classification' or 'regression'.
+        model (Any): The underlying ML model instance (None until built).
+        feature_names (Optional[List[str]]): List of feature names used for training.
+        is_trained (bool): Flag indicating whether the model has been trained.
+
+    Example:
+        >>> from models.xgboost_model import XGBoostModel
+        >>> model = XGBoostModel(task='classification')
+        >>> model.build_model({'max_depth': 8, 'n_estimators': 100})
+        >>> model.fit(X_train, y_train, X_val, y_val)
+        >>> predictions = model.predict(X_test)
+        >>> metrics = model.evaluate(X_test, y_test)
+        >>> print(f"Accuracy: {metrics['accuracy']:.4f}")
     """
 
-    def __init__(self, model_type: str, task: str = 'classification'):
-        """
-        Initialize base model
+    def __init__(self, model_type: str, task: str = 'classification') -> None:
+        """Initialize the base model.
 
         Args:
-            model_type: 모델 타입 ('xgboost', 'lightgbm', 'catboost')
-            task: 'classification' or 'regression'
+            model_type (str): Type of model (e.g., 'xgboost', 'lightgbm', 'catboost').
+            task (str, optional): Task type, either 'classification' or 'regression'.
+                Defaults to 'classification'.
+
+        Example:
+            >>> model = BaseModel(model_type='custom', task='regression')
         """
         self.model_type = model_type
         self.task = task
         self.model = None
-        self.feature_names = None
+        self.feature_names: Optional[List[str]] = None
         self.is_trained = False
 
     @abstractmethod
-    def build_model(self, params: Dict[str, Any]):
-        """모델 생성 (서브클래스에서 구현)"""
-        pass
+    def build_model(self, params: Dict[str, Any]) -> 'BaseModel':
+        """Build the model with specified parameters.
 
-    def fit(self, X_train, y_train, X_val=None, y_val=None, **kwargs):
-        """
-        모델 학습
+        This is an abstract method that must be implemented by subclasses.
+        It should create and configure the underlying ML model instance.
 
         Args:
-            X_train: 학습 데이터
-            y_train: 학습 레이블
-            X_val: 검증 데이터 (선택)
-            y_val: 검증 레이블 (선택)
+            params (Dict[str, Any]): Dictionary of model hyperparameters.
+
+        Returns:
+            BaseModel: Self for method chaining.
+
+        Raises:
+            NotImplementedError: If not implemented by subclass.
+
+        Example:
+            >>> model.build_model({'max_depth': 8, 'learning_rate': 0.1})
+        """
+        pass
+
+    def fit(
+        self,
+        X_train: Union[pd.DataFrame, np.ndarray],
+        y_train: Union[pd.Series, np.ndarray],
+        X_val: Optional[Union[pd.DataFrame, np.ndarray]] = None,
+        y_val: Optional[Union[pd.Series, np.ndarray]] = None,
+        **kwargs: Any
+    ) -> 'BaseModel':
+        """Train the model on the provided data.
+
+        Trains the model using the training data and optionally validates on
+        validation data. The method extracts feature names from pandas DataFrames
+        and logs training progress.
+
+        Args:
+            X_train (Union[pd.DataFrame, np.ndarray]): Training features.
+            y_train (Union[pd.Series, np.ndarray]): Training labels.
+            X_val (Optional[Union[pd.DataFrame, np.ndarray]], optional): Validation
+                features. Defaults to None.
+            y_val (Optional[Union[pd.Series, np.ndarray]], optional): Validation
+                labels. Defaults to None.
+            **kwargs: Additional arguments passed to the underlying model's fit method.
+
+        Returns:
+            BaseModel: Self for method chaining.
+
+        Raises:
+            ValueError: If model has not been built (model is None).
+
+        Example:
+            >>> model.fit(X_train, y_train, X_val, y_val, verbose=True)
+            >>> # With early stopping
+            >>> model.fit(X_train, y_train, X_val, y_val, early_stopping_rounds=50)
         """
         if self.model is None:
             raise ValueError("Model not built. Call build_model() first.")
 
+        # Extract feature names from DataFrame columns if available
         self.feature_names = X_train.columns.tolist() if hasattr(X_train, 'columns') else None
 
         logging.info(f"Training {self.model_type} {self.task} model...")
@@ -62,7 +162,7 @@ class BaseModel(ABC):
         if X_val is not None:
             logging.info(f"  Validation samples: {len(X_val):,}")
 
-        # 학습
+        # Train the model with or without validation set
         if X_val is not None and y_val is not None:
             eval_set = [(X_val, y_val)]
             self.model.fit(X_train, y_train, eval_set=eval_set, **kwargs)
@@ -70,19 +170,55 @@ class BaseModel(ABC):
             self.model.fit(X_train, y_train, **kwargs)
 
         self.is_trained = True
-        logging.info(f"✅ Training completed")
+        logging.info(f"Training completed successfully")
 
         return self
 
-    def predict(self, X):
-        """예측"""
+    def predict(self, X: Union[pd.DataFrame, np.ndarray]) -> np.ndarray:
+        """Generate predictions for the input data.
+
+        Args:
+            X (Union[pd.DataFrame, np.ndarray]): Input features for prediction.
+
+        Returns:
+            np.ndarray: Predicted values. For classification, returns class labels.
+                For regression, returns continuous values.
+
+        Raises:
+            ValueError: If model has not been trained.
+
+        Example:
+            >>> predictions = model.predict(X_test)
+            >>> print(f"First 5 predictions: {predictions[:5]}")
+        """
         if not self.is_trained:
             raise ValueError("Model not trained. Call fit() first.")
 
         return self.model.predict(X)
 
-    def predict_proba(self, X):
-        """확률 예측 (분류 모델만)"""
+    def predict_proba(self, X: Union[pd.DataFrame, np.ndarray]) -> np.ndarray:
+        """Predict class probabilities for the input data.
+
+        This method is only available for classification tasks. Returns the
+        probability estimates for each class.
+
+        Args:
+            X (Union[pd.DataFrame, np.ndarray]): Input features for prediction.
+
+        Returns:
+            np.ndarray: Probability estimates. Shape is (n_samples, n_classes).
+                For binary classification, column 0 is probability of class 0,
+                and column 1 is probability of class 1.
+
+        Raises:
+            ValueError: If task is not classification or if model is not trained.
+
+        Example:
+            >>> proba = model.predict_proba(X_test)
+            >>> # Get probability of positive class
+            >>> positive_proba = proba[:, 1]
+            >>> print(f"Probability of positive class: {positive_proba[:5]}")
+        """
         if self.task != 'classification':
             raise ValueError("predict_proba only available for classification")
 
@@ -91,17 +227,45 @@ class BaseModel(ABC):
 
         return self.model.predict_proba(X)
 
-    def evaluate(self, X, y, threshold: Optional[float] = None) -> Dict[str, float]:
-        """
-        모델 평가
+    def evaluate(
+        self,
+        X: Union[pd.DataFrame, np.ndarray],
+        y: Union[pd.Series, np.ndarray],
+        threshold: Optional[float] = None
+    ) -> Dict[str, float]:
+        """Evaluate the model on the provided data.
+
+        Computes and returns evaluation metrics appropriate for the task type.
+        For classification, returns accuracy, precision, recall, and F1 score.
+        For regression, returns RMSE and MAE.
 
         Args:
-            X: 평가 데이터
-            y: 평가 레이블
-            threshold: 분류 임계값 (선택, 분류 모델만)
+            X (Union[pd.DataFrame, np.ndarray]): Features for evaluation.
+            y (Union[pd.Series, np.ndarray]): True labels for evaluation.
+            threshold (Optional[float], optional): Classification threshold for
+                converting probabilities to class labels. Only used for classification.
+                If None, uses the model's default threshold (0.5). Defaults to None.
 
         Returns:
-            평가 메트릭 딕셔너리
+            Dict[str, float]: Dictionary containing evaluation metrics.
+                For classification: {'accuracy', 'precision', 'recall', 'f1'}
+                For regression: {'rmse', 'mae'}
+
+        Raises:
+            ValueError: If model has not been trained.
+
+        Example:
+            >>> # Classification
+            >>> metrics = model.evaluate(X_test, y_test)
+            >>> print(f"Accuracy: {metrics['accuracy']:.4f}")
+            >>> print(f"F1 Score: {metrics['f1']:.4f}")
+            >>>
+            >>> # With custom threshold
+            >>> metrics = model.evaluate(X_test, y_test, threshold=0.6)
+            >>>
+            >>> # Regression
+            >>> metrics = model.evaluate(X_test, y_test)
+            >>> print(f"RMSE: {metrics['rmse']:.4f}")
         """
         if not self.is_trained:
             raise ValueError("Model not trained. Call fit() first.")
@@ -109,16 +273,19 @@ class BaseModel(ABC):
         metrics = {}
 
         if self.task == 'classification':
+            # Get probability predictions for positive class
             y_pred_proba = self.predict_proba(X)[:, 1]
 
+            # Apply threshold if specified, otherwise use default predictions
             if threshold is not None:
                 y_pred = (y_pred_proba >= threshold).astype(int)
             else:
                 y_pred = self.predict(X)
 
+            # Compute classification metrics
             metrics['accuracy'] = accuracy_score(y, y_pred)
 
-            # Precision, Recall, F1
+            # Get precision, recall, and F1 from classification report
             report = classification_report(y, y_pred, output_dict=True)
             metrics['precision'] = report['1']['precision']
             metrics['recall'] = report['1']['recall']
@@ -131,6 +298,7 @@ class BaseModel(ABC):
 
         else:  # regression
             y_pred = self.predict(X)
+            # Compute regression metrics
             metrics['rmse'] = np.sqrt(mean_squared_error(y, y_pred))
             metrics['mae'] = np.mean(np.abs(y - y_pred))
 
@@ -139,55 +307,86 @@ class BaseModel(ABC):
 
         return metrics
 
-    def get_feature_importance(self, top_n: int = 20) -> pd.DataFrame:
-        """
-        특징 중요도 반환
+    def get_feature_importance(self, top_n: Optional[int] = 20) -> pd.DataFrame:
+        """Get feature importance scores from the trained model.
+
+        Extracts and returns feature importance scores if the model supports them.
+        Results are sorted by importance in descending order.
 
         Args:
-            top_n: 상위 N개 특징
+            top_n (Optional[int], optional): Number of top features to return.
+                If None, returns all features. Defaults to 20.
 
         Returns:
-            특징 중요도 DataFrame
+            pd.DataFrame: DataFrame with columns 'feature' and 'importance',
+                sorted by importance in descending order. Returns empty DataFrame
+                if model doesn't support feature importance.
+
+        Raises:
+            ValueError: If model has not been trained.
+
+        Example:
+            >>> importance_df = model.get_feature_importance(top_n=10)
+            >>> print(importance_df)
+            >>> # Plot feature importance
+            >>> importance_df.plot(x='feature', y='importance', kind='barh')
         """
         if not self.is_trained:
             raise ValueError("Model not trained. Call fit() first.")
 
+        # Check if model supports feature importance
         if hasattr(self.model, 'feature_importances_'):
             importances = self.model.feature_importances_
         else:
             logging.warning("Model does not support feature importance")
             return pd.DataFrame()
 
+        # Use stored feature names or generate generic names
         if self.feature_names is None:
             feature_names = [f"feature_{i}" for i in range(len(importances))]
         else:
             feature_names = self.feature_names
 
+        # Create DataFrame with feature names and importance scores
         importance_df = pd.DataFrame({
             'feature': feature_names,
             'importance': importances
         })
 
+        # Sort by importance in descending order
         importance_df = importance_df.sort_values('importance', ascending=False)
 
+        # Return top N features if specified
         if top_n is not None:
             importance_df = importance_df.head(top_n)
 
         return importance_df
 
-    def save(self, path: str):
-        """
-        모델 저장
+    def save(self, path: str) -> None:
+        """Save the trained model to disk.
+
+        Serializes the model and its metadata to a file using joblib.
+        Creates parent directories if they don't exist.
 
         Args:
-            path: 저장 경로
+            path (str): File path where the model should be saved.
+
+        Raises:
+            ValueError: If model has not been trained.
+
+        Example:
+            >>> model.save('/path/to/model.pkl')
+            >>> # Or with automatic directory creation
+            >>> model.save('/new/directory/model.pkl')
         """
         if not self.is_trained:
             raise ValueError("Model not trained. Cannot save untrained model.")
 
+        # Create parent directories if they don't exist
         path_obj = Path(path)
         path_obj.parent.mkdir(parents=True, exist_ok=True)
 
+        # Package model with metadata
         model_data = {
             'model': self.model,
             'model_type': self.model_type,
@@ -196,53 +395,106 @@ class BaseModel(ABC):
         }
 
         joblib.dump(model_data, path)
-        logging.info(f"💾 Model saved to: {path}")
+        logging.info(f"Model saved to: {path}")
 
-    def load(self, path: str):
-        """
-        모델 로드
+    def load(self, path: str) -> None:
+        """Load a trained model from disk.
+
+        Deserializes a previously saved model and restores its state.
 
         Args:
-            path: 모델 경로
+            path (str): File path to the saved model.
+
+        Raises:
+            FileNotFoundError: If the model file does not exist.
+
+        Example:
+            >>> model = XGBoostModel()
+            >>> model.load('/path/to/saved_model.pkl')
+            >>> predictions = model.predict(X_test)
         """
         if not Path(path).exists():
             raise FileNotFoundError(f"Model file not found: {path}")
 
+        # Load model data from file
         model_data = joblib.load(path)
 
+        # Restore model state
         self.model = model_data['model']
         self.model_type = model_data['model_type']
         self.task = model_data['task']
         self.feature_names = model_data.get('feature_names')
         self.is_trained = True
 
-        logging.info(f"📂 Model loaded from: {path}")
+        logging.info(f"Model loaded from: {path}")
 
-    def get_params(self) -> Dict:
-        """모델 파라미터 반환"""
+    def get_params(self) -> Dict[str, Any]:
+        """Get the model's hyperparameters.
+
+        Returns:
+            Dict[str, Any]: Dictionary of hyperparameter names and values.
+                Returns empty dict if model has not been built.
+
+        Example:
+            >>> params = model.get_params()
+            >>> print(f"Learning rate: {params.get('learning_rate')}")
+        """
         if self.model is None:
             return {}
         return self.model.get_params()
 
-    def set_params(self, **params):
-        """모델 파라미터 설정"""
+    def set_params(self, **params: Any) -> None:
+        """Set the model's hyperparameters.
+
+        Args:
+            **params: Keyword arguments representing hyperparameter names and values.
+
+        Raises:
+            ValueError: If model has not been built.
+
+        Example:
+            >>> model.set_params(learning_rate=0.01, max_depth=10)
+        """
         if self.model is None:
             raise ValueError("Model not built. Call build_model() first.")
         self.model.set_params(**params)
 
-    def cross_validate(self, X, y, dates=None, cv_splits=5, verbose=True):
-        """
-        교차 검증을 사용한 모델 평가
+    def cross_validate(
+        self,
+        X: Union[pd.DataFrame, np.ndarray],
+        y: Union[pd.Series, np.ndarray],
+        dates: Optional[pd.Series] = None,
+        cv_splits: int = 5,
+        verbose: bool = True
+    ) -> Tuple[Dict[str, float], List[Dict[str, float]]]:
+        """Perform cross-validation on the model.
+
+        Uses time-series aware cross-validation if dates are provided, otherwise
+        uses standard k-fold cross-validation. This helps assess model performance
+        and generalization ability.
 
         Args:
-            X: 특징 데이터
-            y: 타겟 데이터
-            dates: 날짜 정보 (시계열 교차검증에 사용, 선택)
-            cv_splits: Cross-validation fold 수
-            verbose: 상세 로그 출력 여부
+            X (Union[pd.DataFrame, np.ndarray]): Feature data.
+            y (Union[pd.Series, np.ndarray]): Target data.
+            dates (Optional[pd.Series], optional): Date information for time-series
+                cross-validation. If None, uses standard k-fold CV. Defaults to None.
+            cv_splits (int, optional): Number of cross-validation folds. Defaults to 5.
+            verbose (bool, optional): Whether to print detailed logs. Defaults to True.
 
         Returns:
-            (평균 점수, 각 fold 점수 리스트)
+            Tuple[Dict[str, float], List[Dict[str, float]]]: A tuple containing:
+                - Average scores across all folds (dict of metric name to value)
+                - List of scores for each fold
+
+        Example:
+            >>> # Standard cross-validation
+            >>> avg_scores, all_scores = model.cross_validate(X, y, cv_splits=5)
+            >>> print(f"Average accuracy: {avg_scores['accuracy']:.4f}")
+            >>>
+            >>> # Time-series cross-validation
+            >>> avg_scores, all_scores = model.cross_validate(
+            ...     X, y, dates=date_series, cv_splits=5
+            ... )
         """
         from validation.time_series_cv import TimeSeriesCV
 
@@ -253,30 +505,57 @@ class BaseModel(ABC):
 
         return avg_scores, all_scores
 
-    def fit_with_cv(self, X, y, dates=None, cv_splits=5):
-        """
-        교차 검증 후 전체 데이터로 학습
+    def fit_with_cv(
+        self,
+        X: Union[pd.DataFrame, np.ndarray],
+        y: Union[pd.Series, np.ndarray],
+        dates: Optional[pd.Series] = None,
+        cv_splits: int = 5
+    ) -> Tuple[Dict[str, float], List[Dict[str, float]]]:
+        """Perform cross-validation and then train on full dataset.
+
+        This method first evaluates the model using cross-validation to estimate
+        its performance, then trains a final model on all available data.
 
         Args:
-            X: 특징 데이터
-            y: 타겟 데이터
-            dates: 날짜 정보 (선택)
-            cv_splits: Cross-validation fold 수
+            X (Union[pd.DataFrame, np.ndarray]): Feature data.
+            y (Union[pd.Series, np.ndarray]): Target data.
+            dates (Optional[pd.Series], optional): Date information for time-series
+                cross-validation. Defaults to None.
+            cv_splits (int, optional): Number of cross-validation folds. Defaults to 5.
 
         Returns:
-            (평균 점수, 각 fold 점수 리스트)
+            Tuple[Dict[str, float], List[Dict[str, float]]]: A tuple containing:
+                - Average scores across all folds
+                - List of scores for each fold
+
+        Example:
+            >>> # Cross-validate and train final model
+            >>> avg_scores, all_scores = model.fit_with_cv(X, y, cv_splits=5)
+            >>> print(f"CV Accuracy: {avg_scores['accuracy']:.4f}")
+            >>> # Model is now trained on full dataset
+            >>> predictions = model.predict(X_test)
         """
-        # 교차 검증
+        # Perform cross-validation
         avg_scores, all_scores = self.cross_validate(X, y, dates, cv_splits)
 
-        # 전체 데이터로 최종 학습
+        # Train final model on full dataset
         logging.info(f"\n{'='*60}")
-        logging.info("전체 데이터로 최종 모델 학습 중...")
+        logging.info("Training final model on full dataset...")
         logging.info(f"{'='*60}")
         self.fit(X, y)
 
         return avg_scores, all_scores
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """Return string representation of the model.
+
+        Returns:
+            str: String describing the model type, task, and training status.
+
+        Example:
+            >>> print(model)
+            XGBOOST classification model (trained)
+        """
         status = "trained" if self.is_trained else "not trained"
         return f"{self.model_type.upper()} {self.task} model ({status})"
