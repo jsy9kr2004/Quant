@@ -1,85 +1,84 @@
-"""Global variables and constants for feature engineering and data processing.
+"""Feature engineering 및 데이터 처리를 위한 전역 변수 및 상수입니다.
 
-This module defines global constants used throughout the Quant Trading System for
-feature selection, data processing, and sector classification. These variables are
-primarily used in machine learning model training, feature engineering, and
-backtesting components.
+이 모듈은 Quant Trading System 전체에서 feature 선택, 데이터 처리, 섹터 분류를 위해
+사용되는 전역 상수를 정의합니다. 이 변수들은 주로 machine learning 모델 훈련,
+feature engineering, backtesting 컴포넌트에서 사용됩니다.
 
-The module contains several types of global variables:
-    - Feature column lists: Define which financial metrics to use
-    - Sector mappings: Map industry classifications to broader sectors
-    - Data quality indicators: Identify sparse or problematic columns
+이 모듈은 여러 유형의 전역 변수를 포함합니다:
+    - Feature column 리스트: 사용할 financial metric 정의
+    - 섹터 매핑: Industry 분류를 더 넓은 섹터로 매핑
+    - 데이터 품질 지표: 희소하거나 문제가 있는 컬럼 식별
 
-Key Variable Categories:
-    1. **sparse_col_list**: Columns with many missing/zero values that may need
-       special handling or removal during preprocessing.
+주요 변수 카테고리:
+    1. **sparse_col_list**: 결측값이나 0이 많아 전처리 시 특별한 처리가 필요하거나
+       제거가 필요할 수 있는 컬럼들.
 
-    2. **ratio_col_list**: Financial ratio metrics (P/E, ROE, etc.) commonly
-       used in fundamental analysis.
+    2. **ratio_col_list**: Fundamental 분석에서 일반적으로 사용되는
+       financial ratio metric (P/E, ROE 등).
 
-    3. **meaning_col_list**: Absolute value metrics (revenue, assets, etc.) that
-       provide meaningful information about company fundamentals.
+    3. **meaning_col_list**: 기업 재무 펀더멘털에 대한 의미 있는 정보를
+       제공하는 절대값 metric (매출, 자산 등).
 
-    4. **cal_timefeature_col_list**: Time-series features calculated over periods
-       for trend analysis and temporal patterns.
+    4. **cal_timefeature_col_list**: 추세 분석 및 시간적 패턴을 위해
+       기간별로 계산되는 time-series feature.
 
-    5. **cal_ev_col_list**: Enterprise value related metrics for valuation analysis.
+    5. **cal_ev_col_list**: 밸류에이션 분석을 위한 enterprise value 관련 metric.
 
-    6. **sector_map**: Dictionary mapping specific industry classifications to
-       broader GICS sector categories for sector-based analysis.
+    6. **sector_map**: 특정 industry 분류를 더 넓은 GICS 섹터 카테고리로
+       매핑하는 dictionary (섹터 기반 분석용).
 
-Usage:
-    Feature selection::
+사용법:
+    Feature 선택::
 
         from config.g_variables import ratio_col_list, meaning_col_list
 
-        # Select only ratio features for model training
+        # 모델 훈련을 위해 ratio feature만 선택
         ratio_features = df[ratio_col_list]
 
-        # Combine multiple feature types
+        # 여러 feature 타입 결합
         all_features = ratio_col_list + meaning_col_list
 
-    Sector classification::
+    섹터 분류::
 
         from config.g_variables import sector_map
 
-        # Map industry to sector
+        # Industry를 sector로 매핑
         industry = "Software—Application"
         sector = sector_map.get(industry, "Unknown")
         print(f"{industry} -> {sector}")  # Software—Application -> Information Technology
 
-    Data quality handling::
+    데이터 품질 처리::
 
         from config.g_variables import sparse_col_list
 
-        # Drop sparse columns from dataset
+        # 데이터셋에서 희소 컬럼 제거
         df_clean = df.drop(columns=sparse_col_list, errors='ignore')
 
-Notes:
-    - Column names follow Financial Modeling Prep (FMP) API conventions
-    - Some columns have variations with prefixes like 'Ydiff_' (year-over-year diff)
-      or 'Qdiff_' (quarter-over-quarter diff)
-    - Sector mappings include variations to handle inconsistent API responses
-      (e.g., both "Software - Application" and "Software—Application")
-    - Commented code at the end shows historical examples and alternative
-      data sources (preserved for reference)
+주의사항:
+    - 컬럼명은 Financial Modeling Prep (FMP) API 규칙을 따릅니다
+    - 일부 컬럼은 'Ydiff_' (전년 대비) 또는 'Qdiff_' (전분기 대비) 같은
+      접두사가 있는 변형이 있습니다
+    - 섹터 매핑은 일관성 없는 API 응답을 처리하기 위한 변형을 포함합니다
+      (예: "Software - Application"과 "Software—Application" 모두)
+    - 파일 끝의 주석 처리된 코드는 과거 예제와 대체 데이터 소스를
+      보여줍니다 (참고용으로 보존)
 
-See Also:
-    - data_collector: Uses these variables for API data collection
-    - ml_model: Uses feature lists for model training
-    - feature_engineering: Uses for feature selection and transformation
+참고:
+    - data_collector: API 데이터 수집에 이 변수들을 사용
+    - ml_model: 모델 훈련에 feature 리스트를 사용
+    - feature_engineering: Feature 선택 및 변환에 사용
 
 TODO:
-    - Consider moving these to YAML configuration for easier maintenance
-    - Add validation to ensure column names match current FMP API schema
-    - Create separate files for different variable categories
+    - 더 쉬운 유지보수를 위해 이것들을 YAML configuration으로 이동 고려
+    - 컬럼명이 현재 FMP API schema와 일치하는지 검증 추가
+    - 다른 변수 카테고리를 위한 별도 파일 생성
 """
 
 # ==============================================================================
-# SPARSE COLUMNS - Columns with High Missing Value Rates
+# SPARSE COLUMNS - 높은 결측값 비율을 가진 컬럼들
 # ==============================================================================
-# These columns frequently contain missing or zero values across many companies.
-# They may need special imputation, removal, or separate handling in preprocessing.
+# 이 컬럼들은 많은 기업에서 결측값이나 0 값을 자주 포함합니다.
+# 전처리 시 특별한 대체(imputation), 제거, 또는 별도 처리가 필요할 수 있습니다.
 
 sparse_col_list = [
     'Ydiff_dcf',                        # Year-over-year change in DCF
@@ -101,11 +100,10 @@ sparse_col_list = [
 ]
 
 # ==============================================================================
-# RATIO COLUMNS - Financial Ratios and Percentage Metrics
+# RATIO COLUMNS - Financial Ratio 및 백분율 Metric
 # ==============================================================================
-# These columns contain ratio-based metrics that are already normalized and
-# comparable across companies of different sizes. They're commonly used in
-# fundamental analysis and are often more stable than absolute values.
+# 이 컬럼들은 이미 정규화되어 다른 규모의 기업간 비교가 가능한 ratio 기반 metric을 포함합니다.
+# Fundamental 분석에서 일반적으로 사용되며 절대값보다 안정적인 경우가 많습니다.
 
 ratio_col_list = [
     # Valuation Ratios
@@ -231,11 +229,10 @@ ratio_col_list = [
 ]
 
 # ==============================================================================
-# MEANINGFUL COLUMNS - Absolute Value Metrics with Business Significance
+# MEANINGFUL COLUMNS - 비즈니스 중요도가 있는 절대값 Metric
 # ==============================================================================
-# These columns contain absolute values (in dollars) that provide meaningful
-# information about a company's financial position and operations. They're used
-# alongside ratios for comprehensive financial analysis.
+# 이 컬럼들은 기업의 재무 상태와 운영에 대한 의미 있는 정보를 제공하는
+# 절대값(달러 단위)을 포함합니다. 종합적인 financial 분석을 위해 ratio와 함께 사용됩니다.
 
 meaning_col_list = [
     # Cash Flow Statement Items
@@ -442,10 +439,10 @@ meaning_col_list = [
 ]
 
 # ==============================================================================
-# TIME FEATURE COLUMNS - Features for Time Series Analysis
+# TIME FEATURE COLUMNS - Time Series 분석을 위한 Feature
 # ==============================================================================
-# These columns are selected for calculating time-based features such as moving
-# averages, trends, momentum indicators, and other temporal patterns.
+# 이 컬럼들은 이동평균, 추세, 모멘텀 지표, 기타 시간적 패턴 같은
+# 시간 기반 feature를 계산하기 위해 선택되었습니다.
 
 cal_timefeature_col_list = [
     "bookValuePerShare",
@@ -489,11 +486,11 @@ cal_timefeature_col_list = [
 ]
 
 # ==============================================================================
-# ENTERPRISE VALUE CALCULATION COLUMNS
+# ENTERPRISE VALUE 계산 컬럼
 # ==============================================================================
-# These columns are used in enterprise value calculations and EV-based ratios.
+# 이 컬럼들은 enterprise value 계산 및 EV 기반 ratio에 사용됩니다.
 # Enterprise Value = Market Cap + Net Debt
-# Common EV ratios: EV/EBITDA, EV/Sales, EV/OCF, EV/FCF
+# 일반적인 EV ratio: EV/EBITDA, EV/Sales, EV/OCF, EV/FCF
 
 cal_ev_col_list = [
     "freeCashFlow",     # Used for EV/FCF ratio
@@ -506,13 +503,12 @@ cal_ev_col_list = [
 # "revenues"            # Used for EV/Sales ratio
 
 # ==============================================================================
-# SECTOR MAPPING - Industry to GICS Sector Classification
+# SECTOR MAPPING - Industry에서 GICS 섹터 분류로의 매핑
 # ==============================================================================
-# Maps specific industry classifications to broader GICS (Global Industry
-# Classification Standard) sectors. This mapping handles multiple naming
-# variations from different data sources and API versions.
+# 특정 industry 분류를 더 넓은 GICS (Global Industry Classification Standard) 섹터로
+# 매핑합니다. 이 매핑은 다른 데이터 소스 및 API 버전의 여러 명명 변형을 처리합니다.
 #
-# GICS Sectors (11 total):
+# GICS 섹터 (총 11개):
 #   1. Energy
 #   2. Materials
 #   3. Industrials
@@ -525,9 +521,8 @@ cal_ev_col_list = [
 #  10. Utilities
 #  11. Real Estate
 #
-# Note: Some industries appear multiple times with different naming conventions
-#       (e.g., "Software - Application" vs "Software—Application") to handle
-#       inconsistent API responses.
+# 주의: 일부 industry는 일관성 없는 API 응답을 처리하기 위해 다른 명명 규칙으로
+#       여러 번 나타납니다 (예: "Software - Application" vs "Software—Application").
 
 sector_map = {
     # Financials Sector

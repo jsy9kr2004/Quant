@@ -1,21 +1,20 @@
-"""Unified Logging System with Multiprocessing Support.
+"""Multiprocessing을 지원하는 Unified Logging System입니다.
 
-This module provides a thread-safe and multiprocessing-safe logging system for the
-Quant Trading System. It features colored console output, automatic log rotation,
-structured logging with context, and easy migration from existing logging code.
+이 모듈은 Quant Trading System을 위한 thread-safe하고 multiprocessing-safe한
+logging system을 제공합니다. 색상 console 출력, 자동 log rotation,
+context가 있는 구조화된 logging, 기존 logging 코드로부터의 쉬운 마이그레이션 기능이 있습니다.
 
-The logging system uses QueueHandler and QueueListener to ensure logs from multiple
-processes are safely written without conflicts. This is essential for data collection
-and parallel processing tasks.
+Logging system은 QueueHandler와 QueueListener를 사용하여 여러 프로세스의 log가
+충돌 없이 안전하게 기록되도록 합니다. 이는 데이터 수집 및 병렬 처리 작업에 필수적입니다.
 
-Features:
-    - Thread-safe and multiprocessing-safe using QueueHandler/QueueListener
-    - Colored console output with ANSI codes for better readability
-    - Automatic log file rotation with configurable size and backup count
-    - Structured logging with custom context support
-    - Process name tracking for multiprocessing debugging
-    - Easy migration from standard Python logging
-    - Centralized configuration for consistent logging across the application
+기능:
+    - QueueHandler/QueueListener를 사용한 thread-safe 및 multiprocessing-safe
+    - 더 나은 가독성을 위한 ANSI 코드를 사용한 색상 console 출력
+    - 구성 가능한 크기 및 백업 개수로 자동 log 파일 rotation
+    - 사용자 정의 context 지원이 있는 구조화된 logging
+    - Multiprocessing 디버깅을 위한 프로세스 이름 추적
+    - 표준 Python logging으로부터의 쉬운 마이그레이션
+    - 애플리케이션 전체에서 일관된 logging을 위한 중앙화된 configuration
 
 Architecture:
     Main Process:
