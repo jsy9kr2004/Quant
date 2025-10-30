@@ -1,18 +1,17 @@
-"""FMP API URL Builder and Configuration Module.
+"""FMP API URL 빌더 및 설정 모듈입니다.
 
-This module provides the FMPAPI class for parsing, configuring, and building
-Financial Modeling Prep API URLs with various query parameters. It handles URL
-construction for different API versions (v3, v4), query parameter management,
-and generates batches of API URLs for parallel fetching.
+이 모듈은 Financial Modeling Prep API URL을 파싱, 설정, 빌드하기 위한 FMPAPI 클래스를
+제공하며, 다양한 쿼리 파라미터를 처리합니다. 다양한 API 버전(v3, v4)에 대한 URL 생성,
+쿼리 파라미터 관리, 병렬 가져오기를 위한 API URL 배치 생성을 처리합니다.
 
-The FMPAPI class supports:
-- URL parsing and validation
-- Query parameter extraction and manipulation
-- Symbol-based URL generation
-- Time-based URL generation (year, quarter, date ranges)
-- Pagination for large datasets
+FMPAPI 클래스가 지원하는 기능:
+- URL 파싱 및 검증
+- 쿼리 파라미터 추출 및 조작
+- 심볼 기반 URL 생성
+- 시간 기반 URL 생성 (연도, 분기, 날짜 범위)
+- 대규모 데이터셋을 위한 페이지네이션
 
-Typical usage example:
+사용 예제:
     from context import MainContext
 
     main_ctx = MainContext()
@@ -29,29 +28,29 @@ from typing import List, Dict, Any
 
 
 class FMPAPI:
-    """FMP API URL builder and configuration manager.
+    """FMP API URL 빌더 및 설정 관리자입니다.
 
-    Parses FMP API URLs, extracts query parameters, and generates batches of
-    API call URLs based on symbols, time periods, or pagination requirements.
+    FMP API URL을 파싱하고, 쿼리 파라미터를 추출하며, 심볼, 시간 기간 또는
+    페이지네이션 요구사항에 따라 API 호출 URL 배치를 생성합니다.
 
-    This class handles both v3 and v4 API versions, manages query parameters,
-    and creates file paths for storing downloaded data.
+    이 클래스는 v3 및 v4 API 버전을 모두 처리하고, 쿼리 파라미터를 관리하며,
+    다운로드된 데이터를 저장하기 위한 파일 경로를 생성합니다.
 
     Attributes:
-        main_ctx: Main context object with configuration.
-        fmp_url (str): Base FMP API URL.
-        api_key (str): FMP API key for authentication.
-        url (str): Original full URL provided during initialization.
-        main_url (str): API endpoint path without query parameters.
-        category (str): API category extracted from URL path.
-        condition (Dict[str, List[str]]): Query parameters as key-value pairs.
-        need_symbol (bool): Whether this API requires stock symbols.
-        symbol_list (List[str]): List of stock symbols to fetch data for.
-        is_v4 (bool): True if API version 4, False if version 3.
-        file_path (str): Directory path for storing downloaded data.
-        page_num (int): Current page number for paginated APIs.
-        page_set_num (int): Number of pages to fetch per batch.
-        fmp_api_logger: Logger instance for this API.
+        main_ctx: 설정이 포함된 메인 컨텍스트 객체.
+        fmp_url (str): 기본 FMP API URL.
+        api_key (str): 인증을 위한 FMP API 키.
+        url (str): 초기화 시 제공된 원본 전체 URL.
+        main_url (str): 쿼리 파라미터 없는 API 엔드포인트 경로.
+        category (str): URL 경로에서 추출한 API 카테고리.
+        condition (Dict[str, List[str]]): 키-값 쌍으로 된 쿼리 파라미터.
+        need_symbol (bool): 이 API가 주식 심볼을 필요로 하는지 여부.
+        symbol_list (List[str]): 데이터를 가져올 주식 심볼 리스트.
+        is_v4 (bool): API 버전 4인 경우 True, 버전 3인 경우 False.
+        file_path (str): 다운로드된 데이터를 저장할 디렉토리 경로.
+        page_num (int): 페이지네이션 API의 현재 페이지 번호.
+        page_set_num (int): 배치당 가져올 페이지 수.
+        fmp_api_logger: 이 API의 로거 인스턴스.
 
     Example:
         >>> url = "https://financialmodelingprep.com/api/v3/profile/AAPL?apikey=xxx"
@@ -61,21 +60,21 @@ class FMPAPI:
     """
 
     def __init__(self, main_ctx, url: str) -> None:
-        """Initialize FMPAPI with URL parsing and configuration.
+        """URL 파싱 및 설정으로 FMPAPI를 초기화합니다.
 
-        Parses the provided URL to extract the API endpoint, query parameters,
-        and determines if symbols are needed. Creates the output directory structure.
+        제공된 URL을 파싱하여 API 엔드포인트, 쿼리 파라미터를 추출하고,
+        심볼이 필요한지 판단합니다. 출력 디렉토리 구조를 생성합니다.
 
         Args:
-            main_ctx: Main context object containing configuration.
-            url (str): Full FMP API URL to parse and configure.
+            main_ctx: 설정을 포함하는 메인 컨텍스트 객체.
+            url (str): 파싱하고 설정할 전체 FMP API URL.
 
         Raises:
-            Exception: If the output directory cannot be created.
+            Exception: 출력 디렉토리를 생성할 수 없는 경우.
 
         Note:
-            URLs with multiple lines (separated by backslash) will use only
-            the first line. This handles potential formatting issues in CSV files.
+            여러 줄로 된 URL(백슬래시로 구분)은 첫 번째 줄만 사용합니다.
+            이는 CSV 파일의 잠재적 형식 문제를 처리합니다.
         """
         # Handle multi-line URLs by taking only the first line
         # Backslash might indicate line continuation in CSV files
