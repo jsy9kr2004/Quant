@@ -1,21 +1,21 @@
 """
-ML Training Data Generator for Quantitative Trading System
+퀀트 트레이딩 시스템용 ML 학습 데이터 생성기
 
-This module generates machine learning training datasets from raw financial data.
-It performs the complete data preparation pipeline:
+이 모듈은 원시 금융 데이터로부터 머신러닝 학습 데이터셋을 생성합니다.
+완전한 데이터 준비 파이프라인을 수행합니다:
 
-1. Loads financial data from VIEW files (symbol list, price, financial statements, metrics)
-2. Generates rebalancing dates at specified intervals (e.g., quarterly)
-3. Calculates price changes (target variables for ML models)
-4. Creates 12-month lookback windows for each stock
-5. Extracts time-series features using tsfresh (autocorrelation, FFT, AR coefficients, etc.)
-6. Computes custom financial ratios (OverMC_*, adaptiveMC_*)
-7. Normalizes features using RobustScaler (outlier-resistant)
-8. Saves quarterly ML datasets as Parquet files
+1. VIEW 파일에서 금융 데이터 로드 (종목 리스트, 가격, 재무제표, 메트릭)
+2. 지정된 간격으로 리밸런싱 날짜 생성 (예: 분기별)
+3. 가격 변동 계산 (ML 모델의 타겟 변수)
+4. 각 종목별로 12개월 룩백 윈도우 생성
+5. tsfresh를 사용한 시계열 특성 추출 (자기상관, FFT, AR 계수 등)
+6. 커스텀 재무 비율 계산 (OverMC_*, adaptiveMC_*)
+7. RobustScaler를 사용한 특성 정규화 (아웃라이어 저항성)
+8. 분기별 ML 데이터셋을 Parquet 파일로 저장
 
-Output Files:
-    - rnorm_fs_{year}_{quarter}.parquet: Features without target variable (for latest predictions)
-    - rnorm_ml_{year}_{quarter}.parquet: Features with target variable (for training/testing)
+출력 파일:
+    - rnorm_fs_{year}_{quarter}.parquet: 타겟 변수 없는 특성 (최신 예측용)
+    - rnorm_ml_{year}_{quarter}.parquet: 타겟 변수 포함 특성 (학습/테스트용)
 
 Example:
     >>> from config.context_loader import load_config, MainContext
@@ -26,8 +26,8 @@ Example:
     >>> maker = AIDataMaker(ctx, config)
     >>> # ML data files created in /data/ml_per_year/
 
-Author: Quant Trading Team
-Date: 2025-10-29
+작성자: Quant Trading Team
+날짜: 2025-10-29
 """
 
 import datetime
@@ -61,47 +61,47 @@ warnings.filterwarnings('ignore', category=FutureWarning, message='.*grouping co
 
 class AIDataMaker:
     """
-    Generates ML training data from financial statements and price data.
+    재무제표와 가격 데이터로부터 ML 학습 데이터를 생성합니다.
 
-    This class orchestrates the complete ML data preparation pipeline:
-    - Loads raw financial data from VIEW files
-    - Generates rebalancing dates
-    - Calculates price changes (target variables)
-    - Extracts time-series features with tsfresh
-    - Computes custom financial ratios
-    - Normalizes features with RobustScaler
-    - Saves quarterly ML datasets as Parquet files
+    이 클래스는 완전한 ML 데이터 준비 파이프라인을 조율합니다:
+    - VIEW 파일에서 원시 금융 데이터 로드
+    - 리밸런싱 날짜 생성
+    - 가격 변동 계산 (타겟 변수)
+    - tsfresh로 시계열 특성 추출
+    - 커스텀 재무 비율 계산
+    - RobustScaler로 특성 정규화
+    - 분기별 ML 데이터셋을 Parquet 파일로 저장
 
-    The output datasets are ready for training ML models for stock selection.
+    출력 데이터셋은 주식 선택을 위한 ML 모델 학습에 바로 사용할 수 있습니다.
 
     Attributes:
-        main_ctx (MainContext): System context with configuration and paths
-        conf (Dict[str, Any]): Configuration dictionary from YAML
-        logger (logging.Logger): Logger instance for this class
-        rebalance_period (int): Months between rebalancing (default: 3)
-        symbol_table (pd.DataFrame): Stock metadata (symbol, sector, IPO date, etc.)
-        price_table (pd.DataFrame): Historical price and volume data
-        fs_table (pd.DataFrame): Financial statements (income, balance, cash flow)
-        metrics_table (pd.DataFrame): Financial metrics (P/E, ROE, debt ratios, etc.)
-        date_table_list (List): List of date tables (unused, legacy)
-        trade_date_list (List[pd.Timestamp]): Actual trading dates for rebalancing
+        main_ctx (MainContext): 설정과 경로를 포함한 시스템 컨텍스트
+        conf (Dict[str, Any]): YAML에서 로드한 설정 딕셔너리
+        logger (logging.Logger): 이 클래스의 로거 인스턴스
+        rebalance_period (int): 리밸런싱 간격(개월) (기본값: 3)
+        symbol_table (pd.DataFrame): 주식 메타데이터 (종목코드, 섹터, IPO 날짜 등)
+        price_table (pd.DataFrame): 과거 가격 및 거래량 데이터
+        fs_table (pd.DataFrame): 재무제표 (손익계산서, 대차대조표, 현금흐름표)
+        metrics_table (pd.DataFrame): 재무 메트릭 (P/E, ROE, 부채비율 등)
+        date_table_list (List): 날짜 테이블 리스트 (사용 안 함, 레거시)
+        trade_date_list (List[pd.Timestamp]): 리밸런싱을 위한 실제 거래 날짜
 
     Class Attributes:
-        suffixes_dict (Dict[str, List[str]]): Suffix filters for tsfresh feature selection.
-            Reduces feature dimensionality by selecting only key suffixes for each
-            feature type (e.g., standard_deviation at r=0.0, 0.25, 0.6, 0.9).
+        suffixes_dict (Dict[str, List[str]]): tsfresh 특성 선택을 위한 접미사 필터.
+            각 특성 유형에 대해 주요 접미사만 선택하여 특성 차원을 축소합니다
+            (예: r=0.0, 0.25, 0.6, 0.9에서의 standard_deviation).
 
     Example:
         >>> config = load_config('config/conf.yaml')
         >>> ctx = MainContext(config)
-        >>> # Create ML data for years 2015-2023
+        >>> # 2015-2023년도 ML 데이터 생성
         >>> maker = AIDataMaker(ctx, config)
-        >>> # Output: ml_per_year/rnorm_ml_2015_Q1.parquet, rnorm_ml_2015_Q2.parquet, ...
+        >>> # 출력: ml_per_year/rnorm_ml_2015_Q1.parquet, rnorm_ml_2015_Q2.parquet, ...
 
     See Also:
-        - config.g_variables: Feature lists and sector mapping
-        - training.regressor: Uses generated ML data for model training
-        - tsfresh documentation: https://tsfresh.readthedocs.io/
+        - config.g_variables: 특성 리스트 및 섹터 매핑
+        - training.regressor: 생성된 ML 데이터를 모델 학습에 사용
+        - tsfresh 문서: https://tsfresh.readthedocs.io/
     """
 
     # tsfresh feature suffix filters for dimensionality reduction
@@ -118,21 +118,21 @@ class AIDataMaker:
 
     def __init__(self, main_ctx: 'MainContext', conf: Dict[str, Any]) -> None:
         """
-        Initialize AIDataMaker and execute complete data preparation pipeline.
+        AIDataMaker를 초기화하고 완전한 데이터 준비 파이프라인을 실행합니다.
 
-        Pipeline execution order:
-        1. Load data from VIEW files (load_bt_table)
-        2. Generate rebalancing dates (set_date)
-        3. Calculate price changes (process_price_table_wdate)
-        4. Create ML datasets with time-series features (make_ml_data)
+        파이프라인 실행 순서:
+        1. VIEW 파일에서 데이터 로드 (load_bt_table)
+        2. 리밸런싱 날짜 생성 (set_date)
+        3. 가격 변동 계산 (process_price_table_wdate)
+        4. 시계열 특성을 포함한 ML 데이터셋 생성 (make_ml_data)
 
         Args:
-            main_ctx: System context containing configuration and paths
-            conf: Configuration dictionary with DATA, ML, and BACKTEST sections
+            main_ctx: 설정과 경로를 포함한 시스템 컨텍스트
+            conf: DATA, ML, BACKTEST 섹션을 포함한 설정 딕셔너리
 
         Raises:
-            FileNotFoundError: If VIEW files are missing
-            ValueError: If no valid trading dates are found
+            FileNotFoundError: VIEW 파일이 누락된 경우
+            ValueError: 유효한 거래 날짜를 찾을 수 없는 경우
         """
         self.main_ctx = main_ctx
         self.conf = conf
@@ -161,30 +161,30 @@ class AIDataMaker:
 
     def load_bt_table(self, year: int) -> None:
         """
-        Load financial data from VIEW files.
+        VIEW 파일에서 금융 데이터를 로드합니다.
 
-        Loads four types of data:
-        1. symbol_table: Stock metadata (symbol, sector, industry, IPO/delisted dates)
-        2. price_table: Daily price and volume data
-        3. fs_table: Financial statements (income, balance, cash flow) - loads 3 years back
-        4. metrics_table: Financial metrics (P/E, ROE, debt ratios) - loads 3 years back
+        4가지 유형의 데이터를 로드합니다:
+        1. symbol_table: 주식 메타데이터 (종목코드, 섹터, 업종, IPO/상장폐지 날짜)
+        2. price_table: 일별 가격 및 거래량 데이터
+        3. fs_table: 재무제표 (손익계산서, 대차대조표, 현금흐름표) - 3년 전부터 로드
+        4. metrics_table: 재무 메트릭 (P/E, ROE, 부채비율) - 3년 전부터 로드
 
-        The 3-year lookback ensures sufficient historical data for time-series feature extraction.
+        3년 룩백은 시계열 특성 추출을 위한 충분한 과거 데이터를 보장합니다.
 
         Args:
-            year: Starting year for data loading (unused, loads start_year-3 to end_year)
+            year: 데이터 로딩 시작 연도 (사용 안 함, start_year-3부터 end_year까지 로드)
 
         Raises:
-            FileNotFoundError: If VIEW directory or required files are missing
+            FileNotFoundError: VIEW 디렉토리 또는 필수 파일이 누락된 경우
 
         Note:
-            - Symbol table is deduplicated by symbol (keeps first occurrence)
-            - Financial statements and metrics are loaded year by year to handle large datasets
-            - Missing files are logged and skipped (allows partial data loading)
+            - 심볼 테이블은 symbol로 중복 제거됨 (첫 번째 발생 유지)
+            - 재무제표와 메트릭은 대용량 데이터셋 처리를 위해 연도별로 로드
+            - 누락된 파일은 로그에 기록되고 건너뜀 (부분 데이터 로딩 허용)
 
         TODO:
-            - Add database support as alternative to CSV/Parquet files
-            - Implement incremental loading for large datasets
+            - CSV/Parquet 파일의 대안으로 데이터베이스 지원 추가
+            - 대용량 데이터셋을 위한 증분 로딩 구현
         """
         # Load stock metadata
         self.symbol_table = pd.read_csv(self.main_ctx.root_path + "/VIEW/symbol_list.csv")
@@ -234,19 +234,19 @@ class AIDataMaker:
 
     def get_trade_date(self, pdate: pd.Timestamp) -> Optional[pd.Timestamp]:
         """
-        Convert calendar date to actual trading date.
+        달력 날짜를 실제 거래 날짜로 변환합니다.
 
-        Finds the nearest trading date (date with price data) within 10 days before
-        the given date. This handles weekends, holidays, and market closures.
+        주어진 날짜 이전 10일 이내의 가장 가까운 거래 날짜(가격 데이터가 있는 날짜)를
+        찾습니다. 이는 주말, 공휴일, 시장 휴장일을 처리합니다.
 
         Args:
-            pdate: Target calendar date
+            pdate: 목표 달력 날짜
 
         Returns:
-            Nearest trading date if found, None otherwise
+            거래 날짜를 찾으면 반환, 그렇지 않으면 None
 
         Example:
-            >>> # If pdate is Sunday, returns previous Friday's trading date
+            >>> # pdate가 일요일이면, 이전 금요일의 거래 날짜를 반환
             >>> trading_date = maker.get_trade_date(pd.Timestamp('2023-01-01'))
         """
         # Search for trading date within 10 days before target date
@@ -259,18 +259,18 @@ class AIDataMaker:
 
     def generate_date_list(self) -> List[datetime.datetime]:
         """
-        Generate list of calendar dates for rebalancing.
+        리밸런싱을 위한 달력 날짜 리스트를 생성합니다.
 
-        Creates dates at fixed intervals (rebalance_period) from start_year-3
-        to end_year. The 3-year lookback ensures sufficient historical data.
+        start_year-3부터 end_year까지 고정 간격(rebalance_period)으로 날짜를 생성합니다.
+        3년 룩백은 충분한 과거 데이터를 보장합니다.
 
         Returns:
-            List of calendar dates at rebalance_period intervals
+            rebalance_period 간격의 달력 날짜 리스트
 
         Example:
-            >>> # With REBALANCE_PERIOD=3 (quarterly)
+            >>> # REBALANCE_PERIOD=3 (분기별)인 경우
             >>> dates = maker.generate_date_list()
-            >>> # Returns: [2012-01-01, 2012-04-01, 2012-07-01, 2012-10-01, 2013-01-01, ...]
+            >>> # 반환: [2012-01-01, 2012-04-01, 2012-07-01, 2012-10-01, 2013-01-01, ...]
         """
         date_list = []
 
@@ -298,24 +298,24 @@ class AIDataMaker:
 
     def set_trade_date_list(self, date_list: List[datetime.datetime]) -> List[pd.Timestamp]:
         """
-        Convert calendar dates to actual trading dates.
+        달력 날짜를 실제 거래 날짜로 변환합니다.
 
-        For each calendar date, finds the nearest trading date with available price data.
-        Skips dates before price data is available.
+        각 달력 날짜에 대해 가격 데이터가 있는 가장 가까운 거래 날짜를 찾습니다.
+        가격 데이터가 없는 날짜는 건너뜁니다.
 
         Args:
-            date_list: List of calendar dates
+            date_list: 달력 날짜 리스트
 
         Returns:
-            List of actual trading dates
+            실제 거래 날짜 리스트
 
         Raises:
-            ValueError: If no valid trading dates are found
+            ValueError: 유효한 거래 날짜를 찾을 수 없는 경우
 
         Note:
-            - Dates without price data are skipped (not an error)
-            - Logs warnings for skipped dates
-            - At least one valid trading date is required
+            - 가격 데이터가 없는 날짜는 건너뜀 (오류 아님)
+            - 건너뛴 날짜에 대한 경고를 로그에 기록
+            - 최소 하나의 유효한 거래 날짜가 필요
         """
         trade_date_list = []
         price_min_date = self.price_table["date"].min()
@@ -343,10 +343,10 @@ class AIDataMaker:
 
     def set_date(self) -> None:
         """
-        Initialize trading date list for rebalancing.
+        리밸런싱을 위한 거래 날짜 리스트를 초기화합니다.
 
-        Generates calendar dates and converts them to actual trading dates.
-        Sets self.trade_date_list which is used throughout data preparation.
+        달력 날짜를 생성하고 실제 거래 날짜로 변환합니다.
+        데이터 준비 전반에 사용되는 self.trade_date_list를 설정합니다.
         """
         date_list = self.generate_date_list()
         self.trade_date_list = self.set_trade_date_list(date_list)
@@ -354,25 +354,25 @@ class AIDataMaker:
 
     def process_price_table_wdate(self) -> None:
         """
-        Calculate price changes (target variables) for rebalancing dates.
+        리밸런싱 날짜에 대한 가격 변동(타겟 변수)을 계산합니다.
 
-        Processing steps:
-        1. Filter price table to only rebalancing dates
-        2. Sort by symbol and date
-        3. Calculate price_diff: absolute price change from previous rebalance
-        4. Calculate volume_mul_price: liquidity indicator (price × volume)
-        5. Calculate price_dev: price change rate (percentage return)
+        처리 단계:
+        1. 가격 테이블을 리밸런싱 날짜만으로 필터링
+        2. 종목코드와 날짜로 정렬
+        3. price_diff 계산: 이전 리밸런싱부터의 절대 가격 변동
+        4. volume_mul_price 계산: 유동성 지표 (가격 × 거래량)
+        5. price_dev 계산: 가격 변동률 (수익률)
 
-        Target Variable:
+        타겟 변수:
             price_dev = (price_t - price_{t-1}) / price_{t-1}
-            This is the return achieved by holding the stock from previous rebalance to current rebalance.
+            이는 이전 리밸런싱부터 현재 리밸런싱까지 주식을 보유하여 달성한 수익률입니다.
 
-        Saves:
-            price_diff.csv in VIEW directory for reference
+        저장:
+            참조용으로 VIEW 디렉토리에 price_diff.csv
 
         Note:
-            - First row of each symbol will have NaN for price_diff and price_dev (no previous data)
-            - These rows are filtered out during ML data creation
+            - 각 종목의 첫 번째 행은 price_diff와 price_dev가 NaN (이전 데이터 없음)
+            - 이러한 행은 ML 데이터 생성 중에 필터링됨
         """
         # Filter to rebalancing dates only
         self.price_table = self.price_table[self.price_table['date'].isin(self.trade_date_list)]
@@ -399,22 +399,21 @@ class AIDataMaker:
 
     def filter_columns_by_suffixes(self, df: pd.DataFrame) -> List[str]:
         """
-        Filter tsfresh columns by suffix to reduce dimensionality.
+        접미사로 tsfresh 컬럼을 필터링하여 차원을 축소합니다.
 
-        tsfresh generates hundreds of features per input column. This method
-        filters them to only keep features with specific suffixes defined in
-        suffixes_dict, dramatically reducing feature count while maintaining
-        information.
+        tsfresh는 입력 컬럼당 수백 개의 특성을 생성합니다. 이 메서드는
+        suffixes_dict에 정의된 특정 접미사를 가진 특성만 유지하도록 필터링하여
+        정보를 유지하면서 특성 수를 극적으로 줄입니다.
 
         Args:
-            df: DataFrame with tsfresh features
+            df: tsfresh 특성이 포함된 DataFrame
 
         Returns:
-            List of column names to keep
+            유지할 컬럼 이름 리스트
 
         Example:
-            >>> # Before: ['revenue_ts_standard_deviation__r_0.0', '__r_0.05', '__r_0.1', ...]
-            >>> # After: ['revenue_ts_standard_deviation__r_0.0', '__r_0.25', '__r_0.6', '__r_0.9']
+            >>> # 이전: ['revenue_ts_standard_deviation__r_0.0', '__r_0.05', '__r_0.1', ...]
+            >>> # 이후: ['revenue_ts_standard_deviation__r_0.0', '__r_0.25', '__r_0.6', '__r_0.9']
             >>> filtered_cols = maker.filter_columns_by_suffixes(features_df)
         """
         filtered_cols = []
@@ -438,19 +437,19 @@ class AIDataMaker:
 
     def filter_dates(self, df: pd.DataFrame, target_col_name: str, start_year: int, end_year: int) -> pd.DataFrame:
         """
-        Filter DataFrame by date range.
+        날짜 범위로 DataFrame을 필터링합니다.
 
-        Filters data to [start_year-01-01, end_year+1-03-01] to ensure we have
-        all Q4 data from end_year.
+        end_year의 모든 Q4 데이터를 확보하기 위해 데이터를
+        [start_year-01-01, end_year+1-03-01]로 필터링합니다.
 
         Args:
-            df: DataFrame to filter
-            target_col_name: Name of date column to filter on
-            start_year: Start year (inclusive)
-            end_year: End year (inclusive, extended to March of next year)
+            df: 필터링할 DataFrame
+            target_col_name: 필터링할 날짜 컬럼 이름
+            start_year: 시작 연도 (포함)
+            end_year: 종료 연도 (포함, 다음 해 3월까지 확장)
 
         Returns:
-            Filtered DataFrame
+            필터링된 DataFrame
         """
         df[target_col_name] = pd.to_datetime(df[target_col_name])
         start_date = pd.Timestamp(year=start_year, month=1, day=1)
@@ -460,14 +459,14 @@ class AIDataMaker:
 
     def reorder_columns(self, df: pd.DataFrame, keywords: List[str] = ['symbol', 'date']) -> pd.DataFrame:
         """
-        Reorder DataFrame columns to put key columns first.
+        주요 컬럼을 앞으로 이동시키기 위해 DataFrame 컬럼을 재정렬합니다.
 
         Args:
-            df: DataFrame to reorder
-            keywords: Column keywords to move to front
+            df: 재정렬할 DataFrame
+            keywords: 앞으로 이동시킬 컬럼 키워드
 
         Returns:
-            DataFrame with reordered columns
+            재정렬된 컬럼을 가진 DataFrame
         """
         key_cols = [col for col in df.columns if any(key.lower() in col.lower() for key in keywords)]
         other_cols = [col for col in df.columns if col not in key_cols]
@@ -476,20 +475,20 @@ class AIDataMaker:
 
     def efficient_merge_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Merge columns with _x and _y suffixes from DataFrame joins.
+        DataFrame 조인에서 발생한 _x 및 _y 접미사 컬럼을 병합합니다.
 
-        After merging DataFrames, duplicate columns get _x and _y suffixes.
-        This method merges them back, preferring non-null values from either column.
+        DataFrame 병합 후 중복 컬럼은 _x 및 _y 접미사를 갖게 됩니다.
+        이 메서드는 어느 컬럼에서든 null이 아닌 값을 선호하여 다시 병합합니다.
 
         Args:
-            df: DataFrame with _x and _y suffix columns
+            df: _x 및 _y 접미사 컬럼이 있는 DataFrame
 
         Returns:
-            DataFrame with merged columns
+            병합된 컬럼을 가진 DataFrame
 
         Example:
-            >>> # Before: revenue_x, revenue_y
-            >>> # After: revenue (combined with revenue_x.combine_first(revenue_y))
+            >>> # 이전: revenue_x, revenue_y
+            >>> # 이후: revenue (revenue_x.combine_first(revenue_y)로 결합)
         """
         # Extract unique base column names
         base_cols = set(col.rstrip('_x').rstrip('_y') for col in df.columns)
@@ -508,45 +507,45 @@ class AIDataMaker:
 
     def make_ml_data(self, start_year: int, end_year: int) -> None:
         """
-        Generate ML training datasets with time-series features.
+        시계열 특성을 포함한 ML 학습 데이터셋을 생성합니다.
 
-        Main pipeline function that creates quarterly ML datasets for specified year range.
+        지정된 연도 범위에 대해 분기별 ML 데이터셋을 생성하는 메인 파이프라인 함수입니다.
 
-        Process for each year:
-        1. Filter to high-liquidity stocks (top 50% by trading volume)
-        2. Merge symbol, price, financial statements, and metrics
-        3. For each quarter (Q1, Q2, Q3, Q4):
-           a. Create 12-month lookback window
-           b. Extract tsfresh time-series features
-           c. Calculate custom financial ratios (OverMC_*, adaptiveMC_*)
-           d. Normalize with RobustScaler
-           e. Calculate target variables (price_dev, price_dev_subavg)
-           f. Save to Parquet files
+        각 연도별 처리 과정:
+        1. 고유동성 주식으로 필터링 (거래량 기준 상위 50%)
+        2. 종목, 가격, 재무제표, 메트릭 병합
+        3. 각 분기(Q1, Q2, Q3, Q4)마다:
+           a. 12개월 룩백 윈도우 생성
+           b. tsfresh 시계열 특성 추출
+           c. 커스텀 재무 비율 계산 (OverMC_*, adaptiveMC_*)
+           d. RobustScaler로 정규화
+           e. 타겟 변수 계산 (price_dev, price_dev_subavg)
+           f. Parquet 파일로 저장
 
         Args:
-            start_year: First year to process
-            end_year: Last year to process
+            start_year: 처리할 첫 번째 연도
+            end_year: 처리할 마지막 연도
 
-        Output Files:
-            For each year and quarter:
-            - rnorm_fs_{year}_{quarter}.parquet: Features only (for latest predictions)
-            - rnorm_ml_{year}_{quarter}.parquet: Features + target (for training)
+        출력 파일:
+            각 연도와 분기별로:
+            - rnorm_fs_{year}_{quarter}.parquet: 특성만 (최신 예측용)
+            - rnorm_ml_{year}_{quarter}.parquet: 특성 + 타겟 (학습용)
 
         Example:
             >>> maker.make_ml_data(2015, 2023)
-            >>> # Creates: rnorm_ml_2015_Q1.parquet, rnorm_ml_2015_Q2.parquet, ...
+            >>> # 생성: rnorm_ml_2015_Q1.parquet, rnorm_ml_2015_Q2.parquet, ...
 
         Notes:
-            - Only processes stocks with 12+ quarters of data
-            - Filters out low-liquidity stocks (bottom 50% by volume)
-            - Skips quarters with insufficient data (logs warnings)
-            - Uses RobustScaler for outlier-resistant normalization
-            - Calculates sector-adjusted returns (sec_price_dev_subavg)
+            - 12개 이상의 분기 데이터가 있는 주식만 처리
+            - 저유동성 주식 필터링 (거래량 하위 50%)
+            - 데이터가 불충분한 분기는 건너뜀 (경고 로그)
+            - 아웃라이어 저항성 정규화를 위해 RobustScaler 사용
+            - 섹터 조정 수익률 계산 (sec_price_dev_subavg)
 
         TODO:
-            - Add option to customize lookback window (currently fixed at 12)
-            - Add option to customize liquidity threshold (currently 50%)
-            - Add support for custom feature extraction parameters
+            - 룩백 윈도우 커스터마이즈 옵션 추가 (현재 12로 고정)
+            - 유동성 임계값 커스터마이즈 옵션 추가 (현재 50%)
+            - 커스텀 특성 추출 파라미터 지원 추가
         """
         # Create output directory
         ml_dir = os.path.join(self.main_ctx.root_path, "ml_per_year")

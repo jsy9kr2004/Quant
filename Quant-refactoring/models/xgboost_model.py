@@ -1,44 +1,44 @@
-"""XGBoost model wrapper for gradient boosting.
+"""그래디언트 부스팅을 위한 XGBoost 모델 래퍼입니다.
 
-This module provides a wrapper class for XGBoost (Extreme Gradient Boosting) models,
-supporting both classification and regression tasks with GPU acceleration.
+이 모듈은 XGBoost(Extreme Gradient Boosting) 모델을 위한 래퍼 클래스를 제공하며,
+GPU 가속을 지원하는 분류 및 회귀 작업을 모두 지원합니다.
 
-XGBoost is a powerful gradient boosting framework that uses decision trees as base
-learners. It's known for:
-- High performance and speed
-- GPU acceleration support
-- Built-in regularization to prevent overfitting
-- Feature importance scores
-- Early stopping capabilities
+XGBoost는 의사결정 트리를 기본 학습기로 사용하는 강력한 그래디언트 부스팅
+프레임워크입니다. 다음과 같은 특징이 있습니다:
+- 높은 성능과 속도
+- GPU 가속 지원
+- 과적합 방지를 위한 내장 정규화
+- 특성 중요도 점수
+- 조기 종료 기능
 
-The XGBoostModel class extends BaseModel and provides:
-- Pre-configured settings for common use cases
-- Support for custom hyperparameters
-- GPU-accelerated training
-- Early stopping support
-- Easy integration with the training pipeline
+XGBoostModel 클래스는 BaseModel을 확장하여 다음을 제공합니다:
+- 일반적인 사용 사례를 위한 사전 구성 설정
+- 커스텀 하이퍼파라미터 지원
+- GPU 가속 학습
+- 조기 종료 지원
+- 학습 파이프라인과의 쉬운 통합
 
-Usage Example:
-    Basic classification:
+사용 예제:
+    기본 분류:
         from models.xgboost_model import XGBoostModel
 
-        # Create and build model with default configuration
+        # 기본 설정으로 모델 생성 및 빌드
         model = XGBoostModel(task='classification', config_name='default')
         model.build_model()
 
-        # Train with early stopping
+        # 조기 종료와 함께 학습
         model.fit(X_train, y_train, X_val, y_val, early_stopping_rounds=50)
 
-        # Make predictions
+        # 예측
         predictions = model.predict(X_test)
         probabilities = model.predict_proba(X_test)
 
-        # Evaluate
+        # 평가
         metrics = model.evaluate(X_test, y_test)
         print(f"Accuracy: {metrics['accuracy']:.4f}")
 
-    Custom configuration:
-        # Use custom hyperparameters
+    커스텀 설정:
+        # 커스텀 하이퍼파라미터 사용
         custom_params = {
             'max_depth': 10,
             'learning_rate': 0.05,
@@ -48,23 +48,23 @@ Usage Example:
         model = XGBoostModel(task='classification')
         model.build_model(custom_params)
 
-    Different depth configurations:
-        # Use pre-configured deeper model
+    다른 깊이 설정:
+        # 사전 구성된 깊은 모델 사용
         model = XGBoostModel(task='classification', config_name='depth_10')
         model.build_model()
 
-    Regression:
+    회귀:
         model = XGBoostModel(task='regression', config_name='deep')
         model.build_model()
         model.fit(X_train, y_train)
         predictions = model.predict(X_test)
 
 Attributes:
-    model_type (str): Always 'xgboost'
-    task (str): Task type ('classification' or 'regression')
-    config_name (str): Name of the configuration preset
-    default_params (Dict): Default hyperparameters for the model
-    model: XGBoost classifier or regressor instance
+    model_type (str): 항상 'xgboost'
+    task (str): 작업 유형 ('classification' 또는 'regression')
+    config_name (str): 설정 프리셋 이름
+    default_params (Dict): 모델의 기본 하이퍼파라미터
+    model: XGBoost 분류기 또는 회귀기 인스턴스
 """
 
 import xgboost as xgb
@@ -76,39 +76,39 @@ import numpy as np
 
 
 class XGBoostModel(BaseModel):
-    """XGBoost model wrapper with GPU acceleration support.
+    """GPU 가속을 지원하는 XGBoost 모델 래퍼입니다.
 
-    This class wraps XGBoost classifiers and regressors, providing a consistent
-    interface compatible with the BaseModel API. It includes pre-configured
-    settings optimized for different scenarios and supports GPU acceleration.
+    이 클래스는 XGBoost 분류기와 회귀기를 래핑하여 BaseModel API와
+    호환되는 일관된 인터페이스를 제공합니다. 다양한 시나리오에 최적화된
+    사전 구성 설정을 포함하며 GPU 가속을 지원합니다.
 
-    XGBoost features:
-    - Tree-based gradient boosting
-    - GPU acceleration via tree_method='gpu_hist'
-    - Regularization (L1 and L2)
-    - Column and row subsampling
-    - Early stopping support
+    XGBoost 기능:
+    - 트리 기반 그래디언트 부스팅
+    - tree_method='gpu_hist'를 통한 GPU 가속
+    - 정규화 (L1 및 L2)
+    - 컬럼 및 행 서브샘플링
+    - 조기 종료 지원
 
     Attributes:
-        model_type (str): Type identifier, always 'xgboost'.
-        task (str): Task type, either 'classification' or 'regression'.
-        config_name (str): Name of the configuration preset being used.
-        default_params (Dict[str, Any]): Dictionary of default hyperparameters.
-        model (xgb.XGBClassifier or xgb.XGBRegressor): The underlying XGBoost model.
-        feature_names (Optional[List[str]]): List of feature names.
-        is_trained (bool): Flag indicating if model has been trained.
+        model_type (str): 항상 'xgboost'인 타입 식별자.
+        task (str): 'classification' 또는 'regression' 작업 유형.
+        config_name (str): 사용 중인 설정 프리셋 이름.
+        default_params (Dict[str, Any]): 기본 하이퍼파라미터 딕셔너리.
+        model (xgb.XGBClassifier or xgb.XGBRegressor): 기반 XGBoost 모델.
+        feature_names (Optional[List[str]]): 특성 이름 리스트.
+        is_trained (bool): 모델이 학습되었는지 나타내는 플래그.
 
     Example:
-        >>> # Classification with default settings
+        >>> # 기본 설정으로 분류
         >>> model = XGBoostModel(task='classification', config_name='default')
         >>> model.build_model()
         >>> model.fit(X_train, y_train, X_val, y_val)
         >>>
-        >>> # Get feature importance
+        >>> # 특성 중요도 가져오기
         >>> importance_df = model.get_feature_importance(top_n=10)
         >>> print(importance_df)
         >>>
-        >>> # Save and load
+        >>> # 저장 및 로드
         >>> model.save('model.pkl')
         >>> loaded_model = XGBoostModel()
         >>> loaded_model.load('model.pkl')
@@ -119,24 +119,24 @@ class XGBoostModel(BaseModel):
         task: str = 'classification',
         config_name: str = 'default'
     ) -> None:
-        """Initialize XGBoost model with specified configuration.
+        """지정된 설정으로 XGBoost 모델을 초기화합니다.
 
         Args:
-            task (str, optional): Task type, either 'classification' or 'regression'.
-                Defaults to 'classification'.
-            config_name (str, optional): Name of the configuration preset to use.
-                For classification: 'default', 'depth_9', 'depth_10'
-                For regression: 'default', 'deep'
-                Defaults to 'default'.
+            task (str, optional): 'classification' 또는 'regression' 작업 유형.
+                기본값은 'classification'.
+            config_name (str, optional): 사용할 설정 프리셋 이름.
+                분류용: 'default', 'depth_9', 'depth_10'
+                회귀용: 'default', 'deep'
+                기본값은 'default'.
 
         Example:
-            >>> # Default classification model
+            >>> # 기본 분류 모델
             >>> model = XGBoostModel(task='classification')
             >>>
-            >>> # Deeper classification model
+            >>> # 더 깊은 분류 모델
             >>> model = XGBoostModel(task='classification', config_name='depth_10')
             >>>
-            >>> # Regression model
+            >>> # 회귀 모델
             >>> model = XGBoostModel(task='regression', config_name='deep')
         """
         super().__init__(model_type='xgboost', task=task)
@@ -155,33 +155,33 @@ class XGBoostModel(BaseModel):
             )
 
     def build_model(self, params: Optional[Dict[str, Any]] = None) -> 'XGBoostModel':
-        """Build XGBoost model with specified or default parameters.
+        """지정되거나 기본 파라미터로 XGBoost 모델을 빌드합니다.
 
-        Creates an XGBoost classifier or regressor based on the task type.
-        If custom parameters are provided, they are merged with the default
-        parameters, with custom parameters taking precedence.
+        작업 유형에 따라 XGBoost 분류기 또는 회귀기를 생성합니다.
+        커스텀 파라미터가 제공되면 기본 파라미터와 병합되며,
+        커스텀 파라미터가 우선합니다.
 
         Args:
-            params (Optional[Dict[str, Any]], optional): Custom hyperparameters.
-                If None, uses default parameters from the configuration.
-                If provided, merges with defaults (custom params override defaults).
-                Common parameters:
-                - max_depth (int): Maximum tree depth
-                - learning_rate (float): Step size shrinkage
-                - n_estimators (int): Number of boosting rounds
-                - subsample (float): Fraction of samples used per tree
-                - colsample_bytree (float): Fraction of features used per tree
-                - gamma (float): Minimum loss reduction for split
-                Defaults to None.
+            params (Optional[Dict[str, Any]], optional): 커스텀 하이퍼파라미터.
+                None인 경우 설정의 기본 파라미터 사용.
+                제공된 경우 기본값과 병합 (커스텀 파라미터가 기본값 덮어씀).
+                일반적인 파라미터:
+                - max_depth (int): 최대 트리 깊이
+                - learning_rate (float): 스텝 크기 축소
+                - n_estimators (int): 부스팅 라운드 수
+                - subsample (float): 트리당 사용되는 샘플 비율
+                - colsample_bytree (float): 트리당 사용되는 특성 비율
+                - gamma (float): 분할을 위한 최소 손실 감소
+                기본값은 None.
 
         Returns:
-            XGBoostModel: Self for method chaining.
+            XGBoostModel: 메서드 체이닝을 위한 self.
 
         Example:
-            >>> # Use default parameters
+            >>> # 기본 파라미터 사용
             >>> model.build_model()
             >>>
-            >>> # Use custom parameters
+            >>> # 커스텀 파라미터 사용
             >>> custom_params = {
             ...     'max_depth': 12,
             ...     'learning_rate': 0.05,
@@ -190,7 +190,7 @@ class XGBoostModel(BaseModel):
             ... }
             >>> model.build_model(custom_params)
             >>>
-            >>> # Partial override (other params use defaults)
+            >>> # 부분 덮어쓰기 (다른 파라미터는 기본값 사용)
             >>> model.build_model({'max_depth': 10})
         """
         if params is None:
@@ -218,36 +218,36 @@ class XGBoostModel(BaseModel):
         early_stopping_rounds: int = 50,
         verbose: bool = True
     ) -> 'XGBoostModel':
-        """Train XGBoost model with optional early stopping.
+        """선택적 조기 종료와 함께 XGBoost 모델을 학습시킵니다.
 
-        Trains the XGBoost model on the provided data. If validation data is
-        provided, enables early stopping to prevent overfitting by monitoring
-        the validation metric.
+        제공된 데이터로 XGBoost 모델을 학습시킵니다. 검증 데이터가
+        제공되면 검증 메트릭을 모니터링하여 과적합을 방지하는
+        조기 종료를 활성화합니다.
 
         Args:
-            X_train (Union[pd.DataFrame, np.ndarray]): Training features.
-            y_train (Union[pd.Series, np.ndarray]): Training labels.
-            X_val (Optional[Union[pd.DataFrame, np.ndarray]], optional): Validation
-                features for early stopping. Defaults to None.
-            y_val (Optional[Union[pd.Series, np.ndarray]], optional): Validation
-                labels for early stopping. Defaults to None.
-            early_stopping_rounds (int, optional): Number of rounds with no
-                improvement after which training will be stopped. Only used if
-                validation data is provided. Defaults to 50.
-            verbose (bool, optional): Whether to print training progress.
-                Defaults to True.
+            X_train (Union[pd.DataFrame, np.ndarray]): 학습 특성.
+            y_train (Union[pd.Series, np.ndarray]): 학습 레이블.
+            X_val (Optional[Union[pd.DataFrame, np.ndarray]], optional):
+                조기 종료를 위한 검증 특성. 기본값은 None.
+            y_val (Optional[Union[pd.Series, np.ndarray]], optional):
+                조기 종료를 위한 검증 레이블. 기본값은 None.
+            early_stopping_rounds (int, optional): 개선이 없는 라운드 수,
+                이후 학습이 중지됨. 검증 데이터가 제공된 경우에만 사용.
+                기본값은 50.
+            verbose (bool, optional): 학습 진행 상황 출력 여부.
+                기본값은 True.
 
         Returns:
-            XGBoostModel: Self for method chaining.
+            XGBoostModel: 메서드 체이닝을 위한 self.
 
         Raises:
-            ValueError: If model has not been built.
+            ValueError: 모델이 빌드되지 않은 경우.
 
         Example:
-            >>> # Train without early stopping
+            >>> # 조기 종료 없이 학습
             >>> model.fit(X_train, y_train, verbose=True)
             >>>
-            >>> # Train with early stopping
+            >>> # 조기 종료와 함께 학습
             >>> model.fit(
             ...     X_train, y_train,
             ...     X_val, y_val,
@@ -255,12 +255,12 @@ class XGBoostModel(BaseModel):
             ...     verbose=True
             ... )
             >>>
-            >>> # Silent training
+            >>> # 조용한 학습
             >>> model.fit(X_train, y_train, verbose=False)
 
         Note:
-            Early stopping monitors the evaluation metric specified in the model
-            configuration (e.g., 'logloss' for classification, 'rmse' for regression).
+            조기 종료는 모델 설정에서 지정된 평가 메트릭을 모니터링합니다
+            (예: 분류의 경우 'logloss', 회귀의 경우 'rmse').
         """
         kwargs = {
             'verbose': verbose
