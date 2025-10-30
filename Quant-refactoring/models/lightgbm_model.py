@@ -1,46 +1,46 @@
-"""LightGBM model wrapper for gradient boosting with Microsoft's LightGBM.
+"""Microsoft LightGBM을 사용한 그래디언트 부스팅 모델 래퍼입니다.
 
-This module provides a wrapper class for LightGBM (Light Gradient Boosting Machine),
-supporting both classification and regression tasks with GPU acceleration.
+이 모듈은 GPU 가속을 지원하는 LightGBM (Light Gradient Boosting Machine) 래퍼 클래스를
+제공하며, 분류 및 회귀 작업을 모두 지원합니다.
 
-LightGBM is a gradient boosting framework developed by Microsoft that uses
-tree-based learning algorithms. Key advantages include:
-- Fast training speed and high efficiency
-- Lower memory usage
-- Better accuracy than many other frameworks
-- GPU acceleration support
-- Handles large-scale data well
-- Categorical feature support
+LightGBM은 Microsoft가 개발한 트리 기반 학습 알고리즘을 사용하는 그래디언트 부스팅
+프레임워크입니다. 주요 장점:
+- 빠른 학습 속도와 높은 효율성
+- 낮은 메모리 사용량
+- 다른 프레임워크보다 높은 정확도
+- GPU 가속 지원
+- 대규모 데이터 처리에 탁월
+- 범주형 특성 지원
 
-The LightGBMModel class extends BaseModel and provides:
-- Pre-configured settings optimized for trading
-- Automatic feature name cleaning for LightGBM compatibility
-- Support for custom hyperparameters
-- GPU-accelerated training
-- Early stopping with callbacks
-- Easy integration with the training pipeline
+LightGBMModel 클래스는 BaseModel을 확장하여 다음을 제공합니다:
+- 트레이딩에 최적화된 사전 구성 설정
+- LightGBM 호환성을 위한 자동 특성 이름 정리
+- 커스텀 하이퍼파라미터 지원
+- GPU 가속 학습
+- 콜백을 통한 조기 종료
+- 학습 파이프라인과의 쉬운 통합
 
-Usage Example:
-    Basic classification:
+사용 예제:
+    기본 분류:
         from models.lightgbm_model import LightGBMModel
 
-        # Create and build model
+        # 모델 생성 및 빌드
         model = LightGBMModel(task='classification', config_name='default')
         model.build_model()
 
-        # Train with early stopping
+        # 조기 종료와 함께 학습
         model.fit(X_train, y_train, X_val, y_val, early_stopping_rounds=50)
 
-        # Make predictions
+        # 예측
         predictions = model.predict(X_test)
         probabilities = model.predict_proba(X_test)
 
-        # Evaluate
+        # 평가
         metrics = model.evaluate(X_test, y_test)
         print(f"Accuracy: {metrics['accuracy']:.4f}")
 
-    Custom configuration:
-        # Use custom hyperparameters
+    커스텀 설정:
+        # 커스텀 하이퍼파라미터 사용
         custom_params = {
             'max_depth': 10,
             'learning_rate': 0.05,
@@ -50,28 +50,28 @@ Usage Example:
         model = LightGBMModel(task='classification')
         model.build_model(custom_params)
 
-    Feature name cleaning:
-        # LightGBM requires valid feature names (no special characters)
-        # The model automatically cleans feature names
+    특성 이름 정리:
+        # LightGBM은 유효한 특성 이름 필요 (특수 문자 없음)
+        # 모델이 자동으로 특성 이름 정리
         df_cleaned = LightGBMModel.clean_feature_names(df)
 
-    Regression:
+    회귀:
         model = LightGBMModel(task='regression')
         model.build_model()
         model.fit(X_train, y_train)
         predictions = model.predict(X_test)
 
 Attributes:
-    model_type (str): Always 'lightgbm'
-    task (str): Task type ('classification' or 'regression')
-    config_name (str): Name of the configuration preset
-    default_params (Dict): Default hyperparameters for the model
-    model: LightGBM classifier or regressor instance
+    model_type (str): 항상 'lightgbm'
+    task (str): 작업 유형 ('classification' 또는 'regression')
+    config_name (str): 설정 프리셋 이름
+    default_params (Dict): 모델의 기본 하이퍼파라미터
+    model: LightGBM 분류기 또는 회귀기 인스턴스
 
 Note:
-    LightGBM has strict requirements for feature names. They must not contain
-    special characters like [, ], <, >. The clean_feature_names() method
-    automatically handles this by removing invalid characters.
+    LightGBM은 특성 이름에 대한 엄격한 요구사항이 있습니다. [, ], <, >와 같은
+    특수 문자를 포함할 수 없습니다. clean_feature_names() 메서드가 유효하지 않은
+    문자를 제거하여 자동으로 처리합니다.
 """
 
 import lightgbm as lgb
