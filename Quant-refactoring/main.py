@@ -461,9 +461,10 @@ def main() -> None:
         try:
             if use_legacy:
                 logger.info("🔄 Using LEGACY FMP (root fmp.py)")
-                # Import legacy FMP from parent directory
+                # Import legacy FMP and MainCtx from parent directory
                 sys.path.insert(0, str(Path(__file__).parent.parent))
                 from fmp import FMP as LegacyFMP
+                from main import MainCtx as LegacyMainCtx
 
                 # Legacy FMP uses old config format
                 legacy_config = {
@@ -475,64 +476,10 @@ def main() -> None:
                     'EX_SYMBOL': data_config.get('EX_SYMBOL'),
                     'TARGET_STOCK_LIST': data_config.get('TARGET_STOCK_LIST'),
                     'TARGET_API_LIST': data_config.get('TARGET_API_LIST'),
+                    'LOG_LVL': config.get('LOG_LVL', 20),
                 }
 
                 # Create legacy MainCtx object
-                class LegacyMainCtx:
-                    def __init__(self, conf):
-                        self.start_year = int(conf['START_YEAR'])
-                        self.end_year = int(conf['END_YEAR'])
-                        self.root_path = conf['ROOT_PATH']
-                        self.log_lvl = config.get('LOG_LVL', 20)  # Default INFO level
-                        self.set_default_logger()
-
-                    @staticmethod
-                    def create_dir(path):
-                        """Create directory if it doesn't exist"""
-                        if not os.path.exists(path):
-                            logging.info('Creating Folder "{}" ...'.format(path))
-                            try:
-                                os.makedirs(path)
-                                return True
-                            except OSError:
-                                logging.error('Cannot Creating "{}" directory.'.format(path))
-                                return False
-
-                    def get_multi_logger(self):
-                        """Get multiprocessing-safe logger"""
-                        log_path = "log.txt"
-                        import multiprocessing
-                        multiprocessing.freeze_support()
-                        multi_logger = logging.getLogger("multi")
-                        multi_logger.setLevel(self.log_lvl)
-
-                        formatter = logging.Formatter(
-                            '[%(asctime)s][%(processName)s] %(message)s (%(filename)s:%(lineno)d)'
-                        )
-
-                        stream_handler = logging.StreamHandler()
-                        stream_handler.setFormatter(formatter)
-                        multi_logger.addHandler(stream_handler)
-
-                        file_handler = logging.FileHandler(log_path, mode="a+")
-                        file_handler.setFormatter(formatter)
-                        multi_logger.addHandler(file_handler)
-
-                        return multi_logger
-
-                    def set_default_logger(self):
-                        """Set default logger configuration"""
-                        log_path = "log.txt"
-                        logging.basicConfig(
-                            level=self.log_lvl,
-                            format='[%(asctime)s][%(levelname)s][%(processName)s] '
-                                   '%(message)s (%(filename)s:%(lineno)d)',
-                            handlers=[
-                                logging.FileHandler(log_path, mode='a+'),
-                                logging.StreamHandler()
-                            ]
-                        )
-
                 legacy_ctx = LegacyMainCtx(legacy_config)
                 fmp = LegacyFMP(legacy_config, legacy_ctx)
                 fmp.get_new()
