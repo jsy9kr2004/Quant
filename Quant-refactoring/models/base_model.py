@@ -1,19 +1,18 @@
-"""Base model class for all machine learning models.
+"""모든 머신러닝 모델을 위한 기본 모델 클래스입니다.
 
-This module provides an abstract base class for all ML models used in the quantitative
-trading system. It defines a consistent interface for model training, prediction,
-evaluation, and persistence.
+이 모듈은 퀀트 트레이딩 시스템에서 사용되는 모든 ML 모델을 위한 추상 기본 클래스를
+제공합니다. 모델 학습, 예측, 평가, 저장을 위한 일관된 인터페이스를 정의합니다.
 
-The BaseModel class implements common functionality like:
-- Model training with validation support
-- Prediction and probability prediction
-- Model evaluation with various metrics
-- Feature importance extraction
-- Model saving/loading
-- Cross-validation support
+BaseModel 클래스는 다음과 같은 공통 기능을 구현합니다:
+- 검증 지원이 포함된 모델 학습
+- 예측 및 확률 예측
+- 다양한 메트릭을 사용한 모델 평가
+- 특성 중요도 추출
+- 모델 저장/로드
+- 교차 검증 지원
 
-Usage Example:
-    Create a custom model by inheriting from BaseModel:
+사용 예제:
+    BaseModel을 상속하여 커스텀 모델 생성:
 
         from models.base_model import BaseModel
         from typing import Dict, Any
@@ -23,11 +22,11 @@ Usage Example:
                 super().__init__(model_type='custom', task=task)
 
             def build_model(self, params: Dict[str, Any]):
-                # Implement model creation logic
+                # 모델 생성 로직 구현
                 self.model = YourModelClass(**params)
                 return self
 
-        # Use the model
+        # 모델 사용
         model = CustomModel(task='classification')
         model.build_model({'param1': value1})
         model.fit(X_train, y_train, X_val, y_val)
@@ -35,11 +34,11 @@ Usage Example:
         metrics = model.evaluate(X_test, y_test)
 
 Attributes:
-    model_type (str): Type of model (e.g., 'xgboost', 'lightgbm', 'catboost')
-    task (str): Task type ('classification' or 'regression')
-    model: The underlying ML model instance
-    feature_names (list): List of feature names
-    is_trained (bool): Flag indicating if model has been trained
+    model_type (str): 모델 유형 (예: 'xgboost', 'lightgbm', 'catboost')
+    task (str): 작업 유형 ('classification' 또는 'regression')
+    model: 기반 ML 모델 인스턴스
+    feature_names (list): 특성 이름 리스트
+    is_trained (bool): 모델이 학습되었는지 나타내는 플래그
 """
 
 from abc import ABC, abstractmethod
@@ -53,21 +52,21 @@ from sklearn.metrics import accuracy_score, mean_squared_error, classification_r
 
 
 class BaseModel(ABC):
-    """Abstract base class for all machine learning models.
+    """모든 머신러닝 모델을 위한 추상 기본 클래스입니다.
 
-    This class provides a consistent interface for training, predicting, evaluating,
-    and persisting machine learning models. All concrete model implementations should
-    inherit from this class and implement the abstract methods.
+    이 클래스는 머신러닝 모델의 학습, 예측, 평가, 저장을 위한 일관된 인터페이스를
+    제공합니다. 모든 구체적인 모델 구현은 이 클래스를 상속하고 추상 메서드를
+    구현해야 합니다.
 
-    The class supports both classification and regression tasks, and provides
-    utilities for model evaluation, feature importance analysis, and cross-validation.
+    이 클래스는 분류 및 회귀 작업을 모두 지원하며, 모델 평가, 특성 중요도 분석,
+    교차 검증을 위한 유틸리티를 제공합니다.
 
     Attributes:
-        model_type (str): Type of the model (e.g., 'xgboost', 'lightgbm', 'catboost').
-        task (str): Task type, either 'classification' or 'regression'.
-        model (Any): The underlying ML model instance (None until built).
-        feature_names (Optional[List[str]]): List of feature names used for training.
-        is_trained (bool): Flag indicating whether the model has been trained.
+        model_type (str): 모델의 유형 (예: 'xgboost', 'lightgbm', 'catboost').
+        task (str): 'classification' 또는 'regression' 작업 유형.
+        model (Any): 기반 ML 모델 인스턴스 (빌드되기 전까지 None).
+        feature_names (Optional[List[str]]): 학습에 사용된 특성 이름 리스트.
+        is_trained (bool): 모델이 학습되었는지 나타내는 플래그.
 
     Example:
         >>> from models.xgboost_model import XGBoostModel
@@ -80,12 +79,12 @@ class BaseModel(ABC):
     """
 
     def __init__(self, model_type: str, task: str = 'classification') -> None:
-        """Initialize the base model.
+        """기본 모델을 초기화합니다.
 
         Args:
-            model_type (str): Type of model (e.g., 'xgboost', 'lightgbm', 'catboost').
-            task (str, optional): Task type, either 'classification' or 'regression'.
-                Defaults to 'classification'.
+            model_type (str): 모델 유형 (예: 'xgboost', 'lightgbm', 'catboost').
+            task (str, optional): 'classification' 또는 'regression' 작업 유형.
+                기본값은 'classification'.
 
         Example:
             >>> model = BaseModel(model_type='custom', task='regression')
