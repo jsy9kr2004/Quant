@@ -225,10 +225,9 @@ class FMP:
         if os.path.isdir(path) is False:
             return
         for file in os.listdir(path):
-            if only_csv is True and not file.endswith(".csv"):
+            if only_csv is True and not (file.endswith(".csv") or file.endswith(".csvx")):
                 continue
-            else:
-                os.remove(os.path.join(path, file))
+            os.remove(os.path.join(path, file))
 
     def remove_current_list_files(self, base_path: str, check_target: bool = True) -> None:
         """Remove outdated files for symbols in the current list.
