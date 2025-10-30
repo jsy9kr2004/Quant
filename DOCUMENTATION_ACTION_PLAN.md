@@ -1,14 +1,14 @@
-# Documentation Improvement Action Plan
+# 문서화 개선 실행 계획
 ## Quant-refactoring Python Codebase
 
-**Prepared:** October 29, 2025
-**Status:** Ready for Implementation
+**작성일:** October 29, 2025
+**상태:** 구현 준비 완료
 
 ---
 
-## QUICK REFERENCE - CRITICAL FILES TO FIX
+## 빠른 참조 - 수정이 필요한 중요 파일들
 
-### TIER 1: CRITICAL (Do First) - Total: 10-12 hours
+### TIER 1: 중요 (먼저 수행) - 총: 10-12시간
 
 | File | Coverage | Issues | Effort | Impact |
 |------|----------|--------|--------|--------|
@@ -19,9 +19,9 @@
 | `/data_collector/fmp.py` | 6.8% | No module docstring, class undocumented, 4 methods, 0% type hints, 1 FIXME | 1.5-2h | HIGH |
 | `/storage/parquet_converter.py` | 4.0% | No module docstring, class + 3 methods undocumented, 0% type hints, 1 TODO | 1-1.5h | MEDIUM |
 
-**Subtotal: 11-17 hours** (If doing all type hints too)
+**소계: 11-17시간** (모든 type hint도 수행하는 경우)
 
-### TIER 2: IMPORTANT (Do Next) - Total: 3-4 hours
+### TIER 2: 중요 (다음 수행) - 총: 3-4시간
 
 | File | Coverage | Issues | Effort | Impact |
 |------|----------|--------|--------|--------|
@@ -30,9 +30,9 @@
 | `/config/context_loader.py` | 16.0% | 4 functions missing docs, 12/16 type hints | 0.5h | MEDIUM |
 | `/models/base_model.py` | 14.9% | 1 function missing docstring, 7/14 type hints | 0.5h | MEDIUM |
 
-**Subtotal: 2.5-3 hours**
+**소계: 2.5-3시간**
 
-### TIER 3: NICE-TO-HAVE (Optional) - Total: 2-3 hours
+### TIER 3: 있으면 좋음 (선택사항) - 총: 2-3시간
 
 | File | Coverage | Issues | Effort |
 |------|----------|--------|--------|
@@ -40,13 +40,13 @@
 | `/tools/rank_processing.py` | 4.0% | No module docstring | 0.5h |
 | `/config/g_variables.py` | 4.0% | Add section comments to 370-line configuration | 1-1.5h |
 
-**Subtotal: 2-2.5 hours**
+**소계: 2-2.5시간**
 
 ---
 
-## EXECUTION ROADMAP
+## 실행 로드맵
 
-### Phase 1: Setup (1 hour)
+### Phase 1: 설정 (1시간)
 ```
 [ ] Define docstring standard (Google style recommended)
 [ ] Create docstring template for project

@@ -1,16 +1,16 @@
-"""Configuration loader and context manager for the Quant Trading System.
+"""Quant Trading System을 위한 configuration loader 및 context manager입니다.
 
-This module provides classes and functions for loading and managing configuration
-settings from YAML files. It supports both modern and legacy configuration loading
-patterns and integrates with the unified logging system.
+이 모듈은 YAML 파일에서 configuration 설정을 로드하고 관리하기 위한 클래스와 함수를
+제공합니다. 현대적이고 레거시인 configuration 로딩 패턴을 모두 지원하며
+unified logging system과 통합됩니다.
 
-Key Components:
-    - ConfigLoader: Modern configuration loader with dot notation support
-    - ContextLoader: Legacy configuration loader for backward compatibility
-    - MainContext: Main application context with integrated logging
-    - load_config: Convenience function for loading configuration
+주요 컴포넌트:
+    - ConfigLoader: dot notation을 지원하는 현대적인 configuration loader
+    - ContextLoader: 하위 호환성을 위한 레거시 configuration loader
+    - MainContext: logging이 통합된 메인 application context
+    - load_config: configuration 로딩을 위한 편의 함수
 
-Usage:
+사용법:
     Modern approach::
 
         from config.context_loader import ConfigLoader, MainContext
@@ -55,29 +55,29 @@ from config.logger import setup_logging, get_logger
 
 
 class ConfigLoader:
-    """Modern configuration file loader with enhanced features.
+    """향상된 기능을 가진 현대적인 configuration 파일 loader입니다.
 
-    This class provides a robust way to load and access YAML configuration files
-    with support for nested keys using dot notation and type-safe default values.
+    이 클래스는 dot notation을 사용한 중첩 키 지원과 type-safe한 기본값을 통해
+    YAML configuration 파일을 로드하고 접근하는 견고한 방법을 제공합니다.
 
-    The loader validates that the configuration file exists and provides convenient
-    methods to access different sections of the configuration.
+    Loader는 configuration 파일이 존재하는지 검증하고 configuration의 다른 섹션에
+    접근할 수 있는 편리한 메서드를 제공합니다.
 
     Attributes:
-        config_path (Path): Path to the configuration file.
-        config (Dict[str, Any]): Loaded configuration dictionary.
+        config_path (Path): Configuration 파일 경로.
+        config (Dict[str, Any]): 로드된 configuration dictionary.
 
-    Example:
+    예제:
         >>> loader = ConfigLoader('config/conf.yaml')
-        >>> # Access nested values with dot notation
+        >>> # dot notation으로 중첩된 값 접근
         >>> start_year = loader.get('DATA.START_YEAR', 2015)
-        >>> # Access entire sections
+        >>> # 전체 섹션 접근
         >>> ml_config = loader.get_ml_config()
-        >>> # Dictionary-style access
+        >>> # Dictionary 스타일 접근
         >>> api_key = loader['DATA.API_KEY']
 
     Raises:
-        FileNotFoundError: If the configuration file does not exist.
+        FileNotFoundError: Configuration 파일이 존재하지 않는 경우.
     """
 
     def __init__(self, config_path: str = "config/conf.yaml") -> None:
@@ -403,45 +403,44 @@ class ContextLoader:
 
 
 class MainContext:
-    """Main application context with integrated configuration and logging.
+    """Configuration과 logging이 통합된 메인 application context입니다.
 
-    This class serves as the primary context for the Quant Trading System,
-    combining configuration management and the unified logging system. It
-    initializes all necessary settings and provides access to loggers.
+    이 클래스는 Quant Trading System의 주요 context 역할을 하며,
+    configuration 관리와 unified logging system을 결합합니다.
+    모든 필요한 설정을 초기화하고 logger에 대한 접근을 제공합니다.
 
-    The context automatically sets up the logging system based on configuration
-    settings and provides methods for directory creation and logger access.
+    Context는 configuration 설정을 기반으로 logging system을 자동으로 설정하고
+    디렉토리 생성 및 logger 접근을 위한 메서드를 제공합니다.
 
     Attributes:
-        start_year (int): Start year for data collection/analysis.
-        end_year (int): End year for data collection/analysis.
-        root_path (str): Root path for data storage.
+        start_year (int): 데이터 수집/분석 시작 년도.
+        end_year (int): 데이터 수집/분석 종료 년도.
+        root_path (str): 데이터 저장 루트 경로.
         fmp_url (str): Financial Modeling Prep API base URL.
-        api_key (str): API key for FMP access.
-        ex_symbol (str): Example symbol for URL parsing/testing.
-        target_api_list (str): Path to target API list CSV file.
-        log_lvl (int): Logging level as integer (10=DEBUG, 20=INFO, etc.).
-        log_level_name (str): Logging level as string ('DEBUG', 'INFO', etc.).
-        log_path (str): Path to the log file.
+        api_key (str): FMP 접근을 위한 API key.
+        ex_symbol (str): URL 파싱/테스트를 위한 예제 심볼.
+        target_api_list (str): Target API 리스트 CSV 파일 경로.
+        log_lvl (int): 정수로 표현된 logging level (10=DEBUG, 20=INFO 등).
+        log_level_name (str): 문자열로 표현된 logging level ('DEBUG', 'INFO' 등).
+        log_path (str): Log 파일 경로.
 
-    Example:
+    예제:
         >>> from config.context_loader import load_config, MainContext
         >>>
-        >>> # Load configuration and create context
+        >>> # Configuration 로드 및 context 생성
         >>> config = load_config('config/conf.yaml')
         >>> context = MainContext(config)
         >>>
-        >>> # Get logger for a module
+        >>> # 모듈을 위한 logger 가져오기
         >>> logger = context.get_logger('DataCollector')
         >>> logger.info(f'Processing data from {context.start_year} to {context.end_year}')
         >>>
-        >>> # Create directories as needed
+        >>> # 필요에 따라 디렉토리 생성
         >>> context.create_dir(context.root_path)
 
-    Note:
-        The unified logging system is automatically configured when MainContext
-        is initialized. All loggers obtained through get_logger() will use this
-        centralized configuration.
+    주의:
+        Unified logging system은 MainContext가 초기화될 때 자동으로 구성됩니다.
+        get_logger()를 통해 얻은 모든 logger는 이 중앙화된 configuration을 사용합니다.
     """
 
     def __init__(self, config: Dict[str, Any]) -> None:

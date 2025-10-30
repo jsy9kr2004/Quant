@@ -1,5 +1,4 @@
-"""
-Sector-based Ensemble Strategy
+"""섹터 기반 Ensemble 전략입니다.
 
 섹터별로 다른 피처/모델을 사용하되, 최종 선택은 전체에서 top N개
 """
@@ -13,8 +12,7 @@ import json
 
 
 class SectorEnsemble:
-    """
-    섹터별 앙상블 전략
+    """섹터별 앙상블 전략입니다.
 
     각 섹터마다:
     1. 다른 피처 세트 사용
