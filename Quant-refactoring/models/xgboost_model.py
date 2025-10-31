@@ -18,7 +18,7 @@ XGBoostModel 클래스는 BaseModel을 확장하여 다음을 제공합니다:
 - 조기 종료 지원
 - 학습 파이프라인과의 쉬운 통합
 
-사용 예제:
+사용 예시:
     기본 분류:
         from models.xgboost_model import XGBoostModel
 
@@ -98,20 +98,20 @@ class XGBoostModel(BaseModel):
         feature_names (Optional[List[str]]): 특성 이름 리스트.
         is_trained (bool): 모델이 학습되었는지 나타내는 플래그.
 
-    Example:
-        >>> # 기본 설정으로 분류
-        >>> model = XGBoostModel(task='classification', config_name='default')
-        >>> model.build_model()
-        >>> model.fit(X_train, y_train, X_val, y_val)
-        >>>
-        >>> # 특성 중요도 가져오기
-        >>> importance_df = model.get_feature_importance(top_n=10)
-        >>> print(importance_df)
-        >>>
-        >>> # 저장 및 로드
-        >>> model.save('model.pkl')
-        >>> loaded_model = XGBoostModel()
-        >>> loaded_model.load('model.pkl')
+    사용 예시:
+        # 기본 설정으로 분류
+        model = XGBoostModel(task='classification', config_name='default')
+        model.build_model()
+        model.fit(X_train, y_train, X_val, y_val)
+
+        # 특성 중요도 가져오기
+        importance_df = model.get_feature_importance(top_n=10)
+        print(importance_df)
+
+        # 저장 및 로드
+        model.save('model.pkl')
+        loaded_model = XGBoostModel()
+        loaded_model.load('model.pkl')
     """
 
     def __init__(
@@ -129,15 +129,15 @@ class XGBoostModel(BaseModel):
                 회귀용: 'default', 'deep'
                 기본값은 'default'.
 
-        Example:
-            >>> # 기본 분류 모델
-            >>> model = XGBoostModel(task='classification')
-            >>>
-            >>> # 더 깊은 분류 모델
-            >>> model = XGBoostModel(task='classification', config_name='depth_10')
-            >>>
-            >>> # 회귀 모델
-            >>> model = XGBoostModel(task='regression', config_name='deep')
+        사용 예시:
+            # 기본 분류 모델
+            model = XGBoostModel(task='classification')
+
+            # 더 깊은 분류 모델
+            model = XGBoostModel(task='classification', config_name='depth_10')
+
+            # 회귀 모델
+            model = XGBoostModel(task='regression', config_name='deep')
         """
         super().__init__(model_type='xgboost', task=task)
         self.config_name = config_name
@@ -177,21 +177,21 @@ class XGBoostModel(BaseModel):
         Returns:
             XGBoostModel: 메서드 체이닝을 위한 self.
 
-        Example:
-            >>> # 기본 파라미터 사용
-            >>> model.build_model()
-            >>>
-            >>> # 커스텀 파라미터 사용
-            >>> custom_params = {
-            ...     'max_depth': 12,
-            ...     'learning_rate': 0.05,
-            ...     'n_estimators': 2000,
-            ...     'gamma': 1.0
-            ... }
-            >>> model.build_model(custom_params)
-            >>>
-            >>> # 부분 덮어쓰기 (다른 파라미터는 기본값 사용)
-            >>> model.build_model({'max_depth': 10})
+        사용 예시:
+            # 기본 파라미터 사용
+            model.build_model()
+
+            # 커스텀 파라미터 사용
+            custom_params = {
+                'max_depth': 12,
+                'learning_rate': 0.05,
+                'n_estimators': 2000,
+                'gamma': 1.0
+            }
+            model.build_model(custom_params)
+
+            # 부분 덮어쓰기 (다른 파라미터는 기본값 사용)
+            model.build_model({'max_depth': 10})
         """
         if params is None:
             params = self.default_params
@@ -243,22 +243,22 @@ class XGBoostModel(BaseModel):
         Raises:
             ValueError: 모델이 빌드되지 않은 경우.
 
-        Example:
-            >>> # 조기 종료 없이 학습
-            >>> model.fit(X_train, y_train, verbose=True)
-            >>>
-            >>> # 조기 종료와 함께 학습
-            >>> model.fit(
-            ...     X_train, y_train,
-            ...     X_val, y_val,
-            ...     early_stopping_rounds=100,
-            ...     verbose=True
-            ... )
-            >>>
-            >>> # 조용한 학습
-            >>> model.fit(X_train, y_train, verbose=False)
+        사용 예시:
+            # 조기 종료 없이 학습
+            model.fit(X_train, y_train, verbose=True)
 
-        Note:
+            # 조기 종료와 함께 학습
+            model.fit(
+                X_train, y_train,
+                X_val, y_val,
+                early_stopping_rounds=100,
+                verbose=True
+            )
+
+            # 조용한 학습
+            model.fit(X_train, y_train, verbose=False)
+
+        참고:
             조기 종료는 모델 설정에서 지정된 평가 메트릭을 모니터링합니다
             (예: 분류의 경우 'logloss', 회귀의 경우 'rmse').
         """

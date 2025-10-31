@@ -10,7 +10,7 @@ FMP 클래스는 전체 데이터 수집 워크플로우를 조율합니다:
 3. 모든 심볼에 대한 금융 데이터 수집
 4. 오래된 파일 검증 및 정리
 
-사용 예제:
+사용 예시:
     from context import MainContext
 
     main_ctx = MainContext()
@@ -43,11 +43,11 @@ class FMP:
         current_list (list): 현재 활성 주식 심볼 리스트.
         logger: 이 클래스의 로거 인스턴스.
 
-    Example:
-        >>> from context import MainContext
-        >>> main_ctx = MainContext()
-        >>> fmp = FMP(main_ctx)
-        >>> fmp.collect()
+    사용 예시:
+        from context import MainContext
+        main_ctx = MainContext()
+        fmp = FMP(main_ctx)
+        fmp.collect()
     """
 
     def __init__(self, main_ctx) -> None:
@@ -97,14 +97,14 @@ class FMP:
         """
         self.logger.info('fetching ticker list start (stock_list, delisted_companies)')
 
-        # Find and validate stock_list API
+        # stock_list API 찾기 및 검증
         stock_list_api = [api for api in api_list if api.converted_category == 'stock_list']
         if len(stock_list_api) == 0:
             self.logger.error('stock list는 받아온다는 전제')
             raise Exception('stock list는 받아온다는 전제')
         stock_list_api = stock_list_api[0]
 
-        # Find and validate delisted_companies API
+        # delisted_companies API 찾기 및 검증
         delisted_companies_api = [api for api in api_list if api.converted_category == 'delisted_companies']
         if len(delisted_companies_api) == 0:
             self.logger.error('delisted companies는 받아온다는 전제')
@@ -140,8 +140,8 @@ class FMP:
             self.logger.error(f'file({path}) is not existed')
             return
 
-        # Filter stock_list for stocks on NASDAQ and NYSE exchanges
-        # Note: read_csv doesn't include index, so don't drop the first column
+        # NASDAQ 및 NYSE 거래소의 주식만 필터링
+        # 참고: read_csv는 인덱스를 포함하지 않으므로 첫 번째 열을 삭제하지 않습니다
         filtered_symbol = symbol_list[(symbol_list['type'] == "stock")
                                       & ((symbol_list['exchangeShortName'] == 'NASDAQ')
                                          | (symbol_list['exchangeShortName'] == 'NYSE'))]
@@ -150,14 +150,14 @@ class FMP:
         filtered_symbol = filtered_symbol.drop(['price', 'exchange', 'name'], axis=1)
         all_symbol = filtered_symbol
 
-        # Merge with delisted companies from NASDAQ and NYSE
+        # NASDAQ 및 NYSE의 상장폐지 회사와 병합
         file_list = os.listdir(self.main_ctx.root_path + "/delisted_companies/")
         for file in file_list:
             if os.path.splitext(file)[1] == ".csv":
                 delisted = pd.read_csv(self.main_ctx.root_path + "/delisted_companies/" + file)
                 if delisted.empty == True:
                     continue
-                # Filter for NASDAQ and NYSE exchanges
+                # NASDAQ 및 NYSE 거래소만 필터링
                 delisted = delisted[((delisted['exchange'] == 'NASDAQ') | (delisted['exchange'] == 'NYSE'))]
                 delisted = delisted.dropna(subset=['symbol'])
                 delisted = delisted.reset_index(drop=True)
@@ -165,21 +165,21 @@ class FMP:
                 delisted = delisted.drop(['companyName'], axis=1)
                 all_symbol = pd.concat([all_symbol, delisted])
 
-        # Save all symbols to CSV and create complete symbol list
+        # 모든 심볼을 CSV에 저장하고 완전한 심볼 리스트 생성
         all_symbol.to_csv('./allsymbol.csv', index=False)
         all_symbol = all_symbol.drop_duplicates('symbol', keep='first')
         all_symbol = all_symbol.reset_index(drop=True)
         self.symbol_list = all_symbol["symbol"].to_list()
 
-        # Create current symbol list (recently active stocks)
-        # TODO: Clarify the purpose of subtracting 1 month from the most recent delisted date
+        # 현재 심볼 리스트 생성 (최근 활성 주식)
+        # TODO: 가장 최근 상장폐지 날짜에서 1개월을 빼는 목적을 명확히 할 것
         all_symbol["delistedDate"] = pd.to_datetime(all_symbol["delistedDate"])
         recent_date = all_symbol["delistedDate"].max()
-        recent_date -= relativedelta(months=1)  # Subtract 1 month from most recent delisted date
+        recent_date -= relativedelta(months=1)  # 가장 최근 상장폐지 날짜에서 1개월 빼기
 
-        # Query for symbols that are either:
-        # 1. Delisted recently (within 1 month)
-        # 2. Not delisted (NaT or None)
+        # 다음 중 하나에 해당하는 심볼 쿼리:
+        # 1. 최근에 상장폐지됨 (1개월 이내)
+        # 2. 상장폐지되지 않음 (NaT 또는 None)
         query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(recent_date)
         current_symbol = all_symbol.query(query)
         current_symbol.to_csv('./current_list.csv', index=False)
@@ -201,10 +201,10 @@ class FMP:
         """
         self.logger.info('fetching the rest start')
 
-        # Filter for non-ticker-list APIs
+        # 티커 리스트가 아닌 API만 필터링
         rest_api_list = [api for api in api_list if api.converted_category not in ['stock_list', 'delisted_companies']]
 
-        # Assign symbol list to APIs that need it
+        # 심볼이 필요한 API에 심볼 리스트 할당
         for api in rest_api_list:
             if api.need_symbol:
                 api.symbol_list = self.symbol_list
@@ -254,21 +254,21 @@ class FMP:
             path = base_path + "/" + str(symbol) + ".csv"
             if os.path.isfile(path):
                 if check_target is True:
-                    # Read the entire file to check the date
-                    # TODO: Find a more efficient way to read just the first/last row
+                    # 날짜를 확인하기 위해 전체 파일 읽기
+                    # TODO: 첫 번째/마지막 행만 읽는 더 효율적인 방법 찾기
                     row = pd.read_csv(path)
 
-                    # Check if file has a date column
+                    # 파일에 date 컬럼이 있는지 확인
                     if "date" in row.columns:
                         if row["date"].empty is True:
                             os.remove(path)
                             continue
                     else:
-                        # No date column, remove the file
+                        # date 컬럼이 없으면 파일 제거
                         os.remove(path)
                         continue
 
-                    # Check if file is older than 75 days
+                    # 파일이 75일보다 오래되었는지 확인
                     update_date = datetime.datetime.strptime(row["date"].max(), "%Y-%m-%d")
                     if (today - update_date) < datetime.timedelta(days=75):
                         continue
@@ -285,8 +285,8 @@ class FMP:
             base_path (str): 기본 경로 패턴 (예: 'path/to/data_').
                 현재 연도가 추가되어 'path/to/data_2025.csv' 형태가 됩니다.
 
-        Example:
-            >>> FMP.remove_current_year('/data/historical_price_full/AAPL_')
+        사용 예시:
+            FMP.remove_current_year('/data/historical_price_full/AAPL_')
             # 제거: /data/historical_price_full/AAPL_2025.csv
             #       /data/historical_price_full/AAPL_2025.csvx
         """
@@ -307,9 +307,9 @@ class FMP:
             bool: 마지막 업데이트 이후 1일 미만인 경우 True (제거 건너뛰기),
                 그렇지 않으면 False.
 
-        Example:
-            >>> if not fmp.skip_remove_check():
-            ...     fmp.remove_first_loop()
+        사용 예시:
+            if not fmp.skip_remove_check():
+                fmp.remove_first_loop()
         """
         today = datetime.datetime.today()
         if os.path.isfile("./config/update_date.txt"):
@@ -318,7 +318,7 @@ class FMP:
             fd.close()
             update_date = datetime.datetime.strptime(update_date, "%Y-%m-%d")
 
-            # Check if less than 1 day has passed
+            # 1일 미만 경과했는지 확인
             if (today - update_date) < datetime.timedelta(days=1):
                 self.logger.info('Skip Remove Files')
                 return True
@@ -354,7 +354,7 @@ class FMP:
                 for p in par_list:
                     df = pd.read_csv(os.path.join(cur_path, p))
 
-                    # Check for error messages in the data
+                    # 데이터에서 오류 메시지 확인
                     if df.filter(regex='Limit').empty is False or df.filter(regex='Error').empty is False:
                         logging.debug(os.path.join(cur_path, p))
                         os.remove(os.path.join(cur_path, p))
@@ -370,19 +370,19 @@ class FMP:
         return flag
 
     def remove_first_loop(self) -> None:
-        """Remove symbol list related files in preparation for refresh.
+        """새로고침을 준비하기 위해 심볼 리스트 관련 파일을 제거합니다.
 
-        First phase of the two-phase removal process. Removes files that affect
-        the symbol list so they can be re-fetched with current data.
+        2단계 제거 프로세스의 첫 번째 단계입니다. 심볼 리스트에 영향을 주는 파일을
+        제거하여 현재 데이터로 다시 가져올 수 있도록 합니다.
 
-        Removes:
-        - allsymbol.csv: Combined symbol list cache
-        - current_list.csv: Current symbol list cache
-        - delisted_companies/ directory contents
-        - stock_list/ directory contents
+        제거 대상:
+        - allsymbol.csv: 결합된 심볼 리스트 캐시
+        - current_list.csv: 현재 심볼 리스트 캐시
+        - delisted_companies/ 디렉토리 내용
+        - stock_list/ 디렉토리 내용
 
         See Also:
-            remove_second_loop: Second phase after symbol list is rebuilt.
+            remove_second_loop: 심볼 리스트가 재구축된 후의 두 번째 단계.
         """
         if os.path.isfile("./allsymbol.csv"):
             os.remove("./allsymbol.csv")
@@ -392,101 +392,101 @@ class FMP:
         self.remove_files(self.main_ctx.root_path+"/stock_list")
 
     def remove_second_loop(self) -> None:
-        """Remove data files using the refreshed symbol list.
+        """새로고침된 심볼 리스트를 사용하여 데이터 파일을 제거합니다.
 
-        Second phase of the two-phase removal process. After the symbol list is
-        refreshed, removes outdated data files for symbols in the current list.
+        2단계 제거 프로세스의 두 번째 단계입니다. 심볼 리스트가 새로고침된 후,
+        현재 리스트의 심볼에 대한 오래된 데이터 파일을 제거합니다.
 
-        Removes:
+        제거 대상:
         - symbol_available_indexes
-        - Current year earning calendar files
-        - Financial statement files older than 75 days
-        - Historical price files for current year
-        - DCF and market cap files (performance bottleneck - see FIXME)
-        - Profile data (currently not updated)
+        - 현재 연도 수익 캘린더 파일
+        - 75일보다 오래된 재무제표 파일
+        - 현재 연도 히스토리컬 가격 파일
+        - DCF 및 시가총액 파일 (성능 병목 - FIXME 참조)
+        - 프로필 데이터 (현재 업데이트되지 않음)
 
-        FIXME: remove_current_list_files for DCF and market cap is slow.
-            Consider alternative approaches for large datasets.
+        FIXME: DCF 및 시가총액에 대한 remove_current_list_files가 느립니다.
+            대규모 데이터셋에 대한 대체 접근 방식을 고려하십시오.
 
         See Also:
-            remove_first_loop: First phase before symbol list refresh.
+            remove_first_loop: 심볼 리스트 새로고침 전의 첫 번째 단계.
         """
         self.remove_files(self.main_ctx.root_path+"/symbol_available_indexes")
         self.remove_current_year(self.main_ctx.root_path+"/earning_calendar/earning_calendar_")
 
-        # Remove financial statement files older than 75 days
+        # 75일보다 오래된 재무제표 파일 제거
         self.remove_current_list_files(self.main_ctx.root_path+"/income_statement")
         self.remove_current_list_files(self.main_ctx.root_path+"/balance_sheet_statement")
         self.remove_current_list_files(self.main_ctx.root_path+"/cash_flow_statement")
         self.remove_current_list_files(self.main_ctx.root_path+"/key_metrics")
         self.remove_current_list_files(self.main_ctx.root_path+"/financial_growth")
 
-        # Remove current year historical price files for each symbol
+        # 각 심볼에 대한 현재 연도 히스토리컬 가격 파일 제거
         for symbol in self.current_list:
             self.remove_current_year(self.main_ctx.root_path+"/historical_price_full/" + str(symbol) + "_")
 
-        # FIXME: These two operations are among the slowest. Consider optimization.
-        # Top 2 most time-consuming operations - need better approach
+        # FIXME: 이 두 작업은 가장 느린 작업 중 하나입니다. 최적화를 고려하십시오.
+        # 가장 시간 소모적인 작업 상위 2개 - 더 나은 접근 방식 필요
         self.remove_current_list_files(self.main_ctx.root_path+"/historical_daily_discounted_cash_flow")
         self.remove_current_list_files(self.main_ctx.root_path+"/historical_market_capitalization", False)
 
-        # Profile data is intentionally not updated
+        # 프로필 데이터는 의도적으로 업데이트되지 않습니다
         self.remove_current_list_files(self.main_ctx.root_path+"/profile", False)
 
     def collect(self) -> None:
-        """Execute the complete FMP data collection workflow.
+        """완전한 FMP 데이터 수집 워크플로우를 실행합니다.
 
-        This is the main entry point for data collection. It orchestrates the entire
-        process in the following sequence:
+        이것은 데이터 수집을 위한 메인 진입점입니다. 다음 순서로 전체
+        프로세스를 조율합니다:
 
-        1. Load API list from configuration
-        2. Fetch ticker lists (stock_list and delisted_companies)
-        3. Build symbol lists for NASDAQ and NYSE
-        4. Fetch data for all other APIs
-        5. Record update timestamp
-        6. Validate downloaded files
+        1. 설정에서 API 리스트 로드
+        2. 티커 리스트 가져오기 (stock_list 및 delisted_companies)
+        3. NASDAQ 및 NYSE를 위한 심볼 리스트 구축
+        4. 다른 모든 API에서 데이터 가져오기
+        5. 업데이트 타임스탬프 기록
+        6. 다운로드된 파일 검증
 
-        The method implements a two-pass approach:
-        - First pass: Fetch ticker lists to build symbol list
-        - Second pass: Use symbol list to fetch all other data
+        이 메서드는 2회 처리 접근 방식을 구현합니다:
+        - 첫 번째 회: 심볼 리스트를 구축하기 위해 티커 리스트 가져오기
+        - 두 번째 회: 심볼 리스트를 사용하여 다른 모든 데이터 가져오기
 
-        This design allows for flexible API management without hardcoding API categories.
-        When symbol lists don't exist, APIs requiring symbols will return without errors.
+        이 설계는 API 카테고리를 하드코딩하지 않고 유연한 API 관리를 가능하게 합니다.
+        심볼 리스트가 존재하지 않을 때 심볼이 필요한 API는 오류 없이 반환됩니다.
 
         Note:
-            File removal steps (remove_first_loop, remove_second_loop) are currently
-            commented out. Uncomment them to enable automatic cleanup of outdated files.
+            파일 제거 단계(remove_first_loop, remove_second_loop)는 현재 주석 처리되어
+            있습니다. 오래된 파일의 자동 정리를 활성화하려면 주석을 해제하십시오.
 
         Raises:
-            SystemExit: If validation check fails, indicating corrupted downloads
-                that need to be re-fetched.
+            SystemExit: 검증 확인이 실패하면 다시 가져와야 하는 손상된 다운로드를
+                나타냅니다.
         """
 
         api_list = self.__get_api_list()
 
-        # First loop: Remove old symbol list files before fetching new ones
+        # 첫 번째 루프: 새 티커 리스트를 가져오기 전에 이전 심볼 리스트 파일 제거
         if self.skip_remove_check() is False:
             self.remove_first_loop()
 
-        # Fetch ticker lists and build symbol lists
+        # 티커 리스트를 가져오고 심볼 리스트 구축
         self.__fetch_ticker_list(api_list)
-        self.__set_symbol()  # TODO: Add ETF symbols to symbol list
+        self.__set_symbol()  # TODO: 심볼 리스트에 ETF 심볼 추가
         print("after set_symbol : {}".format(self.symbol_list))
 
-        # Second loop: Remove outdated data files based on new symbol list
+        # 두 번째 루프: 새 심볼 리스트를 기반으로 오래된 데이터 파일 제거
         if self.skip_remove_check() is False:
             self.remove_second_loop()
 
-        # Fetch all remaining data
+        # 나머지 모든 데이터 가져오기
         self.__fetch_data(api_list)
 
-        # Record update timestamp to prevent accidental re-runs
+        # 실수로 재실행하는 것을 방지하기 위해 업데이트 타임스탬프 기록
         write_fd = open("./config/update_date.txt", "w")
         today = datetime.date.today()
         write_fd.write(str(today))
         write_fd.close()
 
-        # Validate downloaded files for API errors
+        # API 오류에 대한 다운로드된 파일 검증
         if self.validation_check() is False:
             logging.critical("Validation Check False!! Please run the program again after a few minutes!!")
             exit()

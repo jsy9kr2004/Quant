@@ -68,14 +68,14 @@ class BaseModel(ABC):
         feature_names (Optional[List[str]]): 학습에 사용된 특성 이름 리스트.
         is_trained (bool): 모델이 학습되었는지 나타내는 플래그.
 
-    Example:
-        >>> from models.xgboost_model import XGBoostModel
-        >>> model = XGBoostModel(task='classification')
-        >>> model.build_model({'max_depth': 8, 'n_estimators': 100})
-        >>> model.fit(X_train, y_train, X_val, y_val)
-        >>> predictions = model.predict(X_test)
-        >>> metrics = model.evaluate(X_test, y_test)
-        >>> print(f"Accuracy: {metrics['accuracy']:.4f}")
+    사용 예시:
+        from models.xgboost_model import XGBoostModel
+        model = XGBoostModel(task='classification')
+        model.build_model({'max_depth': 8, 'n_estimators': 100})
+        model.fit(X_train, y_train, X_val, y_val)
+        predictions = model.predict(X_test)
+        metrics = model.evaluate(X_test, y_test)
+        print(f"Accuracy: {metrics['accuracy']:.4f}")
     """
 
     def __init__(self, model_type: str, task: str = 'classification') -> None:
@@ -86,8 +86,8 @@ class BaseModel(ABC):
             task (str, optional): 'classification' 또는 'regression' 작업 유형.
                 기본값은 'classification'.
 
-        Example:
-            >>> model = BaseModel(model_type='custom', task='regression')
+        사용 예시:
+            model = BaseModel(model_type='custom', task='regression')
         """
         self.model_type = model_type
         self.task = task
@@ -97,22 +97,22 @@ class BaseModel(ABC):
 
     @abstractmethod
     def build_model(self, params: Dict[str, Any]) -> 'BaseModel':
-        """Build the model with specified parameters.
+        """지정된 파라미터로 모델을 빌드합니다.
 
-        This is an abstract method that must be implemented by subclasses.
-        It should create and configure the underlying ML model instance.
+        이 추상 메서드는 서브클래스에서 반드시 구현되어야 합니다.
+        기반 ML 모델 인스턴스를 생성하고 설정합니다.
 
         Args:
-            params (Dict[str, Any]): Dictionary of model hyperparameters.
+            params (Dict[str, Any]): 모델 하이퍼파라미터 딕셔너리.
 
         Returns:
-            BaseModel: Self for method chaining.
+            BaseModel: 메서드 체이닝을 위한 self.
 
         Raises:
-            NotImplementedError: If not implemented by subclass.
+            NotImplementedError: 서브클래스에서 구현되지 않은 경우.
 
-        Example:
-            >>> model.build_model({'max_depth': 8, 'learning_rate': 0.1})
+        사용 예시:
+            model.build_model({'max_depth': 8, 'learning_rate': 0.1})
         """
         pass
 
@@ -124,31 +124,31 @@ class BaseModel(ABC):
         y_val: Optional[Union[pd.Series, np.ndarray]] = None,
         **kwargs: Any
     ) -> 'BaseModel':
-        """Train the model on the provided data.
+        """제공된 데이터로 모델을 학습합니다.
 
-        Trains the model using the training data and optionally validates on
-        validation data. The method extracts feature names from pandas DataFrames
-        and logs training progress.
+        훈련 데이터를 사용하여 모델을 학습하고, 선택적으로 검증 데이터에 대해
+        검증을 수행합니다. 이 메서드는 pandas DataFrame에서 특성 이름을 추출하고
+        학습 진행 상황을 로깅합니다.
 
         Args:
-            X_train (Union[pd.DataFrame, np.ndarray]): Training features.
-            y_train (Union[pd.Series, np.ndarray]): Training labels.
-            X_val (Optional[Union[pd.DataFrame, np.ndarray]], optional): Validation
-                features. Defaults to None.
-            y_val (Optional[Union[pd.Series, np.ndarray]], optional): Validation
-                labels. Defaults to None.
-            **kwargs: Additional arguments passed to the underlying model's fit method.
+            X_train (Union[pd.DataFrame, np.ndarray]): 훈련 특성.
+            y_train (Union[pd.Series, np.ndarray]): 훈련 레이블.
+            X_val (Optional[Union[pd.DataFrame, np.ndarray]], optional): 검증 특성.
+                기본값은 None.
+            y_val (Optional[Union[pd.Series, np.ndarray]], optional): 검증 레이블.
+                기본값은 None.
+            **kwargs: 기반 모델의 fit 메서드로 전달될 추가 인자.
 
         Returns:
-            BaseModel: Self for method chaining.
+            BaseModel: 메서드 체이닝을 위한 self.
 
         Raises:
-            ValueError: If model has not been built (model is None).
+            ValueError: 모델이 빌드되지 않은 경우 (model이 None).
 
-        Example:
-            >>> model.fit(X_train, y_train, X_val, y_val, verbose=True)
-            >>> # With early stopping
-            >>> model.fit(X_train, y_train, X_val, y_val, early_stopping_rounds=50)
+        사용 예시:
+            model.fit(X_train, y_train, X_val, y_val, verbose=True)
+            # early stopping과 함께 사용
+            model.fit(X_train, y_train, X_val, y_val, early_stopping_rounds=50)
         """
         if self.model is None:
             raise ValueError("Model not built. Call build_model() first.")
@@ -174,21 +174,21 @@ class BaseModel(ABC):
         return self
 
     def predict(self, X: Union[pd.DataFrame, np.ndarray]) -> np.ndarray:
-        """Generate predictions for the input data.
+        """입력 데이터에 대한 예측을 생성합니다.
 
         Args:
-            X (Union[pd.DataFrame, np.ndarray]): Input features for prediction.
+            X (Union[pd.DataFrame, np.ndarray]): 예측을 위한 입력 특성.
 
         Returns:
-            np.ndarray: Predicted values. For classification, returns class labels.
-                For regression, returns continuous values.
+            np.ndarray: 예측 값. 분류의 경우 클래스 레이블 반환.
+                회귀의 경우 연속 값 반환.
 
         Raises:
-            ValueError: If model has not been trained.
+            ValueError: 모델이 학습되지 않은 경우.
 
-        Example:
-            >>> predictions = model.predict(X_test)
-            >>> print(f"First 5 predictions: {predictions[:5]}")
+        사용 예시:
+            predictions = model.predict(X_test)
+            print(f"처음 5개 예측: {predictions[:5]}")
         """
         if not self.is_trained:
             raise ValueError("Model not trained. Call fit() first.")
@@ -196,27 +196,27 @@ class BaseModel(ABC):
         return self.model.predict(X)
 
     def predict_proba(self, X: Union[pd.DataFrame, np.ndarray]) -> np.ndarray:
-        """Predict class probabilities for the input data.
+        """입력 데이터에 대한 클래스 확률을 예측합니다.
 
-        This method is only available for classification tasks. Returns the
-        probability estimates for each class.
+        이 메서드는 분류 작업에만 사용 가능합니다. 각 클래스에 대한 확률 추정치를
+        반환합니다.
 
         Args:
-            X (Union[pd.DataFrame, np.ndarray]): Input features for prediction.
+            X (Union[pd.DataFrame, np.ndarray]): 예측을 위한 입력 특성.
 
         Returns:
-            np.ndarray: Probability estimates. Shape is (n_samples, n_classes).
-                For binary classification, column 0 is probability of class 0,
-                and column 1 is probability of class 1.
+            np.ndarray: 확률 추정치. 형상은 (n_samples, n_classes).
+                이진 분류의 경우, 열 0은 클래스 0의 확률,
+                열 1은 클래스 1의 확률.
 
         Raises:
-            ValueError: If task is not classification or if model is not trained.
+            ValueError: 작업이 분류가 아니거나 모델이 학습되지 않은 경우.
 
-        Example:
-            >>> proba = model.predict_proba(X_test)
-            >>> # Get probability of positive class
-            >>> positive_proba = proba[:, 1]
-            >>> print(f"Probability of positive class: {positive_proba[:5]}")
+        사용 예시:
+            proba = model.predict_proba(X_test)
+            # 양성 클래스의 확률 가져오기
+            positive_proba = proba[:, 1]
+            print(f"양성 클래스 확률: {positive_proba[:5]}")
         """
         if self.task != 'classification':
             raise ValueError("predict_proba only available for classification")
@@ -232,39 +232,39 @@ class BaseModel(ABC):
         y: Union[pd.Series, np.ndarray],
         threshold: Optional[float] = None
     ) -> Dict[str, float]:
-        """Evaluate the model on the provided data.
+        """제공된 데이터에서 모델을 평가합니다.
 
-        Computes and returns evaluation metrics appropriate for the task type.
-        For classification, returns accuracy, precision, recall, and F1 score.
-        For regression, returns RMSE and MAE.
+        작업 유형에 적합한 평가 메트릭을 계산하여 반환합니다.
+        분류의 경우, 정확도, 정밀도, 재현율, F1 점수를 반환합니다.
+        회귀의 경우, RMSE와 MAE를 반환합니다.
 
         Args:
-            X (Union[pd.DataFrame, np.ndarray]): Features for evaluation.
-            y (Union[pd.Series, np.ndarray]): True labels for evaluation.
-            threshold (Optional[float], optional): Classification threshold for
-                converting probabilities to class labels. Only used for classification.
-                If None, uses the model's default threshold (0.5). Defaults to None.
+            X (Union[pd.DataFrame, np.ndarray]): 평가를 위한 특성.
+            y (Union[pd.Series, np.ndarray]): 평가를 위한 실제 레이블.
+            threshold (Optional[float], optional): 확률을 클래스 레이블로 변환하기 위한
+                분류 임계값. 분류에만 사용됩니다.
+                None인 경우 모델의 기본 임계값(0.5) 사용. 기본값은 None.
 
         Returns:
-            Dict[str, float]: Dictionary containing evaluation metrics.
-                For classification: {'accuracy', 'precision', 'recall', 'f1'}
-                For regression: {'rmse', 'mae'}
+            Dict[str, float]: 평가 메트릭을 담은 딕셔너리.
+                분류: {'accuracy', 'precision', 'recall', 'f1'}
+                회귀: {'rmse', 'mae'}
 
         Raises:
-            ValueError: If model has not been trained.
+            ValueError: 모델이 학습되지 않은 경우.
 
-        Example:
-            >>> # Classification
-            >>> metrics = model.evaluate(X_test, y_test)
-            >>> print(f"Accuracy: {metrics['accuracy']:.4f}")
-            >>> print(f"F1 Score: {metrics['f1']:.4f}")
-            >>>
-            >>> # With custom threshold
-            >>> metrics = model.evaluate(X_test, y_test, threshold=0.6)
-            >>>
-            >>> # Regression
-            >>> metrics = model.evaluate(X_test, y_test)
-            >>> print(f"RMSE: {metrics['rmse']:.4f}")
+        사용 예시:
+            # 분류
+            metrics = model.evaluate(X_test, y_test)
+            print(f"정확도: {metrics['accuracy']:.4f}")
+            print(f"F1 점수: {metrics['f1']:.4f}")
+
+            # 커스텀 임계값 사용
+            metrics = model.evaluate(X_test, y_test, threshold=0.6)
+
+            # 회귀
+            metrics = model.evaluate(X_test, y_test)
+            print(f"RMSE: {metrics['rmse']:.4f}")
         """
         if not self.is_trained:
             raise ValueError("Model not trained. Call fit() first.")
@@ -307,28 +307,28 @@ class BaseModel(ABC):
         return metrics
 
     def get_feature_importance(self, top_n: Optional[int] = 20) -> pd.DataFrame:
-        """Get feature importance scores from the trained model.
+        """학습된 모델에서 특성 중요도 점수를 가져옵니다.
 
-        Extracts and returns feature importance scores if the model supports them.
-        Results are sorted by importance in descending order.
+        모델이 지원하는 경우 특성 중요도 점수를 추출하여 반환합니다.
+        결과는 중요도 내림차순으로 정렬됩니다.
 
         Args:
-            top_n (Optional[int], optional): Number of top features to return.
-                If None, returns all features. Defaults to 20.
+            top_n (Optional[int], optional): 반환할 상위 특성 개수.
+                None인 경우 모든 특성을 반환합니다. 기본값은 20.
 
         Returns:
-            pd.DataFrame: DataFrame with columns 'feature' and 'importance',
-                sorted by importance in descending order. Returns empty DataFrame
-                if model doesn't support feature importance.
+            pd.DataFrame: 'feature'와 'importance' 열이 있는 DataFrame,
+                중요도 내림차순으로 정렬됨. 모델이 특성 중요도를 지원하지
+                않으면 빈 DataFrame 반환.
 
         Raises:
-            ValueError: If model has not been trained.
+            ValueError: 모델이 학습되지 않은 경우.
 
-        Example:
-            >>> importance_df = model.get_feature_importance(top_n=10)
-            >>> print(importance_df)
-            >>> # Plot feature importance
-            >>> importance_df.plot(x='feature', y='importance', kind='barh')
+        사용 예시:
+            importance_df = model.get_feature_importance(top_n=10)
+            print(importance_df)
+            # 특성 중요도 시각화
+            importance_df.plot(x='feature', y='importance', kind='barh')
         """
         if not self.is_trained:
             raise ValueError("Model not trained. Call fit() first.")
@@ -362,21 +362,21 @@ class BaseModel(ABC):
         return importance_df
 
     def save(self, path: str) -> None:
-        """Save the trained model to disk.
+        """학습된 모델을 디스크에 저장합니다.
 
-        Serializes the model and its metadata to a file using joblib.
-        Creates parent directories if they don't exist.
+        joblib을 사용하여 모델과 메타데이터를 파일로 직렬화합니다.
+        상위 디렉토리가 없으면 생성합니다.
 
         Args:
-            path (str): File path where the model should be saved.
+            path (str): 모델을 저장할 파일 경로.
 
         Raises:
-            ValueError: If model has not been trained.
+            ValueError: 모델이 학습되지 않은 경우.
 
-        Example:
-            >>> model.save('/path/to/model.pkl')
-            >>> # Or with automatic directory creation
-            >>> model.save('/new/directory/model.pkl')
+        사용 예시:
+            model.save('/path/to/model.pkl')
+            # 디렉토리 자동 생성과 함께
+            model.save('/new/directory/model.pkl')
         """
         if not self.is_trained:
             raise ValueError("Model not trained. Cannot save untrained model.")
@@ -397,20 +397,20 @@ class BaseModel(ABC):
         logging.info(f"Model saved to: {path}")
 
     def load(self, path: str) -> None:
-        """Load a trained model from disk.
+        """디스크에서 학습된 모델을 로드합니다.
 
-        Deserializes a previously saved model and restores its state.
+        이전에 저장된 모델을 역직렬화하고 상태를 복원합니다.
 
         Args:
-            path (str): File path to the saved model.
+            path (str): 저장된 모델 파일 경로.
 
         Raises:
-            FileNotFoundError: If the model file does not exist.
+            FileNotFoundError: 모델 파일이 존재하지 않는 경우.
 
-        Example:
-            >>> model = XGBoostModel()
-            >>> model.load('/path/to/saved_model.pkl')
-            >>> predictions = model.predict(X_test)
+        사용 예시:
+            model = XGBoostModel()
+            model.load('/path/to/saved_model.pkl')
+            predictions = model.predict(X_test)
         """
         if not Path(path).exists():
             raise FileNotFoundError(f"Model file not found: {path}")
@@ -428,31 +428,31 @@ class BaseModel(ABC):
         logging.info(f"Model loaded from: {path}")
 
     def get_params(self) -> Dict[str, Any]:
-        """Get the model's hyperparameters.
+        """모델의 하이퍼파라미터를 가져옵니다.
 
         Returns:
-            Dict[str, Any]: Dictionary of hyperparameter names and values.
-                Returns empty dict if model has not been built.
+            Dict[str, Any]: 하이퍼파라미터 이름과 값의 딕셔너리.
+                모델이 빌드되지 않은 경우 빈 딕셔너리 반환.
 
-        Example:
-            >>> params = model.get_params()
-            >>> print(f"Learning rate: {params.get('learning_rate')}")
+        사용 예시:
+            params = model.get_params()
+            print(f"학습률: {params.get('learning_rate')}")
         """
         if self.model is None:
             return {}
         return self.model.get_params()
 
     def set_params(self, **params: Any) -> None:
-        """Set the model's hyperparameters.
+        """모델의 하이퍼파라미터를 설정합니다.
 
         Args:
-            **params: Keyword arguments representing hyperparameter names and values.
+            **params: 하이퍼파라미터 이름과 값을 나타내는 키워드 인자.
 
         Raises:
-            ValueError: If model has not been built.
+            ValueError: 모델이 빌드되지 않은 경우.
 
-        Example:
-            >>> model.set_params(learning_rate=0.01, max_depth=10)
+        사용 예시:
+            model.set_params(learning_rate=0.01, max_depth=10)
         """
         if self.model is None:
             raise ValueError("Model not built. Call build_model() first.")
@@ -466,34 +466,34 @@ class BaseModel(ABC):
         cv_splits: int = 5,
         verbose: bool = True
     ) -> Tuple[Dict[str, float], List[Dict[str, float]]]:
-        """Perform cross-validation on the model.
+        """모델에 대해 교차 검증을 수행합니다.
 
-        Uses time-series aware cross-validation if dates are provided, otherwise
-        uses standard k-fold cross-validation. This helps assess model performance
-        and generalization ability.
+        날짜가 제공되면 시계열 인식 교차 검증을 사용하고, 그렇지 않으면
+        표준 k-fold 교차 검증을 사용합니다. 이는 모델 성능과
+        일반화 능력을 평가하는 데 도움이 됩니다.
 
         Args:
-            X (Union[pd.DataFrame, np.ndarray]): Feature data.
-            y (Union[pd.Series, np.ndarray]): Target data.
-            dates (Optional[pd.Series], optional): Date information for time-series
-                cross-validation. If None, uses standard k-fold CV. Defaults to None.
-            cv_splits (int, optional): Number of cross-validation folds. Defaults to 5.
-            verbose (bool, optional): Whether to print detailed logs. Defaults to True.
+            X (Union[pd.DataFrame, np.ndarray]): 특성 데이터.
+            y (Union[pd.Series, np.ndarray]): 타겟 데이터.
+            dates (Optional[pd.Series], optional): 시계열 교차 검증을 위한
+                날짜 정보. None인 경우 표준 k-fold CV 사용. 기본값은 None.
+            cv_splits (int, optional): 교차 검증 폴드 수. 기본값은 5.
+            verbose (bool, optional): 상세 로그 출력 여부. 기본값은 True.
 
         Returns:
-            Tuple[Dict[str, float], List[Dict[str, float]]]: A tuple containing:
-                - Average scores across all folds (dict of metric name to value)
-                - List of scores for each fold
+            Tuple[Dict[str, float], List[Dict[str, float]]]: 다음을 포함하는 튜플:
+                - 모든 폴드에 대한 평균 점수 (메트릭 이름과 값의 딕셔너리)
+                - 각 폴드별 점수 리스트
 
-        Example:
-            >>> # Standard cross-validation
-            >>> avg_scores, all_scores = model.cross_validate(X, y, cv_splits=5)
-            >>> print(f"Average accuracy: {avg_scores['accuracy']:.4f}")
-            >>>
-            >>> # Time-series cross-validation
-            >>> avg_scores, all_scores = model.cross_validate(
-            ...     X, y, dates=date_series, cv_splits=5
-            ... )
+        사용 예시:
+            # 표준 교차 검증
+            avg_scores, all_scores = model.cross_validate(X, y, cv_splits=5)
+            print(f"평균 정확도: {avg_scores['accuracy']:.4f}")
+
+            # 시계열 교차 검증
+            avg_scores, all_scores = model.cross_validate(
+                X, y, dates=date_series, cv_splits=5
+            )
         """
         from validation.time_series_cv import TimeSeriesCV
 
@@ -511,29 +511,29 @@ class BaseModel(ABC):
         dates: Optional[pd.Series] = None,
         cv_splits: int = 5
     ) -> Tuple[Dict[str, float], List[Dict[str, float]]]:
-        """Perform cross-validation and then train on full dataset.
+        """교차 검증을 수행한 다음 전체 데이터셋에서 학습합니다.
 
-        This method first evaluates the model using cross-validation to estimate
-        its performance, then trains a final model on all available data.
+        이 메서드는 먼저 교차 검증을 사용하여 모델을 평가하여 성능을 추정한 다음,
+        사용 가능한 모든 데이터로 최종 모델을 학습합니다.
 
         Args:
-            X (Union[pd.DataFrame, np.ndarray]): Feature data.
-            y (Union[pd.Series, np.ndarray]): Target data.
-            dates (Optional[pd.Series], optional): Date information for time-series
-                cross-validation. Defaults to None.
-            cv_splits (int, optional): Number of cross-validation folds. Defaults to 5.
+            X (Union[pd.DataFrame, np.ndarray]): 특성 데이터.
+            y (Union[pd.Series, np.ndarray]): 타겟 데이터.
+            dates (Optional[pd.Series], optional): 시계열 교차 검증을 위한
+                날짜 정보. 기본값은 None.
+            cv_splits (int, optional): 교차 검증 폴드 수. 기본값은 5.
 
         Returns:
-            Tuple[Dict[str, float], List[Dict[str, float]]]: A tuple containing:
-                - Average scores across all folds
-                - List of scores for each fold
+            Tuple[Dict[str, float], List[Dict[str, float]]]: 다음을 포함하는 튜플:
+                - 모든 폴드에 대한 평균 점수
+                - 각 폴드별 점수 리스트
 
-        Example:
-            >>> # Cross-validate and train final model
-            >>> avg_scores, all_scores = model.fit_with_cv(X, y, cv_splits=5)
-            >>> print(f"CV Accuracy: {avg_scores['accuracy']:.4f}")
-            >>> # Model is now trained on full dataset
-            >>> predictions = model.predict(X_test)
+        사용 예시:
+            # 교차 검증 후 최종 모델 학습
+            avg_scores, all_scores = model.fit_with_cv(X, y, cv_splits=5)
+            print(f"CV 정확도: {avg_scores['accuracy']:.4f}")
+            # 이제 모델은 전체 데이터셋에서 학습됨
+            predictions = model.predict(X_test)
         """
         # Perform cross-validation
         avg_scores, all_scores = self.cross_validate(X, y, dates, cv_splits)
@@ -547,13 +547,13 @@ class BaseModel(ABC):
         return avg_scores, all_scores
 
     def __repr__(self) -> str:
-        """Return string representation of the model.
+        """모델의 문자열 표현을 반환합니다.
 
         Returns:
-            str: String describing the model type, task, and training status.
+            str: 모델 유형, 작업, 학습 상태를 설명하는 문자열.
 
-        Example:
-            >>> print(model)
+        사용 예시:
+            print(model)
             XGBOOST classification model (trained)
         """
         status = "trained" if self.is_trained else "not trained"

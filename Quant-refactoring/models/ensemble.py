@@ -59,23 +59,23 @@ Stacking과 Voting. 앙상블 방법은 다양한 알고리즘의 장점을 활�
             base_models=base_models,
             task='classification',
             voting='soft',
-            weights=[1.0, 1.2, 1.1]  # Optional weights
+            weights=[1.0, 1.2, 1.1]  # 선택적 가중치
         )
         voting.build_ensemble()
         voting.fit(X_train, y_train)
 
-        # Make predictions
+        # 예측 생성
         predictions = voting.predict(X_test)
 
 Attributes:
-    StackingEnsemble: Meta-learning based ensemble
-    VotingEnsemble: Voting based ensemble
+    StackingEnsemble: 메타 학습 기반 앙상블
+    VotingEnsemble: 투표 기반 앙상블
 
 Note:
-    - Stacking usually performs better but is more complex
-    - Voting is simpler and faster to train
-    - Both methods benefit from diverse base models
-    - Ensure base models are already trained before creating ensemble
+    - Stacking은 일반적으로 더 나은 성능을 보이지만 더 복잡함
+    - Voting은 더 간단하고 학습 속도가 빠름
+    - 두 방법 모두 다양한 기본 모델에서 이점을 얻음
+    - 앙상블을 생성하기 전에 기본 모델이 이미 학습되어 있어야 함
 """
 
 import logging
@@ -89,50 +89,50 @@ from pathlib import Path
 
 
 class StackingEnsemble:
-    """Stacking ensemble that uses meta-learning to combine base models.
+    """메타 학습을 사용하여 기본 모델을 결합하는 스태킹 앙상블입니다.
 
-    Stacking (Stacked Generalization) is an ensemble method that combines multiple
-    base models using a meta-learner. The base models make predictions, and the
-    meta-learner is trained on these predictions to generate final outputs.
+    Stacking (Stacked Generalization)은 메타 학습기를 사용하여 여러 기본 모델을
+    결합하는 앙상블 방법입니다. 기본 모델이 예측을 수행하고, 메타 학습기는 이러한
+    예측을 사용하여 학습되어 최종 출력을 생성합니다.
 
-    The process:
-    1. Base models are trained on the training data
-    2. Base model predictions are generated using cross-validation
-    3. Meta-learner is trained on base model predictions
-    4. Final predictions use base models + meta-learner
+    프로세스:
+    1. 기본 모델이 훈련 데이터에서 학습됨
+    2. 교차 검증을 사용하여 기본 모델 예측 생성
+    3. 기본 모델 예측을 사용하여 메타 학습기 학습
+    4. 최종 예측은 기본 모델 + 메타 학습기 사용
 
-    This approach typically outperforms simple averaging because the meta-learner
-    can learn the optimal way to combine base model predictions.
+    이 접근 방식은 메타 학습기가 기본 모델 예측을 결합하는 최적의 방법을 학습할 수
+    있기 때문에 일반적으로 단순 평균보다 우수한 성능을 발휘합니다.
 
     Attributes:
-        base_models (List[Tuple[str, Any]]): List of (name, model) tuples for base learners.
-        task (str): Task type, either 'classification' or 'regression'.
-        meta_learner_name (str): Name of the meta-learner algorithm.
-        meta_learner_params (Dict[str, Any]): Hyperparameters for meta-learner.
-        cv (int): Number of cross-validation folds for meta-feature generation.
-        ensemble (StackingClassifier or StackingRegressor): The scikit-learn stacking model.
-        is_trained (bool): Flag indicating if ensemble has been trained.
+        base_models (List[Tuple[str, Any]]): 기본 학습기를 위한 (이름, 모델) 튜플 리스트.
+        task (str): 'classification' 또는 'regression' 작업 유형.
+        meta_learner_name (str): 메타 학습기 알고리즘 이름.
+        meta_learner_params (Dict[str, Any]): 메타 학습기의 하이퍼파라미터.
+        cv (int): 메타 특성 생성을 위한 교차 검증 폴드 수.
+        ensemble (StackingClassifier or StackingRegressor): scikit-learn 스태킹 모델.
+        is_trained (bool): 앙상블이 학습되었는지 나타내는 플래그.
 
-    Example:
-        >>> # Create base models (already trained)
-        >>> base_models = [
-        ...     ('xgboost', xgb_model.model),
-        ...     ('lightgbm', lgb_model.model),
-        ...     ('catboost', cat_model.model)
-        ... ]
-        >>>
-        >>> # Create stacking ensemble
-        >>> stacking = StackingEnsemble(
-        ...     base_models=base_models,
-        ...     task='classification',
-        ...     meta_learner='ridge',
-        ...     cv=5
-        ... )
-        >>> stacking.build_ensemble()
-        >>> stacking.fit(X_train, y_train)
-        >>>
-        >>> # Get predictions from each base model
-        >>> base_preds = stacking.get_base_predictions(X_test)
+    사용 예시:
+        # 기본 모델 생성 (이미 학습됨)
+        base_models = [
+            ('xgboost', xgb_model.model),
+            ('lightgbm', lgb_model.model),
+            ('catboost', cat_model.model)
+        ]
+
+        # 스태킹 앙상블 생성
+        stacking = StackingEnsemble(
+            base_models=base_models,
+            task='classification',
+            meta_learner='ridge',
+            cv=5
+        )
+        stacking.build_ensemble()
+        stacking.fit(X_train, y_train)
+
+        # 각 기본 모델에서 예측 가져오기
+        base_preds = stacking.get_base_predictions(X_test)
     """
 
     def __init__(
@@ -143,31 +143,31 @@ class StackingEnsemble:
         meta_learner_params: Optional[Dict[str, Any]] = None,
         cv: int = 5
     ) -> None:
-        """Initialize Stacking Ensemble.
+        """스태킹 앙상블을 초기화합니다.
 
         Args:
-            base_models (List[Tuple[str, Any]]): List of (name, model) tuples.
-                Each tuple contains a string name and a trained model instance.
-                Example: [('xgb', xgb_model.model), ('lgb', lgb_model.model)]
-            task (str, optional): Task type, either 'classification' or 'regression'.
-                Defaults to 'classification'.
-            meta_learner (str, optional): Meta-learner algorithm name.
-                For classification: 'logistic'
-                For regression: 'ridge', 'lasso', 'elasticnet'
-                Defaults to 'ridge'.
-            meta_learner_params (Optional[Dict[str, Any]], optional): Hyperparameters
-                for the meta-learner. If None, uses defaults. Defaults to None.
-            cv (int, optional): Number of cross-validation folds used to generate
-                meta-features for training the meta-learner. Defaults to 5.
+            base_models (List[Tuple[str, Any]]): (이름, 모델) 튜플 리스트.
+                각 튜플은 문자열 이름과 학습된 모델 인스턴스를 포함합니다.
+                예시: [('xgb', xgb_model.model), ('lgb', lgb_model.model)]
+            task (str, optional): 'classification' 또는 'regression' 작업 유형.
+                기본값은 'classification'.
+            meta_learner (str, optional): 메타 학습기 알고리즘 이름.
+                분류의 경우: 'logistic'
+                회귀의 경우: 'ridge', 'lasso', 'elasticnet'
+                기본값은 'ridge'.
+            meta_learner_params (Optional[Dict[str, Any]], optional): 메타 학습기의
+                하이퍼파라미터. None인 경우 기본값 사용. 기본값은 None.
+            cv (int, optional): 메타 학습기 학습을 위한 메타 특성 생성에 사용되는
+                교차 검증 폴드 수. 기본값은 5.
 
-        Example:
-            >>> stacking = StackingEnsemble(
-            ...     base_models=[('xgb', xgb.model), ('lgb', lgb.model)],
-            ...     task='classification',
-            ...     meta_learner='logistic',
-            ...     meta_learner_params={'C': 1.0},
-            ...     cv=5
-            ... )
+        사용 예시:
+            stacking = StackingEnsemble(
+                base_models=[('xgb', xgb.model), ('lgb', lgb.model)],
+                task='classification',
+                meta_learner='logistic',
+                meta_learner_params={'C': 1.0},
+                cv=5
+            )
         """
         self.base_models = base_models
         self.task = task
@@ -178,24 +178,24 @@ class StackingEnsemble:
         self.is_trained = False
 
     def _create_meta_learner(self) -> Union[LogisticRegression, Ridge, Lasso, ElasticNet]:
-        """Create the meta-learner model.
+        """메타 학습기 모델을 생성합니다.
 
         Returns:
-            Union[LogisticRegression, Ridge, Lasso, ElasticNet]: Configured meta-learner.
+            Union[LogisticRegression, Ridge, Lasso, ElasticNet]: 설정된 메타 학습기.
 
         Note:
-            For classification, LogisticRegression is used regardless of meta_learner_name.
-            For regression, the specified algorithm (ridge/lasso/elasticnet) is used.
+            분류의 경우, meta_learner_name에 관계없이 LogisticRegression이 사용됩니다.
+            회귀의 경우, 지정된 알고리즘(ridge/lasso/elasticnet)이 사용됩니다.
         """
         if self.task == 'classification':
-            # For classification, use logistic regression as meta-learner
+            # 분류의 경우, 로지스틱 회귀를 메타 학습기로 사용
             if self.meta_learner_name == 'logistic':
                 return LogisticRegression(**self.meta_learner_params)
             else:
-                # Default to logistic regression for classification
+                # 분류의 기본값은 로지스틱 회귀
                 return LogisticRegression(**self.meta_learner_params)
         else:  # regression
-            # For regression, support multiple meta-learner options
+            # 회귀의 경우, 여러 메타 학습기 옵션 지원
             if self.meta_learner_name == 'ridge':
                 return Ridge(**self.meta_learner_params)
             elif self.meta_learner_name == 'lasso':
@@ -203,26 +203,26 @@ class StackingEnsemble:
             elif self.meta_learner_name == 'elasticnet':
                 return ElasticNet(**self.meta_learner_params)
             else:
-                # Default to Ridge for regression
+                # 회귀의 기본값은 Ridge
                 return Ridge(**self.meta_learner_params)
 
     def build_ensemble(self) -> 'StackingEnsemble':
-        """Build the stacking ensemble model.
+        """스태킹 앙상블 모델을 빌드합니다.
 
-        Creates a scikit-learn StackingClassifier or StackingRegressor with
-        the specified base models and meta-learner. Uses cross-validation to
-        generate predictions for meta-learner training.
+        지정된 기본 모델과 메타 학습기로 scikit-learn StackingClassifier 또는
+        StackingRegressor를 생성합니다. 교차 검증을 사용하여 메타 학습기 학습을 위한
+        예측을 생성합니다.
 
         Returns:
-            StackingEnsemble: Self for method chaining.
+            StackingEnsemble: 메서드 체이닝을 위한 self.
 
-        Example:
-            >>> stacking.build_ensemble()
-            >>> print("Ensemble built successfully")
+        사용 예시:
+            stacking.build_ensemble()
+            print("앙상블이 성공적으로 빌드되었습니다")
         """
         meta_learner = self._create_meta_learner()
 
-        # Create stacking model based on task type
+        # 작업 유형에 따라 스태킹 모델 생성
         if self.task == 'classification':
             self.ensemble = StackingClassifier(
                 estimators=self.base_models,
@@ -249,25 +249,25 @@ class StackingEnsemble:
         X_train: Union[pd.DataFrame, np.ndarray],
         y_train: Union[pd.Series, np.ndarray]
     ) -> 'StackingEnsemble':
-        """Train the stacking ensemble.
+        """스태킹 앙상블을 학습합니다.
 
-        Trains the stacking ensemble using the provided data. The base models
-        should already be trained. The ensemble uses internal cross-validation
-        to generate meta-features for training the meta-learner.
+        제공된 데이터를 사용하여 스태킹 앙상블을 학습합니다. 기본 모델은 이미 학습된
+        상태여야 합니다. 앙상블은 내부 교차 검증을 사용하여 메타 학습기 학습을 위한
+        메타 특성을 생성합니다.
 
         Args:
-            X_train (Union[pd.DataFrame, np.ndarray]): Training features.
-            y_train (Union[pd.Series, np.ndarray]): Training labels.
+            X_train (Union[pd.DataFrame, np.ndarray]): 훈련 특성.
+            y_train (Union[pd.Series, np.ndarray]): 훈련 레이블.
 
         Returns:
-            StackingEnsemble: Self for method chaining.
+            StackingEnsemble: 메서드 체이닝을 위한 self.
 
         Raises:
-            ValueError: If ensemble has not been built.
+            ValueError: 앙상블이 빌드되지 않은 경우.
 
-        Example:
-            >>> stacking.fit(X_train, y_train)
-            >>> print("Ensemble training completed")
+        사용 예시:
+            stacking.fit(X_train, y_train)
+            print("앙상블 학습이 완료되었습니다")
         """
         if self.ensemble is None:
             raise ValueError("Ensemble not built. Call build_ensemble() first.")
@@ -275,8 +275,8 @@ class StackingEnsemble:
         logging.info("Training stacking ensemble...")
         logging.info(f"  Training samples: {len(X_train):,}")
 
-        # Note: Base models should already be trained
-        # Stacking internally uses CV to generate meta-features
+        # 참고: 기본 모델은 이미 학습된 상태여야 함
+        # 스태킹은 내부적으로 CV를 사용하여 메타 특성 생성
         self.ensemble.fit(X_train, y_train)
         self.is_trained = True
 
@@ -285,21 +285,21 @@ class StackingEnsemble:
         return self
 
     def predict(self, X: Union[pd.DataFrame, np.ndarray]) -> np.ndarray:
-        """Generate predictions using the stacking ensemble.
+        """스태킹 앙상블을 사용하여 예측을 생성합니다.
 
         Args:
-            X (Union[pd.DataFrame, np.ndarray]): Input features for prediction.
+            X (Union[pd.DataFrame, np.ndarray]): 예측을 위한 입력 특성.
 
         Returns:
-            np.ndarray: Predicted values. For classification, returns class labels.
-                For regression, returns continuous values.
+            np.ndarray: 예측 값. 분류의 경우 클래스 레이블 반환.
+                회귀의 경우 연속 값 반환.
 
         Raises:
-            ValueError: If ensemble has not been trained.
+            ValueError: 앙상블이 학습되지 않은 경우.
 
-        Example:
-            >>> predictions = stacking.predict(X_test)
-            >>> print(f"Predictions: {predictions[:5]}")
+        사용 예시:
+            predictions = stacking.predict(X_test)
+            print(f"예측: {predictions[:5]}")
         """
         if not self.is_trained:
             raise ValueError("Ensemble not trained. Call fit() first.")
@@ -307,20 +307,20 @@ class StackingEnsemble:
         return self.ensemble.predict(X)
 
     def predict_proba(self, X: Union[pd.DataFrame, np.ndarray]) -> np.ndarray:
-        """Predict class probabilities using the stacking ensemble.
+        """스태킹 앙상블을 사용하여 클래스 확률을 예측합니다.
 
         Args:
-            X (Union[pd.DataFrame, np.ndarray]): Input features for prediction.
+            X (Union[pd.DataFrame, np.ndarray]): 예측을 위한 입력 특성.
 
         Returns:
-            np.ndarray: Probability estimates. Shape is (n_samples, n_classes).
+            np.ndarray: 확률 추정치. 형상은 (n_samples, n_classes).
 
         Raises:
-            ValueError: If task is not classification or if ensemble is not trained.
+            ValueError: 작업이 분류가 아니거나 앙상블이 학습되지 않은 경우.
 
-        Example:
-            >>> proba = stacking.predict_proba(X_test)
-            >>> positive_proba = proba[:, 1]  # Probability of positive class
+        사용 예시:
+            proba = stacking.predict_proba(X_test)
+            positive_proba = proba[:, 1]  # 양성 클래스의 확률
         """
         if self.task != 'classification':
             raise ValueError("predict_proba only available for classification")
@@ -331,64 +331,64 @@ class StackingEnsemble:
         return self.ensemble.predict_proba(X)
 
     def get_base_predictions(self, X: Union[pd.DataFrame, np.ndarray]) -> pd.DataFrame:
-        """Get predictions from each base model.
+        """각 기본 모델에서 예측을 가져옵니다.
 
-        Returns predictions from all base models as a DataFrame, useful for
-        analyzing individual model contributions.
+        개별 모델 기여도를 분석하는 데 유용하도록, 모든 기본 모델의 예측을 DataFrame으로
+        반환합니다.
 
         Args:
-            X (Union[pd.DataFrame, np.ndarray]): Input features for prediction.
+            X (Union[pd.DataFrame, np.ndarray]): 예측을 위한 입력 특성.
 
         Returns:
-            pd.DataFrame: DataFrame with columns for each base model containing
-                their predictions. For classification, returns probabilities of
-                the positive class.
+            pd.DataFrame: 각 기본 모델에 대한 열을 포함하는 DataFrame으로,
+                각 모델의 예측이 담겨 있습니다. 분류의 경우 양성 클래스의
+                확률을 반환합니다.
 
         Raises:
-            ValueError: If ensemble has not been trained.
+            ValueError: 앙상블이 학습되지 않은 경우.
 
-        Example:
-            >>> base_preds = stacking.get_base_predictions(X_test)
-            >>> print(base_preds.head())
-            >>> # Analyze correlation between base model predictions
-            >>> print(base_preds.corr())
+        사용 예시:
+            base_preds = stacking.get_base_predictions(X_test)
+            print(base_preds.head())
+            # 기본 모델 예측 간의 상관관계 분석
+            print(base_preds.corr())
         """
         if not self.is_trained:
             raise ValueError("Ensemble not trained. Call fit() first.")
 
         predictions = {}
 
-        # Get predictions from each base model
+        # 각 기본 모델에서 예측 가져오기
         for name, model in self.base_models:
             if self.task == 'classification':
-                # For classification, get probability of positive class
+                # 분류의 경우, 양성 클래스의 확률 가져오기
                 predictions[name] = model.predict_proba(X)[:, 1]
             else:
-                # For regression, get direct predictions
+                # 회귀의 경우, 직접 예측 가져오기
                 predictions[name] = model.predict(X)
 
         return pd.DataFrame(predictions)
 
     def save(self, path: str) -> None:
-        """Save the trained ensemble to disk.
+        """학습된 앙상블을 디스크에 저장합니다.
 
         Args:
-            path (str): File path where the ensemble should be saved.
+            path (str): 앙상블을 저장할 파일 경로.
 
         Raises:
-            ValueError: If ensemble has not been trained.
+            ValueError: 앙상블이 학습되지 않은 경우.
 
-        Example:
-            >>> stacking.save('/path/to/stacking_ensemble.pkl')
+        사용 예시:
+            stacking.save('/path/to/stacking_ensemble.pkl')
         """
         if not self.is_trained:
             raise ValueError("Ensemble not trained. Cannot save untrained ensemble.")
 
-        # Create parent directories if they don't exist
+        # 상위 디렉토리가 없으면 생성
         path_obj = Path(path)
         path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-        # Package ensemble with metadata
+        # 메타데이터와 함께 앙상블 패키징
         ensemble_data = {
             'ensemble': self.ensemble,
             'task': self.task,
@@ -400,26 +400,26 @@ class StackingEnsemble:
         logging.info(f"Ensemble saved to: {path}")
 
     def load(self, path: str) -> None:
-        """Load a trained ensemble from disk.
+        """디스크에서 학습된 앙상블을 로드합니다.
 
         Args:
-            path (str): File path to the saved ensemble.
+            path (str): 저장된 앙상블 파일 경로.
 
         Raises:
-            FileNotFoundError: If the ensemble file does not exist.
+            FileNotFoundError: 앙상블 파일이 존재하지 않는 경우.
 
-        Example:
-            >>> stacking = StackingEnsemble(base_models=[], task='classification')
-            >>> stacking.load('/path/to/stacking_ensemble.pkl')
-            >>> predictions = stacking.predict(X_test)
+        사용 예시:
+            stacking = StackingEnsemble(base_models=[], task='classification')
+            stacking.load('/path/to/stacking_ensemble.pkl')
+            predictions = stacking.predict(X_test)
         """
         if not Path(path).exists():
             raise FileNotFoundError(f"Ensemble file not found: {path}")
 
-        # Load ensemble data from file
+        # 파일에서 앙상블 데이터 로드
         ensemble_data = joblib.load(path)
 
-        # Restore ensemble state
+        # 앙상블 상태 복원
         self.ensemble = ensemble_data['ensemble']
         self.task = ensemble_data['task']
         self.meta_learner_name = ensemble_data['meta_learner']
@@ -430,51 +430,51 @@ class StackingEnsemble:
 
 
 class VotingEnsemble:
-    """Voting ensemble that combines base models through voting.
+    """투표를 통해 기본 모델을 결합하는 투표 앙상블입니다.
 
-    Voting is a simple but effective ensemble method that combines predictions
-    from multiple base models through voting (classification) or averaging (regression).
+    Voting은 투표(분류) 또는 평균(회귀)을 통해 여러 기본 모델의 예측을 결합하는
+    간단하지만 효과적인 앙상블 방법입니다.
 
-    Voting types:
-    - Hard voting (classification): Each model votes for a class, majority wins
-    - Soft voting (classification): Average predicted probabilities, more robust
-    - Averaging (regression): Simple average of predictions
+    투표 유형:
+    - Hard voting (분류): 각 모델이 클래스에 투표하고, 다수결로 결정
+    - Soft voting (분류): 예측 확률의 평균, 더 강건함
+    - Averaging (회귀): 예측의 단순 평균
 
-    Voting ensembles are:
-    - Simpler than stacking (no meta-learning)
-    - Faster to train (no cross-validation needed)
-    - Often surprisingly effective
-    - Easy to interpret and debug
+    투표 앙상블의 특징:
+    - Stacking보다 간단함 (메타 학습 없음)
+    - 학습 속도가 빠름 (교차 검증 불필요)
+    - 종종 놀랍도록 효과적임
+    - 해석 및 디버깅이 용이함
 
     Attributes:
-        base_models (List[Tuple[str, Any]]): List of (name, model) tuples for base learners.
-        task (str): Task type, either 'classification' or 'regression'.
-        voting (str): Voting type ('hard' or 'soft' for classification).
-        weights (Optional[List[float]]): Optional weights for each model.
-        ensemble (VotingClassifier or VotingRegressor): The scikit-learn voting model.
-        is_trained (bool): Flag indicating if ensemble has been trained.
+        base_models (List[Tuple[str, Any]]): 기본 학습기를 위한 (이름, 모델) 튜플 리스트.
+        task (str): 'classification' 또는 'regression' 작업 유형.
+        voting (str): 투표 유형 (분류의 경우 'hard' 또는 'soft').
+        weights (Optional[List[float]]): 각 모델에 대한 선택적 가중치.
+        ensemble (VotingClassifier or VotingRegressor): scikit-learn 투표 모델.
+        is_trained (bool): 앙상블이 학습되었는지 나타내는 플래그.
 
-    Example:
-        >>> # Create voting ensemble with equal weights
-        >>> base_models = [
-        ...     ('xgboost', xgb_model.model),
-        ...     ('lightgbm', lgb_model.model),
-        ...     ('catboost', cat_model.model)
-        ... ]
-        >>> voting = VotingEnsemble(
-        ...     base_models=base_models,
-        ...     task='classification',
-        ...     voting='soft'
-        ... )
-        >>> voting.build_ensemble()
-        >>> voting.fit(X_train, y_train)
-        >>>
-        >>> # Weighted voting (give more importance to certain models)
-        >>> voting = VotingEnsemble(
-        ...     base_models=base_models,
-        ...     voting='soft',
-        ...     weights=[1.0, 1.2, 0.8]  # More weight on lightgbm
-        ... )
+    사용 예시:
+        # 동일 가중치로 투표 앙상블 생성
+        base_models = [
+            ('xgboost', xgb_model.model),
+            ('lightgbm', lgb_model.model),
+            ('catboost', cat_model.model)
+        ]
+        voting = VotingEnsemble(
+            base_models=base_models,
+            task='classification',
+            voting='soft'
+        )
+        voting.build_ensemble()
+        voting.fit(X_train, y_train)
+
+        # 가중 투표 (특정 모델에 더 많은 중요도 부여)
+        voting = VotingEnsemble(
+            base_models=base_models,
+            voting='soft',
+            weights=[1.0, 1.2, 0.8]  # lightgbm에 더 많은 가중치
+        )
     """
 
     def __init__(
@@ -484,36 +484,36 @@ class VotingEnsemble:
         voting: str = 'soft',
         weights: Optional[List[float]] = None
     ) -> None:
-        """Initialize Voting Ensemble.
+        """투표 앙상블을 초기화합니다.
 
         Args:
-            base_models (List[Tuple[str, Any]]): List of (name, model) tuples.
-                Each tuple contains a string name and a trained model instance.
-            task (str, optional): Task type, either 'classification' or 'regression'.
-                Defaults to 'classification'.
-            voting (str, optional): Voting type for classification.
-                'hard': Majority voting on predicted classes
-                'soft': Voting on averaged probabilities (more robust)
-                Ignored for regression (always uses averaging).
-                Defaults to 'soft'.
-            weights (Optional[List[float]], optional): Weights for each model.
-                If None, all models have equal weight. Must have same length as
-                base_models if provided. Defaults to None.
+            base_models (List[Tuple[str, Any]]): (이름, 모델) 튜플 리스트.
+                각 튜플은 문자열 이름과 학습된 모델 인스턴스를 포함합니다.
+            task (str, optional): 'classification' 또는 'regression' 작업 유형.
+                기본값은 'classification'.
+            voting (str, optional): 분류를 위한 투표 유형.
+                'hard': 예측된 클래스에 대한 다수결 투표
+                'soft': 평균 확률에 대한 투표 (더 강건함)
+                회귀의 경우 무시됨 (항상 평균 사용).
+                기본값은 'soft'.
+            weights (Optional[List[float]], optional): 각 모델의 가중치.
+                None인 경우 모든 모델이 동일한 가중치를 가집니다. 제공되는 경우
+                base_models와 동일한 길이여야 합니다. 기본값은 None.
 
-        Example:
-            >>> # Equal weight voting
-            >>> voting = VotingEnsemble(
-            ...     base_models=[('xgb', xgb.model), ('lgb', lgb.model)],
-            ...     task='classification',
-            ...     voting='soft'
-            ... )
-            >>>
-            >>> # Weighted voting
-            >>> voting = VotingEnsemble(
-            ...     base_models=[('xgb', xgb.model), ('lgb', lgb.model)],
-            ...     voting='soft',
-            ...     weights=[1.5, 1.0]  # 1.5x weight on xgboost
-            ... )
+        사용 예시:
+            # 동일 가중치 투표
+            voting = VotingEnsemble(
+                base_models=[('xgb', xgb.model), ('lgb', lgb.model)],
+                task='classification',
+                voting='soft'
+            )
+
+            # 가중 투표
+            voting = VotingEnsemble(
+                base_models=[('xgb', xgb.model), ('lgb', lgb.model)],
+                voting='soft',
+                weights=[1.5, 1.0]  # xgboost에 1.5배 가중치
+            )
         """
         self.base_models = base_models
         self.task = task
@@ -523,19 +523,19 @@ class VotingEnsemble:
         self.is_trained = False
 
     def build_ensemble(self) -> 'VotingEnsemble':
-        """Build the voting ensemble model.
+        """투표 앙상블 모델을 빌드합니다.
 
-        Creates a scikit-learn VotingClassifier or VotingRegressor with the
-        specified base models and voting strategy.
+        지정된 기본 모델과 투표 전략으로 scikit-learn VotingClassifier 또는
+        VotingRegressor를 생성합니다.
 
         Returns:
-            VotingEnsemble: Self for method chaining.
+            VotingEnsemble: 메서드 체이닝을 위한 self.
 
-        Example:
-            >>> voting.build_ensemble()
-            >>> print("Voting ensemble built successfully")
+        사용 예시:
+            voting.build_ensemble()
+            print("투표 앙상블이 성공적으로 빌드되었습니다")
         """
-        # Create voting model based on task type
+        # 작업 유형에 따라 투표 모델 생성
         if self.task == 'classification':
             self.ensemble = VotingClassifier(
                 estimators=self.base_models,
@@ -563,24 +563,24 @@ class VotingEnsemble:
         X_train: Union[pd.DataFrame, np.ndarray],
         y_train: Union[pd.Series, np.ndarray]
     ) -> 'VotingEnsemble':
-        """Train the voting ensemble.
+        """투표 앙상블을 학습합니다.
 
-        Trains the voting ensemble on the provided data. The base models should
-        already be trained.
+        제공된 데이터로 투표 앙상블을 학습합니다. 기본 모델은 이미 학습된 상태여야
+        합니다.
 
         Args:
-            X_train (Union[pd.DataFrame, np.ndarray]): Training features.
-            y_train (Union[pd.Series, np.ndarray]): Training labels.
+            X_train (Union[pd.DataFrame, np.ndarray]): 훈련 특성.
+            y_train (Union[pd.Series, np.ndarray]): 훈련 레이블.
 
         Returns:
-            VotingEnsemble: Self for method chaining.
+            VotingEnsemble: 메서드 체이닝을 위한 self.
 
         Raises:
-            ValueError: If ensemble has not been built.
+            ValueError: 앙상블이 빌드되지 않은 경우.
 
-        Example:
-            >>> voting.fit(X_train, y_train)
-            >>> print("Ensemble training completed")
+        사용 예시:
+            voting.fit(X_train, y_train)
+            print("앙상블 학습이 완료되었습니다")
         """
         if self.ensemble is None:
             raise ValueError("Ensemble not built. Call build_ensemble() first.")
@@ -593,21 +593,21 @@ class VotingEnsemble:
         return self
 
     def predict(self, X: Union[pd.DataFrame, np.ndarray]) -> np.ndarray:
-        """Generate predictions using the voting ensemble.
+        """투표 앙상블을 사용하여 예측을 생성합니다.
 
         Args:
-            X (Union[pd.DataFrame, np.ndarray]): Input features for prediction.
+            X (Union[pd.DataFrame, np.ndarray]): 예측을 위한 입력 특성.
 
         Returns:
-            np.ndarray: Predicted values. For classification, returns class labels.
-                For regression, returns continuous values.
+            np.ndarray: 예측 값. 분류의 경우 클래스 레이블 반환.
+                회귀의 경우 연속 값 반환.
 
         Raises:
-            ValueError: If ensemble has not been trained.
+            ValueError: 앙상블이 학습되지 않은 경우.
 
-        Example:
-            >>> predictions = voting.predict(X_test)
-            >>> print(f"Predictions: {predictions[:5]}")
+        사용 예시:
+            predictions = voting.predict(X_test)
+            print(f"예측: {predictions[:5]}")
         """
         if not self.is_trained:
             raise ValueError("Ensemble not trained. Call fit() first.")
@@ -615,20 +615,20 @@ class VotingEnsemble:
         return self.ensemble.predict(X)
 
     def predict_proba(self, X: Union[pd.DataFrame, np.ndarray]) -> np.ndarray:
-        """Predict class probabilities using the voting ensemble.
+        """투표 앙상블을 사용하여 클래스 확률을 예측합니다.
 
         Args:
-            X (Union[pd.DataFrame, np.ndarray]): Input features for prediction.
+            X (Union[pd.DataFrame, np.ndarray]): 예측을 위한 입력 특성.
 
         Returns:
-            np.ndarray: Probability estimates. Shape is (n_samples, n_classes).
+            np.ndarray: 확률 추정치. 형상은 (n_samples, n_classes).
 
         Raises:
-            ValueError: If task is not classification or if ensemble is not trained.
+            ValueError: 작업이 분류가 아니거나 앙상블이 학습되지 않은 경우.
 
-        Example:
-            >>> proba = voting.predict_proba(X_test)
-            >>> positive_proba = proba[:, 1]  # Probability of positive class
+        사용 예시:
+            proba = voting.predict_proba(X_test)
+            positive_proba = proba[:, 1]  # 양성 클래스의 확률
         """
         if self.task != 'classification':
             raise ValueError("predict_proba only available for classification")
@@ -639,21 +639,21 @@ class VotingEnsemble:
         return self.ensemble.predict_proba(X)
 
     def save(self, path: str) -> None:
-        """Save the trained ensemble to disk.
+        """학습된 앙상블을 디스크에 저장합니다.
 
         Args:
-            path (str): File path where the ensemble should be saved.
+            path (str): 앙상블을 저장할 파일 경로.
 
         Raises:
-            ValueError: If ensemble has not been trained.
+            ValueError: 앙상블이 학습되지 않은 경우.
 
-        Example:
-            >>> voting.save('/path/to/voting_ensemble.pkl')
+        사용 예시:
+            voting.save('/path/to/voting_ensemble.pkl')
         """
         if not self.is_trained:
             raise ValueError("Ensemble not trained.")
 
-        # Create parent directories if they don't exist
+        # 상위 디렉토리가 없으면 생성
         path_obj = Path(path)
         path_obj.parent.mkdir(parents=True, exist_ok=True)
 
@@ -661,23 +661,23 @@ class VotingEnsemble:
         logging.info(f"Voting ensemble saved to: {path}")
 
     def load(self, path: str) -> None:
-        """Load a trained ensemble from disk.
+        """디스크에서 학습된 앙상블을 로드합니다.
 
         Args:
-            path (str): File path to the saved ensemble.
+            path (str): 저장된 앙상블 파일 경로.
 
         Raises:
-            FileNotFoundError: If the ensemble file does not exist.
+            FileNotFoundError: 앙상블 파일이 존재하지 않는 경우.
 
-        Example:
-            >>> voting = VotingEnsemble(base_models=[], task='classification')
-            >>> voting.load('/path/to/voting_ensemble.pkl')
-            >>> predictions = voting.predict(X_test)
+        사용 예시:
+            voting = VotingEnsemble(base_models=[], task='classification')
+            voting.load('/path/to/voting_ensemble.pkl')
+            predictions = voting.predict(X_test)
         """
         if not Path(path).exists():
             raise FileNotFoundError(f"Ensemble file not found: {path}")
 
-        # Load ensemble from file
+        # 파일에서 앙상블 로드
         self.ensemble = joblib.load(path)
         self.is_trained = True
         logging.info(f"Voting ensemble loaded from: {path}")

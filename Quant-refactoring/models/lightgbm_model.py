@@ -84,40 +84,40 @@ import numpy as np
 
 
 class LightGBMModel(BaseModel):
-    """LightGBM model wrapper with GPU acceleration and automatic feature cleaning.
+    """GPU 가속 및 자동 특성 정리를 지원하는 LightGBM 모델 래퍼입니다.
 
-    This class wraps LightGBM classifiers and regressors, providing a consistent
-    interface compatible with the BaseModel API. It includes automatic feature name
-    cleaning to comply with LightGBM's naming requirements.
+    이 클래스는 LightGBM 분류기 및 회귀기를 래핑하여 BaseModel API와 호환되는
+    일관된 인터페이스를 제공합니다. LightGBM의 명명 요구사항을 준수하기 위한
+    자동 특성 이름 정리 기능을 포함합니다.
 
-    LightGBM features:
-    - Leaf-wise tree growth (vs level-wise in XGBoost)
-    - Histogram-based algorithm for faster training
-    - GPU acceleration via device='gpu'
-    - Native categorical feature support
-    - Lower memory usage than XGBoost
+    LightGBM 특징:
+    - Leaf-wise 트리 성장 (XGBoost의 level-wise와 대조적)
+    - 더 빠른 학습을 위한 히스토그램 기반 알고리즘
+    - device='gpu'를 통한 GPU 가속
+    - 네이티브 범주형 특성 지원
+    - XGBoost보다 낮은 메모리 사용량
 
     Attributes:
-        model_type (str): Type identifier, always 'lightgbm'.
-        task (str): Task type, either 'classification' or 'regression'.
-        config_name (str): Name of the configuration preset being used.
-        default_params (Dict[str, Any]): Dictionary of default hyperparameters.
-        model (lgb.LGBMClassifier or lgb.LGBMRegressor): The underlying LightGBM model.
-        feature_names (Optional[List[str]]): List of feature names (cleaned).
-        is_trained (bool): Flag indicating if model has been trained.
+        model_type (str): 유형 식별자, 항상 'lightgbm'.
+        task (str): 작업 유형, 'classification' 또는 'regression'.
+        config_name (str): 사용 중인 설정 프리셋 이름.
+        default_params (Dict[str, Any]): 기본 하이퍼파라미터 딕셔너리.
+        model (lgb.LGBMClassifier or lgb.LGBMRegressor): 기반 LightGBM 모델.
+        feature_names (Optional[List[str]]): 특성 이름 리스트 (정리됨).
+        is_trained (bool): 모델이 학습되었는지 나타내는 플래그.
 
-    Example:
-        >>> # Classification with default settings
-        >>> model = LightGBMModel(task='classification')
-        >>> model.build_model()
-        >>> model.fit(X_train, y_train, X_val, y_val)
-        >>>
-        >>> # Clean feature names before training
-        >>> X_train_clean = LightGBMModel.clean_feature_names(X_train)
-        >>> X_test_clean = LightGBMModel.clean_feature_names(X_test)
-        >>>
-        >>> # Get feature importance
-        >>> importance_df = model.get_feature_importance(top_n=10)
+    사용 예시:
+        # 기본 설정으로 분류
+        model = LightGBMModel(task='classification')
+        model.build_model()
+        model.fit(X_train, y_train, X_val, y_val)
+
+        # 학습 전 특성 이름 정리
+        X_train_clean = LightGBMModel.clean_feature_names(X_train)
+        X_test_clean = LightGBMModel.clean_feature_names(X_test)
+
+        # 특성 중요도 가져오기
+        importance_df = model.get_feature_importance(top_n=10)
     """
 
     def __init__(
@@ -125,26 +125,26 @@ class LightGBMModel(BaseModel):
         task: str = 'classification',
         config_name: str = 'default'
     ) -> None:
-        """Initialize LightGBM model with specified configuration.
+        """지정된 설정으로 LightGBM 모델을 초기화합니다.
 
         Args:
-            task (str, optional): Task type, either 'classification' or 'regression'.
-                Defaults to 'classification'.
-            config_name (str, optional): Name of the configuration preset to use.
-                Currently only 'default' is available for both tasks.
-                Defaults to 'default'.
+            task (str, optional): 작업 유형, 'classification' 또는 'regression'.
+                기본값은 'classification'.
+            config_name (str, optional): 사용할 설정 프리셋 이름.
+                현재는 두 작업 모두 'default'만 사용 가능합니다.
+                기본값은 'default'.
 
-        Example:
-            >>> # Default classification model
-            >>> model = LightGBMModel(task='classification')
-            >>>
-            >>> # Regression model
-            >>> model = LightGBMModel(task='regression')
+        사용 예시:
+            # 기본 분류 모델
+            model = LightGBMModel(task='classification')
+
+            # 회귀 모델
+            model = LightGBMModel(task='regression')
         """
         super().__init__(model_type='lightgbm', task=task)
         self.config_name = config_name
 
-        # Load default configuration based on task type
+        # 작업 유형에 따라 기본 설정 로드
         if task == 'classification':
             self.default_params = LIGHTGBM_CLASSIFIER_CONFIGS.get(
                 config_name,
@@ -157,54 +157,54 @@ class LightGBMModel(BaseModel):
             )
 
     def build_model(self, params: Optional[Dict[str, Any]] = None) -> 'LightGBMModel':
-        """Build LightGBM model with specified or default parameters.
+        """지정된 또는 기본 파라미터로 LightGBM 모델을 빌드합니다.
 
-        Creates a LightGBM classifier or regressor based on the task type.
-        If custom parameters are provided, they are merged with the default
-        parameters, with custom parameters taking precedence.
+        작업 유형에 따라 LightGBM 분류기 또는 회귀기를 생성합니다.
+        커스텀 파라미터가 제공되면 기본 파라미터와 병합하며,
+        커스텀 파라미터가 우선순위를 가집니다.
 
         Args:
-            params (Optional[Dict[str, Any]], optional): Custom hyperparameters.
-                If None, uses default parameters from the configuration.
-                If provided, merges with defaults (custom params override defaults).
-                Common parameters:
-                - max_depth (int): Maximum tree depth
-                - learning_rate (float): Boosting learning rate
-                - n_estimators (int): Number of boosting iterations
-                - num_leaves (int): Maximum number of leaves per tree
-                - subsample (float): Fraction of samples for training
-                - colsample_bytree (float): Fraction of features for training
-                - min_child_samples (int): Minimum samples per leaf
-                Defaults to None.
+            params (Optional[Dict[str, Any]], optional): 커스텀 하이퍼파라미터.
+                None인 경우 설정의 기본 파라미터 사용.
+                제공된 경우 기본값과 병합 (커스텀 파라미터가 기본값 재정의).
+                일반적인 파라미터:
+                - max_depth (int): 최대 트리 깊이
+                - learning_rate (float): 부스팅 학습률
+                - n_estimators (int): 부스팅 반복 횟수
+                - num_leaves (int): 트리당 최대 리프 개수
+                - subsample (float): 학습용 샘플 비율
+                - colsample_bytree (float): 학습용 특성 비율
+                - min_child_samples (int): 리프당 최소 샘플 수
+                기본값은 None.
 
         Returns:
-            LightGBMModel: Self for method chaining.
+            LightGBMModel: 메서드 체이닝을 위한 self.
 
-        Example:
-            >>> # Use default parameters
-            >>> model.build_model()
-            >>>
-            >>> # Use custom parameters
-            >>> custom_params = {
-            ...     'max_depth': 12,
-            ...     'learning_rate': 0.05,
-            ...     'n_estimators': 2000,
-            ...     'num_leaves': 64
-            ... }
-            >>> model.build_model(custom_params)
-            >>>
-            >>> # Partial override
-            >>> model.build_model({'num_leaves': 128})
+        사용 예시:
+            # 기본 파라미터 사용
+            model.build_model()
+
+            # 커스텀 파라미터 사용
+            custom_params = {
+                'max_depth': 12,
+                'learning_rate': 0.05,
+                'n_estimators': 2000,
+                'num_leaves': 64
+            }
+            model.build_model(custom_params)
+
+            # 부분 재정의
+            model.build_model({'num_leaves': 128})
         """
         if params is None:
             params = self.default_params
         else:
-            # Merge custom parameters with defaults
+            # 커스텀 파라미터를 기본값과 병합
             merged_params = self.default_params.copy()
             merged_params.update(params)
             params = merged_params
 
-        # Create appropriate model type based on task
+        # 작업에 따라 적절한 모델 유형 생성
         if self.task == 'classification':
             self.model = lgb.LGBMClassifier(**params)
         else:
@@ -214,49 +214,49 @@ class LightGBMModel(BaseModel):
 
     @staticmethod
     def clean_feature_names(df: pd.DataFrame) -> pd.DataFrame:
-        """Clean feature names to comply with LightGBM requirements.
+        """LightGBM 요구사항을 준수하도록 특성 이름을 정리합니다.
 
-        LightGBM requires feature names to contain only alphanumeric characters
-        and underscores. This method removes invalid characters (like brackets,
-        special symbols) and handles duplicate names by appending indices.
+        LightGBM은 특성 이름이 영숫자와 언더스코어만 포함하도록 요구합니다.
+        이 메서드는 유효하지 않은 문자(괄호, 특수 기호 등)를 제거하고
+        인덱스를 추가하여 중복 이름을 처리합니다.
 
         Args:
-            df (pd.DataFrame): DataFrame with potentially invalid feature names.
+            df (pd.DataFrame): 유효하지 않을 수 있는 특성 이름을 가진 DataFrame.
 
         Returns:
-            pd.DataFrame: DataFrame with cleaned feature names.
+            pd.DataFrame: 정리된 특성 이름을 가진 DataFrame.
 
-        Example:
-            >>> # DataFrame with special characters in column names
-            >>> df = pd.DataFrame({
-            ...     'feature[1]': [1, 2, 3],
-            ...     'feature<2>': [4, 5, 6],
-            ...     'normal_feature': [7, 8, 9]
-            ... })
-            >>> df_clean = LightGBMModel.clean_feature_names(df)
-            >>> print(df_clean.columns)
+        사용 예시:
+            # 컬럼 이름에 특수 문자가 있는 DataFrame
+            df = pd.DataFrame({
+                'feature[1]': [1, 2, 3],
+                'feature<2>': [4, 5, 6],
+                'normal_feature': [7, 8, 9]
+            })
+            df_clean = LightGBMModel.clean_feature_names(df)
+            print(df_clean.columns)
             Index(['feature1', 'feature2', 'normal_feature'], dtype='object')
-            >>>
-            >>> # Handles duplicate names after cleaning
-            >>> df = pd.DataFrame({
-            ...     'feature[1]': [1, 2, 3],
-            ...     'feature(1)': [4, 5, 6]
-            ... })
-            >>> df_clean = LightGBMModel.clean_feature_names(df)
-            >>> print(df_clean.columns)
+
+            # 정리 후 중복 이름 처리
+            df = pd.DataFrame({
+                'feature[1]': [1, 2, 3],
+                'feature(1)': [4, 5, 6]
+            })
+            df_clean = LightGBMModel.clean_feature_names(df)
+            print(df_clean.columns)
             Index(['feature1', 'feature1_1'], dtype='object')
 
         Note:
-            - Removes all characters except A-Z, a-z, 0-9, and underscore
-            - Preserves column order
-            - Automatically handles duplicate names after cleaning
+            - A-Z, a-z, 0-9, 언더스코어를 제외한 모든 문자 제거
+            - 컬럼 순서 보존
+            - 정리 후 중복 이름 자동 처리
         """
-        # Remove all non-alphanumeric characters (except underscore)
+        # 영숫자가 아닌 모든 문자 제거 (언더스코어 제외)
         new_names = {col: re.sub(r'[^A-Za-z0-9_]+', '', col) for col in df.columns}
         new_n_list = list(new_names.values())
 
-        # Handle duplicate names by appending index
-        # If a cleaned name appears multiple times, add _1, _2, etc.
+        # 인덱스를 추가하여 중복 이름 처리
+        # 정리된 이름이 여러 번 나타나면 _1, _2 등 추가
         new_names = {
             col: f'{new_col}_{i}' if new_col in new_n_list[:i] else new_col
             for i, (col, new_col) in enumerate(new_names.items())
@@ -274,55 +274,55 @@ class LightGBMModel(BaseModel):
         early_stopping_rounds: int = 50,
         verbose: int = 100
     ) -> 'LightGBMModel':
-        """Train LightGBM model with automatic feature cleaning and early stopping.
+        """자동 특성 정리 및 조기 종료와 함께 LightGBM 모델을 학습합니다.
 
-        Trains the LightGBM model on the provided data. Automatically cleans
-        feature names to comply with LightGBM requirements. If validation data
-        is provided, enables early stopping using LightGBM callbacks.
+        제공된 데이터로 LightGBM 모델을 학습합니다. LightGBM 요구사항을 준수하도록
+        특성 이름을 자동으로 정리합니다. 검증 데이터가 제공되면 LightGBM 콜백을
+        사용하여 조기 종료를 활성화합니다.
 
         Args:
-            X_train (Union[pd.DataFrame, np.ndarray]): Training features.
-                If DataFrame, feature names will be automatically cleaned.
-            y_train (Union[pd.Series, np.ndarray]): Training labels.
-            X_val (Optional[Union[pd.DataFrame, np.ndarray]], optional): Validation
-                features for early stopping. Will be cleaned if DataFrame.
-                Defaults to None.
-            y_val (Optional[Union[pd.Series, np.ndarray]], optional): Validation
-                labels for early stopping. Defaults to None.
-            early_stopping_rounds (int, optional): Number of rounds with no
-                improvement after which training will be stopped. Only used if
-                validation data is provided. Defaults to 50.
-            verbose (int, optional): Logging frequency. Prints metrics every
-                'verbose' iterations. Set to 0 for silent training. Defaults to 100.
+            X_train (Union[pd.DataFrame, np.ndarray]): 훈련 특성.
+                DataFrame인 경우 특성 이름이 자동으로 정리됩니다.
+            y_train (Union[pd.Series, np.ndarray]): 훈련 레이블.
+            X_val (Optional[Union[pd.DataFrame, np.ndarray]], optional): 조기 종료를
+                위한 검증 특성. DataFrame인 경우 정리됩니다.
+                기본값은 None.
+            y_val (Optional[Union[pd.Series, np.ndarray]], optional): 조기 종료를
+                위한 검증 레이블. 기본값은 None.
+            early_stopping_rounds (int, optional): 개선이 없을 경우 학습을 중지할
+                라운드 수. 검증 데이터가 제공된 경우에만 사용됩니다.
+                기본값은 50.
+            verbose (int, optional): 로깅 빈도. 'verbose' 반복마다 메트릭을 출력합니다.
+                0으로 설정하면 무음 학습. 기본값은 100.
 
         Returns:
-            LightGBMModel: Self for method chaining.
+            LightGBMModel: 메서드 체이닝을 위한 self.
 
         Raises:
-            ValueError: If model has not been built.
+            ValueError: 모델이 빌드되지 않은 경우.
 
-        Example:
-            >>> # Train without early stopping
-            >>> model.fit(X_train, y_train, verbose=100)
-            >>>
-            >>> # Train with early stopping
-            >>> model.fit(
-            ...     X_train, y_train,
-            ...     X_val, y_val,
-            ...     early_stopping_rounds=100,
-            ...     verbose=50
-            ... )
-            >>>
-            >>> # Silent training
-            >>> model.fit(X_train, y_train, verbose=0)
+        사용 예시:
+            # 조기 종료 없이 학습
+            model.fit(X_train, y_train, verbose=100)
+
+            # 조기 종료와 함께 학습
+            model.fit(
+                X_train, y_train,
+                X_val, y_val,
+                early_stopping_rounds=100,
+                verbose=50
+            )
+
+            # 무음 학습
+            model.fit(X_train, y_train, verbose=0)
 
         Note:
-            - Feature names are automatically cleaned if input is DataFrame
-            - Early stopping uses lgb.early_stopping and lgb.log_evaluation callbacks
-            - Validation metric depends on task (binary log loss for classification,
-              RMSE for regression)
+            - 입력이 DataFrame인 경우 특성 이름이 자동으로 정리됨
+            - 조기 종료는 lgb.early_stopping 및 lgb.log_evaluation 콜백 사용
+            - 검증 메트릭은 작업에 따라 다름 (분류는 binary log loss,
+              회귀는 RMSE)
         """
-        # Clean feature names if input is DataFrame (LightGBM requirement)
+        # 입력이 DataFrame인 경우 특성 이름 정리 (LightGBM 요구사항)
         if hasattr(X_train, 'columns'):
             X_train = self.clean_feature_names(X_train)
             if X_val is not None:
@@ -330,7 +330,7 @@ class LightGBMModel(BaseModel):
 
         kwargs = {}
 
-        # Add callbacks for early stopping and logging if validation data provided
+        # 검증 데이터가 제공된 경우 조기 종료 및 로깅을 위한 콜백 추가
         if X_val is not None and y_val is not None:
             callbacks = [
                 lgb.early_stopping(stopping_rounds=early_stopping_rounds),
@@ -338,5 +338,5 @@ class LightGBMModel(BaseModel):
             ]
             kwargs['callbacks'] = callbacks
 
-        # Call parent fit method with prepared kwargs
+        # 준비된 kwargs로 부모 fit 메서드 호출
         return super().fit(X_train, y_train, X_val, y_val, **kwargs)
