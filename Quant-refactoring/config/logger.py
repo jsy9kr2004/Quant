@@ -402,13 +402,22 @@ def setup_logging(
         handlers.append(console_handler)
 
     if file_output:
-        # 자동 rotation이 있는 파일 handler
-        file_handler = logging.handlers.RotatingFileHandler(
-            str(log_file_path),
-            maxBytes=max_bytes,
-            backupCount=backup_count,
-            encoding='utf-8'
-        )
+        # Windows에서는 multiprocessing 환경에서 RotatingFileHandler가 PermissionError 발생
+        # 따라서 Windows에서는 일반 FileHandler 사용
+        if sys.platform == 'win32':
+            # Windows: 일반 FileHandler 사용 (rotation 없음)
+            file_handler = logging.FileHandler(
+                str(log_file_path),
+                encoding='utf-8'
+            )
+        else:
+            # Linux/Mac: RotatingFileHandler 사용 (rotation 지원)
+            file_handler = logging.handlers.RotatingFileHandler(
+                str(log_file_path),
+                maxBytes=max_bytes,
+                backupCount=backup_count,
+                encoding='utf-8'
+            )
         file_handler.setFormatter(file_formatter)
         file_handler.setLevel(getattr(logging, log_level))
         handlers.append(file_handler)

@@ -62,19 +62,19 @@ def __flatten_json(js: Any, expand_all: bool = False) -> pd.DataFrame:
     df = pd.json_normalize(json.loads(js) if type(js) == str else js)
 
     # Find columns containing lists
-    ex = df.applymap(type).astype(str).eq("<class 'list'>").all().to_frame(name='bool')
+    ex = df.map(type).astype(str).eq("<class 'list'>").all().to_frame(name='bool')
     isin_classlist = (ex['bool'] == True).any()
 
     if isin_classlist == True:
         # Get first column with lists
-        col = df.applymap(type).astype(str).eq("<class 'list'>").all().idxmax()
+        col = df.map(type).astype(str).eq("<class 'list'>").all().idxmax()
 
         # Explode list and expand embedded dictionaries
         df = df.explode(col).reset_index(drop=True)
         df = df.drop(columns=[col]).join(df[col].apply(pd.Series), rsuffix=f".{col}")
 
         # Recursively flatten if expand_all is True and more lists exist
-        if expand_all and df.applymap(type).astype(str).eq("<class 'list'>").any(axis=1).all():
+        if expand_all and df.map(type).astype(str).eq("<class 'list'>").any(axis=1).all():
             df = __flatten_json(df.to_dict("records"))
 
         return df
