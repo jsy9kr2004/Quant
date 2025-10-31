@@ -21,7 +21,6 @@ DATA:
 
   # Data collection
   GET_FMP: N  # Y = Fetch new data from FMP, N = Use existing data
-  USE_LEGACY_FMP: N  # Y = Use legacy FMP (root fmp.py), N = Use refactored FMP
   STORAGE_TYPE: PARQUET  # PARQUET (recommended) or DB
 
 # ============================================================================
@@ -122,28 +121,21 @@ THRESHOLD_PERCENTILE: 92  # Top 8% selection
 #
 # 1. First time setup (fetch data):
 #    DATA.GET_FMP: Y
-#    DATA.USE_LEGACY_FMP: N  # Use refactored FMP
 #    ML.RUN_REGRESSION: N
 #    BACKTEST.RUN_BACKTEST: N
 #
-# 2. Fetch data using LEGACY FMP (if refactored version has issues):
-#    DATA.GET_FMP: Y
-#    DATA.USE_LEGACY_FMP: Y  # Use legacy FMP from root directory
-#    ML.RUN_REGRESSION: N
-#    BACKTEST.RUN_BACKTEST: N
-#
-# 3. Train ML models:
+# 2. Train ML models:
 #    DATA.GET_FMP: N
 #    ML.RUN_REGRESSION: Y
 #    ML.EXIT_AFTER_ML: Y
 #
-# 4. Run backtest only:
+# 3. Run backtest only:
 #    DATA.GET_FMP: N
 #    ML.RUN_REGRESSION: N
 #    ML.EXIT_AFTER_ML: N
 #    BACKTEST.RUN_BACKTEST: Y
 #
-# 5. Full pipeline:
+# 4. Full pipeline:
 #    DATA.GET_FMP: Y
 #    ML.RUN_REGRESSION: Y
 #    ML.EXIT_AFTER_ML: N
