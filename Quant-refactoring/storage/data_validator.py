@@ -16,7 +16,7 @@ DataValidator 클래스는 다양한 테이블 유형에 대한 설정 가능한
     - 데이터 품질 메트릭 (null 비율 등)
     - 날짜 범위 검증
 
-Example:
+사용 예시:
     기본 검증 워크플로우::
 
         from storage import DataValidator
@@ -59,32 +59,32 @@ from typing import Dict, List, Optional, Any, Tuple
 
 
 class DataValidator:
-    """Parquet file data quality validator.
+    """Parquet 파일 데이터 품질 검증기입니다.
 
-    This class provides comprehensive validation for Parquet files containing
-    financial data. It checks schema compliance, data types, null values,
-    and data quality metrics based on configurable rules.
+    이 클래스는 금융 데이터를 포함하는 Parquet 파일에 대한 포괄적인 검증을 제공합니다.
+    설정 가능한 규칙을 기반으로 스키마 준수, 데이터 타입, null 값, 데이터 품질 메트릭을
+    검사합니다.
 
-    Each table type has its own validation rules defining:
-        - Required columns that must be present
-        - Columns that cannot contain null values
-        - Minimum row count thresholds
-        - Description of the table's purpose
+    각 테이블 유형은 다음을 정의하는 자체 검증 규칙을 가집니다:
+        - 반드시 존재해야 하는 필수 컬럼
+        - null 값을 포함할 수 없는 컬럼
+        - 최소 행 수 임계값
+        - 테이블 목적에 대한 설명
 
     Attributes:
-        validation_rules (Dict[str, Dict[str, Any]]): Dictionary mapping table names
-            to their validation rules. Each rule set contains:
-            - required_columns (List[str]): Columns that must exist
-            - not_null_columns (List[str]): Columns that cannot have nulls
-            - min_rows (int): Minimum expected row count
-            - description (str): Table description
+        validation_rules (Dict[str, Dict[str, Any]]): 테이블 이름을 검증 규칙에
+            매핑하는 딕셔너리. 각 규칙 세트는 다음을 포함합니다:
+            - required_columns (List[str]): 반드시 존재해야 하는 컬럼
+            - not_null_columns (List[str]): null을 가질 수 없는 컬럼
+            - min_rows (int): 최소 예상 행 수
+            - description (str): 테이블 설명
 
-    Example:
-        Initialize and validate with custom rules::
+    사용 예시:
+        커스텀 규칙으로 초기화하고 검증::
 
             validator = DataValidator()
 
-            # Add custom validation rules
+            # 커스텀 검증 규칙 추가
             validator.validation_rules['my_table'] = {
                 'required_columns': ['id', 'date', 'value'],
                 'not_null_columns': ['id', 'date'],
@@ -92,29 +92,29 @@ class DataValidator:
                 'description': 'My custom financial table'
             }
 
-            # Run validation
+            # 검증 실행
             result = validator.validate_file('my_table.parquet', 'my_table')
 
     Note:
-        The validator comes pre-configured with rules for common financial
-        tables: symbol_list, price, financial_statement, and metrics.
+        검증기는 일반적인 금융 테이블에 대한 규칙이 사전 설정되어 있습니다:
+        symbol_list, price, financial_statement, metrics.
     """
 
     def __init__(self) -> None:
-        """Initialize DataValidator with default validation rules.
+        """기본 검증 규칙으로 DataValidator를 초기화합니다.
 
-        Sets up validation rules for standard financial data tables including
-        symbol lists, price data, financial statements, and metrics.
+        심볼 리스트, 가격 데이터, 재무제표, 메트릭을 포함한 표준 금융 데이터
+        테이블에 대한 검증 규칙을 설정합니다.
 
-        Example:
-            Create validator and inspect rules::
+        사용 예시:
+            검증기 생성 및 규칙 확인::
 
                 validator = DataValidator()
 
-                # View available table rules
+                # 사용 가능한 테이블 규칙 보기
                 print("Configured tables:", validator.validation_rules.keys())
 
-                # View specific table rules
+                # 특정 테이블 규칙 보기
                 price_rules = validator.validation_rules['price']
                 print(f"Price table requires: {price_rules['required_columns']}")
         """
@@ -147,54 +147,53 @@ class DataValidator:
         }
 
     def validate_file(self, file_path: str, table_name: str) -> Dict[str, Any]:
-        """Validate a single Parquet file against defined rules.
+        """정의된 규칙에 대해 단일 Parquet 파일을 검증합니다.
 
-        Performs comprehensive validation checks on a Parquet file including
-        schema validation, data type checks, null value detection, duplicate
-        checking, and data quality metrics. Returns detailed results with
-        errors, warnings, and informational statistics.
+        Parquet 파일에 대해 스키마 검증, 데이터 타입 검사, null 값 감지, 중복 검사,
+        데이터 품질 메트릭을 포함한 포괄적인 검증을 수행합니다. 오류, 경고,
+        정보 통계가 포함된 상세 결과를 반환합니다.
 
-        Validation steps:
-            1. Load file and get basic info (rows, columns, size)
-            2. Check for required columns
-            3. Verify minimum row count
-            4. Validate null values in critical columns
-            5. Check for duplicates (symbol_list only)
-            6. Validate date column types
-            7. Compute data quality metrics
+        검증 단계:
+            1. 파일을 로드하고 기본 정보 가져오기 (행, 컬럼, 크기)
+            2. 필수 컬럼 확인
+            3. 최소 행 수 검증
+            4. 중요 컬럼의 null 값 검증
+            5. 중복 검사 (symbol_list만 해당)
+            6. 날짜 컬럼 타입 검증
+            7. 데이터 품질 메트릭 계산
 
         Args:
-            file_path (str): Absolute path to the Parquet file to validate.
-            table_name (str): Name of the table type for rule lookup. Should
-                match a key in validation_rules dictionary.
+            file_path (str): 검증할 Parquet 파일의 절대 경로.
+            table_name (str): 규칙 조회를 위한 테이블 유형 이름.
+                validation_rules 딕셔너리의 키와 일치해야 합니다.
 
         Returns:
-            Dict[str, Any]: Validation results dictionary containing:
-                - file (str): File path that was validated
-                - table (str): Table name
-                - passed (bool): Overall validation status (True if no errors)
-                - errors (List[str]): List of validation errors (blocking issues)
-                - warnings (List[str]): List of warnings (non-blocking issues)
-                - info (Dict[str, Any]): Metadata and statistics:
-                    - rows (int): Number of rows
-                    - columns (int): Number of columns
-                    - size_mb (float): File size in megabytes
-                    - memory_mb (float): Memory usage in megabytes
-                    - date_range (Tuple[str, str]): Min and max dates (if date column exists)
-                    - unique_symbols (int): Count of unique symbols (if symbol column exists)
+            Dict[str, Any]: 다음을 포함하는 검증 결과 딕셔너리:
+                - file (str): 검증된 파일 경로
+                - table (str): 테이블 이름
+                - passed (bool): 전체 검증 상태 (오류가 없으면 True)
+                - errors (List[str]): 검증 오류 리스트 (차단 문제)
+                - warnings (List[str]): 경고 리스트 (비차단 문제)
+                - info (Dict[str, Any]): 메타데이터 및 통계:
+                    - rows (int): 행 수
+                    - columns (int): 컬럼 수
+                    - size_mb (float): 파일 크기 (MB)
+                    - memory_mb (float): 메모리 사용량 (MB)
+                    - date_range (Tuple[str, str]): 최소 및 최대 날짜 (date 컬럼이 있는 경우)
+                    - unique_symbols (int): 고유 심볼 수 (symbol 컬럼이 있는 경우)
 
-        Example:
-            Validate and analyze results::
+        사용 예시:
+            검증 및 결과 분석::
 
                 validator = DataValidator()
 
-                # Validate a price file
+                # 가격 파일 검증
                 result = validator.validate_file(
                     '/data/parquet/price.parquet',
                     'price'
                 )
 
-                # Check overall status
+                # 전체 상태 확인
                 if result['passed']:
                     print("✅ Validation passed")
                     info = result['info']
@@ -203,22 +202,22 @@ class DataValidator:
                 else:
                     print("❌ Validation failed")
 
-                # Review errors
+                # 오류 검토
                 if result['errors']:
                     print("Errors:")
                     for error in result['errors']:
                         print(f"  - {error}")
 
-                # Review warnings
+                # 경고 검토
                 if result['warnings']:
                     print("Warnings:")
                     for warning in result['warnings']:
                         print(f"  - {warning}")
 
         Note:
-            - If no validation rules exist for the table_name, basic checks are still performed
-            - Files that cannot be read will have passed=False with error message
-            - Warnings don't cause validation failure but indicate potential issues
+            - table_name에 대한 검증 규칙이 없는 경우에도 기본 검사는 수행됩니다
+            - 읽을 수 없는 파일은 passed=False 및 오류 메시지를 가집니다
+            - 경고는 검증 실패를 야기하지 않지만 잠재적 문제를 나타냅니다
         """
         # Initialize results structure
         results = {
@@ -305,36 +304,35 @@ class DataValidator:
         return results
 
     def validate_all(self, parquet_dir: str) -> Dict[str, Dict[str, Any]]:
-        """Validate all Parquet files in a directory.
+        """디렉토리의 모든 Parquet 파일을 검증합니다.
 
-        Scans a directory for Parquet files and validates each one, logging
-        results and generating a summary report. This is useful for batch
-        validation of all tables in a storage location.
+        디렉토리에서 Parquet 파일을 스캔하고 각각을 검증하여 결과를 로깅하고
+        요약 보고서를 생성합니다. 저장소 위치의 모든 테이블에 대한 배치 검증에
+        유용합니다.
 
         Args:
-            parquet_dir (str): Path to directory containing Parquet files.
-                All *.parquet files in this directory will be validated.
+            parquet_dir (str): Parquet 파일이 있는 디렉토리 경로.
+                이 디렉토리의 모든 *.parquet 파일이 검증됩니다.
 
         Returns:
-            Dict[str, Dict[str, Any]]: Dictionary mapping table names to their
-                validation results. Each value is a result dictionary from
-                validate_file() containing passed status, errors, warnings,
-                and info.
+            Dict[str, Dict[str, Any]]: 테이블 이름을 검증 결과에 매핑하는 딕셔너리.
+                각 값은 passed 상태, errors, warnings, info를 포함하는
+                validate_file()의 결과 딕셔너리입니다.
 
-        Example:
-            Validate entire directory and summarize::
+        사용 예시:
+            전체 디렉토리 검증 및 요약::
 
                 validator = DataValidator()
 
-                # Validate all files
+                # 모든 파일 검증
                 results = validator.validate_all('/data/parquet/')
 
-                # Count passes and failures
+                # 성공 및 실패 수 계산
                 passed = sum(1 for r in results.values() if r['passed'])
                 failed = len(results) - passed
                 print(f"Results: {passed} passed, {failed} failed")
 
-                # List failed tables
+                # 실패한 테이블 나열
                 failed_tables = [
                     name for name, result in results.items()
                     if not result['passed']
@@ -342,7 +340,7 @@ class DataValidator:
                 if failed_tables:
                     print(f"Failed tables: {failed_tables}")
 
-                # Get total data volume
+                # 전체 데이터 볼륨 가져오기
                 total_mb = sum(
                     r['info'].get('size_mb', 0)
                     for r in results.values()
@@ -350,10 +348,10 @@ class DataValidator:
                 print(f"Total data size: {total_mb:.2f} MB")
 
         Note:
-            - Logs detailed information for each file during validation
-            - Displays progress with info and error level logs
-            - Returns empty dict if no Parquet files found
-            - Prints summary statistics at completion
+            - 검증 중 각 파일에 대한 상세 정보를 로깅합니다
+            - info 및 error 레벨 로그로 진행 상황을 표시합니다
+            - Parquet 파일을 찾지 못한 경우 빈 딕셔너리를 반환합니다
+            - 완료 시 요약 통계를 출력합니다
         """
         parquet_path = Path(parquet_dir)
         all_results = {}
@@ -425,38 +423,38 @@ class DataValidator:
         results: Dict[str, Dict[str, Any]],
         output_file: str = "validation_report.txt"
     ) -> str:
-        """Generate a detailed text report from validation results.
+        """검증 결과로부터 상세 텍스트 보고서를 생성합니다.
 
-        Creates a comprehensive validation report in text format with formatted
-        sections for each table including status, metadata, errors, and warnings.
-        The report is suitable for sharing or archiving validation results.
+        각 테이블의 상태, 메타데이터, 오류, 경고를 포함하는 형식화된 섹션이 있는
+        텍스트 형식의 포괄적인 검증 보고서를 생성합니다. 보고서는 검증 결과를
+        공유하거나 보관하는 데 적합합니다.
 
         Args:
-            results (Dict[str, Dict[str, Any]]): Validation results from validate_all()
-                or a manually constructed dict with same structure.
-            output_file (str, optional): Path to output report file. Can be absolute
-                or relative path. Defaults to "validation_report.txt".
+            results (Dict[str, Dict[str, Any]]): validate_all()의 검증 결과 또는
+                동일한 구조로 수동으로 구성된 딕셔너리.
+            output_file (str, optional): 출력 보고서 파일 경로. 절대 또는
+                상대 경로일 수 있습니다. 기본값은 "validation_report.txt".
 
         Returns:
-            str: Path to the generated report file.
+            str: 생성된 보고서 파일 경로.
 
-        Example:
-            Generate and review reports::
+        사용 예시:
+            보고서 생성 및 검토::
 
                 validator = DataValidator()
 
-                # Validate and generate report
+                # 검증 및 보고서 생성
                 results = validator.validate_all('/data/parquet/')
                 report_path = validator.generate_report(
                     results,
                     output_file='/reports/validation_2024.txt'
                 )
 
-                # Read and print report
+                # 보고서 읽기 및 출력
                 with open(report_path, 'r', encoding='utf-8') as f:
                     print(f.read())
 
-                # Generate report for specific tables only
+                # 특정 테이블에 대해서만 보고서 생성
                 subset_results = {
                     k: v for k, v in results.items()
                     if k in ['price', 'symbol_list']
@@ -467,11 +465,11 @@ class DataValidator:
                 )
 
         Note:
-            - Report includes overall summary at the top
-            - Each table has its own section with full details
-            - File is written with UTF-8 encoding
-            - Existing file at output_file path will be overwritten
-            - Report path is logged after generation
+            - 보고서는 상단에 전체 요약을 포함합니다
+            - 각 테이블은 전체 세부 정보가 있는 자체 섹션을 가집니다
+            - 파일은 UTF-8 인코딩으로 작성됩니다
+            - output_file 경로의 기존 파일은 덮어씌워집니다
+            - 보고서 경로는 생성 후 로깅됩니다
         """
         with open(output_file, 'w', encoding='utf-8') as f:
             # Write report header

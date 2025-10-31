@@ -22,7 +22,7 @@ CatBoostModel 클래스는 BaseModel을 확장하여 다음을 제공합니다:
 - 다양한 특성 중요도 유형
 - 학습 파이프라인과의 쉬운 통합
 
-사용 예제:
+사용 예시:
     기본 분류:
         from models.catboost_model import CatBoostModel
 
@@ -63,24 +63,24 @@ CatBoostModel 클래스는 BaseModel을 확장하여 다음을 제공합니다:
         model.fit(X_train, y_train)
         predictions = model.predict(X_test)
 
-    Feature importance:
-        # CatBoost supports multiple importance types
+    특성 중요도:
+        # CatBoost는 여러 중요도 유형 지원
         importance_df = model.get_feature_importance(top_n=10)
-        # Uses PredictionValuesChange by default
+        # 기본적으로 PredictionValuesChange 사용
 
 Attributes:
-    model_type (str): Always 'catboost'
-    task (str): Task type ('classification' or 'regression')
-    config_name (str): Name of the configuration preset
-    default_params (Dict): Default hyperparameters for the model
-    model: CatBoost classifier or regressor instance
+    model_type (str): 항상 'catboost'
+    task (str): 작업 유형 ('classification' 또는 'regression')
+    config_name (str): 구성 프리셋 이름
+    default_params (Dict): 모델의 기본 하이퍼파라미터
+    model: CatBoost classifier 또는 regressor 인스턴스
 
 Note:
-    CatBoost is particularly recommended when:
-    - Overfitting is a concern (uses symmetric trees and ordered boosting)
-    - Working with categorical features
-    - Need robust performance with minimal tuning
-    - GPU memory is limited
+    CatBoost는 특히 다음의 경우에 권장됩니다:
+    - 과적합이 우려되는 경우 (대칭 트리 및 ordered boosting 사용)
+    - 범주형 특성을 다룰 때
+    - 최소한의 튜닝으로 강력한 성능이 필요할 때
+    - GPU 메모리가 제한적일 때
 """
 
 from catboost import CatBoostClassifier, CatBoostRegressor
@@ -92,48 +92,48 @@ import numpy as np
 
 
 class CatBoostModel(BaseModel):
-    """CatBoost model wrapper with GPU acceleration and robust overfitting prevention.
+    """GPU 가속 및 강력한 과적합 방지 기능을 갖춘 CatBoost 모델 래퍼입니다.
 
-    This class wraps CatBoost classifiers and regressors, providing a consistent
-    interface compatible with the BaseModel API. CatBoost is particularly well-suited
-    for trading applications due to its robustness to overfitting.
+    이 클래스는 CatBoost classifier와 regressor를 래핑하여 BaseModel API와
+    호환되는 일관된 인터페이스를 제공합니다. CatBoost는 과적합에 강하여
+    트레이딩 애플리케이션에 특히 적합합니다.
 
-    CatBoost features:
-    - Ordered boosting: Reduces prediction shift and overfitting
-    - Symmetric trees: Faster prediction, balanced tree structure
-    - Native categorical feature support (no encoding needed)
-    - GPU acceleration via task_type='GPU'
-    - Built-in regularization (L2 leaf regularization)
-    - Automatic handling of missing values
-    - Multiple feature importance types
+    CatBoost 특징:
+    - Ordered boosting: 예측 편향과 과적합 감소
+    - 대칭 트리: 빠른 예측, 균형 잡힌 트리 구조
+    - 네이티브 범주형 특성 지원 (인코딩 불필요)
+    - task_type='GPU'를 통한 GPU 가속
+    - 내장 정규화 (L2 leaf regularization)
+    - 결측치 자동 처리
+    - 다양한 특성 중요도 유형
 
-    Advantages for trading:
-    - Robust to overfitting (critical for financial data)
-    - Handles market regime changes better
-    - Less sensitive to hyperparameter choices
-    - Excellent out-of-the-box performance
+    트레이딩에서의 장점:
+    - 과적합에 강함 (금융 데이터에 중요)
+    - 시장 체제 변화에 더 잘 대응
+    - 하이퍼파라미터 선택에 덜 민감
+    - 즉시 사용 가능한 뛰어난 성능
 
     Attributes:
-        model_type (str): Type identifier, always 'catboost'.
-        task (str): Task type, either 'classification' or 'regression'.
-        config_name (str): Name of the configuration preset being used.
-        default_params (Dict[str, Any]): Dictionary of default hyperparameters.
-        model (CatBoostClassifier or CatBoostRegressor): The underlying CatBoost model.
-        feature_names (Optional[List[str]]): List of feature names.
-        is_trained (bool): Flag indicating if model has been trained.
+        model_type (str): 유형 식별자, 항상 'catboost'.
+        task (str): 작업 유형, 'classification' 또는 'regression'.
+        config_name (str): 사용 중인 구성 프리셋 이름.
+        default_params (Dict[str, Any]): 기본 하이퍼파라미터 딕셔너리.
+        model (CatBoostClassifier or CatBoostRegressor): 기반 CatBoost 모델.
+        feature_names (Optional[List[str]]): 특성 이름 리스트.
+        is_trained (bool): 모델이 학습되었는지 나타내는 플래그.
 
-    Example:
-        >>> # Classification with default settings
-        >>> model = CatBoostModel(task='classification')
-        >>> model.build_model()
-        >>> model.fit(X_train, y_train, X_val, y_val)
-        >>>
-        >>> # Deep model for complex patterns
-        >>> model = CatBoostModel(task='classification', config_name='deep')
-        >>> model.build_model()
-        >>>
-        >>> # Get feature importance
-        >>> importance_df = model.get_feature_importance(top_n=10)
+    사용 예시:
+        # 기본 설정으로 분류
+        model = CatBoostModel(task='classification')
+        model.build_model()
+        model.fit(X_train, y_train, X_val, y_val)
+
+        # 복잡한 패턴을 위한 깊은 모델
+        model = CatBoostModel(task='classification', config_name='deep')
+        model.build_model()
+
+        # 특성 중요도 가져오기
+        importance_df = model.get_feature_importance(top_n=10)
     """
 
     def __init__(
@@ -141,31 +141,31 @@ class CatBoostModel(BaseModel):
         task: str = 'classification',
         config_name: str = 'default'
     ) -> None:
-        """Initialize CatBoost model with specified configuration.
+        """지정된 구성으로 CatBoost 모델을 초기화합니다.
 
         Args:
-            task (str, optional): Task type, either 'classification' or 'regression'.
-                Defaults to 'classification'.
-            config_name (str, optional): Name of the configuration preset to use.
-                For both tasks: 'default', 'deep'
-                - 'default': Depth 8, good for most cases
-                - 'deep': Depth 10, for complex patterns
-                Defaults to 'default'.
+            task (str, optional): 작업 유형, 'classification' 또는 'regression'.
+                기본값은 'classification'.
+            config_name (str, optional): 사용할 구성 프리셋 이름.
+                두 작업 모두: 'default', 'deep'
+                - 'default': 깊이 8, 대부분의 경우에 적합
+                - 'deep': 깊이 10, 복잡한 패턴용
+                기본값은 'default'.
 
-        Example:
-            >>> # Default classification model
-            >>> model = CatBoostModel(task='classification')
-            >>>
-            >>> # Deeper classification model for complex patterns
-            >>> model = CatBoostModel(task='classification', config_name='deep')
-            >>>
-            >>> # Regression model
-            >>> model = CatBoostModel(task='regression')
+        사용 예시:
+            # 기본 분류 모델
+            model = CatBoostModel(task='classification')
+
+            # 복잡한 패턴을 위한 더 깊은 분류 모델
+            model = CatBoostModel(task='classification', config_name='deep')
+
+            # 회귀 모델
+            model = CatBoostModel(task='regression')
         """
         super().__init__(model_type='catboost', task=task)
         self.config_name = config_name
 
-        # Load default configuration based on task type
+        # 작업 유형에 따라 기본 구성 로드
         if task == 'classification':
             self.default_params = CATBOOST_CLASSIFIER_CONFIGS.get(
                 config_name,
@@ -178,54 +178,54 @@ class CatBoostModel(BaseModel):
             )
 
     def build_model(self, params: Optional[Dict[str, Any]] = None) -> 'CatBoostModel':
-        """Build CatBoost model with specified or default parameters.
+        """지정된 파라미터 또는 기본 파라미터로 CatBoost 모델을 빌드합니다.
 
-        Creates a CatBoost classifier or regressor based on the task type.
-        If custom parameters are provided, they are merged with the default
-        parameters, with custom parameters taking precedence.
+        작업 유형에 따라 CatBoost classifier 또는 regressor를 생성합니다.
+        커스텀 파라미터가 제공되면 기본 파라미터와 병합되며,
+        커스텀 파라미터가 우선합니다.
 
         Args:
-            params (Optional[Dict[str, Any]], optional): Custom hyperparameters.
-                If None, uses default parameters from the configuration.
-                If provided, merges with defaults (custom params override defaults).
-                Common parameters:
-                - depth (int): Tree depth (CatBoost uses 'depth' not 'max_depth')
-                - learning_rate (float): Learning rate
-                - iterations (int): Number of boosting iterations
-                - l2_leaf_reg (float): L2 regularization coefficient
-                - subsample (float): Sample rate for bagging
-                - border_count (int): Number of splits for numerical features
-                - bootstrap_type (str): Bootstrap type ('Bayesian', 'Bernoulli', 'MVS')
-                Defaults to None.
+            params (Optional[Dict[str, Any]], optional): 커스텀 하이퍼파라미터.
+                None인 경우 구성의 기본 파라미터 사용.
+                제공된 경우 기본값과 병합 (커스텀 파라미터가 기본값 재정의).
+                일반 파라미터:
+                - depth (int): 트리 깊이 (CatBoost는 'max_depth'가 아닌 'depth' 사용)
+                - learning_rate (float): 학습률
+                - iterations (int): 부스팅 반복 횟수
+                - l2_leaf_reg (float): L2 정규화 계수
+                - subsample (float): 배깅을 위한 샘플 비율
+                - border_count (int): 수치형 특성의 분할 수
+                - bootstrap_type (str): Bootstrap 유형 ('Bayesian', 'Bernoulli', 'MVS')
+                기본값은 None.
 
         Returns:
-            CatBoostModel: Self for method chaining.
+            CatBoostModel: 메서드 체이닝을 위한 self.
 
-        Example:
-            >>> # Use default parameters
-            >>> model.build_model()
-            >>>
-            >>> # Use custom parameters
-            >>> custom_params = {
-            ...     'depth': 12,
-            ...     'learning_rate': 0.03,
-            ...     'iterations': 2000,
-            ...     'l2_leaf_reg': 10
-            ... }
-            >>> model.build_model(custom_params)
-            >>>
-            >>> # Partial override (other params use defaults)
-            >>> model.build_model({'depth': 10, 'iterations': 1500})
+        사용 예시:
+            # 기본 파라미터 사용
+            model.build_model()
+
+            # 커스텀 파라미터 사용
+            custom_params = {
+                'depth': 12,
+                'learning_rate': 0.03,
+                'iterations': 2000,
+                'l2_leaf_reg': 10
+            }
+            model.build_model(custom_params)
+
+            # 부분 재정의 (다른 파라미터는 기본값 사용)
+            model.build_model({'depth': 10, 'iterations': 1500})
         """
         if params is None:
             params = self.default_params
         else:
-            # Merge custom parameters with defaults
+            # 커스텀 파라미터를 기본값과 병합
             merged_params = self.default_params.copy()
             merged_params.update(params)
             params = merged_params
 
-        # Create appropriate model type based on task
+        # 작업에 따라 적절한 모델 유형 생성
         if self.task == 'classification':
             self.model = CatBoostClassifier(**params)
         else:
@@ -242,127 +242,126 @@ class CatBoostModel(BaseModel):
         early_stopping_rounds: int = 50,
         verbose: bool = True
     ) -> 'CatBoostModel':
-        """Train CatBoost model with optional early stopping.
+        """선택적 조기 종료와 함께 CatBoost 모델을 학습합니다.
 
-        Trains the CatBoost model on the provided data. If validation data is
-        provided, enables early stopping to prevent overfitting by monitoring
-        the validation metric.
+        제공된 데이터로 CatBoost 모델을 학습합니다. 검증 데이터가 제공되면
+        검증 메트릭을 모니터링하여 조기 종료를 활성화하여 과적합을 방지합니다.
 
         Args:
-            X_train (Union[pd.DataFrame, np.ndarray]): Training features.
-                Can contain categorical features (will be handled automatically).
-            y_train (Union[pd.Series, np.ndarray]): Training labels.
-            X_val (Optional[Union[pd.DataFrame, np.ndarray]], optional): Validation
-                features for early stopping. Defaults to None.
-            y_val (Optional[Union[pd.Series, np.ndarray]], optional): Validation
-                labels for early stopping. Defaults to None.
-            early_stopping_rounds (int, optional): Number of rounds with no
-                improvement after which training will be stopped. Only used if
-                validation data is provided. Defaults to 50.
-            verbose (bool, optional): Whether to print training progress.
-                If True, prints metrics every 'verbose' iterations (from config).
-                Defaults to True.
+            X_train (Union[pd.DataFrame, np.ndarray]): 훈련 특성.
+                범주형 특성을 포함할 수 있음 (자동 처리됨).
+            y_train (Union[pd.Series, np.ndarray]): 훈련 레이블.
+            X_val (Optional[Union[pd.DataFrame, np.ndarray]], optional): 조기 종료를
+                위한 검증 특성. 기본값은 None.
+            y_val (Optional[Union[pd.Series, np.ndarray]], optional): 조기 종료를
+                위한 검증 레이블. 기본값은 None.
+            early_stopping_rounds (int, optional): 개선이 없는 라운드 수로,
+                이 수가 지나면 학습이 중지됩니다. 검증 데이터가 제공된 경우에만 사용.
+                기본값은 50.
+            verbose (bool, optional): 학습 진행 상황 출력 여부.
+                True인 경우 'verbose' 반복마다 메트릭 출력 (config에서).
+                기본값은 True.
 
         Returns:
-            CatBoostModel: Self for method chaining.
+            CatBoostModel: 메서드 체이닝을 위한 self.
 
         Raises:
-            ValueError: If model has not been built.
+            ValueError: 모델이 빌드되지 않은 경우.
 
-        Example:
-            >>> # Train without early stopping
-            >>> model.fit(X_train, y_train, verbose=True)
-            >>>
-            >>> # Train with early stopping
-            >>> model.fit(
-            ...     X_train, y_train,
-            ...     X_val, y_val,
-            ...     early_stopping_rounds=100,
-            ...     verbose=True
-            ... )
-            >>>
-            >>> # Silent training
-            >>> model.fit(X_train, y_train, verbose=False)
+        사용 예시:
+            # 조기 종료 없이 학습
+            model.fit(X_train, y_train, verbose=True)
+
+            # 조기 종료와 함께 학습
+            model.fit(
+                X_train, y_train,
+                X_val, y_val,
+                early_stopping_rounds=100,
+                verbose=True
+            )
+
+            # 조용한 학습
+            model.fit(X_train, y_train, verbose=False)
 
         Note:
-            - CatBoost automatically detects and handles categorical features
-            - Early stopping monitors the evaluation metric specified in config
-              (e.g., 'AUC' for classification, 'RMSE' for regression)
-            - Ordered boosting is used by default for better generalization
+            - CatBoost는 범주형 특성을 자동으로 감지하고 처리
+            - 조기 종료는 config에 지정된 평가 메트릭을 모니터링
+              (예: 분류의 경우 'AUC', 회귀의 경우 'RMSE')
+            - 더 나은 일반화를 위해 기본적으로 ordered boosting 사용
         """
         kwargs = {
             'verbose': verbose
         }
 
-        # Add early stopping parameters if validation data is provided
+        # 검증 데이터가 제공된 경우 조기 종료 파라미터 추가
         if X_val is not None and y_val is not None:
             eval_set = (X_val, y_val)
             kwargs['eval_set'] = eval_set
             kwargs['early_stopping_rounds'] = early_stopping_rounds
 
-        # Call parent fit method with prepared kwargs
+        # 준비된 kwargs로 부모 fit 메서드 호출
         return super().fit(X_train, y_train, X_val, y_val, **kwargs)
 
     def get_feature_importance(self, top_n: Optional[int] = 20) -> pd.DataFrame:
-        """Get feature importance scores from the trained CatBoost model.
+        """학습된 CatBoost 모델에서 특성 중요도 점수를 가져옵니다.
 
-        CatBoost provides multiple types of feature importance. This method uses
-        'PredictionValuesChange' by default, which measures the average change in
-        prediction when the feature value is changed.
+        CatBoost는 여러 유형의 특성 중요도를 제공합니다. 이 메서드는 기본적으로
+        'PredictionValuesChange'를 사용하며, 이는 특성 값이 변경될 때 예측의
+        평균 변화를 측정합니다.
 
-        Available importance types in CatBoost:
-        - PredictionValuesChange: Average prediction change (default)
-        - LossFunctionChange: Impact on loss function
-        - FeatureImportance: Split-based importance
+        CatBoost에서 사용 가능한 중요도 유형:
+        - PredictionValuesChange: 평균 예측 변화 (기본값)
+        - LossFunctionChange: 손실 함수에 미치는 영향
+        - FeatureImportance: 분할 기반 중요도
 
         Args:
-            top_n (Optional[int], optional): Number of top features to return.
-                If None, returns all features. Defaults to 20.
+            top_n (Optional[int], optional): 반환할 상위 특성 개수.
+                None인 경우 모든 특성을 반환합니다. 기본값은 20.
 
         Returns:
-            pd.DataFrame: DataFrame with columns 'feature' and 'importance',
-                sorted by importance in descending order.
+            pd.DataFrame: 'feature'와 'importance' 열이 있는 DataFrame,
+                중요도 내림차순으로 정렬됨.
 
         Raises:
-            ValueError: If model has not been trained.
+            ValueError: 모델이 학습되지 않은 경우.
 
-        Example:
-            >>> # Get top 10 most important features
-            >>> importance_df = model.get_feature_importance(top_n=10)
-            >>> print(importance_df)
-            >>>
-            >>> # Plot feature importance
-            >>> importance_df.plot(x='feature', y='importance', kind='barh')
-            >>>
-            >>> # Get all features
-            >>> importance_df = model.get_feature_importance(top_n=None)
+        사용 예시:
+            # 상위 10개의 가장 중요한 특성 가져오기
+            importance_df = model.get_feature_importance(top_n=10)
+            print(importance_df)
+
+            # 특성 중요도 플롯
+            importance_df.plot(x='feature', y='importance', kind='barh')
+
+            # 모든 특성 가져오기
+            importance_df = model.get_feature_importance(top_n=None)
 
         Note:
-            CatBoost's feature importance is more robust than tree-based methods
-            because it accounts for the ordered boosting scheme used during training.
+            CatBoost의 특성 중요도는 학습 중 사용된 ordered boosting 방식을
+            고려하므로 트리 기반 메서드보다 더 강력합니다.
         """
         if not self.is_trained:
             raise ValueError("Model not trained. Call fit() first.")
 
-        # Get feature importance using PredictionValuesChange (default)
+        # PredictionValuesChange를 사용하여 특성 중요도 가져오기 (기본값)
         importances = self.model.get_feature_importance()
 
-        # Use stored feature names or generate generic names
+        # 저장된 특성 이름 사용 또는 일반 이름 생성
         if self.feature_names is None:
             feature_names = [f"feature_{i}" for i in range(len(importances))]
         else:
             feature_names = self.feature_names
 
-        # Create DataFrame with feature names and importance scores
+        # 특성 이름과 중요도 점수로 DataFrame 생성
         importance_df = pd.DataFrame({
             'feature': feature_names,
             'importance': importances
         })
 
-        # Sort by importance in descending order
+        # 중요도 내림차순으로 정렬
         importance_df = importance_df.sort_values('importance', ascending=False)
 
-        # Return top N features if specified
+        # 지정된 경우 상위 N개 특성 반환
         if top_n is not None:
             importance_df = importance_df.head(top_n)
 

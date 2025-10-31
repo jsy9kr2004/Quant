@@ -1,40 +1,39 @@
-"""Legacy Parquet converter for financial data consolidation.
+"""금융 데이터 통합을 위한 레거시 Parquet 변환기입니다.
 
-This module provides the Parquet class for converting and consolidating financial
-data from multiple CSV or Parquet source files into unified datasets. It merges
-data from different sources (stock lists, price histories, financial statements,
-metrics) and creates view tables organized by year.
+이 모듈은 여러 CSV 또는 Parquet 소스 파일의 금융 데이터를 통합된 데이터셋으로
+변환하고 통합하는 Parquet 클래스를 제공합니다. 다양한 소스(주식 목록, 가격 기록,
+재무제표, 메트릭)의 데이터를 병합하고 연도별로 구성된 뷰 테이블을 생성합니다.
 
-The converter handles:
-    - Merging multiple CSV/Parquet files per data category
-    - Building consolidated view tables from raw data sources
-    - Date type conversion and data cleaning
-    - Creating year-partitioned datasets for efficient querying
-    - Error handling for missing or corrupted source files
+변환기가 처리하는 작업:
+    - 데이터 카테고리별로 여러 CSV/Parquet 파일 병합
+    - 원시 데이터 소스에서 통합 뷰 테이블 구축
+    - 날짜 타입 변환 및 데이터 정제
+    - 효율적인 쿼리를 위한 연도별 파티션 데이터셋 생성
+    - 누락되거나 손상된 소스 파일에 대한 오류 처리
 
-Example:
-    Basic usage for data consolidation::
+사용 예시:
+    데이터 통합을 위한 기본 사용법::
 
         from storage import Parquet
 
-        # Initialize converter with main context
+        # 메인 컨텍스트로 변환기 초기화
         converter = Parquet(main_ctx)
 
-        # Consolidate all CSV files into single files per category
+        # 모든 CSV 파일을 카테고리별 단일 파일로 통합
         converter.insert_csv()
 
-        # Build unified view tables from raw data
+        # 원시 데이터에서 통합 뷰 테이블 구축
         converter.rebuild_table_view()
 
 Note:
-    This is a legacy class that works with CSV files and converts them to
-    consolidated formats. For new code, consider using ParquetStorage instead
-    which provides a more modern API with built-in validation.
+    이것은 CSV 파일을 다루고 통합 형식으로 변환하는 레거시 클래스입니다.
+    새로운 코드의 경우, 내장 검증 기능이 있는 보다 현대적인 API를 제공하는
+    ParquetStorage 사용을 고려하십시오.
 
 TODO:
-    - Consider migrating to use ParquetStorage for better validation
-    - Add progress indicators for long-running operations
-    - Implement incremental updates instead of full rebuilds
+    - 더 나은 검증을 위해 ParquetStorage 사용으로 마이그레이션 고려
+    - 장시간 실행 작업에 대한 진행률 표시기 추가
+    - 전체 재구축 대신 증분 업데이트 구현
 """
 
 import datetime
@@ -47,39 +46,38 @@ from tqdm import tqdm
 
 
 class Parquet:
-    """Legacy Parquet data converter and consolidator.
+    """레거시 Parquet 데이터 변환기 및 통합기입니다.
 
-    This class consolidates financial data from multiple source files into
-    unified CSV datasets. It handles merging stock lists, price histories,
-    financial statements, and metrics data. The class is designed to work
-    with a main context object that provides configuration and utilities.
+    이 클래스는 여러 소스 파일의 금융 데이터를 통합된 CSV 데이터셋으로 통합합니다.
+    주식 목록, 가격 기록, 재무제표, 메트릭 데이터 병합을 처리합니다. 이 클래스는
+    구성과 유틸리티를 제공하는 메인 컨텍스트 객체와 함께 작동하도록 설계되었습니다.
 
-    The converter performs two main operations:
-        1. insert_csv(): Consolidates multiple files per category into single files
-        2. rebuild_table_view(): Merges related datasets into unified view tables
+    변환기는 두 가지 주요 작업을 수행합니다:
+        1. insert_csv(): 카테고리별 여러 파일을 단일 파일로 통합
+        2. rebuild_table_view(): 관련 데이터셋을 통합 뷰 테이블로 병합
 
     Attributes:
-        main_ctx: Main context object providing configuration (start_year, end_year,
-            root_path) and utilities (create_dir method).
-        tables (dict): Dictionary for storing loaded DataFrames (currently unused).
-        view_path (str): Path to directory for storing consolidated view tables.
-        rawpq_path (str): Path to directory containing raw Parquet/CSV files.
+        main_ctx: 구성(start_year, end_year, root_path)과 유틸리티(create_dir 메서드)를
+            제공하는 메인 컨텍스트 객체.
+        tables (dict): 로드된 DataFrame을 저장하는 딕셔너리 (현재 미사용).
+        view_path (str): 통합 뷰 테이블을 저장하는 디렉토리 경로.
+        rawpq_path (str): 원시 Parquet/CSV 파일이 있는 디렉토리 경로.
 
-    Example:
-        Initialize and run full conversion pipeline::
+    사용 예시:
+        초기화 및 전체 변환 파이프라인 실행::
 
-            # Assuming main_ctx has required attributes
+            # main_ctx가 필요한 속성을 가지고 있다고 가정
             converter = Parquet(main_ctx)
 
-            # Step 1: Consolidate raw files
+            # 1단계: 원시 파일 통합
             converter.insert_csv()
 
-            # Step 2: Build view tables
+            # 2단계: 뷰 테이블 구축
             converter.rebuild_table_view()
 
     Note:
-        This class expects specific directory structure and file naming conventions.
-        It processes these categories: balance_sheet_statement, cash_flow_statement,
+        이 클래스는 특정 디렉토리 구조와 파일 명명 규칙을 기대합니다.
+        다음 카테고리를 처리합니다: balance_sheet_statement, cash_flow_statement,
         delisted_companies, earning_calendar, financial_growth,
         historical_daily_discounted_cash_flow, historical_market_capitalization,
         historical_price_full, income_statement, key_metrics, profile,
@@ -87,20 +85,20 @@ class Parquet:
     """
 
     def __init__(self, main_ctx: Any) -> None:
-        """Initialize Parquet converter with main context.
+        """메인 컨텍스트로 Parquet 변환기를 초기화합니다.
 
-        Creates necessary directory structure for raw Parquet files and view tables.
-        Initializes storage for table data.
+        원시 Parquet 파일과 뷰 테이블을 위한 필요한 디렉토리 구조를 생성합니다.
+        테이블 데이터를 위한 저장소를 초기화합니다.
 
         Args:
-            main_ctx: Main context object that must provide:
-                - root_path (str): Root directory for all data
-                - start_year (int): Starting year for date range filtering
-                - end_year (int): Ending year for date range filtering
-                - create_dir(path: str): Method to create directories
+            main_ctx: 다음을 제공해야 하는 메인 컨텍스트 객체:
+                - root_path (str): 모든 데이터를 위한 루트 디렉토리
+                - start_year (int): 날짜 범위 필터링을 위한 시작 연도
+                - end_year (int): 날짜 범위 필터링을 위한 종료 연도
+                - create_dir(path: str): 디렉토리를 생성하는 메서드
 
-        Example:
-            Initialize with a context object::
+        사용 예시:
+            컨텍스트 객체로 초기화::
 
                 class MainContext:
                     def __init__(self):
@@ -124,46 +122,46 @@ class Parquet:
         self.main_ctx.create_dir(self.rawpq_path)
 
     def rebuild_table_view(self) -> None:
-        """Rebuild consolidated view tables from raw data sources.
+        """원시 데이터 소스에서 통합 뷰 테이블을 재구축합니다.
 
-        Creates unified view tables by merging related datasets. This method
-        performs complex joins and data consolidation to create analysis-ready
-        tables. The process includes:
+        관련 데이터셋을 병합하여 통합 뷰 테이블을 생성합니다. 이 메서드는
+        분석 준비된 테이블을 생성하기 위해 복잡한 조인과 데이터 통합을 수행합니다.
+        프로세스는 다음을 포함합니다:
 
-        1. Symbol List Table: Merges stock lists, delisted companies, and profiles
-        2. Price Table: Combines historical prices with market capitalization
-        3. Financial Statement Table: Joins income, balance sheet, and cash flow
-        4. Metrics Table: Combines key metrics, growth data, and DCF valuations
-        5. Indexes Table: Copies symbol index information
+        1. 심볼 리스트 테이블: 주식 목록, 상장 폐지 기업, 프로필 병합
+        2. 가격 테이블: 과거 가격과 시가총액 결합
+        3. 재무제표 테이블: 손익계산서, 재무상태표, 현금흐름표 조인
+        4. 메트릭 테이블: 주요 메트릭, 성장 데이터, DCF 평가 결합
+        5. 인덱스 테이블: 심볼 인덱스 정보 복사
 
-        For financial statements and metrics, also creates year-partitioned files
-        for efficient querying of specific time periods.
+        재무제표와 메트릭의 경우, 특정 기간의 효율적인 쿼리를 위해
+        연도별 파티션 파일도 생성합니다.
 
-        Example:
-            Rebuild all view tables::
+        사용 예시:
+            모든 뷰 테이블 재구축::
 
                 converter = Parquet(main_ctx)
                 converter.rebuild_table_view()
 
-                # This creates the following files in VIEW/:
+                # VIEW/에 다음 파일을 생성합니다:
                 # - symbol_list.csv
                 # - price.csv
                 # - financial_statement.csv
-                # - financial_statement_YYYY.csv (per year)
+                # - financial_statement_YYYY.csv (연도별)
                 # - metrics.csv
-                # - metrics_YYYY.csv (per year)
+                # - metrics_YYYY.csv (연도별)
                 # - indexes.csv
 
         Note:
-            - This is a time-consuming operation for large datasets
-            - Requires all source files to be present in rawpq_path
-            - Performs extensive data cleaning and type conversions
-            - Creates both full and year-partitioned datasets
-            - Memory usage can be high due to large DataFrame operations
+            - 대용량 데이터셋의 경우 시간이 오래 걸리는 작업입니다
+            - rawpq_path에 모든 소스 파일이 있어야 합니다
+            - 광범위한 데이터 정제 및 타입 변환을 수행합니다
+            - 전체 및 연도별 파티션 데이터셋을 모두 생성합니다
+            - 대용량 DataFrame 작업으로 인해 메모리 사용량이 높을 수 있습니다
 
         Raises:
-            May raise exceptions if source files are missing or corrupted.
-            Errors are logged but not explicitly caught.
+            소스 파일이 누락되거나 손상된 경우 예외가 발생할 수 있습니다.
+            오류는 로깅되지만 명시적으로 잡히지 않습니다.
         """
         # 1. Build Symbol List Table
         # Consolidates stock lists, delisted companies, and profile information
@@ -350,13 +348,13 @@ class Parquet:
         logging.info("create indexes df")
 
     def insert_csv(self) -> None:
-        """Consolidate multiple CSV/Parquet files into single files per category.
+        """여러 CSV/Parquet 파일을 카테고리별 단일 파일로 통합합니다.
 
-        Scans predefined data directories and merges all CSV or Parquet files
-        within each category into a single consolidated CSV file. This is
-        typically the first step in the data processing pipeline.
+        사전 정의된 데이터 디렉토리를 스캔하고 각 카테고리 내의 모든 CSV 또는
+        Parquet 파일을 단일 통합 CSV 파일로 병합합니다. 이것은 일반적으로
+        데이터 처리 파이프라인의 첫 번째 단계입니다.
 
-        The method processes these data categories:
+        메서드가 처리하는 데이터 카테고리:
             - balance_sheet_statement
             - cash_flow_statement
             - delisted_companies
@@ -364,47 +362,47 @@ class Parquet:
             - financial_growth
             - historical_daily_discounted_cash_flow
             - historical_market_capitalization
-            - historical_price_full (with column filtering)
+            - historical_price_full (컬럼 필터링 포함)
             - income_statement
             - key_metrics
             - profile
-            - stock_list (preserved, not regenerated)
-            - symbol_available_indexes (preserved, not regenerated)
+            - stock_list (보존됨, 재생성 안 함)
+            - symbol_available_indexes (보존됨, 재생성 안 함)
 
-        For each category:
-            1. Scans the category directory for .csv or .parquet files
-            2. Reads all files into DataFrames
-            3. Concatenates them into a single DataFrame
-            4. Saves the consolidated result as a single CSV file
+        각 카테고리에 대해:
+            1. 카테고리 디렉토리에서 .csv 또는 .parquet 파일 스캔
+            2. 모든 파일을 DataFrame으로 읽기
+            3. 단일 DataFrame으로 연결
+            4. 통합 결과를 단일 CSV 파일로 저장
 
-        Example:
-            Consolidate all source files::
+        사용 예시:
+            모든 소스 파일 통합::
 
                 converter = Parquet(main_ctx)
                 converter.insert_csv()
 
-                # This reads files from:
+                # 다음에서 파일을 읽습니다:
                 # {root_path}/income_statement/*.csv
                 # {root_path}/balance_sheet_statement/*.parquet
-                # etc.
+                # 등.
 
-                # And creates:
+                # 다음을 생성합니다:
                 # {root_path}/parquet/income_statement.csv
                 # {root_path}/parquet/balance_sheet_statement.csv
-                # etc.
+                # 등.
 
         Note:
-            - Existing consolidated files are removed before regeneration
-              (except stock_list and symbol_available_indexes)
-            - For historical_price_full, only specific columns are loaded
-              to reduce memory usage (date, symbol, close, volume)
-            - Files with read errors are skipped with a warning
-            - Progress is displayed with tqdm progress bar
-            - Empty directories are handled gracefully
+            - 기존 통합 파일은 재생성 전에 제거됩니다
+              (stock_list와 symbol_available_indexes 제외)
+            - historical_price_full의 경우, 메모리 사용량을 줄이기 위해
+              특정 컬럼만 로드됩니다 (date, symbol, close, volume)
+            - 읽기 오류가 있는 파일은 경고와 함께 건너뜁니다
+            - tqdm 진행률 표시줄로 진행 상황이 표시됩니다
+            - 빈 디렉토리는 우아하게 처리됩니다
 
         TODO:
-            - Add support for year-partitioned historical price data
-            - Implement incremental updates instead of full consolidation
+            - 연도별 파티션 과거 가격 데이터 지원 추가
+            - 전체 통합 대신 증분 업데이트 구현
         """
         # Define data categories to process
         dir_list = [
