@@ -25,7 +25,7 @@ sys.path.insert(0, str(project_root))
 import click
 from dotenv import load_dotenv
 
-from context.main_context import MainCtx
+from config.context_loader import MainContext
 from models.base_model import TradingModel
 from models.momentum import MomentumModel
 from models.mean_reversion import MeanReversionModel
@@ -81,7 +81,7 @@ def create_context(
     end_date: str,
     initial_capital: float,
     config: Optional[Dict[str, Any]] = None
-) -> MainCtx:
+) -> MainContext:
     """
     지정된 데이터 소스와 파라미터로 MainCtx를 생성합니다.
 
