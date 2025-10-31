@@ -210,9 +210,6 @@ def fetch_fmp(main_ctx, api_list: List[Any]) -> None:
         Worker count is limited to 8 (or cpu_count, whichever is smaller) to
         avoid overwhelming the FMP API with requests and hitting rate limits.
 
-        For testing purposes, normal APIs are limited to 10 URLs (line 104).
-        Remove this limit for production use.
-
     Example:
         >>> from data_collector.fmp_api import FMPAPI
         >>> api1 = FMPAPI(main_ctx, "https://fmp.com/api/v3/profile/AAPL?apikey=xxx")
@@ -238,8 +235,7 @@ def fetch_fmp(main_ctx, api_list: List[Any]) -> None:
     params = []
     for api in api_list:
         if not api.page_in_condition:
-            # TODO: Remove [:10] limit for production use
-            params.extend(api.make_api_list()[:10])  # Limited to 10 for testing
+            params.extend(api.make_api_list())
 
     params_idx = 0
     logger.info(f'fetching normal api start / len(api): {len(params)}')
