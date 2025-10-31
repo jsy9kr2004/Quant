@@ -25,12 +25,18 @@ sys.path.insert(0, str(project_root))
 import click
 from dotenv import load_dotenv
 
-from context.main_context import MainCtx
-from models.base_model import TradingModel
-from models.momentum import MomentumModel
-from models.mean_reversion import MeanReversionModel
-from data_sources.fmp_source import FMPDataSource
-from data_sources.marketdb_source import MarketDBDataSource
+# Note: 이 파일은 미완성 템플릿입니다.
+# 실제 사용을 위해서는 추가 구현이 필요합니다.
+
+# Correct imports for existing modules
+from config.context_loader import MainContext
+from models.base_model import BaseModel
+
+# TODO: 다음 모듈들은 아직 구현되지 않았습니다
+# from models.momentum import MomentumModel
+# from models.mean_reversion import MeanReversionModel
+# from data_sources.fmp_source import FMPDataSource
+# from data_sources.marketdb_source import MarketDBDataSource
 
 # Load environment variables
 load_dotenv()
@@ -43,7 +49,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def get_strategy_class(strategy_name: str) -> type[TradingModel]:
+def get_strategy_class(strategy_name: str) -> type[BaseModel]:
     """
     전략 이름으로 전략 클래스를 가져옵니다.
 
@@ -55,24 +61,31 @@ def get_strategy_class(strategy_name: str) -> type[TradingModel]:
 
     Raises:
         ValueError: 전략 이름이 지원되지 않는 경우
+        NotImplementedError: 전략 모듈이 아직 구현되지 않은 경우
 
     사용 예시:
         strategy_cls = get_strategy_class('momentum')
         isinstance(strategy_cls, type)
         True
     """
-    strategies = {
-        'momentum': MomentumModel,
-        'mean_reversion': MeanReversionModel,
-    }
+    # TODO: 전략 모듈 구현 후 활성화
+    raise NotImplementedError(
+        "전략 모듈이 아직 구현되지 않았습니다. "
+        "models/ 디렉토리에 구체적인 전략을 구현해주세요."
+    )
 
-    if strategy_name not in strategies:
-        raise ValueError(
-            f"Unknown strategy: {strategy_name}. "
-            f"Available strategies: {', '.join(strategies.keys())}"
-        )
-
-    return strategies[strategy_name]
+    # strategies = {
+    #     'momentum': MomentumModel,
+    #     'mean_reversion': MeanReversionModel,
+    # }
+    #
+    # if strategy_name not in strategies:
+    #     raise ValueError(
+    #         f"Unknown strategy: {strategy_name}. "
+    #         f"Available strategies: {', '.join(strategies.keys())}"
+    #     )
+    #
+    # return strategies[strategy_name]
 
 
 def create_context(
@@ -81,7 +94,7 @@ def create_context(
     end_date: str,
     initial_capital: float,
     config: Optional[Dict[str, Any]] = None
-) -> MainCtx:
+) -> MainContext:
     """
     지정된 데이터 소스와 파라미터로 MainCtx를 생성합니다.
 
