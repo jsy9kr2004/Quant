@@ -755,7 +755,19 @@ class AIDataMaker:
                     self.logger.info(f"   Looking for year_period: {float(base_year_period)}")
                     self.logger.info(f"   Is {base_year_period} in window_data? {float(base_year_period) in window_data['year_period'].values}")
 
-                    window_data = window_data[window_data['year_period'] == float(base_year_period)]
+                    # 실제로 존재하는 최신 year_period 사용 (base_year_period가 없을 수 있으므로)
+                    actual_latest_period = window_data['year_period'].max()
+
+                    # base_year_period가 실제로 존재하면 그것을 사용, 아니면 최신값 사용
+                    if float(base_year_period) in window_data['year_period'].values:
+                        target_period = float(base_year_period)
+                        self.logger.info(f"   Using base_year_period: {target_period}")
+                    else:
+                        target_period = actual_latest_period
+                        self.logger.warning(f"   ⚠️ base_year_period {base_year_period} not found in data!")
+                        self.logger.warning(f"   Using actual latest period instead: {target_period}")
+
+                    window_data = window_data[window_data['year_period'] == target_period]
                     self.logger.info(f"   window_data after year_period filter: {window_data.shape[0]} rows, {window_data['symbol'].nunique() if not window_data.empty else 0} symbols")
                     self.logger.info(f"   df_w_time_feature before merge: {df_w_time_feature.shape[0]} rows")
 
