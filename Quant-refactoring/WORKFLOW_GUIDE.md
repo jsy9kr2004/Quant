@@ -242,13 +242,14 @@ ParquetConverter.insert_csv()
 읽기 속도: CSV 대비 5-10배 빠름
   ↓
 ParquetConverter.rebuild_table_view()
-  → VIEW/symbol_list.csv
-  → VIEW/price.csv
-  → VIEW/financial_statement_{year}.csv
-  → VIEW/metrics_{year}.csv
+  → VIEW/symbol_list.parquet
+  → VIEW/price.parquet
+  → VIEW/financial_statement_{year}.parquet
+  → VIEW/metrics_{year}.parquet
+  (선택사항: SAVE_DEBUG_CSV=Y일 때 .csv 파일도 함께 생성)
 ```
 
-**VIEW의 역할**: 여러 CSV 파일을 통합하여 ML 학습에 바로 사용 가능한 형태로 재구성
+**VIEW의 역할**: 여러 Parquet 파일을 통합하여 ML 학습에 바로 사용 가능한 형태로 재구성
 
 ### 3. ML 데이터 생성
 **파일**: `training/make_mldata.py`

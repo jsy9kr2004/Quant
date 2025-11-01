@@ -23,6 +23,9 @@ DATA:
   GET_FMP: N  # Y = Fetch new data from FMP, N = Use existing data
   STORAGE_TYPE: PARQUET  # PARQUET (recommended) or DB
 
+  # Debug mode: Save CSV files alongside Parquet for inspection
+  SAVE_DEBUG_CSV: N  # Y = Save both Parquet and CSV, N = Parquet only (recommended for performance)
+
 # ============================================================================
 # ML Configuration
 # ============================================================================

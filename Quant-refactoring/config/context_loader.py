@@ -463,6 +463,10 @@ class MainContext:
         self.end_year = int(data_config.get('END_YEAR', 2023))
         self.root_path = data_config.get('ROOT_PATH', '/home/user/Quant/data')
 
+        # Debug mode: Save CSV files alongside Parquet for inspection
+        save_debug_csv_value = data_config.get('SAVE_DEBUG_CSV', 'N')
+        self.save_debug_csv = (save_debug_csv_value == 'Y' or save_debug_csv_value == True)
+
         # FMP (Financial Modeling Prep) API 설정
         self.fmp_url = data_config.get('FMP_URL', 'https://financialmodelingprep.com')
         self.api_key = data_config.get('API_KEY', '')

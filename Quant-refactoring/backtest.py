@@ -130,26 +130,18 @@ class Backtest:
             self.metrics_table = self.data_from_database("SELECT * FROM METRICS")
 
         if self.conf['STORAGE_TYPE'] == "PARQUET":
-            # self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
-            self.symbol_table = pd.read_csv(self.main_ctx.root_path + "/VIEW/symbol_list.csv")
+            self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
             self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
             self.symbol_table['ipoDate'] = pd.to_datetime(self.symbol_table['ipoDate'])
             self.symbol_table['delistedDate'] = pd.to_datetime(self.symbol_table['delistedDate'])
 
-
-            # self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
-            self.price_table = pd.read_csv(self.main_ctx.root_path + "/VIEW/price.csv")
+            self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
             self.price_table['date'] = pd.to_datetime(self.price_table['date'])
 
             self.fs_table = pd.DataFrame()
-            # self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")    
             for year in range(self.main_ctx.start_year-3, self.main_ctx.start_year+1):
-                # tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
-                #                          + str(year) + ".parquet")
-                tmp_fs = pd.read_csv(self.main_ctx.root_path + "/VIEW/financial_statement_" + str(year) + ".csv",
-                                     parse_dates=['fillingDate_x', 'acceptedDate_x'],
-                                     dtype={'reportedCurrency_x': str, 'period_x': str,
-                                            'link_x': str, 'finalLink_x': str})
+                tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
+                                         + str(year) + ".parquet")
                 self.fs_table = pd.concat([tmp_fs, self.fs_table])
             del tmp_fs
             self.fs_table['date'] = pd.to_datetime(self.fs_table['date'])
@@ -157,11 +149,8 @@ class Backtest:
             self.fs_table['acceptedDate'] = pd.to_datetime(self.fs_table['acceptedDate'])
 
             self.metrics_table = pd.DataFrame()
-            # self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
             for year in range(self.main_ctx.start_year-3, self.main_ctx.start_year+1):
-                # tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
-                tmp_metrics = pd.read_csv(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".csv",
-                                          dtype={'period_x': str, 'period_y': str})
+                tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet")
                 self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
             del tmp_metrics
             self.metrics_table['date'] = pd.to_datetime(self.metrics_table['date'])
@@ -169,14 +158,9 @@ class Backtest:
     def reload_bt_table(self, year):
         logging.info("reload_bt_table, year : {}".format(year))
         self.fs_table = pd.DataFrame()
-        # self.fs_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement.parquet")
         for y in range(year-3, year+1):
-            # tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
-            #                          + str(y) + ".parquet")
-            tmp_fs = pd.read_csv(self.main_ctx.root_path + "/VIEW/financial_statement_" + str(y) + ".csv",
-                                 parse_dates = ['fillingDate_x', 'acceptedDate_x'],
-                                 dtype = {'reportedCurrency_x': str, 'period_x': str,
-                                          'link_x': str, 'finalLink_x': str})
+            tmp_fs = pd.read_parquet(self.main_ctx.root_path + "/VIEW/financial_statement_"
+                                     + str(y) + ".parquet")
             self.fs_table = pd.concat([tmp_fs, self.fs_table])
             del tmp_fs
         self.fs_table['date'] = pd.to_datetime(self.fs_table['date'])
@@ -184,10 +168,8 @@ class Backtest:
         self.fs_table['acceptedDate'] = pd.to_datetime(self.fs_table['acceptedDate'])
 
         self.metrics_table = pd.DataFrame()
-        # self.metrics_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics.parquet")
         for y in range(year-3, year+1):
-            # tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(y) + ".parquet")
-            tmp_metrics = pd.read_csv(self.main_ctx.root_path + "/VIEW/metrics_" + str(y) + ".csv")
+            tmp_metrics = pd.read_parquet(self.main_ctx.root_path + "/VIEW/metrics_" + str(y) + ".parquet")
             self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
         del tmp_metrics
         self.metrics_table['date'] = pd.to_datetime(self.metrics_table['date'])
