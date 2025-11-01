@@ -324,8 +324,7 @@ class FMP:
                 return True
         return False
 
-    @staticmethod
-    def validation_check() -> bool:
+    def validation_check(self) -> bool:
         """다운로드된 파일에 API 오류 메시지가 있는지 검증합니다.
 
         데이터 디렉토리의 모든 CSV 파일에서 FMP API 오류 메시지를 확인합니다:
@@ -336,12 +335,8 @@ class FMP:
 
         Returns:
             bool: 삭제된 파일이 없으면 True (모두 유효), 그렇지 않으면 False.
-
-        Note:
-            이 메서드는 하드코딩된 경로 'E:\qt\data'를 사용합니다.
-            FIXME: main_ctx에서 설정 가능한 경로를 사용해야 합니다.
         """
-        basepath = 'E:\qt\data'
+        basepath = self.main_ctx.root_path
         flag = True
         del_count = 0
         pass_count = 0
