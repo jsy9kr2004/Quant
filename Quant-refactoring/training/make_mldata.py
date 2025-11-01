@@ -732,6 +732,26 @@ class AIDataMaker:
                     ]
                     filtered_df = df_w_time_feature[filtered_columns]
 
+                    # 빈 데이터 체크
+                    if filtered_df.empty or len(filtered_df) == 0:
+                        self.logger.warning(f"⚠️ No data to scale for {base_year_period}")
+                        self.logger.warning(f"   Available columns in df_w_time_feature: {len(df_w_time_feature.columns)}")
+                        self.logger.warning(f"   Columns after filtering: {len(filtered_columns)}")
+                        self.logger.warning(f"   Rows in filtered_df: {len(filtered_df)}")
+
+                        # 디버깅: 어떤 타입의 컬럼들이 있는지 확인
+                        ts_cols = [col for col in df_w_time_feature.columns if '_ts_' in col]
+                        ratio_cols = [col for col in df_w_time_feature.columns if col in ratio_col_list]
+                        overmc_cols = [col for col in df_w_time_feature.columns if col.startswith('OverMC_')]
+                        adaptive_cols = [col for col in df_w_time_feature.columns if col.startswith('adaptiveMC_')]
+
+                        self.logger.warning(f"   Time series features (_ts_): {len(ts_cols)}")
+                        self.logger.warning(f"   Ratio columns: {len(ratio_cols)}")
+                        self.logger.warning(f"   OverMC_ columns: {len(overmc_cols)}")
+                        self.logger.warning(f"   adaptiveMC_ columns: {len(adaptive_cols)}")
+                        self.logger.warning(f"   Skipping {base_year_period} due to insufficient data")
+                        continue
+
                     # RobustScaler로 정규화 (아웃라이어에 강함)
                     scaler = RobustScaler()
                     scaled_data = scaler.fit_transform(filtered_df)
@@ -765,3 +785,9 @@ class AIDataMaker:
                     # 타겟 변수가 포함된 완전한 데이터셋 저장
                     cur_table_for_ai.to_parquet(file2_path, engine='pyarrow', compression='snappy', index=False)
                     self.logger.info(f"✅ Saved ML data: {os.path.basename(file2_path)}")
+                else:
+                    # df_for_extract_feature가 비어있는 경우
+                    self.logger.warning(f"⚠️ No features to extract for {base_year_period}")
+                    self.logger.warning(f"   All time series data was filtered out (NaN or non-finite values)")
+                    self.logger.warning(f"   Skipping {base_year_period} due to no extractable features")
+                    continue
