@@ -187,27 +187,24 @@ class AIDataMaker:
             - 대용량 데이터셋을 위한 증분 로딩 구현
         """
         # 주식 메타데이터 로드
-        self.symbol_table = pd.read_csv(self.main_ctx.root_path + "/VIEW/symbol_list.csv")
+        self.symbol_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/symbol_list.parquet")
         self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
         self.symbol_table['ipoDate'] = pd.to_datetime(self.symbol_table['ipoDate'])
         self.symbol_table['delistedDate'] = pd.to_datetime(self.symbol_table['delistedDate'])
 
         # 가격 데이터 로드
-        self.price_table = pd.read_csv(self.main_ctx.root_path + "/VIEW/price.csv")
+        self.price_table = pd.read_parquet(self.main_ctx.root_path + "/VIEW/price.parquet")
         self.price_table['date'] = pd.to_datetime(self.price_table['date'])
 
         # 재무제표 로드 (시계열 특성을 위해 3년 과거 데이터)
         self.fs_table = pd.DataFrame()
         for year in range(self.main_ctx.start_year-3, self.main_ctx.end_year+1):
-            fs_file = self.main_ctx.root_path + "/VIEW/financial_statement_" + str(year) + ".csv"
+            fs_file = self.main_ctx.root_path + "/VIEW/financial_statement_" + str(year) + ".parquet"
             if not os.path.exists(fs_file):
                 self.logger.warning(f"Financial statement file not found, skipping: {fs_file}")
                 print(f"WARNING: Financial statement file not found for year {year}")
                 continue
-            tmp_fs = pd.read_csv(fs_file,
-                                    parse_dates=['fillingDate_x', 'acceptedDate_x'],
-                                    dtype={'reportedCurrency_x': str, 'period_x': str,
-                                        'link_x': str, 'finalLink_x': str})
+            tmp_fs = pd.read_parquet(fs_file)
             self.fs_table = pd.concat([tmp_fs, self.fs_table])
 
         # 날짜 컬럼을 datetime으로 변환
@@ -219,13 +216,12 @@ class AIDataMaker:
         # 재무 메트릭 로드 (3년 과거)
         self.metrics_table = pd.DataFrame()
         for year in range(self.main_ctx.start_year-3, self.main_ctx.end_year+1):
-            metrics_file = self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".csv"
+            metrics_file = self.main_ctx.root_path + "/VIEW/metrics_" + str(year) + ".parquet"
             if not os.path.exists(metrics_file):
                 self.logger.warning(f"Metrics file not found, skipping: {metrics_file}")
                 print(f"WARNING: Metrics file not found for year {year}")
                 continue
-            tmp_metrics = pd.read_csv(metrics_file,
-                                        dtype={'period_x': str, 'period_y': str})
+            tmp_metrics = pd.read_parquet(metrics_file)
             self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
 
         # 날짜 컬럼을 datetime으로 변환
@@ -368,7 +364,7 @@ class AIDataMaker:
             이는 이전 리밸런싱부터 현재 리밸런싱까지 주식을 보유하여 달성한 수익률입니다.
 
         저장:
-            참조용으로 VIEW 디렉토리에 price_diff.csv
+            참조용으로 VIEW 디렉토리에 price_diff.parquet (선택사항: debug CSV)
 
         Note:
             - 각 종목의 첫 번째 행은 price_diff와 price_dev가 NaN (이전 데이터 없음)
@@ -393,8 +389,10 @@ class AIDataMaker:
         # 명확성을 위한 컬럼명 변경
         self.price_table.rename(columns={'close': 'price'}, inplace=True)
 
-        # 참조를 위해 저장
-        self.price_table.to_csv(self.main_ctx.root_path + "/VIEW/price_diff.csv", index=False)
+        # 참조를 위해 저장 (Parquet 우선)
+        self.price_table.to_parquet(self.main_ctx.root_path + "/VIEW/price_diff.parquet", index=False)
+        if self.main_ctx.save_debug_csv:
+            self.price_table.to_csv(self.main_ctx.root_path + "/VIEW/price_diff.csv", index=False)
 
 
     def filter_columns_by_suffixes(self, df: pd.DataFrame) -> List[str]:
@@ -630,7 +628,9 @@ class AIDataMaker:
             # 디버깅을 위한 스냅샷 저장
             print("*** fs_metrics w/ rebalance_date")
             print(fs_metrics)
-            fs_metrics.head(1000).to_csv(self.main_ctx.root_path + f"/fs_metric_wdate_{str(cur_year)}.csv", index=False)
+            fs_metrics.head(1000).to_parquet(self.main_ctx.root_path + f"/fs_metric_wdate_{str(cur_year)}.parquet", index=False)
+            if self.main_ctx.save_debug_csv:
+                fs_metrics.head(1000).to_csv(self.main_ctx.root_path + f"/fs_metric_wdate_{str(cur_year)}.csv", index=False)
 
             # 각 분기 처리
             for quarter_str, quarter in [('Q1', 0.2), ('Q2', 0.4), ('Q3', 0.6), ('Q4', 0.8)]:

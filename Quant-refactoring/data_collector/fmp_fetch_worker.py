@@ -2,14 +2,14 @@
 
 이 모듈은 Ray 분산 컴퓨팅 프레임워크를 사용하여 Financial Modeling Prep API에서
 병렬 데이터 가져오기를 제공합니다. HTTP 요청, JSON 파싱, 데이터 검증, 강력한 오류
-처리를 통한 CSV 파일 생성을 처리합니다.
+처리를 통한 Parquet 파일 생성을 처리합니다.
 
 주요 기능:
 - Ray 워커를 사용한 병렬 API 요청
 - 속도 제한 오류 시 자동 재시도
 - 중첩된 데이터 구조를 위한 JSON 평탄화
 - 특수 필드(dcf, marketCap)에 대한 데이터 타입 변환
-- .csvx 마커 파일을 사용한 빈 데이터 처리
+- .parquetx 마커 파일을 사용한 빈 데이터 처리
 - 멀티프로세싱 환경을 위한 통합 로깅
 
 사용 예제:
@@ -94,7 +94,7 @@ def __fmp_worker(
     """Ray worker function for fetching and processing FMP API data.
 
     Each worker makes an HTTP request to the FMP API, processes the JSON response,
-    flattens the data structure, and saves it as a CSV file. Implements automatic
+    flattens the data structure, and saves it as a Parquet file. Implements automatic
     retry on rate limit errors.
 
     Args:
@@ -111,7 +111,7 @@ def __fmp_worker(
             - success_flag: True if data was fetched and saved, False otherwise
 
     Note:
-        - Creates .csvx file (instead of .csv) when API returns empty data
+        - Creates .parquetx file (instead of .parquet) when API returns empty data
         - Retries indefinitely on "Limit Reach" errors with 1-second delay
         - Logs all operations with worker-specific logger
 
@@ -126,7 +126,7 @@ def __fmp_worker(
     ret = True
     while True:
         try:
-            logger.info(f'Creating File "{file_path}/{symbol+file_postfix}.csv" <- "{url}"')
+            logger.info(f'Creating File "{file_path}/{symbol+file_postfix}.parquet" <- "{url}"')
             # Fetch data from API
             url_data = requests.get(url)
         except ValueError:
@@ -157,9 +157,9 @@ def __fmp_worker(
         # Handle empty responses
         if json_data == [] or json_data == {}:
             logger.info("No Data in URL")
-            # Create .csvx marker file to indicate empty data
+            # Create .parquetx marker file to indicate empty data
             # This prevents re-fetching known-empty endpoints
-            f = open(f"{file_path}/{symbol+file_postfix}.csvx", 'w')
+            f = open(f"{file_path}/{symbol+file_postfix}.parquetx", 'w')
             f.close()
             ret = False
             break
@@ -176,12 +176,16 @@ def __fmp_worker(
         if 'marketCap' in json_data.columns:
             json_data['marketCap'] = json_data['marketCap'].astype(float)
 
-        # Save to CSV file
-        json_data.to_csv(f"{file_path}/{symbol+file_postfix}.csv", na_rep='NaN', index=False)
+        # Replace empty strings with None for proper Parquet storage
+        # This ensures consistent null handling across all data types
+        json_data = json_data.replace('', None)
+
+        # Save to Parquet file
+        json_data.to_parquet(f"{file_path}/{symbol+file_postfix}.parquet", index=False)
 
         # Verify data is not empty after conversion
         if json_data.empty == True:
-            logger.info("No Data in CSV")
+            logger.info("No Data in Parquet")
             ret = False
             break
 

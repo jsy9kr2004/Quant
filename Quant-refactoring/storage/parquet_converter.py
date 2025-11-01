@@ -210,8 +210,16 @@ class Parquet:
         all_symbol['delistedDate'] = all_symbol['delistedDate'].astype('datetime64[ns]')
 
         all_symbol = all_symbol.reset_index(drop=True)
-        all_symbol.to_csv(self.view_path + "symbol_list.csv", index=False)
-        logging.info("create symbol_list df")
+
+        # Save to Parquet (main format)
+        all_symbol.to_parquet(self.view_path + "symbol_list.parquet", index=False)
+        logging.info("✅ Created symbol_list.parquet")
+
+        # Optionally save CSV for debugging
+        if self.main_ctx.save_debug_csv:
+            all_symbol.to_csv(self.view_path + "symbol_list.csv", index=False)
+            logging.info("🐛 Debug: Created symbol_list.csv")
+
         del all_symbol
 
         # 2. Build Price Table
@@ -237,9 +245,16 @@ class Parquet:
 
         # Convert date column to datetime
         price_marketcap['date'] = price_marketcap['date'].astype('datetime64[ns]')
-        price_marketcap.to_csv(self.view_path + "price.csv", index=False)
 
-        logging.info("create price df")
+        # Save to Parquet (main format)
+        price_marketcap.to_parquet(self.view_path + "price.parquet", index=False)
+        logging.info("✅ Created price.parquet")
+
+        # Optionally save CSV for debugging
+        if self.main_ctx.save_debug_csv:
+            price_marketcap.to_csv(self.view_path + "price.csv", index=False)
+            logging.info("🐛 Debug: Created price.csv")
+
         del price_marketcap
 
         # 3. Build Financial Statement Table
@@ -272,12 +287,20 @@ class Parquet:
             'datetime64[ns]'
         )
 
-        # Save full financial statement table
-        financial_statement.to_csv(
-            self.view_path + "financial_statement.csv",
+        # Save full financial statement table (Parquet)
+        financial_statement.to_parquet(
+            self.view_path + "financial_statement.parquet",
             index=False
         )
-        logging.info("create financial_statement df")
+        logging.info("✅ Created financial_statement.parquet")
+
+        # Optionally save CSV for debugging
+        if self.main_ctx.save_debug_csv:
+            financial_statement.to_csv(
+                self.view_path + "financial_statement.csv",
+                index=False
+            )
+            logging.info("🐛 Debug: Created financial_statement.csv")
 
         # Create year-partitioned files for efficient querying
         for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
@@ -287,11 +310,20 @@ class Parquet:
                     datetime.datetime(year, 12, 31)
                 )
             ]
-            fs_peryear.to_csv(
-                self.view_path + f"financial_statement_{year}.csv",
+            # Save as Parquet
+            fs_peryear.to_parquet(
+                self.view_path + f"financial_statement_{year}.parquet",
                 index=False
             )
-        logging.info("create financial_statement parquet per year")
+
+            # Optionally save CSV for debugging
+            if self.main_ctx.save_debug_csv:
+                fs_peryear.to_csv(
+                    self.view_path + f"financial_statement_{year}.csv",
+                    index=False
+                )
+        logging.info("✅ Created financial_statement per year (Parquet" +
+                    (" + CSV)" if self.main_ctx.save_debug_csv else ")"))
 
         del income_statement
         del balance_sheet_statement
@@ -319,8 +351,15 @@ class Parquet:
 
         # Convert date column
         metrics['date'] = metrics['date'].astype('datetime64[ns]')
-        metrics.to_csv(self.view_path + "metrics.csv", index=False)
-        logging.info("create metrics df")
+
+        # Save to Parquet (main format)
+        metrics.to_parquet(self.view_path + "metrics.parquet", index=False)
+        logging.info("✅ Created metrics.parquet")
+
+        # Optionally save CSV for debugging
+        if self.main_ctx.save_debug_csv:
+            metrics.to_csv(self.view_path + "metrics.csv", index=False)
+            logging.info("🐛 Debug: Created metrics.csv")
 
         # Create year-partitioned metrics files
         for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
@@ -330,12 +369,21 @@ class Parquet:
                     datetime.datetime(year, 12, 31)
                 )
             ]
-            metrics_peryear.to_csv(
-                self.view_path + f"metrics_{year}.csv",
+            # Save as Parquet
+            metrics_peryear.to_parquet(
+                self.view_path + f"metrics_{year}.parquet",
                 index=False
             )
 
-        logging.info("create metrics parquet per year")
+            # Optionally save CSV for debugging
+            if self.main_ctx.save_debug_csv:
+                metrics_peryear.to_csv(
+                    self.view_path + f"metrics_{year}.csv",
+                    index=False
+                )
+
+        logging.info("✅ Created metrics per year (Parquet" +
+                    (" + CSV)" if self.main_ctx.save_debug_csv else ")"))
 
         del financial_growth
         del key_metrics
@@ -344,8 +392,15 @@ class Parquet:
         # 5. Copy Indexes Table
         # Simple copy operation for index membership data
         indexes = pd.read_csv(self.rawpq_path + "symbol_available_indexes.csv")
-        indexes.to_csv(self.view_path + "indexes.csv", index=False)
-        logging.info("create indexes df")
+
+        # Save to Parquet (main format)
+        indexes.to_parquet(self.view_path + "indexes.parquet", index=False)
+        logging.info("✅ Created indexes.parquet")
+
+        # Optionally save CSV for debugging
+        if self.main_ctx.save_debug_csv:
+            indexes.to_csv(self.view_path + "indexes.csv", index=False)
+            logging.info("🐛 Debug: Created indexes.csv")
 
     def insert_csv(self) -> None:
         """여러 CSV/Parquet 파일을 카테고리별 단일 파일로 통합합니다.

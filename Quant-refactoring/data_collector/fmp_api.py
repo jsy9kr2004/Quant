@@ -233,10 +233,10 @@ class FMPAPI:
         """
         api_list = []
         for symbol in self.symbol_list:
-            # 파일이 이미 존재하는지 확인 (.csv 또는 빈 데이터를 나타내는 .csvx)
-            if os.path.isfile(f'{self.file_path}/{symbol+file_postfix}.csv') \
-               or os.path.isfile(f'{self.file_path}/{symbol+file_postfix}.csvx'):
-                self.fmp_api_logger.info(f'Skip existing file: {self.file_path}/{symbol+file_postfix}.csv/csvx')
+            # 파일이 이미 존재하는지 확인 (.parquet 또는 빈 데이터를 나타내는 .parquetx)
+            if os.path.isfile(f'{self.file_path}/{symbol+file_postfix}.parquet') \
+               or os.path.isfile(f'{self.file_path}/{symbol+file_postfix}.parquetx'):
+                self.fmp_api_logger.info(f'Skip existing file: {self.file_path}/{symbol+file_postfix}.parquet/parquetx')
                 continue
 
             api_list.append([self.file_path, symbol, file_postfix, self.__full_url(symbol)])
