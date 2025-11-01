@@ -331,37 +331,139 @@ class FMP:
         1. "Limit Reach" - API 요청 제한 초과
         2. "Error Message" - API의 일반 오류
 
-        이러한 메시지가 포함된 파일은 유효하지 않은 데이터를 포함하므로 삭제됩니다.
+        이러한 메시지가 포함된 파일은 유효하지 않은 데이터를 포함하므로 _quarantine 폴더로 이동됩니다.
+        또한 mixed type warnings를 감지하여 로그에 기록합니다.
 
         Returns:
-            bool: 삭제된 파일이 없으면 True (모두 유효), 그렇지 않으면 False.
+            bool: 격리된 파일이 없으면 True (모두 유효), 그렇지 않으면 False.
         """
+        import shutil
+        import warnings
+
         basepath = self.main_ctx.root_path
+        quarantine_base = os.path.join(basepath, '_quarantine')
+        os.makedirs(quarantine_base, exist_ok=True)
+
         flag = True
-        del_count = 0
+        quarantine_count = 0
         pass_count = 0
+        mixed_type_count = 0
+        retry_list = []
+
+        logging.info("🔍 Starting validation check with quarantine system")
+        logging.info(f"   Base path: {basepath}")
+        logging.info(f"   Quarantine path: {quarantine_base}")
 
         for dir_name in os.listdir(basepath):
-            if os.path.isdir(os.path.join(basepath, dir_name)):
-                cur_path = os.path.join(basepath, dir_name)
-                par_list = [file for file in os.listdir(cur_path) if file.endswith('csv')]
+            dir_path = os.path.join(basepath, dir_name)
 
-                for p in par_list:
-                    df = pd.read_csv(os.path.join(cur_path, p))
+            # Skip quarantine directory and non-directories
+            if dir_name == '_quarantine' or not os.path.isdir(dir_path):
+                continue
+
+            cur_path = dir_path
+            par_list = [file for file in os.listdir(cur_path) if file.endswith('csv')]
+
+            category_quarantine_count = 0
+            category_mixed_type_count = 0
+
+            for p in par_list:
+                file_path = os.path.join(cur_path, p)
+                has_error = False
+                has_mixed_type = False
+
+                try:
+                    # Catch DtypeWarning for mixed types
+                    with warnings.catch_warnings(record=True) as w:
+                        warnings.simplefilter("always", category=pd.errors.DtypeWarning)
+                        df = pd.read_csv(file_path, low_memory=True)
+
+                        # Check for mixed type warnings
+                        if len(w) > 0:
+                            has_mixed_type = True
+                            mixed_type_count += 1
+                            category_mixed_type_count += 1
+
+                            # Log detailed mixed type info
+                            for warning_item in w:
+                                logging.warning(f"⚠️  Mixed type detected: {file_path}")
+                                logging.warning(f"    Warning: {warning_item.message}")
+
+                                # Sample first few rows for debugging
+                                if len(df) > 0:
+                                    logging.debug(f"    First row sample: {df.iloc[0].to_dict()}")
 
                     # 데이터에서 오류 메시지 확인
                     if df.filter(regex='Limit').empty is False or df.filter(regex='Error').empty is False:
-                        logging.debug(os.path.join(cur_path, p))
-                        os.remove(os.path.join(cur_path, p))
-                        del_count += 1
+                        has_error = True
+
+                        # Extract symbol from filename (usually format: SYMBOL.csv)
+                        symbol = os.path.splitext(p)[0]
+
+                        # Create quarantine subdirectory
+                        category_quarantine_path = os.path.join(quarantine_base, dir_name)
+                        os.makedirs(category_quarantine_path, exist_ok=True)
+
+                        # Move file to quarantine
+                        quarantine_file_path = os.path.join(category_quarantine_path, p)
+                        shutil.move(file_path, quarantine_file_path)
+
+                        quarantine_count += 1
+                        category_quarantine_count += 1
                         flag = False
+
+                        # Determine error type
+                        error_type = []
+                        if not df.filter(regex='Limit').empty:
+                            error_type.append('Limit Reach')
+                        if not df.filter(regex='Error').empty:
+                            error_type.append('Error Message')
+                        if has_mixed_type:
+                            error_type.append('Mixed Type')
+
+                        # Add to retry list
+                        retry_list.append({
+                            'category': dir_name,
+                            'symbol': symbol,
+                            'original_path': file_path,
+                            'quarantine_path': quarantine_file_path,
+                            'error_type': ', '.join(error_type)
+                        })
+
+                        logging.info(f"🔒 Quarantined: {dir_name}/{p} -> {error_type}")
                     else:
                         pass_count += 1
 
-                logging.info("[ {} ] Delete file count : {} / Total file count {} ".format(cur_path, del_count,
-                                                                                           del_count + pass_count))
-                del_count = 0
-                pass_count = 0
+                        # Log mixed type files that passed API error check
+                        if has_mixed_type:
+                            logging.info(f"⚠️  Mixed type (no API error): {dir_name}/{p}")
+
+                except Exception as e:
+                    logging.error(f"❌ Error processing {file_path}: {e}")
+                    continue
+
+            logging.info("[ {} ] Quarantined: {} | Mixed types: {} | Valid: {} | Total: {}".format(
+                cur_path,
+                category_quarantine_count,
+                category_mixed_type_count,
+                pass_count,
+                category_quarantine_count + pass_count
+            ))
+            quarantine_count = 0
+            pass_count = 0
+
+        # Save retry list to CSV
+        if retry_list:
+            retry_csv_path = os.path.join(basepath, '_retry_list.csv')
+            retry_df = pd.DataFrame(retry_list)
+            retry_df.to_csv(retry_csv_path, index=False)
+            logging.info(f"📝 Created retry list: {retry_csv_path} ({len(retry_list)} files)")
+            logging.info(f"   Use this list to re-fetch problematic files")
+        else:
+            logging.info("✅ No files needed quarantine - all files valid!")
+
+        logging.info(f"🏁 Validation complete: Mixed type warnings: {mixed_type_count}")
+
         return flag
 
     def remove_first_loop(self) -> None:
