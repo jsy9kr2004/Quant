@@ -6,7 +6,7 @@
 # ============================================
 pandas>=2.2.0
 numpy>=1.26.0
-scipy>=1.11.0
+scipy>=1.11.0,<1.13.0  # tsfresh compatibility: cwt removed in scipy 1.13.0
 
 # ============================================
 # Storage & I/O
