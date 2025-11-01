@@ -25,18 +25,12 @@ sys.path.insert(0, str(project_root))
 import click
 from dotenv import load_dotenv
 
-# Note: 이 파일은 미완성 템플릿입니다.
-# 실제 사용을 위해서는 추가 구현이 필요합니다.
-
-# Correct imports for existing modules
 from config.context_loader import MainContext
-from models.base_model import BaseModel
-
-# TODO: 다음 모듈들은 아직 구현되지 않았습니다
-# from models.momentum import MomentumModel
-# from models.mean_reversion import MeanReversionModel
-# from data_sources.fmp_source import FMPDataSource
-# from data_sources.marketdb_source import MarketDBDataSource
+from models.base_model import TradingModel
+from models.momentum import MomentumModel
+from models.mean_reversion import MeanReversionModel
+from data_sources.fmp_source import FMPDataSource
+from data_sources.marketdb_source import MarketDBDataSource
 
 # Load environment variables
 load_dotenv()
