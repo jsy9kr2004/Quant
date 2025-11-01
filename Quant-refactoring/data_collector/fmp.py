@@ -133,9 +133,9 @@ class FMP:
             FileNotFoundError: stock_list.csv가 존재하지 않는 경우.
         """
         self.logger.info('set symbol list start')
-        path = self.main_ctx.root_path + "/stock_list/stock_list.csv"
+        path = self.main_ctx.root_path + "/stock_list/stock_list.parquet"
         if os.path.isfile(path):
-            symbol_list = pd.read_csv(path)
+            symbol_list = pd.read_parquet(path)
         else:
             self.logger.error(f'file({path}) is not existed')
             return
@@ -153,8 +153,8 @@ class FMP:
         # NASDAQ 및 NYSE의 상장폐지 회사와 병합
         file_list = os.listdir(self.main_ctx.root_path + "/delisted_companies/")
         for file in file_list:
-            if os.path.splitext(file)[1] == ".csv":
-                delisted = pd.read_csv(self.main_ctx.root_path + "/delisted_companies/" + file)
+            if os.path.splitext(file)[1] == ".parquet":
+                delisted = pd.read_parquet(self.main_ctx.root_path + "/delisted_companies/" + file)
                 if delisted.empty == True:
                     continue
                 # NASDAQ 및 NYSE 거래소만 필터링
@@ -225,7 +225,7 @@ class FMP:
         if os.path.isdir(path) is False:
             return
         for file in os.listdir(path):
-            if only_csv is True and not (file.endswith(".csv") or file.endswith(".csvx")):
+            if only_csv is True and not (file.endswith(".parquet") or file.endswith(".parquetx")):
                 continue
             os.remove(os.path.join(path, file))
 
@@ -251,12 +251,12 @@ class FMP:
         today = dateutil.utils.today()
 
         for symbol in self.current_list:
-            path = base_path + "/" + str(symbol) + ".csv"
+            path = base_path + "/" + str(symbol) + ".parquet"
             if os.path.isfile(path):
                 if check_target is True:
                     # 날짜를 확인하기 위해 전체 파일 읽기
                     # TODO: 첫 번째/마지막 행만 읽는 더 효율적인 방법 찾기
-                    row = pd.read_csv(path)
+                    row = pd.read_parquet(path)
 
                     # 파일에 date 컬럼이 있는지 확인
                     if "date" in row.columns:
@@ -279,23 +279,23 @@ class FMP:
     def remove_current_year(base_path: str) -> None:
         """지정된 기본 경로에서 현재 연도의 파일을 제거합니다.
 
-        현재 연도 접미사를 가진 .csv 및 .csvx 파일을 모두 제거합니다.
+        현재 연도 접미사를 가진 .parquet 및 .parquetx 파일을 모두 제거합니다.
 
         Args:
             base_path (str): 기본 경로 패턴 (예: 'path/to/data_').
-                현재 연도가 추가되어 'path/to/data_2025.csv' 형태가 됩니다.
+                현재 연도가 추가되어 'path/to/data_2025.parquet' 형태가 됩니다.
 
         사용 예시:
             FMP.remove_current_year('/data/historical_price_full/AAPL_')
-            # 제거: /data/historical_price_full/AAPL_2025.csv
-            #       /data/historical_price_full/AAPL_2025.csvx
+            # 제거: /data/historical_price_full/AAPL_2025.parquet
+            #       /data/historical_price_full/AAPL_2025.parquetx
         """
         today = dateutil.utils.today()
         year = today.strftime("%Y")
-        if os.path.isfile(base_path + str(year) + ".csv"):
-            os.remove(base_path + str(year) + ".csv")
-        if os.path.isfile(base_path + str(year) + ".csvx"):
-            os.remove(base_path + str(year) + ".csvx")
+        if os.path.isfile(base_path + str(year) + ".parquet"):
+            os.remove(base_path + str(year) + ".parquet")
+        if os.path.isfile(base_path + str(year) + ".parquetx"):
+            os.remove(base_path + str(year) + ".parquetx")
 
     def skip_remove_check(self) -> bool:
         """마지막 업데이트 시간을 기준으로 파일 제거를 건너뛸지 확인합니다.
@@ -327,12 +327,11 @@ class FMP:
     def validation_check(self) -> bool:
         """다운로드된 파일에 API 오류 메시지가 있는지 검증합니다.
 
-        데이터 디렉토리의 모든 CSV 파일에서 FMP API 오류 메시지를 확인합니다:
+        데이터 디렉토리의 모든 Parquet 파일에서 FMP API 오류 메시지를 확인합니다:
         1. "Limit Reach" - API 요청 제한 초과
         2. "Error Message" - API의 일반 오류
 
         이러한 메시지가 포함된 파일은 유효하지 않은 데이터를 포함하므로 _quarantine 폴더로 이동됩니다.
-        또한 mixed type warnings를 감지하여 로그에 기록합니다.
 
         Returns:
             bool: 격리된 파일이 없으면 True (모두 유효), 그렇지 않으면 False.
@@ -347,7 +346,6 @@ class FMP:
         flag = True
         quarantine_count = 0
         pass_count = 0
-        mixed_type_count = 0
         retry_list = []
 
         logging.info("🔍 Starting validation check with quarantine system")
@@ -362,42 +360,23 @@ class FMP:
                 continue
 
             cur_path = dir_path
-            par_list = [file for file in os.listdir(cur_path) if file.endswith('csv')]
+            par_list = [file for file in os.listdir(cur_path) if file.endswith('parquet')]
 
             category_quarantine_count = 0
-            category_mixed_type_count = 0
 
             for p in par_list:
                 file_path = os.path.join(cur_path, p)
                 has_error = False
-                has_mixed_type = False
 
                 try:
-                    # Catch DtypeWarning for mixed types
-                    with warnings.catch_warnings(record=True) as w:
-                        warnings.simplefilter("always", category=pd.errors.DtypeWarning)
-                        df = pd.read_csv(file_path, low_memory=True)
-
-                        # Check for mixed type warnings
-                        if len(w) > 0:
-                            has_mixed_type = True
-                            mixed_type_count += 1
-                            category_mixed_type_count += 1
-
-                            # Log detailed mixed type info
-                            for warning_item in w:
-                                logging.warning(f"⚠️  Mixed type detected: {file_path}")
-                                logging.warning(f"    Warning: {warning_item.message}")
-
-                                # Sample first few rows for debugging
-                                if len(df) > 0:
-                                    logging.debug(f"    First row sample: {df.iloc[0].to_dict()}")
+                    # Read Parquet file - no mixed type warnings with Parquet!
+                    df = pd.read_parquet(file_path)
 
                     # 데이터에서 오류 메시지 확인
                     if df.filter(regex='Limit').empty is False or df.filter(regex='Error').empty is False:
                         has_error = True
 
-                        # Extract symbol from filename (usually format: SYMBOL.csv)
+                        # Extract symbol from filename (usually format: SYMBOL.parquet)
                         symbol = os.path.splitext(p)[0]
 
                         # Create quarantine subdirectory
@@ -418,8 +397,6 @@ class FMP:
                             error_type.append('Limit Reach')
                         if not df.filter(regex='Error').empty:
                             error_type.append('Error Message')
-                        if has_mixed_type:
-                            error_type.append('Mixed Type')
 
                         # Add to retry list
                         retry_list.append({
@@ -434,18 +411,13 @@ class FMP:
                     else:
                         pass_count += 1
 
-                        # Log mixed type files that passed API error check
-                        if has_mixed_type:
-                            logging.info(f"⚠️  Mixed type (no API error): {dir_name}/{p}")
-
                 except Exception as e:
                     logging.error(f"❌ Error processing {file_path}: {e}")
                     continue
 
-            logging.info("[ {} ] Quarantined: {} | Mixed types: {} | Valid: {} | Total: {}".format(
+            logging.info("[ {} ] Quarantined: {} | Valid: {} | Total: {}".format(
                 cur_path,
                 category_quarantine_count,
-                category_mixed_type_count,
                 pass_count,
                 category_quarantine_count + pass_count
             ))
@@ -462,7 +434,7 @@ class FMP:
         else:
             logging.info("✅ No files needed quarantine - all files valid!")
 
-        logging.info(f"🏁 Validation complete: Mixed type warnings: {mixed_type_count}")
+        logging.info(f"🏁 Validation complete")
 
         return flag
 
