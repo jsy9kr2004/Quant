@@ -43,7 +43,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def get_strategy_class(strategy_name: str) -> type[TradingModel]:
+def get_strategy_class(strategy_name: str) -> type[BaseModel]:
     """
     전략 이름으로 전략 클래스를 가져옵니다.
 
@@ -55,24 +55,31 @@ def get_strategy_class(strategy_name: str) -> type[TradingModel]:
 
     Raises:
         ValueError: 전략 이름이 지원되지 않는 경우
+        NotImplementedError: 전략 모듈이 아직 구현되지 않은 경우
 
     사용 예시:
         strategy_cls = get_strategy_class('momentum')
         isinstance(strategy_cls, type)
         True
     """
-    strategies = {
-        'momentum': MomentumModel,
-        'mean_reversion': MeanReversionModel,
-    }
+    # TODO: 전략 모듈 구현 후 활성화
+    raise NotImplementedError(
+        "전략 모듈이 아직 구현되지 않았습니다. "
+        "models/ 디렉토리에 구체적인 전략을 구현해주세요."
+    )
 
-    if strategy_name not in strategies:
-        raise ValueError(
-            f"Unknown strategy: {strategy_name}. "
-            f"Available strategies: {', '.join(strategies.keys())}"
-        )
-
-    return strategies[strategy_name]
+    # strategies = {
+    #     'momentum': MomentumModel,
+    #     'mean_reversion': MeanReversionModel,
+    # }
+    #
+    # if strategy_name not in strategies:
+    #     raise ValueError(
+    #         f"Unknown strategy: {strategy_name}. "
+    #         f"Available strategies: {', '.join(strategies.keys())}"
+    #     )
+    #
+    # return strategies[strategy_name]
 
 
 def create_context(
