@@ -26,7 +26,7 @@ import click
 from dotenv import load_dotenv
 
 from config.context_loader import MainContext
-from models.base_model import TradingModel
+from models.base_model import BaseModel
 from models.momentum import MomentumModel
 from models.mean_reversion import MeanReversionModel
 from data_sources.fmp_source import FMPDataSource
