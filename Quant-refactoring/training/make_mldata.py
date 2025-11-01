@@ -747,8 +747,16 @@ class AIDataMaker:
                     # 현재 분기만으로 필터링
                     self.logger.info(f"🔄 [{base_year_period}] Merging with window_data...")
                     window_data_before = window_data.copy()
+
+                    # 디버깅: window_data의 year_period 값들 확인
+                    unique_periods = sorted(window_data['year_period'].unique())
+                    self.logger.info(f"   window_data BEFORE filter - year_period values: {unique_periods[:20]}")
+                    self.logger.info(f"   Total unique year_periods: {len(unique_periods)}")
+                    self.logger.info(f"   Looking for year_period: {float(base_year_period)}")
+                    self.logger.info(f"   Is {base_year_period} in window_data? {float(base_year_period) in window_data['year_period'].values}")
+
                     window_data = window_data[window_data['year_period'] == float(base_year_period)]
-                    self.logger.info(f"   window_data after year_period filter: {window_data.shape[0]} rows, {window_data['symbol'].nunique()} symbols")
+                    self.logger.info(f"   window_data after year_period filter: {window_data.shape[0]} rows, {window_data['symbol'].nunique() if not window_data.empty else 0} symbols")
                     self.logger.info(f"   df_w_time_feature before merge: {df_w_time_feature.shape[0]} rows")
 
                     df_w_time_feature = pd.merge(window_data, df_w_time_feature, how='inner', on='symbol')
