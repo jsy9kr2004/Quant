@@ -27,10 +27,27 @@ from dotenv import load_dotenv
 
 from config.context_loader import MainContext
 from models.base_model import BaseModel
-from models.momentum import MomentumModel
-from models.mean_reversion import MeanReversionModel
-from data_sources.fmp_source import FMPDataSource
-from data_sources.marketdb_source import MarketDBDataSource
+
+# 선택적 import - 구현되지 않은 모듈들
+try:
+    from models.momentum import MomentumModel
+except ImportError:
+    MomentumModel = None
+
+try:
+    from models.mean_reversion import MeanReversionModel
+except ImportError:
+    MeanReversionModel = None
+
+try:
+    from data_sources.fmp_source import FMPDataSource
+except ImportError:
+    FMPDataSource = None
+
+try:
+    from data_sources.marketdb_source import MarketDBDataSource
+except ImportError:
+    MarketDBDataSource = None
 
 # Load environment variables
 load_dotenv()
