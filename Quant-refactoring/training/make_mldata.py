@@ -676,24 +676,52 @@ class AIDataMaker:
                 # tsfresh를 사용하여 시계열 특성 추출
                 df_for_extract_feature = pd.DataFrame()
 
+                # 디버깅: 시계열 특성 추출 시작
+                self.logger.info(f"🔍 [{base_year_period}] Starting time series feature extraction")
+                self.logger.info(f"   Total columns to process: {len(cal_timefeature_col_list)}")
+                self.logger.info(f"   Window data shape: {window_data.shape}")
+                self.logger.info(f"   Unique symbols in window: {window_data['symbol'].nunique()}")
+
+                filtered_col_count = 0
+                accepted_col_count = 0
+                filter_reasons = {'not_in_columns': 0, 'has_nan': 0, 'has_infinite': 0}
+
                 for target_col in cal_timefeature_col_list:
                     # 유효한 (NaN이 아닌, 유한한) 데이터가 있는 컬럼만 처리
-                    if (target_col in window_data.columns and
-                        not window_data[target_col].isna().any() and
-                        np.isfinite(window_data[target_col]).all()):
+                    if target_col not in window_data.columns:
+                        filtered_col_count += 1
+                        filter_reasons['not_in_columns'] += 1
+                        continue
 
-                        # tsfresh 형식으로 데이터 준비
-                        temp_df = pd.DataFrame({
-                            'id': window_data['symbol'],
-                            'kind': target_col,
-                            'time': window_data['time_for_sort'],
-                            'value': window_data[target_col].values,
-                            'year_period': window_data['year_period']
-                        })
-                        df_for_extract_feature = pd.concat([df_for_extract_feature, temp_df])
+                    if window_data[target_col].isna().any():
+                        filtered_col_count += 1
+                        filter_reasons['has_nan'] += 1
+                        continue
+
+                    if not np.isfinite(window_data[target_col]).all():
+                        filtered_col_count += 1
+                        filter_reasons['has_infinite'] += 1
+                        continue
+
+                    # tsfresh 형식으로 데이터 준비
+                    temp_df = pd.DataFrame({
+                        'id': window_data['symbol'],
+                        'kind': target_col,
+                        'time': window_data['time_for_sort'],
+                        'value': window_data[target_col].values,
+                        'year_period': window_data['year_period']
+                    })
+                    df_for_extract_feature = pd.concat([df_for_extract_feature, temp_df])
+                    accepted_col_count += 1
+
+                # 디버깅: 필터링 결과
+                self.logger.info(f"   Columns accepted: {accepted_col_count}/{len(cal_timefeature_col_list)}")
+                self.logger.info(f"   Columns filtered: {filtered_col_count} (not_in_data={filter_reasons['not_in_columns']}, has_nan={filter_reasons['has_nan']}, has_infinite={filter_reasons['has_infinite']})")
+                self.logger.info(f"   df_for_extract_feature shape: {df_for_extract_feature.shape}")
 
                 if not df_for_extract_feature.empty:
                     # tsfresh로 특성 추출
+                    self.logger.info(f"🔄 [{base_year_period}] Running tsfresh feature extraction...")
                     features = extract_features(df_for_extract_feature,
                                                column_id='id',
                                                column_kind='kind',
@@ -701,28 +729,62 @@ class AIDataMaker:
                                                column_value='value',
                                                default_fc_parameters=EfficientFCParameters())
 
+                    self.logger.info(f"   Extracted features shape: {features.shape}")
+                    self.logger.info(f"   Unique symbols in features: {len(features.index)}")
+
                     # '_ts_' 마커를 포함하도록 컬럼명 변경
                     features = features.rename(columns=lambda x: f"{x.partition('__')[0]}_ts_{x.partition('__')[2]}")
 
                     # 차원 축소를 위해 접미사로 특성 필터링
+                    self.logger.info(f"🔄 [{base_year_period}] Filtering columns by suffixes...")
+                    self.logger.info(f"   Before suffix filtering: {features.shape[1]} columns")
                     filtered_columns = self.filter_columns_by_suffixes(features)
+                    self.logger.info(f"   After suffix filtering: {len(filtered_columns)} columns")
+
                     df_w_time_feature = features[filtered_columns].copy()
                     df_w_time_feature['symbol'] = features.index
 
                     # 현재 분기만으로 필터링
+                    self.logger.info(f"🔄 [{base_year_period}] Merging with window_data...")
+                    window_data_before = window_data.copy()
                     window_data = window_data[window_data['year_period'] == float(base_year_period)]
+                    self.logger.info(f"   window_data after year_period filter: {window_data.shape[0]} rows, {window_data['symbol'].nunique()} symbols")
+                    self.logger.info(f"   df_w_time_feature before merge: {df_w_time_feature.shape[0]} rows")
+
                     df_w_time_feature = pd.merge(window_data, df_w_time_feature, how='inner', on='symbol')
+                    self.logger.info(f"   After merge: {df_w_time_feature.shape}")
 
                     # 절대값 컬럼 제거 (ML에 유용하지 않음, 비율만 중요)
                     abs_col_list = list(set(meaning_col_list) - set(ratio_col_list))
+                    self.logger.info(f"🔄 [{base_year_period}] Removing absolute value columns...")
+                    self.logger.info(f"   Absolute columns to remove: {len(abs_col_list)}")
+                    cols_before_abs_removal = df_w_time_feature.shape[1]
+
                     for col in abs_col_list:
                         df_w_time_feature = df_w_time_feature.drop([col], axis=1, errors='ignore')
+
+                    self.logger.info(f"   Columns before removal: {cols_before_abs_removal}, after: {df_w_time_feature.shape[1]}")
 
                     # 정규화하지 않을 컬럼 분리
                     excluded_columns = ['symbol', 'rebalance_date', 'report_date', 'fillingDate_x', 'year_period']
                     excluded_df = df_w_time_feature[excluded_columns]
 
                     # 정규화할 컬럼 선택
+                    self.logger.info(f"🔄 [{base_year_period}] Selecting columns for normalization...")
+                    self.logger.info(f"   Total columns in df_w_time_feature: {len(df_w_time_feature.columns)}")
+
+                    # 각 조건별로 매칭되는 컬럼 분석
+                    ts_cols = [col for col in df_w_time_feature.columns if '_ts_' in col]
+                    ratio_cols = [col for col in df_w_time_feature.columns if col in ratio_col_list]
+                    overmc_cols = [col for col in df_w_time_feature.columns if col.startswith('OverMC_')]
+                    adaptive_cols = [col for col in df_w_time_feature.columns if col.startswith('adaptiveMC_')]
+
+                    self.logger.info(f"   Columns by type:")
+                    self.logger.info(f"     - Time series (_ts_): {len(ts_cols)}")
+                    self.logger.info(f"     - Ratio columns: {len(ratio_cols)}")
+                    self.logger.info(f"     - OverMC_ columns: {len(overmc_cols)}")
+                    self.logger.info(f"     - adaptiveMC_ columns: {len(adaptive_cols)}")
+
                     filtered_columns = [
                         col for col in df_w_time_feature.columns
                         if ('_ts_' in col) or  # 시계열 특성
@@ -732,27 +794,25 @@ class AIDataMaker:
                     ]
                     filtered_df = df_w_time_feature[filtered_columns]
 
+                    self.logger.info(f"   Total columns selected for scaling: {len(filtered_columns)}")
+                    self.logger.info(f"   Filtered df shape: {filtered_df.shape}")
+
                     # 빈 데이터 체크
                     if filtered_df.empty or len(filtered_df) == 0:
-                        self.logger.warning(f"⚠️ No data to scale for {base_year_period}")
+                        self.logger.warning(f"❌ [{base_year_period}] No data to scale - SKIPPING")
                         self.logger.warning(f"   Available columns in df_w_time_feature: {len(df_w_time_feature.columns)}")
                         self.logger.warning(f"   Columns after filtering: {len(filtered_columns)}")
                         self.logger.warning(f"   Rows in filtered_df: {len(filtered_df)}")
 
-                        # 디버깅: 어떤 타입의 컬럼들이 있는지 확인
-                        ts_cols = [col for col in df_w_time_feature.columns if '_ts_' in col]
-                        ratio_cols = [col for col in df_w_time_feature.columns if col in ratio_col_list]
-                        overmc_cols = [col for col in df_w_time_feature.columns if col.startswith('OverMC_')]
-                        adaptive_cols = [col for col in df_w_time_feature.columns if col.startswith('adaptiveMC_')]
+                        # 샘플 컬럼 이름 출력 (디버깅용)
+                        sample_cols = list(df_w_time_feature.columns[:20])
+                        self.logger.warning(f"   Sample column names (first 20): {sample_cols}")
 
-                        self.logger.warning(f"   Time series features (_ts_): {len(ts_cols)}")
-                        self.logger.warning(f"   Ratio columns: {len(ratio_cols)}")
-                        self.logger.warning(f"   OverMC_ columns: {len(overmc_cols)}")
-                        self.logger.warning(f"   adaptiveMC_ columns: {len(adaptive_cols)}")
-                        self.logger.warning(f"   Skipping {base_year_period} due to insufficient data")
+                        self.logger.warning(f"   REASON: No columns matched the scaling criteria")
                         continue
 
                     # RobustScaler로 정규화 (아웃라이어에 강함)
+                    self.logger.info(f"✅ [{base_year_period}] Scaling {filtered_df.shape[1]} columns for {filtered_df.shape[0]} symbols")
                     scaler = RobustScaler()
                     scaled_data = scaler.fit_transform(filtered_df)
                     scaled_df = pd.DataFrame(scaled_data, columns=filtered_df.columns)
@@ -787,7 +847,18 @@ class AIDataMaker:
                     self.logger.info(f"✅ Saved ML data: {os.path.basename(file2_path)}")
                 else:
                     # df_for_extract_feature가 비어있는 경우
-                    self.logger.warning(f"⚠️ No features to extract for {base_year_period}")
-                    self.logger.warning(f"   All time series data was filtered out (NaN or non-finite values)")
-                    self.logger.warning(f"   Skipping {base_year_period} due to no extractable features")
+                    self.logger.warning(f"❌ [{base_year_period}] No features to extract - SKIPPING")
+                    self.logger.warning(f"   REASON: All time series columns were filtered out")
+                    self.logger.warning(f"   Total columns checked: {len(cal_timefeature_col_list)}")
+                    self.logger.warning(f"   Columns accepted: {accepted_col_count}")
+                    self.logger.warning(f"   Filter breakdown:")
+                    self.logger.warning(f"     - Not in window_data: {filter_reasons['not_in_columns']}")
+                    self.logger.warning(f"     - Contains NaN: {filter_reasons['has_nan']}")
+                    self.logger.warning(f"     - Contains infinite: {filter_reasons['has_infinite']}")
+
+                    # 샘플 누락 컬럼 출력
+                    if filter_reasons['not_in_columns'] > 0:
+                        missing_cols = [col for col in cal_timefeature_col_list if col not in window_data.columns]
+                        sample_missing = missing_cols[:10]
+                        self.logger.warning(f"   Sample missing columns (first 10): {sample_missing}")
                     continue
