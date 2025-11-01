@@ -228,6 +228,9 @@ def fetch_fmp(main_ctx, api_list: List[Any]) -> None:
     # Ray handles I/O-bound tasks efficiently, but FMP API has rate limits
     # Recommended: 4-8 workers for external API calls
     worker_num = min(8, os.cpu_count())
+
+    # Suppress Ray GPU warning for CPU-only workload
+    os.environ['RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO'] = '0'
     ray.init(num_cpus=worker_num, local_mode=False)  # True enables debug mode
     logger.info(f'✅ Ray initialized: {worker_num} workers (max: {os.cpu_count()})')
 
