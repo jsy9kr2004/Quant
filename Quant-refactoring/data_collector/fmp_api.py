@@ -26,6 +26,9 @@ from datetime import datetime, timedelta
 import os
 from typing import List, Dict, Any
 
+# Import Windows-safe filename utility
+from config.file_utils import safe_filename
+
 
 class FMPAPI:
     """FMP API URL 빌더 및 설정 관리자입니다.
@@ -233,10 +236,13 @@ class FMPAPI:
         """
         api_list = []
         for symbol in self.symbol_list:
+            # Convert symbol to Windows-safe filename
+            safe_symbol = safe_filename(symbol)
+
             # 파일이 이미 존재하는지 확인 (.parquet 또는 빈 데이터를 나타내는 .parquetx)
-            if os.path.isfile(f'{self.file_path}/{symbol+file_postfix}.parquet') \
-               or os.path.isfile(f'{self.file_path}/{symbol+file_postfix}.parquetx'):
-                self.fmp_api_logger.info(f'Skip existing file: {self.file_path}/{symbol+file_postfix}.parquet/parquetx')
+            if os.path.isfile(f'{self.file_path}/{safe_symbol+file_postfix}.parquet') \
+               or os.path.isfile(f'{self.file_path}/{safe_symbol+file_postfix}.parquetx'):
+                self.fmp_api_logger.info(f'Skip existing file: {self.file_path}/{safe_symbol+file_postfix}.parquet/parquetx (symbol: {symbol})')
                 continue
 
             api_list.append([self.file_path, symbol, file_postfix, self.__full_url(symbol)])

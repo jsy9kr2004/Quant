@@ -33,6 +33,8 @@ from typing import List, Any, Tuple
 
 # Import unified logging
 from config.logger import get_logger, setup_logger_for_multiprocessing
+# Import Windows-safe filename utility
+from config.file_utils import safe_filename
 
 
 def __flatten_json(js: Any, expand_all: bool = False) -> pd.DataFrame:
@@ -123,10 +125,13 @@ def __fmp_worker(
     setup_logger_for_multiprocessing()
     logger = get_logger(f'fmp.worker-{worker_id}')
 
+    # Convert symbol to Windows-safe filename
+    safe_symbol = safe_filename(symbol)
+
     ret = True
     while True:
         try:
-            logger.info(f'Creating File "{file_path}/{symbol+file_postfix}.parquet" <- "{url}"')
+            logger.info(f'Creating File "{file_path}/{safe_symbol+file_postfix}.parquet" <- "{url}" (symbol: {symbol})')
             # Fetch data from API
             url_data = requests.get(url)
         except ValueError:
@@ -159,7 +164,7 @@ def __fmp_worker(
             logger.info("No Data in URL")
             # Create .parquetx marker file to indicate empty data
             # This prevents re-fetching known-empty endpoints
-            f = open(f"{file_path}/{symbol+file_postfix}.parquetx", 'w')
+            f = open(f"{file_path}/{safe_symbol+file_postfix}.parquetx", 'w')
             f.close()
             ret = False
             break
@@ -181,7 +186,7 @@ def __fmp_worker(
         json_data = json_data.replace('', None)
 
         # Save to Parquet file
-        json_data.to_parquet(f"{file_path}/{symbol+file_postfix}.parquet", index=False)
+        json_data.to_parquet(f"{file_path}/{safe_symbol+file_postfix}.parquet", index=False)
 
         # Verify data is not empty after conversion
         if json_data.empty == True:

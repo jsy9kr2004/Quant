@@ -29,6 +29,9 @@ import pandas as pd
 from dateutil.relativedelta import relativedelta
 from typing import List, Optional
 
+# Import Windows-safe filename utility
+from config.file_utils import safe_filename, restore_symbol_from_filename
+
 
 class FMP:
     """Financial Modeling Prep API에서 금융 데이터를 수집하는 메인 클래스입니다.
@@ -251,7 +254,9 @@ class FMP:
         today = dateutil.utils.today()
 
         for symbol in self.current_list:
-            path = base_path + "/" + str(symbol) + ".parquet"
+            # Convert symbol to Windows-safe filename
+            safe_symbol = safe_filename(symbol)
+            path = base_path + "/" + str(safe_symbol) + ".parquet"
             if os.path.isfile(path):
                 if check_target is True:
                     # 날짜를 확인하기 위해 전체 파일 읽기
@@ -377,7 +382,9 @@ class FMP:
                         has_error = True
 
                         # Extract symbol from filename (usually format: SYMBOL.parquet)
-                        symbol = os.path.splitext(p)[0]
+                        # Restore original symbol from Windows-safe filename
+                        filename_without_ext = os.path.splitext(p)[0]
+                        symbol = restore_symbol_from_filename(filename_without_ext)
 
                         # Create quarantine subdirectory
                         category_quarantine_path = os.path.join(quarantine_base, dir_name)
@@ -492,7 +499,9 @@ class FMP:
 
         # 각 심볼에 대한 현재 연도 히스토리컬 가격 파일 제거
         for symbol in self.current_list:
-            self.remove_current_year(self.main_ctx.root_path+"/historical_price_full/" + str(symbol) + "_")
+            # Convert symbol to Windows-safe filename
+            safe_symbol = safe_filename(symbol)
+            self.remove_current_year(self.main_ctx.root_path+"/historical_price_full/" + str(safe_symbol) + "_")
 
         # FIXME: 이 두 작업은 가장 느린 작업 중 하나입니다. 최적화를 고려하십시오.
         # 가장 시간 소모적인 작업 상위 2개 - 더 나은 접근 방식 필요
