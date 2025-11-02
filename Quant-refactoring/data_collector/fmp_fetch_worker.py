@@ -179,7 +179,7 @@ def __fmp_worker(
         # Convert all object columns to numeric where possible
         # This handles large financial values (marketCap, enterpriseValue, totalAssets, etc.)
         # that can exceed IEEE 754 double precision safe integer range (±9 quadrillion)
-        # Use errors='coerce' to handle mixed types and None values
+        # IMPORTANT: Must explicitly convert to float64 to avoid PyArrow integer overflow
         for col in json_data.select_dtypes(include=['object']).columns:
             # Try to convert to numeric, coercing errors to NaN
             converted = pd.to_numeric(json_data[col], errors='coerce')
@@ -187,7 +187,9 @@ def __fmp_worker(
             # Only keep conversion if at least some values were successfully converted
             # This prevents pure string columns (like 'symbol', 'period') from becoming all NaN
             if not converted.isna().all():
-                json_data[col] = converted
+                # Explicitly convert to float64 to handle large integers safely
+                # PyArrow will fail if it tries to convert large integers as int64
+                json_data[col] = converted.astype('float64')
 
         # Save to Parquet file
         json_data.to_parquet(f"{file_path}/{safe_symbol+file_postfix}.parquet", index=False)
