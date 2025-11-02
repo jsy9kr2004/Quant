@@ -179,9 +179,14 @@ def __fmp_worker(
         # Convert all object columns to numeric where possible
         # This handles large financial values (marketCap, enterpriseValue, totalAssets, etc.)
         # that can exceed IEEE 754 double precision safe integer range (±9 quadrillion)
-        # errors='ignore' keeps non-numeric strings (like 'AAPL', 'Q1', 'USD') unchanged
+        # Use explicit try-except instead of errors='ignore' (deprecated in future pandas)
         for col in json_data.select_dtypes(include=['object']).columns:
-            json_data[col] = pd.to_numeric(json_data[col], errors='ignore')
+            try:
+                # Try to convert to numeric
+                json_data[col] = pd.to_numeric(json_data[col])
+            except (ValueError, TypeError):
+                # Keep original if conversion fails (strings like 'AAPL', dates, etc.)
+                pass
 
         # Save to Parquet file
         json_data.to_parquet(f"{file_path}/{safe_symbol+file_postfix}.parquet", index=False)
