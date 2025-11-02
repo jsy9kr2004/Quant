@@ -172,18 +172,16 @@ def __fmp_worker(
         # Flatten nested JSON structure
         json_data = __flatten_json(json_data, expand_all=True)
 
-        # Handle special data type conversions
-        # dcf (Discounted Cash Flow) values need float conversion
-        if 'dcf' in json_data.columns:
-            json_data['dcf'] = json_data['dcf'].astype(float)
-
-        # marketCap values can exceed uint32/int64 limits, use float
-        if 'marketCap' in json_data.columns:
-            json_data['marketCap'] = json_data['marketCap'].astype(float)
-
-        # Replace empty strings with None for proper Parquet storage
+        # Replace empty strings with None for proper Parquet storage first
         # This ensures consistent null handling across all data types
         json_data = json_data.replace('', None)
+
+        # Convert all object columns to numeric where possible
+        # This handles large financial values (marketCap, enterpriseValue, totalAssets, etc.)
+        # that can exceed IEEE 754 double precision safe integer range (±9 quadrillion)
+        # errors='ignore' keeps non-numeric strings (like 'AAPL', 'Q1', 'USD') unchanged
+        for col in json_data.select_dtypes(include=['object']).columns:
+            json_data[col] = pd.to_numeric(json_data[col], errors='ignore')
 
         # Save to Parquet file
         json_data.to_parquet(f"{file_path}/{safe_symbol+file_postfix}.parquet", index=False)
