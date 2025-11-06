@@ -334,9 +334,15 @@ class Parquet:
         # Combines key metrics, financial growth, and DCF valuations
         key_metrics = pd.read_csv(self.rawpq_path + "key_metrics.csv")
         financial_growth = pd.read_csv(self.rawpq_path + "financial_growth.csv")
-        historical_daily_discounted_cash_flow = pd.read_csv(
-            self.rawpq_path + "historical_daily_discounted_cash_flow.csv"
-        )
+
+        # Try to load DCF data, create empty DataFrame if not available
+        dcf_file = self.rawpq_path + "historical_daily_discounted_cash_flow.csv"
+        if os.path.exists(dcf_file):
+            historical_daily_discounted_cash_flow = pd.read_csv(dcf_file)
+            logging.info("✅ Loaded historical_daily_discounted_cash_flow.csv")
+        else:
+            logging.warning("⚠️  historical_daily_discounted_cash_flow.csv not found, continuing without DCF data")
+            historical_daily_discounted_cash_flow = pd.DataFrame(columns=['date', 'symbol'])
 
         # Merge metrics data with outer join to preserve all records
         metrics = key_metrics.merge(
