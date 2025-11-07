@@ -97,6 +97,126 @@ PER_SECTOR = False  # 섹터별로 개별 모델을 학습할지 여부
 MODEL_SAVE_PATH = ""  # 학습된 모델 저장 경로 (메서드에서 설정됨)
 THRESHOLD = 92  # 분류를 위한 백분위수 임계값 (92 = 상위 8%가 양성으로 예측됨)
 
+# ==============================================================================
+# GPU/CPU Device Detection
+# ==============================================================================
+
+def detect_xgboost_device() -> str:
+    """
+    XGBoost에서 사용 가능한 최적의 디바이스를 자동으로 감지합니다.
+
+    감지 순서:
+    1. CUDA GPU 사용 가능 여부 확인 (torch.cuda 사용)
+    2. GPU 있으면 'cuda:0' 반환
+    3. GPU 없으면 'cpu' 반환
+
+    Returns:
+        str: 'cuda:0' (GPU 사용 가능) 또는 'cpu' (GPU 없음)
+
+    Example:
+        >>> device = detect_xgboost_device()
+        >>> print(f"Using device: {device}")
+        Using device: cuda:0
+    """
+    try:
+        if torch.cuda.is_available():
+            logging.info("🎮 GPU detected: Using CUDA acceleration")
+            return 'cuda:0'
+    except Exception as e:
+        logging.debug(f"GPU detection failed: {e}")
+
+    logging.info("💻 No GPU detected: Using CPU")
+    return 'cpu'
+
+
+def check_cupy_available() -> bool:
+    """
+    CuPy가 설치되어 있고 사용 가능한지 확인합니다.
+
+    CuPy는 GPU 예측 성능을 향상시키기 위해 데이터를 GPU로 전송하는 데 사용됩니다.
+    CuPy가 없어도 모델은 정상 작동하지만, GPU 예측 시 device mismatch 워닝이 발생합니다.
+
+    Returns:
+        bool: CuPy 사용 가능 여부
+
+    Example:
+        >>> if check_cupy_available():
+        ...     import cupy as cp
+        ...     X_gpu = cp.asarray(X)
+    """
+    try:
+        import cupy as cp
+        # 실제 GPU 접근 테스트
+        _ = cp.cuda.Device(0)
+        return True
+    except Exception:
+        return False
+
+
+def predict_with_gpu_support(model, X, use_gpu: bool):
+    """
+    GPU/CPU를 자동으로 처리하는 예측 함수입니다.
+
+    GPU 사용 시 데이터를 GPU로 전송하여 device mismatch 워닝을 방지합니다.
+    CuPy가 없거나 GPU 전송 실패 시 자동으로 CPU로 fallback합니다.
+
+    Args:
+        model: XGBoost 또는 LightGBM 모델
+        X: 입력 데이터 (pandas DataFrame 또는 numpy array)
+        use_gpu: GPU 예측 사용 여부
+
+    Returns:
+        numpy.ndarray: 예측 결과
+
+    Example:
+        >>> y_pred = predict_with_gpu_support(model, X_test, use_gpu=True)
+    """
+    if use_gpu:
+        try:
+            import cupy as cp
+            # pandas DataFrame이면 values로 변환
+            X_values = X.values if hasattr(X, 'values') else X
+            X_gpu = cp.asarray(X_values)
+            y_pred = model.predict(X_gpu)
+            # 결과를 CPU로 다시 변환
+            return cp.asnumpy(y_pred)
+        except Exception as e:
+            # GPU 예측 실패 시 CPU로 fallback
+            logging.debug(f"GPU prediction failed, using CPU fallback: {e}")
+            return model.predict(X)
+    else:
+        return model.predict(X)
+
+
+def predict_proba_with_gpu_support(model, X, use_gpu: bool):
+    """
+    GPU/CPU를 자동으로 처리하는 확률 예측 함수입니다.
+
+    Args:
+        model: XGBoost 또는 LightGBM 분류 모델
+        X: 입력 데이터 (pandas DataFrame 또는 numpy array)
+        use_gpu: GPU 예측 사용 여부
+
+    Returns:
+        numpy.ndarray: 예측 확률 (shape: [n_samples, n_classes])
+
+    Example:
+        >>> y_proba = predict_proba_with_gpu_support(model, X_test, use_gpu=True)
+        >>> y_proba_class1 = y_proba[:, 1]  # 클래스 1의 확률
+    """
+    if use_gpu:
+        try:
+            import cupy as cp
+            X_values = X.values if hasattr(X, 'values') else X
+            X_gpu = cp.asarray(X_values)
+            y_proba = model.predict_proba(X_gpu)
+            return cp.asnumpy(y_proba)
+        except Exception as e:
+            logging.debug(f"GPU prediction failed, using CPU fallback: {e}")
+            return model.predict_proba(X)
+    else:
+        return model.predict_proba(X)
+
 # 모델 입력에서 제외할 컬럼 (메타데이터 및 타겟 변수)
 y_col_list = [
     "symbol",
@@ -270,6 +390,24 @@ class Regressor:
 
         # 특성 선택 추적
         self.drop_col_list: List[str] = []
+
+        # GPU/CPU 디바이스 설정
+        self.device: str = detect_xgboost_device()
+        self.use_gpu_prediction: bool = check_cupy_available() and self.device.startswith('cuda')
+
+        logging.info("="*60)
+        logging.info("XGBoost Device Configuration")
+        logging.info("="*60)
+        logging.info(f"Device: {self.device}")
+        logging.info(f"CuPy available: {check_cupy_available()}")
+        logging.info(f"GPU prediction enabled: {self.use_gpu_prediction}")
+        logging.info("="*60)
+
+        if self.device.startswith('cuda') and not self.use_gpu_prediction:
+            logging.warning("⚠️  GPU training enabled but CuPy not available")
+            logging.warning("   Predictions will work but with device mismatch warnings")
+            logging.warning("   For better performance, install CuPy:")
+            logging.warning("   pip install cupy-cuda11x  # or cupy-cuda12x for CUDA 12.x")
 
     def clean_feature_names(self, df: pd.DataFrame) -> pd.DataFrame:
         """LightGBM과 호환되도록 특성 이름을 정리합니다.
@@ -518,15 +656,15 @@ class Regressor:
         # 분류 모델: 이진 상승/하락 예측
         # 앙상블 다양성을 위해 다양한 깊이를 가진 여러 모델 사용
         self.clsmodels[0] = xgboost.XGBClassifier(
-            tree_method='hist', device='cuda:0', n_estimators=500, learning_rate=0.1,
+            tree_method='hist', device=self.device, n_estimators=500, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=8,
             objective='binary:logistic', eval_metric='logloss')
         self.clsmodels[1] = xgboost.XGBClassifier(
-            tree_method='hist', device='cuda:0', n_estimators=500, learning_rate=0.1,
+            tree_method='hist', device=self.device, n_estimators=500, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=9,
             objective='binary:logistic', eval_metric='logloss')
         self.clsmodels[2] = xgboost.XGBClassifier(
-            tree_method='hist', device='cuda:0', n_estimators=500, learning_rate=0.1,
+            tree_method='hist', device=self.device, n_estimators=500, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=10,
             objective='binary:logistic', eval_metric='logloss')
 
@@ -540,11 +678,11 @@ class Regressor:
 
         # 회귀 모델: 가격 변동의 크기 예측
         self.models[0] = xgboost.XGBRegressor(
-            tree_method='hist', device='cuda:0', n_estimators=1000, learning_rate=0.1,
+            tree_method='hist', device=self.device, n_estimators=1000, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=8,
             objective='reg:squarederror', eval_metric='rmse')
         self.models[1] = xgboost.XGBRegressor(
-            tree_method='hist', device='cuda:0', n_estimators=1000, learning_rate=0.1,
+            tree_method='hist', device=self.device, n_estimators=1000, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=10,
             objective='reg:squarederror', eval_metric='rmse')
 
@@ -560,12 +698,12 @@ class Regressor:
                 # 섹터당 다양한 하이퍼파라미터를 가진 2개 변형
                 cur_key = (sec, 0)
                 self.sector_models[cur_key] = xgboost.XGBRegressor(
-                    tree_method='hist', device='cuda:0', n_estimators=1000,
+                    tree_method='hist', device=self.device, n_estimators=1000,
                     learning_rate=0.05, gamma=0.01, subsample=0.8,
                     colsample_bytree=0.7, max_depth=7)  # 최적 하이퍼파라미터
                 cur_key = (sec, 1)
                 self.sector_models[cur_key] = xgboost.XGBRegressor(
-                    tree_method='hist', device='cuda:0', n_estimators=1000,
+                    tree_method='hist', device=self.device, n_estimators=1000,
                     learning_rate=0.05, gamma=0.01, subsample=0.8,
                     colsample_bytree=0.7, max_depth=8)
 
@@ -831,7 +969,8 @@ class Regressor:
                 correct_col_name = 'clsmodel_' + str(i) + '_correct'
 
                 # 예측 확률 가져오기 (클래스 1의 확률 = 가격 상승)
-                y_probs = model.predict_proba(x_test)[:, 1]
+                # GPU 지원으로 device mismatch 워닝 방지
+                y_probs = predict_proba_with_gpu_support(model, x_test, self.use_gpu_prediction)[:, 1]
 
                 # 백분위수 임계값을 사용하여 확률을 이진 예측으로 변환
                 # THRESHOLD=92는 상위 8%가 양성으로 예측됨을 의미
@@ -877,7 +1016,8 @@ class Regressor:
                 loss_bin_col_name_3 = 'model_' + str(i) + '_prediction_wbinary_loss_3'
 
                 # 원시 회귀 예측 가져오기
-                y_predict = model.predict(x_test)
+                # GPU 지원으로 device mismatch 워닝 방지
+                y_predict = predict_with_gpu_support(model, x_test, self.use_gpu_prediction)
 
                 # 원시 회귀 예측 저장
                 df[pred_col_name] = y_predict
@@ -1042,7 +1182,8 @@ class Regressor:
                 df['label'] = y_test
 
                 # 섹터 기반 필터링을 위해 분류기 2 사용
-                y_probs = self.clsmodels[2].predict_proba(x_test)[:, 1]
+                # GPU 지원으로 device mismatch 워닝 방지
+                y_probs = predict_proba_with_gpu_support(self.clsmodels[2], x_test, self.use_gpu_prediction)[:, 1]
                 threshold = np.percentile(y_probs, THRESHOLD)
                 y_predict_binary = (y_probs > threshold).astype(int)
 
@@ -1052,7 +1193,8 @@ class Regressor:
                     model = self.sector_models[k]
                     pred_col_name = 'model_' + str(i) + '_prediction'
                     pred_col_name_wbin = 'model_' + str(i) + '_prediction_wbinary_2'
-                    y_predict = model.predict(x_test)
+                    # GPU 지원으로 device mismatch 워닝 방지
+                    y_predict = predict_with_gpu_support(model, x_test, self.use_gpu_prediction)
                     df[pred_col_name] = y_predict
 
                     df[pred_col_name_wbin] = np.where(y_predict_binary == 0, -1, y_predict)
@@ -1212,7 +1354,8 @@ class Regressor:
         for i, model in self.clsmodels.items():
             logging.info(f"classification model # {i}")
             pred_col_name = 'clsmodel_' + str(i) + '_prediction'
-            y_probs = model.predict_proba(input)[:, 1]
+            # GPU 지원으로 device mismatch 워닝 방지
+            y_probs = predict_proba_with_gpu_support(model, input, self.use_gpu_prediction)[:, 1]
             # 백분위수 임계값을 사용하여 이진으로 변환
             threshold = np.percentile(y_probs, THRESHOLD)
             y_predict_binary = (y_probs > threshold).astype(int)
@@ -1243,7 +1386,8 @@ class Regressor:
             loss_bin_col_name_3 = 'model_' + str(i) + '_prediction_wbinary_loss_3'
 
             # 원시 회귀 예측 가져오기
-            y_predict = model.predict(input)
+            # GPU 지원으로 device mismatch 워닝 방지
+            y_predict = predict_with_gpu_support(model, input, self.use_gpu_prediction)
 
             # 원시 예측 저장
             ldf[pred_col_name] = y_predict
@@ -1309,7 +1453,8 @@ class Regressor:
                     k = (sec, i)
                     model = self.sector_models[k]
                     pred_col_name = 'model_' + str(i) + '_prediction'
-                    y_predict3 = model.predict(indata)
+                    # GPU 지원으로 device mismatch 워닝 방지
+                    y_predict3 = predict_with_gpu_support(model, indata, self.use_gpu_prediction)
                     sec_df[pred_col_name] = y_predict3
                     preds = np.vstack((preds, y_predict3[None,:]))
 

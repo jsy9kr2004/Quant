@@ -24,6 +24,15 @@ catboost>=1.2.2
 scikit-learn>=1.4.0
 
 # ============================================
+# GPU Acceleration (Optional)
+# ============================================
+# CuPy: GPU-accelerated NumPy-compatible library
+# Install fails gracefully on non-GPU systems
+# Choose based on your CUDA version:
+cupy-cuda11x>=12.0.0  # For CUDA 11.x
+# cupy-cuda12x>=12.0.0  # For CUDA 12.x (uncomment if needed)
+
+# ============================================
 # Hyperparameter Optimization
 # ============================================
 optuna>=3.5.0
