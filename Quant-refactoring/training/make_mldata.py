@@ -684,20 +684,26 @@ class AIDataMaker:
 
                 filtered_col_count = 0
                 accepted_col_count = 0
-                filter_reasons = {'not_in_columns': 0, 'has_nan': 0, 'has_infinite': 0}
+                filter_reasons = {'not_in_columns': 0, 'has_nan_above_threshold': 0, 'has_infinite': 0}
+
+                # NaN 허용 임계값 (30% 미만이면 허용)
+                NAN_THRESHOLD = 0.30
 
                 for target_col in cal_timefeature_col_list:
-                    # 유효한 (NaN이 아닌, 유한한) 데이터가 있는 컬럼만 처리
+                    # 방법 2: 동적 필터링 - 컬럼이 존재하지 않으면 스킵
                     if target_col not in window_data.columns:
                         filtered_col_count += 1
                         filter_reasons['not_in_columns'] += 1
                         continue
 
-                    if window_data[target_col].isna().any():
+                    # 방법 5: NaN 허용 임계값 - NaN이 30% 이상이면 스킵
+                    nan_ratio = window_data[target_col].isna().sum() / len(window_data)
+                    if nan_ratio >= NAN_THRESHOLD:
                         filtered_col_count += 1
-                        filter_reasons['has_nan'] += 1
+                        filter_reasons['has_nan_above_threshold'] += 1
                         continue
 
+                    # Infinite 값 체크
                     if not np.isfinite(window_data[target_col]).all():
                         filtered_col_count += 1
                         filter_reasons['has_infinite'] += 1
@@ -716,7 +722,7 @@ class AIDataMaker:
 
                 # 디버깅: 필터링 결과
                 self.logger.info(f"   Columns accepted: {accepted_col_count}/{len(cal_timefeature_col_list)}")
-                self.logger.info(f"   Columns filtered: {filtered_col_count} (not_in_data={filter_reasons['not_in_columns']}, has_nan={filter_reasons['has_nan']}, has_infinite={filter_reasons['has_infinite']})")
+                self.logger.info(f"   Columns filtered: {filtered_col_count} (not_in_data={filter_reasons['not_in_columns']}, nan>={int(NAN_THRESHOLD*100)}%={filter_reasons['has_nan_above_threshold']}, has_infinite={filter_reasons['has_infinite']})")
                 self.logger.info(f"   df_for_extract_feature shape: {df_for_extract_feature.shape}")
 
                 if not df_for_extract_feature.empty:
@@ -861,7 +867,7 @@ class AIDataMaker:
                     self.logger.warning(f"   Columns accepted: {accepted_col_count}")
                     self.logger.warning(f"   Filter breakdown:")
                     self.logger.warning(f"     - Not in window_data: {filter_reasons['not_in_columns']}")
-                    self.logger.warning(f"     - Contains NaN: {filter_reasons['has_nan']}")
+                    self.logger.warning(f"     - NaN >= {int(NAN_THRESHOLD*100)}%: {filter_reasons['has_nan_above_threshold']}")
                     self.logger.warning(f"     - Contains infinite: {filter_reasons['has_infinite']}")
 
                     # 샘플 누락 컬럼 출력
@@ -869,4 +875,116 @@ class AIDataMaker:
                         missing_cols = [col for col in cal_timefeature_col_list if col not in window_data.columns]
                         sample_missing = missing_cols[:10]
                         self.logger.warning(f"   Sample missing columns (first 10): {sample_missing}")
+
+                    # NaN 분석 및 CSV 추출
+                    self._export_nan_analysis(window_data, cal_timefeature_col_list, base_year_period, NAN_THRESHOLD)
                     continue
+
+    def _export_nan_analysis(self, window_data: pd.DataFrame, cal_timefeature_col_list: List[str],
+                            base_year_period: float, nan_threshold: float) -> None:
+        """
+        NaN이 포함된 데이터를 다양한 형식으로 CSV 파일로 내보냅니다.
+
+        세 가지 분석 방법:
+        A. 전체 NaN row 추출: NaN을 포함한 모든 행을 내보냄
+        B. 컬럼별 NaN 통계: 각 컬럼의 NaN 비율과 통계를 요약
+        C. 컬럼별 NaN 샘플 추출: 각 컬럼에서 NaN이 있는 샘플 행 내보냄
+
+        Args:
+            window_data: 분석할 윈도우 데이터
+            cal_timefeature_col_list: 시계열 특성 컬럼 리스트
+            base_year_period: 현재 년도_분기 (예: 2022.2 = 2022 Q1)
+            nan_threshold: NaN 허용 임계값 (예: 0.30 = 30%)
+
+        출력 파일:
+            - rows_with_nan_{year_period}.csv: NaN을 포함한 모든 행
+            - nan_summary_by_column_{year_period}.csv: 컬럼별 NaN 통계
+            - nan_samples_{column}_{year_period}.csv: 각 컬럼별 NaN 샘플
+        """
+        # 출력 디렉토리 생성
+        nan_analysis_dir = os.path.join(self.main_ctx.root_path, "NAN_ANALYSIS")
+        self.main_ctx.create_dir(nan_analysis_dir)
+
+        # 년도와 분기 추출 (예: 2022.2 -> 2022_Q1)
+        year = int(base_year_period)
+        quarter_decimal = base_year_period - year
+        quarter_map = {0.2: 'Q1', 0.4: 'Q2', 0.6: 'Q3', 0.8: 'Q4'}
+        quarter_str = quarter_map.get(quarter_decimal, 'Q0')
+        period_label = f"{year}_{quarter_str}"
+
+        self.logger.info(f"📊 [{base_year_period}] Exporting NaN analysis to CSV files...")
+
+        # ======================================================================
+        # Method A: 전체 NaN row 추출
+        # ======================================================================
+        # cal_timefeature_col_list의 컬럼 중 하나라도 NaN이 있는 행 찾기
+        relevant_cols = [col for col in cal_timefeature_col_list if col in window_data.columns]
+
+        if relevant_cols:
+            # 적어도 하나의 NaN을 포함한 행 찾기
+            rows_with_nan = window_data[window_data[relevant_cols].isna().any(axis=1)]
+
+            if not rows_with_nan.empty:
+                output_file_a = os.path.join(nan_analysis_dir, f"rows_with_nan_{period_label}.csv")
+                rows_with_nan.to_csv(output_file_a, index=False)
+                self.logger.info(f"   Method A: Exported {len(rows_with_nan)} rows with NaN → {os.path.basename(output_file_a)}")
+            else:
+                self.logger.info(f"   Method A: No rows with NaN found (unexpected)")
+
+        # ======================================================================
+        # Method B: 컬럼별 NaN 통계
+        # ======================================================================
+        summary_data = []
+        for col in cal_timefeature_col_list:
+            if col not in window_data.columns:
+                # 컬럼이 존재하지 않음
+                summary_data.append({
+                    'column': col,
+                    'status': 'NOT_IN_DATA',
+                    'nan_count': 'N/A',
+                    'total_rows': len(window_data),
+                    'nan_ratio': 'N/A',
+                    'above_threshold': 'N/A'
+                })
+            else:
+                # NaN 통계 계산
+                nan_count = window_data[col].isna().sum()
+                total_rows = len(window_data)
+                nan_ratio = nan_count / total_rows if total_rows > 0 else 0.0
+                above_threshold = nan_ratio >= nan_threshold
+
+                summary_data.append({
+                    'column': col,
+                    'status': 'EXISTS',
+                    'nan_count': nan_count,
+                    'total_rows': total_rows,
+                    'nan_ratio': f"{nan_ratio:.4f}",
+                    'above_threshold': above_threshold
+                })
+
+        summary_df = pd.DataFrame(summary_data)
+        output_file_b = os.path.join(nan_analysis_dir, f"nan_summary_by_column_{period_label}.csv")
+        summary_df.to_csv(output_file_b, index=False)
+        self.logger.info(f"   Method B: Exported column NaN summary ({len(summary_data)} columns) → {os.path.basename(output_file_b)}")
+
+        # ======================================================================
+        # Method C: 컬럼별 NaN 샘플 추출
+        # ======================================================================
+        # 각 컬럼에서 NaN이 있는 행의 샘플을 추출 (최대 100개)
+        sample_count = 0
+        for col in relevant_cols:
+            col_nan_rows = window_data[window_data[col].isna()]
+
+            if not col_nan_rows.empty:
+                # 최대 100개 샘플만 저장
+                sample_rows = col_nan_rows.head(100)
+                output_file_c = os.path.join(nan_analysis_dir, f"nan_samples_{col}_{period_label}.csv")
+                sample_rows.to_csv(output_file_c, index=False)
+                sample_count += 1
+
+        if sample_count > 0:
+            self.logger.info(f"   Method C: Exported NaN samples for {sample_count} columns (up to 100 rows each)")
+        else:
+            self.logger.info(f"   Method C: No NaN samples to export (unexpected)")
+
+        self.logger.info(f"✅ [{base_year_period}] NaN analysis export complete")
