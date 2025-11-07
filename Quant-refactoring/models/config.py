@@ -52,7 +52,7 @@ from typing import Dict, Any, Tuple
 XGBOOST_CLASSIFIER_CONFIGS: Dict[str, Dict[str, Any]] = {
     'default': {
         'tree_method': 'gpu_hist',      # GPU-accelerated histogram algorithm
-        'gpu_id': 0,                     # GPU device ID (0 for first GPU)
+        'device': 'cuda:0',              # GPU device (cuda:0 for first GPU, cpu for CPU)
         'n_estimators': 500,             # Number of boosting rounds
         'learning_rate': 0.1,            # Step size shrinkage (eta)
         'gamma': 0,                      # Minimum loss reduction for split
@@ -64,7 +64,7 @@ XGBOOST_CLASSIFIER_CONFIGS: Dict[str, Dict[str, Any]] = {
     },
     'depth_9': {
         'tree_method': 'gpu_hist',
-        'gpu_id': 0,
+        'device': 'cuda:0',
         'n_estimators': 500,
         'learning_rate': 0.1,
         'gamma': 0,
@@ -76,7 +76,7 @@ XGBOOST_CLASSIFIER_CONFIGS: Dict[str, Dict[str, Any]] = {
     },
     'depth_10': {
         'tree_method': 'gpu_hist',
-        'gpu_id': 0,
+        'device': 'cuda:0',
         'n_estimators': 500,
         'learning_rate': 0.1,
         'gamma': 0,
@@ -91,7 +91,7 @@ XGBOOST_CLASSIFIER_CONFIGS: Dict[str, Dict[str, Any]] = {
 XGBOOST_REGRESSOR_CONFIGS: Dict[str, Dict[str, Any]] = {
     'default': {
         'tree_method': 'gpu_hist',
-        'gpu_id': 0,
+        'device': 'cuda:0',
         'n_estimators': 1000,            # More iterations for regression (1000)
         'learning_rate': 0.1,
         'gamma': 0,
@@ -103,7 +103,7 @@ XGBOOST_REGRESSOR_CONFIGS: Dict[str, Dict[str, Any]] = {
     },
     'deep': {
         'tree_method': 'gpu_hist',
-        'gpu_id': 0,
+        'device': 'cuda:0',
         'n_estimators': 1000,
         'learning_rate': 0.1,
         'gamma': 0,
