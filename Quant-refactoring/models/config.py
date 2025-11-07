@@ -51,7 +51,7 @@ from typing import Dict, Any, Tuple
 
 XGBOOST_CLASSIFIER_CONFIGS: Dict[str, Dict[str, Any]] = {
     'default': {
-        'tree_method': 'gpu_hist',      # GPU-accelerated histogram algorithm
+        'tree_method': 'hist',           # Histogram algorithm (GPU via device param)
         'device': 'cuda:0',              # GPU device (cuda:0 for first GPU, cpu for CPU)
         'n_estimators': 500,             # Number of boosting rounds
         'learning_rate': 0.1,            # Step size shrinkage (eta)
@@ -63,7 +63,7 @@ XGBOOST_CLASSIFIER_CONFIGS: Dict[str, Dict[str, Any]] = {
         'eval_metric': 'logloss'         # Evaluation metric (log loss)
     },
     'depth_9': {
-        'tree_method': 'gpu_hist',
+        'tree_method': 'hist',
         'device': 'cuda:0',
         'n_estimators': 500,
         'learning_rate': 0.1,
@@ -75,7 +75,7 @@ XGBOOST_CLASSIFIER_CONFIGS: Dict[str, Dict[str, Any]] = {
         'eval_metric': 'logloss'
     },
     'depth_10': {
-        'tree_method': 'gpu_hist',
+        'tree_method': 'hist',
         'device': 'cuda:0',
         'n_estimators': 500,
         'learning_rate': 0.1,
@@ -90,7 +90,7 @@ XGBOOST_CLASSIFIER_CONFIGS: Dict[str, Dict[str, Any]] = {
 
 XGBOOST_REGRESSOR_CONFIGS: Dict[str, Dict[str, Any]] = {
     'default': {
-        'tree_method': 'gpu_hist',
+        'tree_method': 'hist',
         'device': 'cuda:0',
         'n_estimators': 1000,            # More iterations for regression (1000)
         'learning_rate': 0.1,
@@ -102,7 +102,7 @@ XGBOOST_REGRESSOR_CONFIGS: Dict[str, Dict[str, Any]] = {
         'eval_metric': 'rmse'             # Root mean squared error
     },
     'deep': {
-        'tree_method': 'gpu_hist',
+        'tree_method': 'hist',
         'device': 'cuda:0',
         'n_estimators': 1000,
         'learning_rate': 0.1,
