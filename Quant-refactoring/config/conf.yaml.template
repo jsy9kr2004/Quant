@@ -21,6 +21,7 @@ DATA:
 
   # Data collection
   GET_FMP: N  # Y = Fetch new data from FMP, N = Use existing data
+  MAKE_VIEW: N  # Y = Rebuild VIEW CSVs from existing data (works even when GET_FMP=N), N = Skip
   STORAGE_TYPE: PARQUET  # PARQUET (recommended) or DB
 
   # Debug mode: Save CSV files alongside Parquet for inspection
@@ -127,18 +128,24 @@ THRESHOLD_PERCENTILE: 92  # Top 8% selection
 #    ML.RUN_REGRESSION: N
 #    BACKTEST.RUN_BACKTEST: N
 #
-# 2. Train ML models:
+# 2. Rebuild VIEW CSVs only (without fetching FMP data):
+#    DATA.GET_FMP: N
+#    DATA.MAKE_VIEW: Y
+#    ML.RUN_REGRESSION: N
+#    BACKTEST.RUN_BACKTEST: N
+#
+# 3. Train ML models:
 #    DATA.GET_FMP: N
 #    ML.RUN_REGRESSION: Y
 #    ML.EXIT_AFTER_ML: Y
 #
-# 3. Run backtest only:
+# 4. Run backtest only:
 #    DATA.GET_FMP: N
 #    ML.RUN_REGRESSION: N
 #    ML.EXIT_AFTER_ML: N
 #    BACKTEST.RUN_BACKTEST: Y
 #
-# 4. Full pipeline:
+# 5. Full pipeline:
 #    DATA.GET_FMP: Y
 #    ML.RUN_REGRESSION: Y
 #    ML.EXIT_AFTER_ML: N
