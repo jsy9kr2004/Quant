@@ -151,7 +151,12 @@ class RegressorIntegrated:
             ValueError: 사용 가능한 학습 방법이 없는 경우
             RuntimeError: 모델 학습 실패 시
         """
-        if self.use_new_models and self.conf.get('ML', {}).get('USE_MLFLOW'):
+        # Fix: Properly handle Y/N string values from YAML config
+        ml_config = self.conf.get('ML', {})
+        use_new_models = ml_config.get('USE_NEW_MODELS') == 'Y'
+        use_mlflow = ml_config.get('USE_MLFLOW') == 'Y'
+
+        if use_new_models and use_mlflow:
             self._train_with_new_models()
         elif self.legacy_regressor:
             self.legacy_regressor.train()
@@ -222,7 +227,17 @@ class RegressorIntegrated:
         Raises:
             FileNotFoundError: 테스트 데이터 파일이 누락된 경우
         """
-        if self.legacy_regressor:
+        # Fix: Use same logic as train() to ensure consistency
+        ml_config = self.conf.get('ML', {})
+        use_new_models = ml_config.get('USE_NEW_MODELS') == 'Y'
+        use_mlflow = ml_config.get('USE_MLFLOW') == 'Y'
+
+        if use_new_models and use_mlflow:
+            logger = get_logger('RegressorIntegrated')
+            logger.warning("New model evaluation not implemented yet, using legacy evaluation")
+            if self.legacy_regressor:
+                self.legacy_regressor.evaluation()
+        elif self.legacy_regressor:
             self.legacy_regressor.evaluation()
 
     def latest_prediction(self) -> None:
@@ -247,7 +262,17 @@ class RegressorIntegrated:
         Raises:
             FileNotFoundError: 최신 데이터 파일이 누락된 경우
         """
-        if self.legacy_regressor:
+        # Fix: Use same logic as train() to ensure consistency
+        ml_config = self.conf.get('ML', {})
+        use_new_models = ml_config.get('USE_NEW_MODELS') == 'Y'
+        use_mlflow = ml_config.get('USE_MLFLOW') == 'Y'
+
+        if use_new_models and use_mlflow:
+            logger = get_logger('RegressorIntegrated')
+            logger.warning("New model prediction not implemented yet, using legacy prediction")
+            if self.legacy_regressor:
+                self.legacy_regressor.latest_prediction()
+        elif self.legacy_regressor:
             self.legacy_regressor.latest_prediction()
 
 
@@ -537,9 +562,11 @@ def main() -> None:
 
         # 6.2 Train models
         logger.info("Training models...")
+        # Fix: Convert Y/N string to boolean
+        use_new_models = ml_config.get('USE_NEW_MODELS') == 'Y'
         regressor = RegressorIntegrated(
             config,
-            use_new_models=ml_config.get('USE_NEW_MODELS', False)
+            use_new_models=use_new_models
         )
         regressor.dataload()
         regressor.train()
