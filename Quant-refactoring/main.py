@@ -489,6 +489,41 @@ def main() -> None:
             logger.error(f"FMP data collection failed: {e}")
             logger.info("Continuing with existing data...")
 
+    # 5-1. Rebuild VIEW CSVs only (without FMP data collection)
+    elif data_config.get('MAKE_VIEW') == 'Y':
+        logger.info("="*80)
+        logger.info("Step 1: Rebuild VIEW CSVs from existing data")
+        logger.info("="*80)
+
+        try:
+            if storage_type == 'PARQUET':
+                logger.info("Rebuilding VIEW tables from existing data...")
+
+                # Initialize Parquet storage with auto-validation
+                storage = ParquetStorage(
+                    root_path=main_ctx.root_path,
+                    auto_validate=True
+                )
+
+                # Use legacy converter to rebuild VIEW tables
+                from storage.parquet_converter import Parquet
+                df_engine = Parquet(main_ctx)
+                df_engine.insert_csv()
+                df_engine.rebuild_table_view()
+
+                logger.info("✅ VIEW CSVs rebuilt successfully")
+
+            elif storage_type == 'DB':
+                logger.warning("Database storage not recommended. Use PARQUET instead.")
+                from database import Database
+                db = Database(main_ctx)
+                db.insert_csv()
+                db.rebuild_table_view()
+
+        except Exception as e:
+            logger.error(f"VIEW rebuild failed: {e}")
+            logger.info("Please check if raw data files exist...")
+
     # 6. ML Pipeline (Optional)
     ml_config = config.get('ML', {})
     if ml_config.get('RUN_REGRESSION') == 'Y':
