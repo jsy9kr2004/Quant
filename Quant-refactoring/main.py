@@ -151,10 +151,15 @@ class RegressorIntegrated:
             ValueError: 사용 가능한 학습 방법이 없는 경우
             RuntimeError: 모델 학습 실패 시
         """
-        # Fix: Properly handle Y/N string values from YAML config
+        # Fix: Handle both boolean and string Y/N values from YAML config
         ml_config = self.conf.get('ML', {})
-        use_new_models = ml_config.get('USE_NEW_MODELS') == 'Y'
-        use_mlflow = ml_config.get('USE_MLFLOW') == 'Y'
+
+        # Support both 'Y'/True and 'N'/False from YAML parsing
+        use_new_models_val = ml_config.get('USE_NEW_MODELS')
+        use_new_models = use_new_models_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
+
+        use_mlflow_val = ml_config.get('USE_MLFLOW')
+        use_mlflow = use_mlflow_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
 
         if use_new_models and use_mlflow:
             self._train_with_new_models()
@@ -185,7 +190,9 @@ class RegressorIntegrated:
         ml_config = self.conf.get('ML', {})
 
         # Initialize MLflow tracker
-        if ml_config.get('USE_MLFLOW'):
+        # Support both 'Y'/True and 'N'/False from YAML parsing
+        use_mlflow_val = ml_config.get('USE_MLFLOW')
+        if use_mlflow_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True'):
             tracker = MLflowTracker(
                 experiment_name=ml_config.get('MLFLOW_EXPERIMENT', 'quant_trading')
             )
@@ -229,8 +236,13 @@ class RegressorIntegrated:
         """
         # Fix: Use same logic as train() to ensure consistency
         ml_config = self.conf.get('ML', {})
-        use_new_models = ml_config.get('USE_NEW_MODELS') == 'Y'
-        use_mlflow = ml_config.get('USE_MLFLOW') == 'Y'
+
+        # Support both 'Y'/True and 'N'/False from YAML parsing
+        use_new_models_val = ml_config.get('USE_NEW_MODELS')
+        use_new_models = use_new_models_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
+
+        use_mlflow_val = ml_config.get('USE_MLFLOW')
+        use_mlflow = use_mlflow_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
 
         if use_new_models and use_mlflow:
             logger = get_logger('RegressorIntegrated')
@@ -264,8 +276,13 @@ class RegressorIntegrated:
         """
         # Fix: Use same logic as train() to ensure consistency
         ml_config = self.conf.get('ML', {})
-        use_new_models = ml_config.get('USE_NEW_MODELS') == 'Y'
-        use_mlflow = ml_config.get('USE_MLFLOW') == 'Y'
+
+        # Support both 'Y'/True and 'N'/False from YAML parsing
+        use_new_models_val = ml_config.get('USE_NEW_MODELS')
+        use_new_models = use_new_models_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
+
+        use_mlflow_val = ml_config.get('USE_MLFLOW')
+        use_mlflow = use_mlflow_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
 
         if use_new_models and use_mlflow:
             logger = get_logger('RegressorIntegrated')
@@ -551,7 +568,9 @@ def main() -> None:
 
     # 6. ML Pipeline (Optional)
     ml_config = config.get('ML', {})
-    if ml_config.get('RUN_REGRESSION') == 'Y':
+    # Support both 'Y'/True and 'N'/False from YAML parsing
+    run_regression_val = ml_config.get('RUN_REGRESSION')
+    if run_regression_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True'):
         logger.info("="*80)
         logger.info("Step 2: ML Pipeline")
         logger.info("="*80)
@@ -562,8 +581,9 @@ def main() -> None:
 
         # 6.2 Train models
         logger.info("Training models...")
-        # Fix: Convert Y/N string to boolean
-        use_new_models = ml_config.get('USE_NEW_MODELS') == 'Y'
+        # Fix: Support both boolean and string Y/N values from YAML parsing
+        use_new_models_val = ml_config.get('USE_NEW_MODELS')
+        use_new_models = use_new_models_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
         regressor = RegressorIntegrated(
             config,
             use_new_models=use_new_models
@@ -576,13 +596,17 @@ def main() -> None:
         logger.info("✅ ML pipeline completed")
 
         # Exit after ML if configured (allows running ML without backtest)
-        if ml_config.get('EXIT_AFTER_ML', True):
+        # Support both 'Y'/True and 'N'/False from YAML parsing (default True)
+        exit_after_ml_val = ml_config.get('EXIT_AFTER_ML', True)
+        if exit_after_ml_val not in ('N', False, 'no', 'NO', 'No', 'OFF', 'Off', 'off', 'FALSE', 'False'):
             logger.info("Exiting after ML (set EXIT_AFTER_ML=N to continue to backtest)")
             sys.exit(0)
 
     # 7. Backtesting (Optional)
     backtest_config = config.get('BACKTEST', {})
-    if backtest_config.get('RUN_BACKTEST', True):
+    # Support both 'Y'/True and 'N'/False from YAML parsing (default True)
+    run_backtest_val = backtest_config.get('RUN_BACKTEST', True)
+    if run_backtest_val not in ('N', False, 'no', 'NO', 'No', 'OFF', 'Off', 'off', 'FALSE', 'False'):
         logger.info("="*80)
         logger.info("Step 3: Backtesting")
         logger.info("="*80)
