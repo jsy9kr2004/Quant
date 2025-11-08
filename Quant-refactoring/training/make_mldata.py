@@ -154,6 +154,9 @@ class AIDataMaker:
         self.main_ctx.create_dir(self.main_ctx.root_path + "/DATE_TABLE")
 
         # 파이프라인 실행
+        # 주의: main_ctx.start_year/end_year는 DATA.START_YEAR/END_YEAR에서 로드됩니다.
+        # 이는 생성할 ML 데이터의 전체 범위를 정의합니다.
+        # 학습/테스트 분할은 regressor.py에서 ML.TRAIN/TEST_YEAR 설정을 사용합니다.
         self.load_bt_table(main_ctx.start_year)
         self.set_date()
         self.process_price_table_wdate()
@@ -633,7 +636,13 @@ class AIDataMaker:
                 if col not in fs_metrics.columns:
                     continue
                 new_col_name = 'OverMC_' + col
-                fs_metrics[new_col_name] = np.where(fs_metrics['marketCap'] > 0,
+                # 무한대 값 방지: 분자와 분모 모두 유한한 값이어야 함
+                valid_mask = (
+                    (fs_metrics['marketCap'] > 0) &
+                    np.isfinite(fs_metrics['marketCap']) &
+                    np.isfinite(fs_metrics[col])
+                )
+                fs_metrics[new_col_name] = np.where(valid_mask,
                                                     fs_metrics[col]/fs_metrics['marketCap'], np.nan)
 
             # 커스텀 비율 계산: adaptiveMC_* (EV / 메트릭)
@@ -641,7 +650,13 @@ class AIDataMaker:
             fs_metrics["adaptiveMC_ev"] = fs_metrics['marketCap'] + fs_metrics["netDebt"]
             for col in cal_ev_col_list:
                 new_col_name = 'adaptiveMC_' + col
-                fs_metrics[new_col_name] = np.where(fs_metrics[col] > 0,
+                # 무한대 값 방지: 분자와 분모 모두 유한한 값이어야 함
+                valid_mask = (
+                    (fs_metrics[col] > 0) &
+                    np.isfinite(fs_metrics[col]) &
+                    np.isfinite(fs_metrics['adaptiveMC_ev'])
+                )
+                fs_metrics[new_col_name] = np.where(valid_mask,
                                                     fs_metrics['adaptiveMC_ev']/fs_metrics[col], np.nan)
 
             # 디버깅을 위한 스냅샷 저장
