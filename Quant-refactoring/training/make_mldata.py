@@ -853,6 +853,56 @@ class AIDataMaker:
                     # 정규화된 컬럼과 제외된 컬럼 결합
                     scaled_df = pd.concat([excluded_df, scaled_df], axis=1)
 
+                    # ===================================================================
+                    # FIX: Q4 데이터 손실 문제 해결
+                    # 문제: fs_metrics의 rebalance_date(공시일 기반)와
+                    #      table_for_ai의 rebalance_date(거래일 기반)가 불일치
+                    # 해결: 현재 분기의 대표 rebalance_date를 table_for_ai에서 찾아 통일
+                    # ===================================================================
+
+                    # 현재 분기의 리밸런싱 날짜 결정
+                    quarter_rebalance_dates = table_for_ai['rebalance_date'].unique()
+
+                    # 연도와 분기 범위로 필터링
+                    target_year = int(base_year_period)
+                    quarter_decimal = base_year_period - target_year
+
+                    # 분기별 월 범위
+                    quarter_months = {
+                        0.2: (1, 3),   # Q1: Jan-Mar
+                        0.4: (4, 6),   # Q2: Apr-Jun
+                        0.6: (7, 9),   # Q3: Jul-Sep
+                        0.8: (10, 12)  # Q4: Oct-Dec
+                    }
+
+                    if quarter_decimal in quarter_months:
+                        start_month, end_month = quarter_months[quarter_decimal]
+
+                        # 해당 분기의 rebalance_date 찾기
+                        target_rebalance_date = None
+                        for date in quarter_rebalance_dates:
+                            date_obj = pd.to_datetime(date)
+                            if (date_obj.year == target_year and
+                                start_month <= date_obj.month <= end_month):
+                                target_rebalance_date = date
+                                break
+
+                        if target_rebalance_date is None:
+                            self.logger.warning(f"❌ [{base_year_period}] No rebalance_date found for quarter {target_year} Q{int((quarter_decimal - 0.2)/0.2 + 1)}")
+                            self.logger.warning(f"   Available dates: {sorted([pd.to_datetime(d) for d in quarter_rebalance_dates[:5]])}")
+                            continue
+
+                        # scaled_df의 모든 행에 통일된 rebalance_date 적용
+                        scaled_df['rebalance_date'] = target_rebalance_date
+
+                        self.logger.info(f"📅 [{base_year_period}] Using unified rebalance_date: {target_rebalance_date}")
+                        self.logger.info(f"   This fixes Q4 data loss issue by matching fs_metrics to table_for_ai")
+                    else:
+                        self.logger.error(f"❌ [{base_year_period}] Invalid quarter_decimal: {quarter_decimal}")
+                        continue
+
+                    # ===================================================================
+
                     # 타겟 변수 없이 특성 저장 (최신 예측용)
                     symbol_industry = table_for_ai[['symbol', 'industry', 'volume_mul_price']]
                     symbol_industry = symbol_industry.drop_duplicates('symbol', keep='first')
