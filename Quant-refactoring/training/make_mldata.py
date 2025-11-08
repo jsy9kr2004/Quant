@@ -216,6 +216,13 @@ class AIDataMaker:
             self.fs_table['fillingDate'] = pd.to_datetime(self.fs_table['fillingDate'])
             self.fs_table['acceptedDate'] = pd.to_datetime(self.fs_table['acceptedDate'])
 
+            # 무한대 값을 NaN으로 변환 (division by zero로 생성된 infinite 값 처리)
+            numeric_cols = self.fs_table.select_dtypes(include=[np.number]).columns
+            inf_before = np.isinf(self.fs_table[numeric_cols]).sum().sum()
+            if inf_before > 0:
+                self.logger.info(f"📊 Replacing {inf_before} infinite values with NaN in fs_table")
+                self.fs_table[numeric_cols] = self.fs_table[numeric_cols].replace([np.inf, -np.inf], np.nan)
+
         # 재무 메트릭 로드 (3년 과거)
         self.metrics_table = pd.DataFrame()
         for year in range(self.main_ctx.start_year-3, self.main_ctx.end_year+1):
@@ -230,6 +237,13 @@ class AIDataMaker:
         # 날짜 컬럼을 datetime으로 변환
         if not self.metrics_table.empty:
             self.metrics_table['date'] = pd.to_datetime(self.metrics_table['date'])
+
+            # 무한대 값을 NaN으로 변환 (division by zero로 생성된 infinite 값 처리)
+            numeric_cols = self.metrics_table.select_dtypes(include=[np.number]).columns
+            inf_before = np.isinf(self.metrics_table[numeric_cols]).sum().sum()
+            if inf_before > 0:
+                self.logger.info(f"📊 Replacing {inf_before} infinite values with NaN in metrics_table")
+                self.metrics_table[numeric_cols] = self.metrics_table[numeric_cols].replace([np.inf, -np.inf], np.nan)
 
     def get_trade_date(self, pdate: pd.Timestamp) -> Optional[pd.Timestamp]:
         """
