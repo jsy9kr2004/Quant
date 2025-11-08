@@ -674,6 +674,13 @@ class AIDataMaker:
                 fs_metrics[new_col_name] = np.where(valid_mask,
                                                     fs_metrics['adaptiveMC_ev']/fs_metrics[col], np.nan)
 
+            # 무한대 값을 NaN으로 변환 (혹시 남아있는 inf 값 정리)
+            numeric_cols = fs_metrics.select_dtypes(include=[np.number]).columns
+            inf_count = np.isinf(fs_metrics[numeric_cols]).sum().sum()
+            if inf_count > 0:
+                self.logger.info(f"📊 [{cur_year}] Replacing {inf_count} infinite values with NaN in fs_metrics")
+                fs_metrics[numeric_cols] = fs_metrics[numeric_cols].replace([np.inf, -np.inf], np.nan)
+
             # 디버깅을 위한 스냅샷 저장
             print("*** fs_metrics w/ rebalance_date")
             print(fs_metrics)
@@ -784,8 +791,8 @@ class AIDataMaker:
                         filter_reasons['has_nan_above_threshold'] += 1
                         continue
 
-                    # Infinite 값 체크
-                    if not np.isfinite(window_data[target_col]).all():
+                    # Infinite 값 체크 (NaN은 위에서 이미 30% 임계값으로 체크했으므로 무한대만 체크)
+                    if np.isinf(window_data[target_col]).any():
                         filtered_col_count += 1
                         filter_reasons['has_infinite'] += 1
                         continue
