@@ -598,21 +598,22 @@ class AIDataMaker:
             fs_metrics['rebalance_date'] = [date_index[i] if i < len(date_index) else pd.NaT for i in indices]
 
             # 시간 순서를 위한 year_period 생성
-            # Q1=.2, Q2=.4, Q3=.6, Q4=.8로 소수점 정렬 가능
+            # 정수 기반: Q1=202401, Q2=202402, Q3=202403, Q4=202404 (부동소수점 오차 방지)
             fs_metrics = fs_metrics.dropna(subset=['calendarYear'])
 
             # period 값 검증 및 로깅
             unique_periods = fs_metrics['period'].unique()
             self.logger.info(f"   Unique period values in data: {sorted([str(p) for p in unique_periods])}")
 
-            period_map = {'Q1': 0.2, 'Q2': 0.4, 'Q3': 0.6, 'Q4': 0.8}
+            period_map = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
             unmapped_periods = set(unique_periods) - set(period_map.keys())
             if unmapped_periods:
                 self.logger.warning(f"⚠️  Found unexpected period values: {unmapped_periods}")
                 self.logger.warning(f"   These will result in NaN year_period and be filtered out")
                 self.logger.warning(f"   Expected values: {list(period_map.keys())}")
 
-            fs_metrics['year_period'] = fs_metrics['calendarYear'] + fs_metrics['period'].map(period_map)
+            fs_metrics['year_period'] = (fs_metrics['calendarYear'].astype(int) * 100 +
+                                         fs_metrics['period'].map(period_map).astype(int))
 
             # NaN year_period 체크 및 필터링
             nan_count = fs_metrics['year_period'].isna().sum()
@@ -670,8 +671,8 @@ class AIDataMaker:
             quarterly_stats = []
 
             # 각 분기 처리
-            for quarter_str, quarter in [('Q1', 0.2), ('Q2', 0.4), ('Q3', 0.6), ('Q4', 0.8)]:
-                base_year_period = cur_year + quarter
+            for quarter_str, quarter_num in [('Q1', 1), ('Q2', 2), ('Q3', 3), ('Q4', 4)]:
+                base_year_period = cur_year * 100 + quarter_num  # 예: 202401, 202402, 202403, 202404
 
                 # 출력 파일 경로
                 file_path = os.path.join(self.main_ctx.root_path, "ml_per_year", f"rnorm_fs_{str(cur_year)}_{quarter_str}.parquet")
@@ -685,7 +686,7 @@ class AIDataMaker:
                 print(base_year_period)
 
                 # 현재 분기까지의 데이터 가져오기
-                filtered_data = fs_metrics[fs_metrics['year_period'] <= float(base_year_period)]
+                filtered_data = fs_metrics[fs_metrics['year_period'] <= base_year_period]
 
                 # 12분기 룩백 윈도우 생성
                 def get_last_12_rows(group):
@@ -715,7 +716,7 @@ class AIDataMaker:
                 # ===================================================================
                 if 'fillingDate' in window_data.columns and 'report_date' in window_data.columns:
                     # 현재 분기의 데이터만 추출
-                    current_quarter_data = window_data[window_data['year_period'] == float(base_year_period)]
+                    current_quarter_data = window_data[window_data['year_period'] == base_year_period]
 
                     if not current_quarter_data.empty and 'fillingDate' in current_quarter_data.columns:
                         # report_date (분기 종료일)와 fillingDate (공시일) 간격 계산
@@ -824,10 +825,10 @@ class AIDataMaker:
                     unique_periods = sorted(window_data['year_period'].unique())
                     self.logger.info(f"   window_data BEFORE filter - year_period values: {unique_periods[:20]}")
                     self.logger.info(f"   Total unique year_periods: {len(unique_periods)}")
-                    self.logger.info(f"   Looking for year_period: {float(base_year_period)}")
-                    self.logger.info(f"   Is {base_year_period} in window_data? {float(base_year_period) in window_data['year_period'].values}")
+                    self.logger.info(f"   Looking for year_period: {base_year_period}")
+                    self.logger.info(f"   Is {base_year_period} in window_data? {base_year_period in window_data['year_period'].values}")
 
-                    window_data = window_data[window_data['year_period'] == float(base_year_period)]
+                    window_data = window_data[window_data['year_period'] == base_year_period]
                     self.logger.info(f"   window_data after year_period filter: {window_data.shape[0]} rows, {window_data['symbol'].nunique() if not window_data.empty else 0} symbols")
                     self.logger.info(f"   df_w_time_feature before merge: {df_w_time_feature.shape[0]} rows")
 
@@ -910,20 +911,20 @@ class AIDataMaker:
                     # 현재 분기의 리밸런싱 날짜 결정
                     quarter_rebalance_dates = table_for_ai['rebalance_date'].unique()
 
-                    # 연도와 분기 범위로 필터링
-                    target_year = int(base_year_period)
-                    quarter_decimal = base_year_period - target_year
+                    # 연도와 분기 추출 (예: 202401 → year=2024, quarter_num=1)
+                    target_year = base_year_period // 100
+                    quarter_num = base_year_period % 100
 
                     # 분기별 월 범위
                     quarter_months = {
-                        0.2: (1, 3),   # Q1: Jan-Mar
-                        0.4: (4, 6),   # Q2: Apr-Jun
-                        0.6: (7, 9),   # Q3: Jul-Sep
-                        0.8: (10, 12)  # Q4: Oct-Dec
+                        1: (1, 3),   # Q1: Jan-Mar
+                        2: (4, 6),   # Q2: Apr-Jun
+                        3: (7, 9),   # Q3: Jul-Sep
+                        4: (10, 12)  # Q4: Oct-Dec
                     }
 
-                    if quarter_decimal in quarter_months:
-                        start_month, end_month = quarter_months[quarter_decimal]
+                    if quarter_num in quarter_months:
+                        start_month, end_month = quarter_months[quarter_num]
 
                         # 해당 분기의 rebalance_date 찾기
                         target_rebalance_date = None
@@ -935,7 +936,7 @@ class AIDataMaker:
                                 break
 
                         if target_rebalance_date is None:
-                            self.logger.warning(f"❌ [{base_year_period}] No rebalance_date found for quarter {target_year} Q{int((quarter_decimal - 0.2)/0.2 + 1)}")
+                            self.logger.warning(f"❌ [{base_year_period}] No rebalance_date found for quarter {target_year} Q{quarter_num}")
                             self.logger.warning(f"   Available dates: {sorted([pd.to_datetime(d) for d in quarter_rebalance_dates[:5]])}")
                             continue
 
@@ -945,7 +946,7 @@ class AIDataMaker:
                         self.logger.info(f"📅 [{base_year_period}] Using unified rebalance_date: {target_rebalance_date}")
                         self.logger.info(f"   This fixes Q4 data loss issue by matching fs_metrics to table_for_ai")
                     else:
-                        self.logger.error(f"❌ [{base_year_period}] Invalid quarter_decimal: {quarter_decimal}")
+                        self.logger.error(f"❌ [{base_year_period}] Invalid quarter_num: {quarter_num}")
                         continue
 
                     # ===================================================================
@@ -1080,7 +1081,7 @@ class AIDataMaker:
             # ===================================================================
 
     def _export_nan_analysis(self, window_data: pd.DataFrame, cal_timefeature_col_list: List[str],
-                            base_year_period: float, nan_threshold: float) -> None:
+                            base_year_period: int, nan_threshold: float) -> None:
         """
         NaN이 포함된 데이터를 다양한 형식으로 CSV 파일로 내보냅니다.
 
@@ -1092,7 +1093,7 @@ class AIDataMaker:
         Args:
             window_data: 분석할 윈도우 데이터
             cal_timefeature_col_list: 시계열 특성 컬럼 리스트
-            base_year_period: 현재 년도_분기 (예: 2022.2 = 2022 Q1)
+            base_year_period: 현재 년도_분기 (예: 202201 = 2022 Q1, 202403 = 2024 Q3)
             nan_threshold: NaN 허용 임계값 (예: 0.30 = 30%)
 
         출력 파일:
@@ -1104,34 +1105,31 @@ class AIDataMaker:
         nan_analysis_dir = os.path.join(self.main_ctx.root_path, "NAN_ANALYSIS")
         self.main_ctx.create_dir(nan_analysis_dir)
 
-        # 년도와 분기 추출 (예: 2022.2 -> 2022_Q1)
-        year = int(base_year_period)
-        quarter_decimal = base_year_period - year
+        # 년도와 분기 추출 (예: 202201 -> 2022_Q1, 202403 -> 2024_Q3)
+        year = base_year_period // 100
+        quarter_num = base_year_period % 100
 
-        # 부동소수점 안전한 비교 (0.01 허용 오차)
-        def get_quarter_str(decimal_val: float) -> str:
-            """소수점 부분을 분기 문자열로 변환 (부동소수점 안전)"""
-            quarter_thresholds = [
-                (0.2, 'Q1'),
-                (0.4, 'Q2'),
-                (0.6, 'Q3'),
-                (0.8, 'Q4'),
-                (0.0, 'Q0')  # 연간 데이터 또는 기준년도
-            ]
-            for threshold, quarter in quarter_thresholds:
-                if abs(decimal_val - threshold) < 0.01:  # 허용 오차 1%
-                    return quarter
+        # 정수 기반 분기 매핑 (부동소수점 오차 완전 제거)
+        def get_quarter_str(q_num: int) -> str:
+            """분기 번호를 분기 문자열로 변환"""
+            quarter_map = {
+                1: 'Q1',
+                2: 'Q2',
+                3: 'Q3',
+                4: 'Q4',
+                0: 'Q0'  # 연간 데이터 또는 기준년도
+            }
 
-            # 매칭 실패 시 경고 및 가장 가까운 분기 선택
-            self.logger.warning(f"⚠️  Unexpected quarter_decimal: {decimal_val} (base_year_period={base_year_period})")
-            self.logger.warning(f"   Using closest quarter approximation")
+            if q_num in quarter_map:
+                return quarter_map[q_num]
 
-            # 가장 가까운 분기 찾기
-            closest_q = min(quarter_thresholds, key=lambda x: abs(decimal_val - x[0]))
-            self.logger.warning(f"   Closest match: {closest_q[1]} (decimal={closest_q[0]})")
-            return closest_q[1]
+            # 매칭 실패 시 경고
+            self.logger.warning(f"⚠️  Unexpected quarter_num: {q_num} (base_year_period={base_year_period})")
+            self.logger.warning(f"   Expected values: {list(quarter_map.keys())}")
+            self.logger.warning(f"   Defaulting to Q0")
+            return 'Q0'
 
-        quarter_str = get_quarter_str(quarter_decimal)
+        quarter_str = get_quarter_str(quarter_num)
         period_label = f"{year}_{quarter_str}"
 
         self.logger.info(f"📊 [{base_year_period}] Exporting NaN analysis to CSV files...")
