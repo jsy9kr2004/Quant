@@ -1332,21 +1332,54 @@ class Regressor:
             pred_col_list.append(pred_col_name)
 
         # 최신 연도 데이터(모든 분기)를 로드하고 심볼당 가장 최근 것 유지
-        # FIXME: 2024로 하드코딩됨 - 설정 가능해야 함
+        # 자동으로 가장 최근 연도 감지 및 Parquet 형식 로드
+        import glob
+
+        # 모든 rnorm_fs 파일 찾기
+        fs_files = sorted(glob.glob(aidata_dir + 'rnorm_fs_*.parquet'))
+
+        if not fs_files:
+            logging.error(f"No rnorm_fs files found in {aidata_dir}")
+            logging.error("Cannot generate latest prediction without feature data")
+            return
+
+        # 파일명에서 연도 추출하여 가장 최근 연도 찾기
+        try:
+            years = [int(os.path.basename(f).split('_')[2]) for f in fs_files]
+            latest_year = max(years)
+            logging.info(f"Latest year detected: {latest_year}")
+        except (IndexError, ValueError) as e:
+            logging.error(f"Failed to parse year from filenames: {e}")
+            return
+
+        # 최신 연도의 모든 분기 로드
         ldf = pd.DataFrame()
-        for i in [1,2,3,4]:
-            latest_data_path = aidata_dir + f'rnorm_fs_2024_Q{i}.csv'
-            df = pd.read_csv(latest_data_path)
-            ldf = pd.concat([ldf, df], axis=0)
+        loaded_quarters = []
+
+        for Q in ['Q1', 'Q2', 'Q3', 'Q4']:
+            latest_data_path = aidata_dir + f'rnorm_fs_{latest_year}_{Q}.parquet'
+
+            if os.path.exists(latest_data_path):
+                df = pd.read_parquet(latest_data_path)
+                ldf = pd.concat([ldf, df], axis=0)
+                loaded_quarters.append(Q)
+                logging.info(f"Loaded {latest_year}_{Q}: {len(df)} rows")
+            else:
+                logging.warning(f"Latest data file not found: {os.path.basename(latest_data_path)}")
+
+        if ldf.empty:
+            logging.error(f"No data loaded for latest year {latest_year}")
+            logging.error(f"Checked quarters: Q1, Q2, Q3, Q4")
+            return
+
+        logging.info(f"Total loaded for {latest_year}: {len(ldf)} rows from {loaded_quarters}")
 
         # year_period를 기준으로 내림차순 정렬하고 심볼당 첫 번째(가장 최근) 유지
         ldf = ldf.sort_values(by='year_period', ascending=False)
         ldf = ldf.drop_duplicates(subset='symbol', keep='first')
         ldf = ldf.drop(columns=self.drop_col_list, errors='ignore')
 
-        # 첫 번째 컬럼 제거 (CSV의 인덱스 컬럼)
-        # FIXME: rnorm_fs*.csv 파일은 첫 번째 컬럼에 인덱스가 있음
-        ldf = ldf.drop(df.columns[0], axis=1)
+        # Parquet 파일은 인덱스 컬럼 없음 (CSV와 달리)
 
         # 섹터 리스트 추출
         self.sector_list = list(ldf['sector'].unique())

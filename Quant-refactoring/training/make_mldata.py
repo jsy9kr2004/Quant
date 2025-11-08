@@ -154,6 +154,9 @@ class AIDataMaker:
         self.main_ctx.create_dir(self.main_ctx.root_path + "/DATE_TABLE")
 
         # 파이프라인 실행
+        # 주의: main_ctx.start_year/end_year는 DATA.START_YEAR/END_YEAR에서 로드됩니다.
+        # 이는 생성할 ML 데이터의 전체 범위를 정의합니다.
+        # 학습/테스트 분할은 regressor.py에서 ML.TRAIN/TEST_YEAR 설정을 사용합니다.
         self.load_bt_table(main_ctx.start_year)
         self.set_date()
         self.process_price_table_wdate()
@@ -633,7 +636,13 @@ class AIDataMaker:
                 if col not in fs_metrics.columns:
                     continue
                 new_col_name = 'OverMC_' + col
-                fs_metrics[new_col_name] = np.where(fs_metrics['marketCap'] > 0,
+                # 무한대 값 방지: 분자와 분모 모두 유한한 값이어야 함
+                valid_mask = (
+                    (fs_metrics['marketCap'] > 0) &
+                    np.isfinite(fs_metrics['marketCap']) &
+                    np.isfinite(fs_metrics[col])
+                )
+                fs_metrics[new_col_name] = np.where(valid_mask,
                                                     fs_metrics[col]/fs_metrics['marketCap'], np.nan)
 
             # 커스텀 비율 계산: adaptiveMC_* (EV / 메트릭)
@@ -641,7 +650,13 @@ class AIDataMaker:
             fs_metrics["adaptiveMC_ev"] = fs_metrics['marketCap'] + fs_metrics["netDebt"]
             for col in cal_ev_col_list:
                 new_col_name = 'adaptiveMC_' + col
-                fs_metrics[new_col_name] = np.where(fs_metrics[col] > 0,
+                # 무한대 값 방지: 분자와 분모 모두 유한한 값이어야 함
+                valid_mask = (
+                    (fs_metrics[col] > 0) &
+                    np.isfinite(fs_metrics[col]) &
+                    np.isfinite(fs_metrics['adaptiveMC_ev'])
+                )
+                fs_metrics[new_col_name] = np.where(valid_mask,
                                                     fs_metrics['adaptiveMC_ev']/fs_metrics[col], np.nan)
 
             # 디버깅을 위한 스냅샷 저장
@@ -650,6 +665,9 @@ class AIDataMaker:
             fs_metrics.head(1000).to_parquet(self.main_ctx.root_path + f"/fs_metric_wdate_{str(cur_year)}.parquet", index=False)
             if self.main_ctx.save_debug_csv:
                 fs_metrics.head(1000).to_csv(self.main_ctx.root_path + f"/fs_metric_wdate_{str(cur_year)}.csv", index=False)
+
+            # 분기별 통계 수집 (균형 검증용)
+            quarterly_stats = []
 
             # 각 분기 처리
             for quarter_str, quarter in [('Q1', 0.2), ('Q2', 0.4), ('Q3', 0.6), ('Q4', 0.8)]:
@@ -691,6 +709,35 @@ class AIDataMaker:
                     self.logger.warning(f"No symbols with sufficient data (12+ rows) for {cur_year}_{quarter_str}. Skipping...")
                     print(f"⚠️  WARNING: No symbols with 12+ data points for {cur_year}_{quarter_str} - skipping")
                     continue
+
+                # ===================================================================
+                # 공시 지연 검증: fillingDate와 분기 종료일 간격 분석
+                # ===================================================================
+                if 'fillingDate' in window_data.columns and 'report_date' in window_data.columns:
+                    # 현재 분기의 데이터만 추출
+                    current_quarter_data = window_data[window_data['year_period'] == float(base_year_period)]
+
+                    if not current_quarter_data.empty and 'fillingDate' in current_quarter_data.columns:
+                        # report_date (분기 종료일)와 fillingDate (공시일) 간격 계산
+                        current_quarter_data_copy = current_quarter_data.copy()
+                        current_quarter_data_copy['filling_delay_days'] = (
+                            pd.to_datetime(current_quarter_data_copy['fillingDate']) -
+                            pd.to_datetime(current_quarter_data_copy['report_date'])
+                        ).dt.days
+
+                        avg_delay = current_quarter_data_copy['filling_delay_days'].mean()
+                        max_delay = current_quarter_data_copy['filling_delay_days'].max()
+
+                        self.logger.info(f"📋 [{base_year_period}] Filing delay analysis:")
+                        self.logger.info(f"   Average delay: {avg_delay:.1f} days")
+                        self.logger.info(f"   Maximum delay: {max_delay:.0f} days")
+
+                        # Q4는 특히 공시 지연이 길 것으로 예상
+                        if quarter_str == 'Q4' and avg_delay > 60:
+                            self.logger.warning(f"⚠️  [{base_year_period}] Q4 has long filing delay (avg {avg_delay:.1f} days)")
+                            self.logger.warning(f"   This is expected - Q4 reports typically filed in Feb-Mar next year")
+
+                # ===================================================================
 
                 # tsfresh를 사용하여 시계열 특성 추출
                 df_for_extract_feature = pd.DataFrame()
@@ -853,6 +900,56 @@ class AIDataMaker:
                     # 정규화된 컬럼과 제외된 컬럼 결합
                     scaled_df = pd.concat([excluded_df, scaled_df], axis=1)
 
+                    # ===================================================================
+                    # FIX: Q4 데이터 손실 문제 해결
+                    # 문제: fs_metrics의 rebalance_date(공시일 기반)와
+                    #      table_for_ai의 rebalance_date(거래일 기반)가 불일치
+                    # 해결: 현재 분기의 대표 rebalance_date를 table_for_ai에서 찾아 통일
+                    # ===================================================================
+
+                    # 현재 분기의 리밸런싱 날짜 결정
+                    quarter_rebalance_dates = table_for_ai['rebalance_date'].unique()
+
+                    # 연도와 분기 범위로 필터링
+                    target_year = int(base_year_period)
+                    quarter_decimal = base_year_period - target_year
+
+                    # 분기별 월 범위
+                    quarter_months = {
+                        0.2: (1, 3),   # Q1: Jan-Mar
+                        0.4: (4, 6),   # Q2: Apr-Jun
+                        0.6: (7, 9),   # Q3: Jul-Sep
+                        0.8: (10, 12)  # Q4: Oct-Dec
+                    }
+
+                    if quarter_decimal in quarter_months:
+                        start_month, end_month = quarter_months[quarter_decimal]
+
+                        # 해당 분기의 rebalance_date 찾기
+                        target_rebalance_date = None
+                        for date in quarter_rebalance_dates:
+                            date_obj = pd.to_datetime(date)
+                            if (date_obj.year == target_year and
+                                start_month <= date_obj.month <= end_month):
+                                target_rebalance_date = date
+                                break
+
+                        if target_rebalance_date is None:
+                            self.logger.warning(f"❌ [{base_year_period}] No rebalance_date found for quarter {target_year} Q{int((quarter_decimal - 0.2)/0.2 + 1)}")
+                            self.logger.warning(f"   Available dates: {sorted([pd.to_datetime(d) for d in quarter_rebalance_dates[:5]])}")
+                            continue
+
+                        # scaled_df의 모든 행에 통일된 rebalance_date 적용
+                        scaled_df['rebalance_date'] = target_rebalance_date
+
+                        self.logger.info(f"📅 [{base_year_period}] Using unified rebalance_date: {target_rebalance_date}")
+                        self.logger.info(f"   This fixes Q4 data loss issue by matching fs_metrics to table_for_ai")
+                    else:
+                        self.logger.error(f"❌ [{base_year_period}] Invalid quarter_decimal: {quarter_decimal}")
+                        continue
+
+                    # ===================================================================
+
                     # 타겟 변수 없이 특성 저장 (최신 예측용)
                     symbol_industry = table_for_ai[['symbol', 'industry', 'volume_mul_price']]
                     symbol_industry = symbol_industry.drop_duplicates('symbol', keep='first')
@@ -878,6 +975,27 @@ class AIDataMaker:
                     # 타겟 변수가 포함된 완전한 데이터셋 저장
                     cur_table_for_ai.to_parquet(file2_path, engine='pyarrow', compression='snappy', index=False)
                     self.logger.info(f"✅ Saved ML data: {os.path.basename(file2_path)}")
+
+                    # ===================================================================
+                    # 분기별 통계 수집 (균형 검증용)
+                    # ===================================================================
+                    file_size = os.path.getsize(file2_path)
+                    row_count = len(cur_table_for_ai)
+                    col_count = len(cur_table_for_ai.columns)
+
+                    quarterly_stats.append({
+                        'year': cur_year,
+                        'quarter': quarter_str,
+                        'year_period': base_year_period,
+                        'file_size_mb': file_size / (1024 * 1024),
+                        'row_count': row_count,
+                        'col_count': col_count,
+                        'symbols': cur_table_for_ai['symbol'].nunique() if 'symbol' in cur_table_for_ai.columns else 0
+                    })
+
+                    self.logger.info(f"📊 [{base_year_period}] File stats: {file_size/(1024*1024):.2f} MB, {row_count:,} rows, {col_count} cols")
+                    # ===================================================================
+
                 else:
                     # df_for_extract_feature가 비어있는 경우
                     self.logger.warning(f"❌ [{base_year_period}] No features to extract - SKIPPING")
@@ -898,6 +1016,68 @@ class AIDataMaker:
                     # NaN 분석 및 CSV 추출
                     self._export_nan_analysis(window_data, cal_timefeature_col_list, base_year_period, NAN_THRESHOLD)
                     continue
+
+            # ===================================================================
+            # 연도별 분기 균형 검증
+            # ===================================================================
+            if len(quarterly_stats) > 0:
+                self.logger.info(f"")
+                self.logger.info(f"{'='*80}")
+                self.logger.info(f"Quarterly Balance Check for {cur_year}")
+                self.logger.info(f"{'='*80}")
+
+                # DataFrame으로 변환하여 분석
+                stats_df = pd.DataFrame(quarterly_stats)
+
+                # 평균 파일 크기 계산
+                avg_size = stats_df['file_size_mb'].mean()
+                avg_rows = stats_df['row_count'].mean()
+
+                for idx, row in stats_df.iterrows():
+                    size_ratio = row['file_size_mb'] / avg_size if avg_size > 0 else 1.0
+                    row_ratio = row['row_count'] / avg_rows if avg_rows > 0 else 1.0
+
+                    status = "✅"
+                    warnings = []
+
+                    # 파일 크기가 평균 대비 20% 이상 차이
+                    if size_ratio < 0.8:
+                        status = "⚠️"
+                        warnings.append(f"Size {size_ratio*100:.0f}% of average")
+
+                    # 행 수가 평균 대비 20% 이상 차이
+                    if row_ratio < 0.8:
+                        status = "⚠️"
+                        warnings.append(f"Rows {row_ratio*100:.0f}% of average")
+
+                    warning_msg = f" ({', '.join(warnings)})" if warnings else ""
+
+                    self.logger.info(f"{status} {row['quarter']}: {row['file_size_mb']:.2f} MB, "
+                                   f"{row['row_count']:,} rows, {row['symbols']} symbols{warning_msg}")
+
+                # Q4가 다른 분기 대비 현저히 작으면 경고
+                q4_data = stats_df[stats_df['quarter'] == 'Q4']
+                other_quarters = stats_df[stats_df['quarter'] != 'Q4']
+
+                if not q4_data.empty and not other_quarters.empty:
+                    q4_avg_size = q4_data['file_size_mb'].mean()
+                    other_avg_size = other_quarters['file_size_mb'].mean()
+                    size_ratio = q4_avg_size / other_avg_size if other_avg_size > 0 else 1.0
+
+                    if size_ratio < 0.8:
+                        self.logger.warning(f"")
+                        self.logger.warning(f"⚠️  Q4 file size is {size_ratio*100:.0f}% of Q1-Q3 average")
+                        self.logger.warning(f"   Q4 avg: {q4_avg_size:.2f} MB vs Q1-Q3 avg: {other_avg_size:.2f} MB")
+                        self.logger.warning(f"   This was previously caused by rebalance_date mismatch")
+                        self.logger.warning(f"   If this persists after fix, investigate further")
+                    else:
+                        self.logger.info(f"")
+                        self.logger.info(f"✅ Q4 balance check PASSED: {size_ratio*100:.0f}% of Q1-Q3 average")
+
+                self.logger.info(f"{'='*80}")
+                self.logger.info(f"")
+
+            # ===================================================================
 
     def _export_nan_analysis(self, window_data: pd.DataFrame, cal_timefeature_col_list: List[str],
                             base_year_period: float, nan_threshold: float) -> None:
