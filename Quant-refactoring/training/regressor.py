@@ -940,11 +940,27 @@ class Regressor:
         for test_idx, (testdate, df) in enumerate(self.test_df_list):
 
             logging.info("evaluation date : ")
-            # 파일 경로에서 날짜 추출
-            tmp = testdate.split('\\')
-            tmp = [v for v in tmp if v.endswith('.csv')]
-            print(f"in test loop tmp : {tmp}")
-            tdate = "_".join(tmp[0].split('_')[4:6])
+            # 파일 경로에서 날짜 추출 (OS 독립적)
+            # 예: /path/to/rnorm_ml_2023_Q1.parquet -> 2023_Q1
+            import os
+            import re
+            filename = os.path.basename(testdate)  # 'rnorm_ml_2023_Q1.parquet'
+
+            # 정규표현식으로 안전하게 추출 (연도_분기 패턴)
+            match = re.search(r'(\d{4})_(Q\d)', filename)
+            if match:
+                tdate = f"{match.group(1)}_{match.group(2)}"  # '2023_Q1'
+            else:
+                # 폴백: 언더스코어로 파싱 (레거시 호환성)
+                filename_without_ext = os.path.splitext(filename)[0]  # 'rnorm_ml_2023_Q1'
+                parts = filename_without_ext.split('_')
+                if len(parts) >= 4:
+                    tdate = f"{parts[2]}_{parts[3]}"  # '2023_Q1'
+                else:
+                    logging.warning(f"Cannot parse date from filename: {filename}")
+                    tdate = "unknown_period"
+
+            print(f"in test loop filename : {filename}")
             print(f"in test loop tdate : {tdate}")
 
             # 이 테스트 기간의 특성과 레이블 준비

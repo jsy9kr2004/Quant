@@ -597,8 +597,27 @@ class AIDataMaker:
             # 시간 순서를 위한 year_period 생성
             # Q1=.2, Q2=.4, Q3=.6, Q4=.8로 소수점 정렬 가능
             fs_metrics = fs_metrics.dropna(subset=['calendarYear'])
+
+            # period 값 검증 및 로깅
+            unique_periods = fs_metrics['period'].unique()
+            self.logger.info(f"   Unique period values in data: {sorted([str(p) for p in unique_periods])}")
+
             period_map = {'Q1': 0.2, 'Q2': 0.4, 'Q3': 0.6, 'Q4': 0.8}
+            unmapped_periods = set(unique_periods) - set(period_map.keys())
+            if unmapped_periods:
+                self.logger.warning(f"⚠️  Found unexpected period values: {unmapped_periods}")
+                self.logger.warning(f"   These will result in NaN year_period and be filtered out")
+                self.logger.warning(f"   Expected values: {list(period_map.keys())}")
+
             fs_metrics['year_period'] = fs_metrics['calendarYear'] + fs_metrics['period'].map(period_map)
+
+            # NaN year_period 체크 및 필터링
+            nan_count = fs_metrics['year_period'].isna().sum()
+            if nan_count > 0:
+                self.logger.warning(f"⚠️  Found {nan_count} rows with NaN year_period (unmapped periods)")
+                self.logger.warning(f"   Dropping these rows...")
+                fs_metrics = fs_metrics.dropna(subset=['year_period'])
+
             fs_metrics = fs_metrics.sort_values(by=['symbol', 'year_period'])
 
             # tsfresh를 위한 시간 인덱스 할당 (12분기 윈도우의 경우 0, 1, 2, ..., 11)
@@ -908,8 +927,31 @@ class AIDataMaker:
         # 년도와 분기 추출 (예: 2022.2 -> 2022_Q1)
         year = int(base_year_period)
         quarter_decimal = base_year_period - year
-        quarter_map = {0.2: 'Q1', 0.4: 'Q2', 0.6: 'Q3', 0.8: 'Q4'}
-        quarter_str = quarter_map.get(quarter_decimal, 'Q0')
+
+        # 부동소수점 안전한 비교 (0.01 허용 오차)
+        def get_quarter_str(decimal_val: float) -> str:
+            """소수점 부분을 분기 문자열로 변환 (부동소수점 안전)"""
+            quarter_thresholds = [
+                (0.2, 'Q1'),
+                (0.4, 'Q2'),
+                (0.6, 'Q3'),
+                (0.8, 'Q4'),
+                (0.0, 'Q0')  # 연간 데이터 또는 기준년도
+            ]
+            for threshold, quarter in quarter_thresholds:
+                if abs(decimal_val - threshold) < 0.01:  # 허용 오차 1%
+                    return quarter
+
+            # 매칭 실패 시 경고 및 가장 가까운 분기 선택
+            self.logger.warning(f"⚠️  Unexpected quarter_decimal: {decimal_val} (base_year_period={base_year_period})")
+            self.logger.warning(f"   Using closest quarter approximation")
+
+            # 가장 가까운 분기 찾기
+            closest_q = min(quarter_thresholds, key=lambda x: abs(decimal_val - x[0]))
+            self.logger.warning(f"   Closest match: {closest_q[1]} (decimal={closest_q[0]})")
+            return closest_q[1]
+
+        quarter_str = get_quarter_str(quarter_decimal)
         period_label = f"{year}_{quarter_str}"
 
         self.logger.info(f"📊 [{base_year_period}] Exporting NaN analysis to CSV files...")
