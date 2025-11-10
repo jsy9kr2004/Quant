@@ -770,6 +770,28 @@ class AIDataMaker:
                 self.logger.info(f"   Window data shape: {window_data.shape}")
                 self.logger.info(f"   Unique symbols in window: {window_data['symbol'].nunique()}")
 
+                # NaN 진단: 각 컬럼별 NaN 비율 출력
+                self.logger.info(f"📊 [{base_year_period}] NaN analysis by column:")
+                nan_analysis = {}
+                for col in cal_timefeature_col_list:
+                    if col in window_data.columns:
+                        nan_count = window_data[col].isna().sum()
+                        nan_ratio = nan_count / len(window_data) * 100
+                        inf_count = np.isinf(window_data[col]).sum()
+                        nan_analysis[col] = {'nan_ratio': nan_ratio, 'inf_count': inf_count}
+                        if nan_ratio > 0 or inf_count > 0:
+                            self.logger.info(f"      {col}: NaN {nan_ratio:.1f}%, Inf {inf_count}")
+                    else:
+                        nan_analysis[col] = {'nan_ratio': 100, 'inf_count': 0}
+                        self.logger.info(f"      {col}: NOT IN DATA")
+
+                # NaN 0%인 깨끗한 컬럼 찾기
+                clean_cols = [col for col, stats in nan_analysis.items()
+                             if col in window_data.columns and stats['nan_ratio'] == 0 and stats['inf_count'] == 0]
+                self.logger.info(f"   Completely clean columns (NaN=0%, Inf=0): {len(clean_cols)}")
+                if clean_cols:
+                    self.logger.info(f"   Clean column names: {clean_cols}")
+
                 filtered_col_count = 0
                 accepted_col_count = 0
                 filter_reasons = {'not_in_columns': 0, 'has_nan_above_threshold': 0, 'has_infinite': 0}
