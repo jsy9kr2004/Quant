@@ -833,9 +833,20 @@ class AIDataMaker:
                 # 디버깅: 필터링 결과
                 self.logger.info(f"   Columns accepted: {accepted_col_count}/{len(cal_timefeature_col_list)}")
                 self.logger.info(f"   Columns filtered: {filtered_col_count} (not_in_data={filter_reasons['not_in_columns']}, nan>={int(NAN_THRESHOLD*100)}%={filter_reasons['has_nan_above_threshold']}, has_infinite={filter_reasons['has_infinite']})")
-                self.logger.info(f"   df_for_extract_feature shape: {df_for_extract_feature.shape}")
+                self.logger.info(f"   df_for_extract_feature shape (before dropna): {df_for_extract_feature.shape}")
 
                 if not df_for_extract_feature.empty:
+                    # tsfresh는 NaN 값을 허용하지 않으므로 제거
+                    # (컬럼별 30% 임계값은 통과했지만 일부 NaN이 남아있을 수 있음)
+                    nan_count_before = df_for_extract_feature['value'].isna().sum()
+                    if nan_count_before > 0:
+                        self.logger.info(f"   NaN values in 'value' column: {nan_count_before} ({nan_count_before/len(df_for_extract_feature)*100:.2f}%)")
+                        df_for_extract_feature = df_for_extract_feature.dropna(subset=['value'])
+                        rows_removed = nan_count_before
+                        self.logger.info(f"   After dropna: {df_for_extract_feature.shape} (removed {rows_removed} rows)")
+                    else:
+                        self.logger.info(f"   No NaN values found, skipping dropna")
+
                     # tsfresh로 특성 추출
                     self.logger.info(f"🔄 [{base_year_period}] Running tsfresh feature extraction...")
                     features = extract_features(df_for_extract_feature,
