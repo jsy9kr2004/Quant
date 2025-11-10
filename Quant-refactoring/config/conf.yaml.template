@@ -40,6 +40,9 @@ ML:
   TEST_START_YEAR: 2022
   TEST_END_YEAR: 2023
 
+  # NaN removal diagnostics (초기 데이터 품질 확인용)
+  EXPORT_NAN_REMOVAL_DETAILS: Y  # Y = 제거된 NaN 데이터를 CSV로 저장, N = 로그만 출력
+
   # Model selection (use new models or legacy)
   USE_NEW_MODELS: N  # Y = Use new CatBoost/MLflow, N = Use legacy regressor.py
 
