@@ -142,6 +142,12 @@ class AIDataMaker:
         backtest_config = conf.get('BACKTEST', {})
         self.rebalance_period = backtest_config.get('REBALANCE_PERIOD', 3)
 
+        # NaN 제거 상세 정보 출력 플래그 (기본값: True)
+        ml_config = conf.get('ML', {})
+        self.export_nan_removal_details = ml_config.get('EXPORT_NAN_REMOVAL_DETAILS', True)
+        if isinstance(self.export_nan_removal_details, str):
+            self.export_nan_removal_details = self.export_nan_removal_details.upper() == 'Y'
+
         # 데이터 컨테이너 초기화
         self.symbol_table = pd.DataFrame()
         self.price_table = pd.DataFrame()
@@ -770,6 +776,28 @@ class AIDataMaker:
                 self.logger.info(f"   Window data shape: {window_data.shape}")
                 self.logger.info(f"   Unique symbols in window: {window_data['symbol'].nunique()}")
 
+                # NaN 진단: 각 컬럼별 NaN 비율 출력
+                self.logger.info(f"📊 [{base_year_period}] NaN analysis by column:")
+                nan_analysis = {}
+                for col in cal_timefeature_col_list:
+                    if col in window_data.columns:
+                        nan_count = window_data[col].isna().sum()
+                        nan_ratio = nan_count / len(window_data) * 100
+                        inf_count = np.isinf(window_data[col]).sum()
+                        nan_analysis[col] = {'nan_ratio': nan_ratio, 'inf_count': inf_count}
+                        if nan_ratio > 0 or inf_count > 0:
+                            self.logger.info(f"      {col}: NaN {nan_ratio:.1f}%, Inf {inf_count}")
+                    else:
+                        nan_analysis[col] = {'nan_ratio': 100, 'inf_count': 0}
+                        self.logger.info(f"      {col}: NOT IN DATA")
+
+                # NaN 0%인 깨끗한 컬럼 찾기
+                clean_cols = [col for col, stats in nan_analysis.items()
+                             if col in window_data.columns and stats['nan_ratio'] == 0 and stats['inf_count'] == 0]
+                self.logger.info(f"   Completely clean columns (NaN=0%, Inf=0): {len(clean_cols)}")
+                if clean_cols:
+                    self.logger.info(f"   Clean column names: {clean_cols}")
+
                 filtered_col_count = 0
                 accepted_col_count = 0
                 filter_reasons = {'not_in_columns': 0, 'has_nan_above_threshold': 0, 'has_infinite': 0}
@@ -811,9 +839,30 @@ class AIDataMaker:
                 # 디버깅: 필터링 결과
                 self.logger.info(f"   Columns accepted: {accepted_col_count}/{len(cal_timefeature_col_list)}")
                 self.logger.info(f"   Columns filtered: {filtered_col_count} (not_in_data={filter_reasons['not_in_columns']}, nan>={int(NAN_THRESHOLD*100)}%={filter_reasons['has_nan_above_threshold']}, has_infinite={filter_reasons['has_infinite']})")
-                self.logger.info(f"   df_for_extract_feature shape: {df_for_extract_feature.shape}")
+                self.logger.info(f"   df_for_extract_feature shape (before dropna): {df_for_extract_feature.shape}")
 
                 if not df_for_extract_feature.empty:
+                    # tsfresh는 NaN 값을 허용하지 않으므로 제거
+                    # (컬럼별 30% 임계값은 통과했지만 일부 NaN이 남아있을 수 있음)
+                    nan_count_before = df_for_extract_feature['value'].isna().sum()
+                    if nan_count_before > 0:
+                        self.logger.info(f"   NaN values in 'value' column: {nan_count_before} ({nan_count_before/len(df_for_extract_feature)*100:.2f}%)")
+
+                        # NaN 제거 상세 정보 저장 (config 플래그로 제어)
+                        if self.export_nan_removal_details:
+                            self._export_nan_removal_details(
+                                base_year_period,
+                                df_for_extract_feature,
+                                nan_analysis,
+                                window_data
+                            )
+
+                        df_for_extract_feature = df_for_extract_feature.dropna(subset=['value'])
+                        rows_removed = nan_count_before
+                        self.logger.info(f"   After dropna: {df_for_extract_feature.shape} (removed {rows_removed} rows)")
+                    else:
+                        self.logger.info(f"   No NaN values found, skipping dropna")
+
                     # tsfresh로 특성 추출
                     self.logger.info(f"🔄 [{base_year_period}] Running tsfresh feature extraction...")
                     features = extract_features(df_for_extract_feature,
@@ -1229,3 +1278,116 @@ class AIDataMaker:
             self.logger.info(f"   Method C: No NaN samples to export (unexpected)")
 
         self.logger.info(f"✅ [{base_year_period}] NaN analysis export complete")
+
+    def _export_nan_removal_details(self, base_year_period: int, df_for_extract_feature: pd.DataFrame,
+                                    nan_analysis: Dict[str, Dict[str, float]], window_data: pd.DataFrame) -> None:
+        """
+        tsfresh 전 NaN 제거 시 실제로 제거되는 row들의 상세 정보를 CSV로 저장합니다.
+
+        이 메서드는 long format (df_for_extract_feature)에서 value가 NaN인 row들을
+        추출하여 저장하므로, 실제 데이터 손실을 투명하게 추적할 수 있습니다.
+
+        Args:
+            base_year_period: 현재 년도_분기 (예: 202201)
+            df_for_extract_feature: long format 데이터 (tsfresh에 전달될 데이터)
+            nan_analysis: 컬럼별 NaN 통계 딕셔너리
+            window_data: wide format 원본 데이터 (참고용)
+
+        출력 파일:
+            - nan_removal_rows_{year}_{quarter}.csv: 제거될 row들
+            - nan_removal_summary_{year}_{quarter}.csv: 제거 요약 통계
+        """
+        # 출력 디렉토리 생성
+        removal_dir = os.path.join(self.main_ctx.root_path, "NAN_REMOVAL_DETAILS")
+        self.main_ctx.create_dir(removal_dir)
+
+        # 년도와 분기 추출
+        year = base_year_period // 100
+        quarter_num = base_year_period % 100
+        quarter_map = {1: 'Q1', 2: 'Q2', 3: 'Q3', 4: 'Q4', 0: 'Q0'}
+        quarter_str = quarter_map.get(quarter_num, 'Q0')
+        period_label = f"{year}_{quarter_str}"
+
+        self.logger.info(f"📝 [{base_year_period}] Exporting NaN removal details...")
+
+        # ======================================================================
+        # 1. 제거될 row들 추출 및 저장
+        # ======================================================================
+        nan_rows = df_for_extract_feature[df_for_extract_feature['value'].isna()].copy()
+
+        if not nan_rows.empty:
+            # 제거될 row들을 CSV로 저장
+            rows_file = os.path.join(removal_dir, f"nan_removal_rows_{period_label}.csv")
+            nan_rows.to_csv(rows_file, index=False)
+            self.logger.info(f"   Saved {len(nan_rows)} rows to be removed → {os.path.basename(rows_file)}")
+
+            # 컬럼(kind)별 제거 통계
+            removal_by_kind = nan_rows.groupby('kind').size().to_dict()
+            self.logger.info(f"   Removal breakdown by column:")
+            for kind, count in sorted(removal_by_kind.items(), key=lambda x: x[1], reverse=True)[:10]:
+                self.logger.info(f"      {kind}: {count} rows")
+
+        # ======================================================================
+        # 2. 요약 통계 생성 및 저장
+        # ======================================================================
+        summary_data = []
+
+        # 전체 통계
+        total_rows_before = len(df_for_extract_feature)
+        total_nan_rows = len(nan_rows)
+        total_clean_rows = total_rows_before - total_nan_rows
+        nan_ratio = (total_nan_rows / total_rows_before * 100) if total_rows_before > 0 else 0
+
+        summary_data.append({
+            'metric': 'total_rows_before_dropna',
+            'value': total_rows_before,
+            'description': 'long format 전체 row 개수 (제거 전)'
+        })
+        summary_data.append({
+            'metric': 'nan_rows_removed',
+            'value': total_nan_rows,
+            'description': 'NaN으로 제거될 row 개수'
+        })
+        summary_data.append({
+            'metric': 'clean_rows_remaining',
+            'value': total_clean_rows,
+            'description': '제거 후 남은 row 개수'
+        })
+        summary_data.append({
+            'metric': 'nan_removal_ratio_percent',
+            'value': f"{nan_ratio:.2f}",
+            'description': 'NaN 제거 비율 (%)'
+        })
+        summary_data.append({
+            'metric': 'unique_symbols_affected',
+            'value': nan_rows['id'].nunique() if not nan_rows.empty else 0,
+            'description': 'NaN이 있는 심볼 개수'
+        })
+        summary_data.append({
+            'metric': 'unique_columns_affected',
+            'value': nan_rows['kind'].nunique() if not nan_rows.empty else 0,
+            'description': 'NaN이 있는 컬럼(kind) 개수'
+        })
+
+        # 컬럼별 NaN 비율 (wide format 기준)
+        summary_data.append({
+            'metric': '--- column_nan_ratios_in_wide_format ---',
+            'value': '',
+            'description': '(아래는 wide format 기준 컬럼별 NaN 비율)'
+        })
+
+        for col, stats in sorted(nan_analysis.items(), key=lambda x: x[1].get('nan_ratio', 0), reverse=True):
+            if col in window_data.columns and stats['nan_ratio'] > 0:
+                summary_data.append({
+                    'metric': f'column_{col}',
+                    'value': f"{stats['nan_ratio']:.2f}",
+                    'description': f"NaN 비율 (%) in wide format"
+                })
+
+        # 요약을 CSV로 저장
+        summary_file = os.path.join(removal_dir, f"nan_removal_summary_{period_label}.csv")
+        summary_df = pd.DataFrame(summary_data)
+        summary_df.to_csv(summary_file, index=False)
+        self.logger.info(f"   Saved removal summary → {os.path.basename(summary_file)}")
+
+        self.logger.info(f"✅ [{base_year_period}] NaN removal details export complete")
