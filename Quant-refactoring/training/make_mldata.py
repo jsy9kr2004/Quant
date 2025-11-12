@@ -875,6 +875,9 @@ class AIDataMaker:
                     self.logger.info(f"   Extracted features shape: {features.shape}")
                     self.logger.info(f"   Unique symbols in features: {len(features.index)}")
 
+                    # [무한대 체크 #1] tsfresh 추출 직후
+                    self._check_infinite_values(features, base_year_period, "after tsfresh extraction")
+
                     # '_ts_' 마커를 포함하도록 컬럼명 변경
                     features = features.rename(columns=lambda x: f"{x.partition('__')[0]}_ts_{x.partition('__')[2]}")
 
@@ -886,6 +889,9 @@ class AIDataMaker:
 
                     df_w_time_feature = features[filtered_columns].copy()
                     df_w_time_feature['symbol'] = features.index
+
+                    # [무한대 체크 #2] suffix 필터링 후
+                    self._check_infinite_values(df_w_time_feature.drop(columns=['symbol']), base_year_period, "after suffix filtering")
 
                     # 현재 분기만으로 필터링
                     self.logger.info(f"🔄 [{base_year_period}] Merging with window_data...")
@@ -905,6 +911,10 @@ class AIDataMaker:
                     df_w_time_feature = pd.merge(window_data, df_w_time_feature, how='inner', on='symbol')
                     self.logger.info(f"   After merge: {df_w_time_feature.shape}")
 
+                    # [무한대 체크 #3] window_data와 merge 후
+                    numeric_cols_after_merge = df_w_time_feature.select_dtypes(include=[np.number]).columns
+                    self._check_infinite_values(df_w_time_feature[numeric_cols_after_merge], base_year_period, "after merge with window_data")
+
                     # 절대값 컬럼 제거 (ML에 유용하지 않음, 비율만 중요)
                     abs_col_list = list(set(meaning_col_list) - set(ratio_col_list))
                     self.logger.info(f"🔄 [{base_year_period}] Removing absolute value columns...")
@@ -915,6 +925,10 @@ class AIDataMaker:
                         df_w_time_feature = df_w_time_feature.drop([col], axis=1, errors='ignore')
 
                     self.logger.info(f"   Columns before removal: {cols_before_abs_removal}, after: {df_w_time_feature.shape[1]}")
+
+                    # [무한대 체크 #4] 절대값 컬럼 제거 후
+                    numeric_cols_after_abs_removal = df_w_time_feature.select_dtypes(include=[np.number]).columns
+                    self._check_infinite_values(df_w_time_feature[numeric_cols_after_abs_removal], base_year_period, "after removing absolute columns")
 
                     # 정규화하지 않을 컬럼 분리
                     excluded_columns = ['symbol', 'rebalance_date', 'report_date', 'fillingDate_x', 'year_period']
@@ -961,6 +975,9 @@ class AIDataMaker:
 
                         self.logger.warning(f"   REASON: No columns matched the scaling criteria")
                         continue
+
+                    # [무한대 체크 #5] 스케일링 직전 (최종 체크)
+                    self._check_infinite_values(filtered_df, base_year_period, "BEFORE scaling (final check)")
 
                     # RobustScaler로 정규화 (아웃라이어에 강함)
                     self.logger.info(f"✅ [{base_year_period}] Scaling {filtered_df.shape[1]} columns for {filtered_df.shape[0]} symbols")
@@ -1391,3 +1408,50 @@ class AIDataMaker:
         self.logger.info(f"   Saved removal summary → {os.path.basename(summary_file)}")
 
         self.logger.info(f"✅ [{base_year_period}] NaN removal details export complete")
+
+    def _check_infinite_values(self, df: pd.DataFrame, base_year_period: int, stage: str) -> None:
+        """
+        DataFrame에서 무한대 값을 체크하고 상세 로깅합니다.
+
+        이 메서드는 데이터 처리 파이프라인의 각 단계에서 호출되어
+        어디서 무한대가 생성되는지 추적합니다.
+
+        Args:
+            df: 체크할 DataFrame
+            base_year_period: 현재 년도_분기 (예: 202201)
+            stage: 현재 단계 설명 (예: "after tsfresh extraction")
+        """
+        if df.empty:
+            return
+
+        # 무한대 체크
+        inf_mask = np.isinf(df.select_dtypes(include=[np.number]))
+        has_inf = inf_mask.any().any()
+
+        if not has_inf:
+            self.logger.info(f"   ✅ [{base_year_period}] No infinite values {stage}")
+            return
+
+        # 무한대가 있으면 상세 정보 로깅
+        self.logger.warning(f"⚠️  [{base_year_period}] INFINITE VALUES DETECTED {stage}")
+
+        # 컬럼별 무한대 개수
+        inf_counts = inf_mask.sum()
+        cols_with_inf = inf_counts[inf_counts > 0].sort_values(ascending=False)
+
+        self.logger.warning(f"   Total columns with infinite values: {len(cols_with_inf)}")
+        self.logger.warning(f"   Total infinite values: {inf_counts.sum()}")
+
+        # 상위 10개 문제 컬럼 출력
+        self.logger.warning(f"   Top 10 columns with infinite values:")
+        for col, count in cols_with_inf.head(10).items():
+            self.logger.warning(f"      {col}: {count} infinite values")
+
+        # 무한대가 있는 row 개수
+        rows_with_inf = inf_mask.any(axis=1).sum()
+        self.logger.warning(f"   Rows affected: {rows_with_inf}/{len(df)} ({rows_with_inf/len(df)*100:.2f}%)")
+
+        # Positive vs Negative infinity 구분
+        pos_inf_count = np.isposinf(df.select_dtypes(include=[np.number])).sum().sum()
+        neg_inf_count = np.isneginf(df.select_dtypes(include=[np.number])).sum().sum()
+        self.logger.warning(f"   Positive infinity: {pos_inf_count}, Negative infinity: {neg_inf_count}")
