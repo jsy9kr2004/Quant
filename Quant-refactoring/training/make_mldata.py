@@ -979,6 +979,42 @@ class AIDataMaker:
                     # [무한대 체크 #5] 스케일링 직전 (최종 체크)
                     self._check_infinite_values(filtered_df, base_year_period, "BEFORE scaling (final check)")
 
+                    # 무한대 제거 (RobustScaler는 infinite 값을 처리할 수 없음)
+                    inf_mask = np.isinf(filtered_df)
+                    has_inf = inf_mask.any().any()
+
+                    if has_inf:
+                        rows_before = len(filtered_df)
+                        rows_with_inf_mask = inf_mask.any(axis=1)
+                        rows_with_inf_count = rows_with_inf_mask.sum()
+                        inf_removal_ratio = rows_with_inf_count / rows_before * 100
+
+                        self.logger.warning(f"⚠️  [{base_year_period}] Removing {rows_with_inf_count} rows with infinite values ({inf_removal_ratio:.2f}%)")
+
+                        # 너무 많은 row가 제거되면 경고
+                        if inf_removal_ratio > 10.0:
+                            self.logger.error(f"❌ [{base_year_period}] WARNING: Removing >10% of data due to infinite values!")
+                            self.logger.error(f"   This may indicate a serious data quality issue")
+                        elif inf_removal_ratio > 5.0:
+                            self.logger.warning(f"⚠️  [{base_year_period}] CAUTION: Removing >5% of data due to infinite values")
+
+                        # 제거될 row 상세 정보 저장 (config 플래그로 제어)
+                        if self.export_nan_removal_details:  # NaN과 동일한 플래그 사용
+                            # excluded_df와 filtered_df를 결합하여 전체 정보 포함
+                            full_df_before_removal = pd.concat([excluded_df.reset_index(drop=True), filtered_df.reset_index(drop=True)], axis=1)
+                            self._export_infinite_removal_details(
+                                base_year_period,
+                                full_df_before_removal,
+                                rows_with_inf_mask,
+                                inf_mask
+                            )
+
+                        # 무한대가 있는 row 제거
+                        filtered_df = filtered_df[~rows_with_inf_mask]
+                        excluded_df = excluded_df[~rows_with_inf_mask.values]  # excluded_df도 동일하게 제거
+
+                        self.logger.info(f"   After infinite removal: {len(filtered_df)} rows remaining ({rows_before - len(filtered_df)} removed)")
+
                     # RobustScaler로 정규화 (아웃라이어에 강함)
                     self.logger.info(f"✅ [{base_year_period}] Scaling {filtered_df.shape[1]} columns for {filtered_df.shape[0]} symbols")
                     scaler = RobustScaler()
@@ -1455,3 +1491,145 @@ class AIDataMaker:
         pos_inf_count = np.isposinf(df.select_dtypes(include=[np.number])).sum().sum()
         neg_inf_count = np.isneginf(df.select_dtypes(include=[np.number])).sum().sum()
         self.logger.warning(f"   Positive infinity: {pos_inf_count}, Negative infinity: {neg_inf_count}")
+
+    def _export_infinite_removal_details(self, base_year_period: int, full_df: pd.DataFrame,
+                                         rows_with_inf_mask: pd.Series, inf_mask: pd.DataFrame) -> None:
+        """
+        무한대 제거 시 실제로 제거되는 row들의 상세 정보를 CSV로 저장합니다.
+
+        이 메서드는 스케일링 전 무한대가 있는 row들을 추출하여 저장하므로,
+        실제 데이터 손실을 투명하게 추적할 수 있습니다.
+
+        Args:
+            base_year_period: 현재 년도_분기 (예: 202201)
+            full_df: 전체 DataFrame (excluded_df + filtered_df 결합)
+            rows_with_inf_mask: 무한대가 있는 row를 나타내는 boolean mask
+            inf_mask: 각 셀별 무한대 여부를 나타내는 boolean DataFrame
+
+        출력 파일:
+            - infinite_removal_rows_{year}_{quarter}.csv: 제거될 row들
+            - infinite_removal_summary_{year}_{quarter}.csv: 제거 요약 통계
+        """
+        # 출력 디렉토리 생성
+        removal_dir = os.path.join(self.main_ctx.root_path, "INFINITE_REMOVAL_DETAILS")
+        self.main_ctx.create_dir(removal_dir)
+
+        # 년도와 분기 추출
+        year = base_year_period // 100
+        quarter_num = base_year_period % 100
+        quarter_map = {1: 'Q1', 2: 'Q2', 3: 'Q3', 4: 'Q4', 0: 'Q0'}
+        quarter_str = quarter_map.get(quarter_num, 'Q0')
+        period_label = f"{year}_{quarter_str}"
+
+        self.logger.info(f"📝 [{base_year_period}] Exporting infinite removal details...")
+
+        # ======================================================================
+        # 1. 제거될 row들 추출 및 저장
+        # ======================================================================
+        rows_to_remove = full_df[rows_with_inf_mask].copy()
+
+        if not rows_to_remove.empty:
+            # 제거될 row들을 CSV로 저장
+            rows_file = os.path.join(removal_dir, f"infinite_removal_rows_{period_label}.csv")
+            rows_to_remove.to_csv(rows_file, index=False)
+            self.logger.info(f"   Saved {len(rows_to_remove)} rows to be removed → {os.path.basename(rows_file)}")
+
+            # 심볼별 제거 통계 (symbol 컬럼이 있는 경우)
+            if 'symbol' in rows_to_remove.columns:
+                removed_symbols = rows_to_remove['symbol'].tolist()
+                self.logger.info(f"   Symbols affected: {removed_symbols}")
+
+            # 무한대가 있는 컬럼 통계
+            numeric_cols = full_df.select_dtypes(include=[np.number]).columns
+            inf_cols_mask = inf_mask[numeric_cols].any(axis=0)
+            cols_with_inf = inf_cols_mask[inf_cols_mask].index.tolist()
+
+            self.logger.info(f"   Columns with infinite values ({len(cols_with_inf)}):")
+            for col in cols_with_inf[:10]:  # 상위 10개만 표시
+                count = inf_mask[col].sum()
+                self.logger.info(f"      {col}: {count} infinite values")
+
+        # ======================================================================
+        # 2. 요약 통계 생성 및 저장
+        # ======================================================================
+        summary_data = []
+
+        # 전체 통계
+        total_rows = len(full_df)
+        removed_rows = rows_with_inf_mask.sum()
+        remaining_rows = total_rows - removed_rows
+        removal_ratio = (removed_rows / total_rows * 100) if total_rows > 0 else 0
+
+        summary_data.append({
+            'metric': 'total_rows_before_removal',
+            'value': total_rows,
+            'description': '무한대 제거 전 전체 row 개수'
+        })
+        summary_data.append({
+            'metric': 'rows_removed',
+            'value': removed_rows,
+            'description': '무한대로 인해 제거된 row 개수'
+        })
+        summary_data.append({
+            'metric': 'rows_remaining',
+            'value': remaining_rows,
+            'description': '제거 후 남은 row 개수'
+        })
+        summary_data.append({
+            'metric': 'removal_ratio_percent',
+            'value': f"{removal_ratio:.2f}",
+            'description': '제거 비율 (%)'
+        })
+
+        # Positive vs Negative infinity
+        numeric_cols = full_df.select_dtypes(include=[np.number]).columns
+        pos_inf_total = np.isposinf(full_df[numeric_cols]).sum().sum()
+        neg_inf_total = np.isneginf(full_df[numeric_cols]).sum().sum()
+
+        summary_data.append({
+            'metric': 'positive_infinity_count',
+            'value': pos_inf_total,
+            'description': '양의 무한대 개수'
+        })
+        summary_data.append({
+            'metric': 'negative_infinity_count',
+            'value': neg_inf_total,
+            'description': '음의 무한대 개수'
+        })
+
+        # 영향받은 심볼 (symbol 컬럼이 있는 경우)
+        if 'symbol' in rows_to_remove.columns:
+            affected_symbols = rows_to_remove['symbol'].nunique()
+            summary_data.append({
+                'metric': 'unique_symbols_affected',
+                'value': affected_symbols,
+                'description': '무한대가 있는 심볼 개수'
+            })
+
+        # 무한대가 있는 컬럼 목록
+        summary_data.append({
+            'metric': '--- columns_with_infinite ---',
+            'value': '',
+            'description': '(아래는 무한대가 있는 컬럼들)'
+        })
+
+        numeric_cols = full_df.select_dtypes(include=[np.number]).columns
+        for col in numeric_cols:
+            if col in inf_mask.columns:
+                inf_count = inf_mask[col].sum()
+                if inf_count > 0:
+                    pos_inf = np.isposinf(full_df[col]).sum()
+                    neg_inf = np.isneginf(full_df[col]).sum()
+                    summary_data.append({
+                        'metric': f'column_{col}',
+                        'value': f"{inf_count} (+{pos_inf}, -{neg_inf})",
+                        'description': f"무한대 개수 (양/음)"
+                    })
+
+        # 요약을 CSV로 저장
+        summary_file = os.path.join(removal_dir, f"infinite_removal_summary_{period_label}.csv")
+        summary_df = pd.DataFrame(summary_data)
+        summary_df.to_csv(summary_file, index=False)
+        self.logger.info(f"   Saved removal summary → {os.path.basename(summary_file)}")
+
+        self.logger.info(f"✅ [{base_year_period}] Infinite removal details export complete")
