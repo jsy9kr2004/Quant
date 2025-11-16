@@ -1021,6 +1021,52 @@ class AIDataMaker:
                     scaled_data = scaler.fit_transform(filtered_df)
                     scaled_df = pd.DataFrame(scaled_data, columns=filtered_df.columns)
 
+                    # [무한대 체크 #6] 스케일링 직후 (RobustScaler가 infinite 생성 가능성)
+                    inf_mask_after_scaling = np.isinf(scaled_df)
+                    has_inf_after_scaling = inf_mask_after_scaling.any().any()
+
+                    if has_inf_after_scaling:
+                        rows_before_scaling_removal = len(scaled_df)
+                        rows_with_inf_mask = inf_mask_after_scaling.any(axis=1)
+                        rows_with_inf_count = rows_with_inf_mask.sum()
+                        inf_removal_ratio = rows_with_inf_count / rows_before_scaling_removal * 100
+
+                        self.logger.warning(f"⚠️  [{base_year_period}] RobustScaler produced {rows_with_inf_count} rows with infinite values ({inf_removal_ratio:.2f}%)")
+
+                        # 심각한 경우 에러 로그
+                        if inf_removal_ratio > 5.0:
+                            self.logger.error(f"❌ [{base_year_period}] WARNING: Scaler produced >5% infinite values!")
+                            self.logger.error(f"   This indicates potential data quality or scaling issues")
+
+                        # 무한대가 있는 컬럼 분석
+                        inf_cols = inf_mask_after_scaling.any(axis=0)
+                        cols_with_inf = inf_cols[inf_cols].index.tolist()
+                        self.logger.warning(f"   Columns with infinite values after scaling ({len(cols_with_inf)}):")
+                        for col in cols_with_inf[:5]:  # 상위 5개만 표시
+                            count = inf_mask_after_scaling[col].sum()
+                            self.logger.warning(f"      {col}: {count} infinite values")
+
+                        # 제거될 row 상세 정보 저장
+                        if self.export_nan_removal_details:
+                            # excluded_df와 scaled_df를 결합하여 전체 정보 포함
+                            full_df_with_excluded = pd.concat([excluded_df.reset_index(drop=True),
+                                                               scaled_df.reset_index(drop=True)], axis=1)
+                            self._export_infinite_removal_details(
+                                base_year_period,
+                                full_df_with_excluded,
+                                rows_with_inf_mask,
+                                inf_mask_after_scaling,
+                                suffix="_after_scaling"
+                            )
+
+                        # 무한대가 있는 row 제거
+                        scaled_df = scaled_df[~rows_with_inf_mask]
+                        excluded_df = excluded_df[~rows_with_inf_mask.values]
+
+                        self.logger.info(f"   After post-scaling infinite removal: {len(scaled_df)} rows remaining ({rows_before_scaling_removal - len(scaled_df)} removed)")
+                    else:
+                        self.logger.info(f"   ✅ [{base_year_period}] No infinite values after scaling")
+
                     # 정규화된 컬럼과 제외된 컬럼 결합
                     scaled_df = pd.concat([excluded_df, scaled_df], axis=1)
 
@@ -1061,13 +1107,26 @@ class AIDataMaker:
                         if target_rebalance_date is None:
                             self.logger.warning(f"❌ [{base_year_period}] No rebalance_date found for quarter {target_year} Q{quarter_num}")
                             self.logger.warning(f"   Available dates: {sorted([pd.to_datetime(d) for d in quarter_rebalance_dates[:5]])}")
-                            continue
+
+                            # 기본 날짜 사용: 분기 말일 (학습 데이터로는 사용 불가, 예측용으로만 저장)
+                            # Q1: 3/31, Q2: 6/30, Q3: 9/30, Q4: 12/31
+                            default_day = {1: 31, 2: 30, 3: 30, 4: 31}[quarter_num]
+                            target_rebalance_date = pd.Timestamp(target_year, end_month, default_day)
+
+                            self.logger.warning(f"   Using default quarter-end date: {target_rebalance_date}")
+                            self.logger.warning(f"   ⚠️  This quarter will be saved for prediction only (no training labels)")
+
+                            # 플래그 설정: 이 분기는 학습 데이터로 사용하지 않음
+                            skip_training_data = True
+                        else:
+                            skip_training_data = False
 
                         # scaled_df의 모든 행에 통일된 rebalance_date 적용
                         scaled_df['rebalance_date'] = target_rebalance_date
 
-                        self.logger.info(f"📅 [{base_year_period}] Using unified rebalance_date: {target_rebalance_date}")
-                        self.logger.info(f"   This fixes Q4 data loss issue by matching fs_metrics to table_for_ai")
+                        if not skip_training_data:
+                            self.logger.info(f"📅 [{base_year_period}] Using unified rebalance_date: {target_rebalance_date}")
+                            self.logger.info(f"   This fixes Q4 data loss issue by matching fs_metrics to table_for_ai")
                     else:
                         self.logger.error(f"❌ [{base_year_period}] Invalid quarter_num: {quarter_num}")
                         continue
@@ -1081,43 +1140,50 @@ class AIDataMaker:
                     fs_df["sector"] = fs_df["industry"].map(sector_map)
                     fs_df.to_parquet(file_path, engine='pyarrow', compression='snappy', index=False)
 
-                    # 학습 데이터를 위한 타겟 변수 추가
-                    cur_table_for_ai = pd.merge(table_for_ai, scaled_df, how='inner', on=['symbol','rebalance_date'])
-                    cur_table_for_ai["sector"] = cur_table_for_ai["industry"].map(sector_map)
+                    # rebalance_date가 있는 경우에만 학습 데이터 생성
+                    if not skip_training_data:
+                        # 학습 데이터를 위한 타겟 변수 추가
+                        cur_table_for_ai = pd.merge(table_for_ai, scaled_df, how='inner', on=['symbol','rebalance_date'])
+                        cur_table_for_ai["sector"] = cur_table_for_ai["industry"].map(sector_map)
 
-                    # 시장 조정 수익률 계산
-                    cur_table_for_ai['price_dev_subavg'] = cur_table_for_ai['price_dev'] - cur_table_for_ai['price_dev'].mean()
+                        # 시장 조정 수익률 계산
+                        cur_table_for_ai['price_dev_subavg'] = cur_table_for_ai['price_dev'] - cur_table_for_ai['price_dev'].mean()
 
-                    # 섹터 조정 수익률 계산
-                    sector_list = list(cur_table_for_ai['sector'].unique())
-                    sector_list = [x for x in sector_list if str(x) != 'nan']
-                    for sec in sector_list:
-                        sec_mask = cur_table_for_ai['sector'] == sec
-                        sec_mean = cur_table_for_ai.loc[sec_mask, 'price_dev'].mean()
-                        cur_table_for_ai.loc[sec_mask, 'sec_price_dev_subavg'] = cur_table_for_ai.loc[sec_mask, 'price_dev'] - sec_mean
+                        # 섹터 조정 수익률 계산
+                        sector_list = list(cur_table_for_ai['sector'].unique())
+                        sector_list = [x for x in sector_list if str(x) != 'nan']
+                        for sec in sector_list:
+                            sec_mask = cur_table_for_ai['sector'] == sec
+                            sec_mean = cur_table_for_ai.loc[sec_mask, 'price_dev'].mean()
+                            cur_table_for_ai.loc[sec_mask, 'sec_price_dev_subavg'] = cur_table_for_ai.loc[sec_mask, 'price_dev'] - sec_mean
 
-                    # 타겟 변수가 포함된 완전한 데이터셋 저장
-                    cur_table_for_ai.to_parquet(file2_path, engine='pyarrow', compression='snappy', index=False)
-                    self.logger.info(f"✅ Saved ML data: {os.path.basename(file2_path)}")
+                        # 타겟 변수가 포함된 완전한 데이터셋 저장
+                        cur_table_for_ai.to_parquet(file2_path, engine='pyarrow', compression='snappy', index=False)
+                        self.logger.info(f"✅ Saved ML data: {os.path.basename(file2_path)}")
 
-                    # ===================================================================
-                    # 분기별 통계 수집 (균형 검증용)
-                    # ===================================================================
-                    file_size = os.path.getsize(file2_path)
-                    row_count = len(cur_table_for_ai)
-                    col_count = len(cur_table_for_ai.columns)
+                        # ===================================================================
+                        # 분기별 통계 수집 (균형 검증용)
+                        # ===================================================================
+                        file_size = os.path.getsize(file2_path)
+                        row_count = len(cur_table_for_ai)
+                        col_count = len(cur_table_for_ai.columns)
 
-                    quarterly_stats.append({
-                        'year': cur_year,
-                        'quarter': quarter_str,
-                        'year_period': base_year_period,
-                        'file_size_mb': file_size / (1024 * 1024),
-                        'row_count': row_count,
-                        'col_count': col_count,
-                        'symbols': cur_table_for_ai['symbol'].nunique() if 'symbol' in cur_table_for_ai.columns else 0
-                    })
+                        quarterly_stats.append({
+                            'year': cur_year,
+                            'quarter': quarter_str,
+                            'year_period': base_year_period,
+                            'file_size_mb': file_size / (1024 * 1024),
+                            'row_count': row_count,
+                            'col_count': col_count,
+                            'symbols': cur_table_for_ai['symbol'].nunique() if 'symbol' in cur_table_for_ai.columns else 0
+                        })
 
-                    self.logger.info(f"📊 [{base_year_period}] File stats: {file_size/(1024*1024):.2f} MB, {row_count:,} rows, {col_count} cols")
+                        self.logger.info(f"📊 [{base_year_period}] File stats: {file_size/(1024*1024):.2f} MB, {row_count:,} rows, {col_count} cols")
+                    else:
+                        # Q1 등 rebalance_date가 없는 경우
+                        self.logger.warning(f"⚠️  [{base_year_period}] Skipping training data generation (no valid rebalance_date)")
+                        self.logger.warning(f"   Prediction-only file saved: {os.path.basename(file_path)}")
+                        # 통계에는 추가하지 않음 (학습용 아님)
                     # ===================================================================
 
                 else:
@@ -1493,11 +1559,12 @@ class AIDataMaker:
         self.logger.warning(f"   Positive infinity: {pos_inf_count}, Negative infinity: {neg_inf_count}")
 
     def _export_infinite_removal_details(self, base_year_period: int, full_df: pd.DataFrame,
-                                         rows_with_inf_mask: pd.Series, inf_mask: pd.DataFrame) -> None:
+                                         rows_with_inf_mask: pd.Series, inf_mask: pd.DataFrame,
+                                         suffix: str = "") -> None:
         """
         무한대 제거 시 실제로 제거되는 row들의 상세 정보를 CSV로 저장합니다.
 
-        이 메서드는 스케일링 전 무한대가 있는 row들을 추출하여 저장하므로,
+        이 메서드는 스케일링 전/후 무한대가 있는 row들을 추출하여 저장하므로,
         실제 데이터 손실을 투명하게 추적할 수 있습니다.
 
         Args:
@@ -1505,10 +1572,11 @@ class AIDataMaker:
             full_df: 전체 DataFrame (excluded_df + filtered_df 결합)
             rows_with_inf_mask: 무한대가 있는 row를 나타내는 boolean mask
             inf_mask: 각 셀별 무한대 여부를 나타내는 boolean DataFrame
+            suffix: 파일명에 추가할 접미사 (예: "_after_scaling")
 
         출력 파일:
-            - infinite_removal_rows_{year}_{quarter}.csv: 제거될 row들
-            - infinite_removal_summary_{year}_{quarter}.csv: 제거 요약 통계
+            - infinite_removal_rows_{year}_{quarter}{suffix}.csv: 제거될 row들
+            - infinite_removal_summary_{year}_{quarter}{suffix}.csv: 제거 요약 통계
         """
         # 출력 디렉토리 생성
         removal_dir = os.path.join(self.main_ctx.root_path, "INFINITE_REMOVAL_DETAILS")
@@ -1521,7 +1589,7 @@ class AIDataMaker:
         quarter_str = quarter_map.get(quarter_num, 'Q0')
         period_label = f"{year}_{quarter_str}"
 
-        self.logger.info(f"📝 [{base_year_period}] Exporting infinite removal details...")
+        self.logger.info(f"📝 [{base_year_period}] Exporting infinite removal details{suffix}...")
 
         # ======================================================================
         # 1. 제거될 row들 추출 및 저장
@@ -1530,7 +1598,7 @@ class AIDataMaker:
 
         if not rows_to_remove.empty:
             # 제거될 row들을 CSV로 저장
-            rows_file = os.path.join(removal_dir, f"infinite_removal_rows_{period_label}.csv")
+            rows_file = os.path.join(removal_dir, f"infinite_removal_rows_{period_label}{suffix}.csv")
             rows_to_remove.to_csv(rows_file, index=False)
             self.logger.info(f"   Saved {len(rows_to_remove)} rows to be removed → {os.path.basename(rows_file)}")
 
@@ -1637,7 +1705,7 @@ class AIDataMaker:
                     })
 
         # 요약을 CSV로 저장
-        summary_file = os.path.join(removal_dir, f"infinite_removal_summary_{period_label}.csv")
+        summary_file = os.path.join(removal_dir, f"infinite_removal_summary_{period_label}{suffix}.csv")
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_csv(summary_file, index=False)
         self.logger.info(f"   Saved removal summary → {os.path.basename(summary_file)}")
