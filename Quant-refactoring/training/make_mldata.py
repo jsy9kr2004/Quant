@@ -1541,7 +1541,15 @@ class AIDataMaker:
 
             # 무한대가 있는 컬럼 통계
             numeric_cols = full_df.select_dtypes(include=[np.number]).columns
-            inf_cols_mask = inf_mask[numeric_cols].any(axis=0)
+            # inf_mask에 실제로 있는 컬럼만 선택 (excluded 메타데이터 컬럼 제외)
+            valid_numeric_cols = numeric_cols.intersection(inf_mask.columns)
+            excluded_numeric_cols = set(numeric_cols) - set(valid_numeric_cols)
+
+            # 제외된 메타데이터 컬럼 로깅 (투명성)
+            if excluded_numeric_cols:
+                self.logger.debug(f"   Metadata columns (not checked for infinite): {sorted(excluded_numeric_cols)}")
+
+            inf_cols_mask = inf_mask[valid_numeric_cols].any(axis=0)
             cols_with_inf = inf_cols_mask[inf_cols_mask].index.tolist()
 
             self.logger.info(f"   Columns with infinite values ({len(cols_with_inf)}):")
@@ -1583,8 +1591,10 @@ class AIDataMaker:
 
         # Positive vs Negative infinity
         numeric_cols = full_df.select_dtypes(include=[np.number]).columns
-        pos_inf_total = np.isposinf(full_df[numeric_cols]).sum().sum()
-        neg_inf_total = np.isneginf(full_df[numeric_cols]).sum().sum()
+        # inf_mask에 실제로 있는 컬럼만 선택 (안전성)
+        valid_numeric_cols = numeric_cols.intersection(inf_mask.columns)
+        pos_inf_total = np.isposinf(full_df[valid_numeric_cols]).sum().sum()
+        neg_inf_total = np.isneginf(full_df[valid_numeric_cols]).sum().sum()
 
         summary_data.append({
             'metric': 'positive_infinity_count',
