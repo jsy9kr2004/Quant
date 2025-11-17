@@ -2,6 +2,36 @@
 
 개선된 퀀트 트레이딩 시스템 (2025)
 
+---
+
+## 📚 문서 가이드
+
+이 프로젝트의 문서는 **사용자 유형에 따라** 읽는 순서가 다릅니다. 자신에게 맞는 경로를 선택하세요!
+
+### 🎯 처음 사용하시는 분
+**추천 읽기 순서:**
+1. **[docs/QUICK_START.md](docs/QUICK_START.md)** ⭐ 5-10분 안에 실행 시작
+2. **[README.md](#빠른-시작)** (현재 문서) - 프로젝트 전체 개요 이해
+3. **[docs/FIX_ERRORS.md](docs/FIX_ERRORS.md)** - 문제 발생 시 참고
+
+### 👨‍💻 개발자 / 시스템 깊이 이해가 필요한 분
+**추천 읽기 순서:**
+1. **[README.md](#프로젝트-구조)** (현재 문서) - 프로젝트 구조 먼저 확인
+2. **[docs/WORKFLOW_GUIDE.md](docs/WORKFLOW_GUIDE.md)** ⭐ 전체 아키텍처 상세 설명 (필독)
+3. **[docs/LOGGING_GUIDE.md](docs/LOGGING_GUIDE.md)** - 로깅 시스템 이해
+4. **[docs/ROBUST_VALIDATION_GUIDE.md](docs/ROBUST_VALIDATION_GUIDE.md)** - 백테스팅 및 검증 시스템
+
+### 📊 고급 기능을 활용하고 싶은 분
+**추천 읽기 순서:**
+1. **[docs/QUICK_START.md](docs/QUICK_START.md)** - 기본 실행 확인
+2. **[docs/ADVANCED_FEATURES_GUIDE.md](docs/ADVANCED_FEATURES_GUIDE.md)** ⭐ 리밸런싱 최적화, 모델 비교, 섹터별 모델
+3. **[docs/ROBUST_VALIDATION_GUIDE.md](docs/ROBUST_VALIDATION_GUIDE.md)** - 성능 검증 방법
+
+### 📁 기타 문서
+- **[docs/archive/](docs/archive/)** - 과거 분석 리포트 및 참고 자료
+
+---
+
 ## 주요 개선사항
 
 ### 1. Parquet 저장소 (검증 기능 포함)
