@@ -4,6 +4,20 @@
 
 ---
 
+## 📖 이 문서는 누구를 위한 것인가?
+
+- ✅ **고급 기능을 활용하고 싶은 분** - 리밸런싱 최적화, 모델 비교, 섹터별 모델
+- ✅ **더 나은 성과를 원하는 투자자** - 시스템 성능 개선 방법
+- ✅ **정기적으로 시스템을 사용하는 분** - 고급 설정 활용
+
+**이 문서를 읽기 전에:**
+- [QUICK_START.md](QUICK_START.md)로 기본 실행 방법 먼저 확인하세요
+
+**이 문서를 읽은 후:**
+- 성능 검증 방법 → [ROBUST_VALIDATION_GUIDE.md](ROBUST_VALIDATION_GUIDE.md)
+
+---
+
 ## 🎯 1. 리밸런싱 기간 최적화
 
 ### 문제점
@@ -302,20 +316,94 @@ top_stocks = ensemble.select_top_stocks(
 )
 ```
 
-### 섹터별 중요 피처 예시
+### 섹터별 중요 피처 상세 설명
 
-| 섹터 | 중요 피처 | 이유 |
-|------|-----------|------|
-| **Technology** | `OverMC_researchAndDevelopmentExpenses` | R&D 투자 비중이 혁신과 성장에 중요 |
-| | `revenue`, `netIncome` | 성장성 지표 |
-| **Financial** | `debtToEquity` | 금융 섹터는 레버리지 관리가 핵심 |
-| | `returnOnEquity` | 자본 효율성 |
-| **Healthcare** | `OverMC_researchAndDevelopmentExpenses` | 신약 개발을 위한 R&D 투자 |
-| | `grossProfitRatio` | 제약사의 마진율 |
-| **Consumer** | `inventoryTurnover` | 재고 관리 효율성 |
-| | `returnOnEquity` | 수익성 |
-| **Industrial** | `propertyPlantEquipmentNet` | 고정자산 규모 |
-| | `assetTurnover` | 자산 효율성 |
+#### 🖥️ Technology 섹터
+
+**핵심 특징**: 빠른 성장, 높은 R&D 투자, 혁신 중심
+
+| 중요 피처 | 설명 | 왜 중요한가? |
+|-----------|------|--------------|
+| `OverMC_researchAndDevelopmentExpenses` | R&D 비용 / 시가총액 | 기술 기업의 경쟁력은 R&D 투자에서 나옴<br>Apple: 매출의 6-7%, Microsoft: 20% R&D 투자 |
+| `revenue` | 매출 | 시장 점유율 확대 신호<br>성장주의 핵심 지표 |
+| `netIncome` | 순이익 | 수익성 확인<br>성장과 수익성의 균형 |
+| `revenueGrowth` | 매출 성장률 | 3년 평균 20% 이상이 우수<br>시장 확장 속도 |
+
+**예시**:
+- **NVIDIA**: R&D 비중 높음 + 매출 폭발적 성장 → AI 시대 수혜
+- **Meta**: R&D 비중 높지만 매출 성장 둔화 → 주의 필요
+
+#### 🏦 Financial 섹터
+
+**핵심 특징**: 레버리지 기반 비즈니스, 규제 산업, 자본 효율성
+
+| 중요 피처 | 설명 | 왜 중요한가? |
+|-----------|------|--------------|
+| `debtToEquity` | 부채비율 | 금융사는 적절한 레버리지가 핵심<br>너무 높으면 위험, 낮으면 비효율 |
+| `returnOnEquity (ROE)` | 자기자본이익률 | 자본 효율성 측정<br>JP Morgan: ROE 15% 이상 유지 |
+| `netInterestMargin` | 순이자마진 | 은행의 수익성 지표<br>예대마진과 직결 |
+| `tier1CapitalRatio` | 자기자본비율 | 규제 요구사항 충족 여부<br>금융 위기 대응 능력 |
+
+**예시**:
+- **JP Morgan**: 높은 ROE + 적정 레버리지 → 우수
+- **Regional Bank**: 낮은 자본비율 + 고위험 대출 → 위험
+
+#### 💊 Healthcare 섹터
+
+**핵심 특징**: 장기 R&D, 높은 진입장벽, 규제, 고마진
+
+| 중요 피처 | 설명 | 왜 중요한가? |
+|-----------|------|--------------|
+| `OverMC_researchAndDevelopmentExpenses` | R&D 비용 비중 | 신약 개발에 10년+ 소요<br>파이프라인이 미래 가치 |
+| `grossProfitRatio` | 매출총이익률 | 제약사는 70-80% 고마진<br>특허 보호 기간 중요 |
+| `operatingCashFlow` | 영업현금흐름 | 장기 R&D 자금 지원 능력<br>현금 소진율 확인 |
+| `debtToAssets` | 부채비율 | 대형 M&A 가능성 판단<br>바이오텍은 낮은 부채 선호 |
+
+**예시**:
+- **Eli Lilly**: R&D 높음 + 고마진 + 신약 파이프라인 → 강세
+- **소형 바이오텍**: R&D만 높고 마진 없음 → 고위험
+
+#### 🛒 Consumer 섹터
+
+**핵심 특징**: 재고 회전, 브랜드 파워, 계절성
+
+| 중요 피처 | 설명 | 왜 중요한가? |
+|-----------|------|--------------|
+| `inventoryTurnover` | 재고회전율 | 재고 관리 효율성<br>Amazon: 연 12회, Walmart: 연 9회 |
+| `returnOnEquity` | 자기자본이익률 | 소비재는 안정적 수익 창출<br>ROE 15% 이상 우수 |
+| `currentRatio` | 유동비율 | 단기 유동성 확인<br>계절성 대응 능력 |
+| `brandValue` | 브랜드 가치 (간접) | 매출총이익률로 추정<br>Nike, Apple은 고마진 유지 |
+
+**예시**:
+- **Nike**: 높은 재고회전 + 브랜드 프리미엄 → 우수
+- **전통 리테일**: 낮은 재고회전 + 낮은 마진 → 어려움
+
+#### 🏭 Industrial 섹터
+
+**핵심 특징**: 자본집약적, 경기 민감, 장기 계약
+
+| 중요 피처 | 설명 | 왜 중요한가? |
+|-----------|------|--------------|
+| `propertyPlantEquipmentNet` | 유형자산 규모 | 생산 능력 지표<br>Boeing: 수십억 달러 공장 |
+| `assetTurnover` | 자산회전율 | 자산 효율성<br>Caterpillar: 연 1.5회 이상 |
+| `orderBacklog` | 수주잔고 (간접) | 미래 매출 예측<br>장기 계약 산업 |
+| `operatingLeverage` | 영업레버리지 | 고정비 비중 높음<br>경기 상승기 수혜 |
+
+**예시**:
+- **Caterpillar**: 높은 수주잔고 + 효율적 자산 활용 → 경기 회복 수혜
+- **Legacy 제조업**: 낮은 자산회전율 → 구조조정 필요
+
+---
+
+### 💡 섹터별 투자 전략 요약
+
+| 섹터 | 성장기 전략 | 침체기 전략 | 핵심 리스크 |
+|------|-------------|-------------|-------------|
+| Technology | R&D 높은 성장주 | 현금흐름 안정적 대형주 | 기술 변화, 경쟁 |
+| Financial | ROE 높은 은행 | 배당 안정적 은행 | 금리 변동, 규제 |
+| Healthcare | 신약 파이프라인 강한 제약사 | 고마진 제네릭 | FDA 승인 실패 |
+| Consumer | 브랜드 파워 강한 기업 | 필수소비재 | 소비 위축 |
+| Industrial | 수주잔고 증가 기업 | 방산, 인프라 | 경기 둔화 |
 
 ---
 

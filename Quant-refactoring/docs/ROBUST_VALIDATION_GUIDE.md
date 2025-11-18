@@ -2,6 +2,22 @@
 
 백테스팅 및 모델 검증 개선 가이드
 
+---
+
+## 📖 이 문서는 누구를 위한 것인가?
+
+- ✅ **개발자** - 백테스팅 시스템을 개선하거나 확장하려는 분
+- ✅ **모델 성능을 검증하고 싶은 분** - Time Series CV, Walk-Forward 이해
+- ✅ **과적합을 방지하고 싶은 분** - 올바른 검증 방법 학습
+
+**이 문서를 읽기 전에:**
+- [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md)에서 전체 아키텍처 먼저 확인하세요
+
+**이 문서를 읽은 후:**
+- 고급 기능 활용 → [ADVANCED_FEATURES_GUIDE.md](ADVANCED_FEATURES_GUIDE.md)
+
+---
+
 ## 🎯 주요 문제점과 해결 방안
 
 ### 1️⃣ Cross-validation 없음 (단순 train/test split)
