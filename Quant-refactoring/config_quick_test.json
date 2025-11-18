@@ -1,0 +1,21 @@
+{
+  "description": "Quick test configuration - generates only 2 quarters for fast validation",
+  "comment": "Use this config to quickly test if infinite error is fixed",
+
+  "AI_DATA": {
+    "START_YEAR": 2024,
+    "END_YEAR": 2024,
+    "EXPORT_NAN_REMOVAL_DETAILS": false,
+    "COMMENT": "Only generate 2024 Q2-Q4 (about 1 hour total)"
+  },
+
+  "ML": {
+    "TRAIN_START_YEAR": 2024,
+    "TRAIN_END_YEAR": 2024,
+    "TEST_START_YEAR": 2024,
+    "TEST_END_YEAR": 2024,
+    "COMMENT": "Train and test on same 2024 data for quick validation"
+  },
+
+  "USAGE": "python main.py --config config_quick_test.json"
+}

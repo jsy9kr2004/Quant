@@ -480,6 +480,16 @@ class Regressor:
             # Parquet 읽기는 CSV보다 5-10배 빠르고, 70-90% 압축됨
             df = pd.read_parquet(fpath, engine='pyarrow')
             df = df.dropna(axis=0, subset=['price_diff'])
+
+            # infinite 값 체크 및 제거 (XGBoost는 infinite를 처리할 수 없음)
+            numeric_cols = df.select_dtypes(include=[np.number]).columns
+            inf_mask = np.isinf(df[numeric_cols])
+            rows_with_inf = inf_mask.any(axis=1)
+            if rows_with_inf.sum() > 0:
+                logging.warning(f"⚠️  Found {rows_with_inf.sum()} rows with infinite values in {os.path.basename(fpath)}")
+                df = df[~rows_with_inf]
+                logging.info(f"   After infinite removal: {len(df)} rows remaining")
+
             self.train_df = pd.concat([self.train_df, df], axis=0)
 
         # 의미 없는 컬럼 제거 (높은 누락률 또는 낮은 분산)
@@ -525,6 +535,16 @@ class Regressor:
             sec_mean = self.train_df.loc[sec_mask, 'price_dev'].mean()
             self.train_df.loc[sec_mask, 'sec_price_dev_subavg'] = self.train_df.loc[sec_mask, 'price_dev'] - sec_mean
 
+        # 섹터 계산 후 infinite 값 체크 및 제거
+        numeric_cols_train = self.train_df.select_dtypes(include=[np.number]).columns
+        inf_mask_train = np.isinf(self.train_df[numeric_cols_train])
+        rows_with_inf_train = inf_mask_train.any(axis=1)
+        if rows_with_inf_train.sum() > 0:
+            logging.warning(f"⚠️  Found {rows_with_inf_train.sum()} rows with infinite values after sector calculation")
+            logging.warning(f"   This may be caused by sector mean calculation or subtraction overflow")
+            self.train_df = self.train_df[~rows_with_inf_train]
+            logging.info(f"   After infinite removal: {len(self.train_df)} rows remaining")
+
         # PER_SECTOR 모드: 섹터별로 학습 데이터 분리
         if PER_SECTOR == True:
             print(self.train_df['sector'].value_counts())
@@ -546,6 +566,16 @@ class Regressor:
             # Parquet 읽기는 CSV보다 5-10배 빠름
             df = pd.read_parquet(fpath, engine='pyarrow')
             df = df.dropna(axis=0, subset=['price_diff'])
+
+            # infinite 값 체크 및 제거 (학습 데이터와 동일)
+            numeric_cols_test = df.select_dtypes(include=[np.number]).columns
+            inf_mask_test = np.isinf(df[numeric_cols_test])
+            rows_with_inf_test = inf_mask_test.any(axis=1)
+            if rows_with_inf_test.sum() > 0:
+                logging.warning(f"⚠️  Found {rows_with_inf_test.sum()} rows with infinite values in test file {os.path.basename(fpath)}")
+                df = df[~rows_with_inf_test]
+                logging.info(f"   After infinite removal: {len(df)} rows remaining")
+
             # 학습과 동일한 특성 제거
             df = df.drop(columns=columns_to_drop, errors='ignore')
 
@@ -565,6 +595,15 @@ class Regressor:
                 sec_mask = df['sector'] == sec
                 sec_mean = df.loc[sec_mask, 'price_dev'].mean()
                 df.loc[sec_mask, 'sec_price_dev_subavg'] = df.loc[sec_mask, 'price_dev'] - sec_mean
+
+            # 테스트 데이터도 섹터 계산 후 infinite 체크
+            numeric_cols_test2 = df.select_dtypes(include=[np.number]).columns
+            inf_mask_test2 = np.isinf(df[numeric_cols_test2])
+            rows_with_inf_test2 = inf_mask_test2.any(axis=1)
+            if rows_with_inf_test2.sum() > 0:
+                logging.warning(f"⚠️  Found {rows_with_inf_test2.sum()} rows with infinite values after sector calculation in test file")
+                df = df[~rows_with_inf_test2]
+                logging.info(f"   After infinite removal: {len(df)} rows remaining")
 
             # 모든 테스트 데이터를 연결하고 기간별 리스트 유지
             self.test_df = pd.concat([self.test_df, df], axis=0)
@@ -782,6 +821,20 @@ class Regressor:
 
         # LightGBM 호환성을 위해 특성 이름 정리
         self.x_train = self.clean_feature_names(self.x_train)
+
+        # [최종 체크] XGBoost 학습 전 infinite 값 검증
+        numeric_cols_final = self.x_train.select_dtypes(include=[np.number]).columns
+        inf_mask_final = np.isinf(self.x_train[numeric_cols_final])
+        rows_with_inf_final = inf_mask_final.any(axis=1)
+        if rows_with_inf_final.sum() > 0:
+            logging.error(f"❌ CRITICAL: Found {rows_with_inf_final.sum()} rows with infinite values before model training!")
+            logging.error(f"   Removing these rows to prevent XGBoost error...")
+            self.x_train = self.x_train[~rows_with_inf_final]
+            self.y_train = self.y_train[~rows_with_inf_final.values]
+            self.y_train_cls = self.y_train_cls[~rows_with_inf_final.values]
+            logging.info(f"   After final infinite removal: {len(self.x_train)} rows remaining")
+        else:
+            logging.info(f"✅ No infinite values in training data ({len(self.x_train)} rows)")
 
         # 회귀 레이블을 이진 분류 레이블로 변환 (0/1)
         y_train_binary = (self.y_train_cls > 0).astype(int)
