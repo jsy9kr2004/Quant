@@ -868,12 +868,49 @@ class Regressor:
         # 회귀 레이블을 이진 분류 레이블로 변환 (0/1)
         y_train_binary = (self.y_train_cls > 0).astype(int)
 
-        # y_train_binary도 최종 검증 (매우 큰 값 체크)
-        # pandas Series를 numpy array로 변환하여 체크
-        if np.isinf(y_train_binary.values).any():
-            logging.error(f"❌ CRITICAL: y_train_binary contains infinite values!")
-            # y_train_binary는 0 또는 1이어야 하므로 이것은 심각한 문제
-            raise ValueError("y_train_binary contains infinite - this should never happen!")
+        # [CRITICAL DEBUG] 실제 데이터 상태 확인
+        logging.info("=" * 80)
+        logging.info("🔬 CRITICAL DEBUG: Checking actual data before XGBoost")
+        logging.info("=" * 80)
+
+        # x_train을 numpy array로 변환
+        x_values = self.x_train.values
+        logging.info(f"x_train shape: {x_values.shape}")
+        logging.info(f"x_train dtype: {x_values.dtype}")
+        logging.info(f"x_train has inf: {np.isinf(x_values).any()}")
+        logging.info(f"x_train has nan: {np.isnan(x_values).any()}")
+
+        # 매우 큰 값 체크 (XGBoost가 "too large"로 거부할 수 있는 값)
+        finite_mask = np.isfinite(x_values)
+        if finite_mask.all():
+            max_val = np.abs(x_values).max()
+            logging.info(f"x_train max abs value: {max_val}")
+        very_large_count = (np.abs(x_values) > 1e10).sum()
+        logging.info(f"x_train values > 1e10: {very_large_count}")
+        extreme_count = (np.abs(x_values) > 1e100).sum()
+        logging.info(f"x_train values > 1e100: {extreme_count}")
+
+        # y_train_binary 상세 체크
+        y_values = y_train_binary.values.ravel()
+        logging.info(f"y_train_binary shape: {y_values.shape}")
+        logging.info(f"y_train_binary unique values: {np.unique(y_values)}")
+
+        # 매우 큰 값 제거 (XGBoost "too large" 방지)
+        LARGE_THRESHOLD = 1e10  # 100억
+        large_mask_per_row = (np.abs(x_values) > LARGE_THRESHOLD).any(axis=1)
+        if large_mask_per_row.sum() > 0:
+            logging.warning(f"⚠️  Found {large_mask_per_row.sum()} rows with values > {LARGE_THRESHOLD}")
+            logging.warning(f"   These are not 'inf' but may be 'too large' for XGBoost")
+            logging.warning(f"   Removing these rows...")
+
+            self.x_train = self.x_train[~large_mask_per_row]
+            y_train_binary = y_train_binary[~large_mask_per_row]
+            self.y_train = self.y_train[~large_mask_per_row.values]
+            self.y_train_cls = self.y_train_cls[~large_mask_per_row.values]
+
+            logging.info(f"   After removing large values: {len(self.x_train)} rows")
+
+        logging.info("=" * 80)
 
         # 모든 분류 모델 학습
         for i, model in self.clsmodels.items():
