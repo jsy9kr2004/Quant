@@ -869,7 +869,8 @@ class Regressor:
         y_train_binary = (self.y_train_cls > 0).astype(int)
 
         # y_train_binary도 최종 검증 (매우 큰 값 체크)
-        if np.isinf(y_train_binary).any():
+        # pandas Series를 numpy array로 변환하여 체크
+        if np.isinf(y_train_binary.values).any():
             logging.error(f"❌ CRITICAL: y_train_binary contains infinite values!")
             # y_train_binary는 0 또는 1이어야 하므로 이것은 심각한 문제
             raise ValueError("y_train_binary contains infinite - this should never happen!")
