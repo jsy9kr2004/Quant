@@ -640,6 +640,23 @@ class Regressor:
         self.y_train = self.train_df[['price_dev_subavg']]  # 회귀 타겟 (가격 변동 - 평균)
         self.y_train_cls = self.train_df[['price_dev']]  # 분류 타겟 (이진: 상승/하락)
 
+        # y 레이블 infinite 체크
+        inf_in_y_train_check = np.isinf(self.y_train).any().any()
+        inf_in_y_train_cls_check = np.isinf(self.y_train_cls).any().any()
+        if inf_in_y_train_check or inf_in_y_train_cls_check:
+            logging.error(f"❌ CRITICAL: Infinite values found in y labels after train/test split!")
+            logging.error(f"   - y_train (price_dev_subavg): {np.isinf(self.y_train).sum().sum()} infinite values")
+            logging.error(f"   - y_train_cls (price_dev): {np.isinf(self.y_train_cls).sum().sum()} infinite values")
+
+            # y에 infinite가 있는 행 제거
+            rows_with_inf_y = np.isinf(self.y_train).any(axis=1) | np.isinf(self.y_train_cls).any(axis=1)
+            self.x_train = self.x_train[~rows_with_inf_y]
+            self.y_train = self.y_train[~rows_with_inf_y.values]
+            self.y_train_cls = self.y_train_cls[~rows_with_inf_y.values]
+            logging.info(f"   After removing rows with infinite y: {len(self.x_train)} rows remaining")
+        else:
+            logging.info(f"✅ No infinite values in y labels (y_train, y_train_cls)")
+
         # 섹터별 학습 데이터 준비
         for sec in self.sector_list:
             print("sector : ", sec)
@@ -826,18 +843,36 @@ class Regressor:
         numeric_cols_final = self.x_train.select_dtypes(include=[np.number]).columns
         inf_mask_final = np.isinf(self.x_train[numeric_cols_final])
         rows_with_inf_final = inf_mask_final.any(axis=1)
-        if rows_with_inf_final.sum() > 0:
-            logging.error(f"❌ CRITICAL: Found {rows_with_inf_final.sum()} rows with infinite values before model training!")
+
+        # y 레이블도 infinite 체크
+        inf_in_y_train = np.isinf(self.y_train).any(axis=1)
+        inf_in_y_train_cls = np.isinf(self.y_train_cls).any(axis=1)
+
+        # x_train 또는 y에 infinite가 있는 행 찾기
+        rows_with_inf_combined = rows_with_inf_final | inf_in_y_train | inf_in_y_train_cls
+
+        if rows_with_inf_combined.sum() > 0:
+            logging.error(f"❌ CRITICAL: Found {rows_with_inf_combined.sum()} rows with infinite values before model training!")
+            logging.error(f"   - Infinite in x_train: {rows_with_inf_final.sum()} rows")
+            logging.error(f"   - Infinite in y_train: {inf_in_y_train.sum()} rows")
+            logging.error(f"   - Infinite in y_train_cls: {inf_in_y_train_cls.sum()} rows")
             logging.error(f"   Removing these rows to prevent XGBoost error...")
-            self.x_train = self.x_train[~rows_with_inf_final]
-            self.y_train = self.y_train[~rows_with_inf_final.values]
-            self.y_train_cls = self.y_train_cls[~rows_with_inf_final.values]
+
+            self.x_train = self.x_train[~rows_with_inf_combined]
+            self.y_train = self.y_train[~rows_with_inf_combined.values]
+            self.y_train_cls = self.y_train_cls[~rows_with_inf_combined.values]
             logging.info(f"   After final infinite removal: {len(self.x_train)} rows remaining")
         else:
-            logging.info(f"✅ No infinite values in training data ({len(self.x_train)} rows)")
+            logging.info(f"✅ No infinite values in x_train and y labels ({len(self.x_train)} rows)")
 
         # 회귀 레이블을 이진 분류 레이블로 변환 (0/1)
         y_train_binary = (self.y_train_cls > 0).astype(int)
+
+        # y_train_binary도 최종 검증 (매우 큰 값 체크)
+        if np.isinf(y_train_binary).any():
+            logging.error(f"❌ CRITICAL: y_train_binary contains infinite values!")
+            # y_train_binary는 0 또는 1이어야 하므로 이것은 심각한 문제
+            raise ValueError("y_train_binary contains infinite - this should never happen!")
 
         # 모든 분류 모델 학습
         for i, model in self.clsmodels.items():
