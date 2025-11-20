@@ -427,15 +427,28 @@ class MLBacktest:
         price_table['date'] = pd.to_datetime(price_table['date'])
 
         # 리밸런싱 날짜 생성
-        start_date = datetime(
-            self.config.get('BACKTEST', {}).get('START_YEAR', 2023),
-            self.config.get('BACKTEST', {}).get('START_MONTH', 3),
-            self.config.get('BACKTEST', {}).get('START_DATE', 13)
-        )
-        end_date = datetime(
-            self.config.get('BACKTEST', {}).get('END_YEAR', 2024),
-            12, 31
-        )
+        # BACKTEST 섹션에서 설정 읽기 (신규 형식)
+        # 없으면 최상위 레벨에서 읽기 (레거시 형식)
+        backtest_config = self.config.get('BACKTEST', {})
+
+        # START_YEAR (신규 → 레거시 순서로 폴백)
+        start_year = backtest_config.get('START_YEAR') or self.config.get('TEST_START_YEAR') or self.config.get('START_YEAR', 2023)
+        if isinstance(start_year, str):
+            start_year = int(start_year)
+
+        # END_YEAR
+        end_year = backtest_config.get('END_YEAR') or self.config.get('TEST_END_YEAR') or self.config.get('END_YEAR', 2024)
+        if isinstance(end_year, str):
+            end_year = int(end_year)
+
+        # START_MONTH, START_DATE
+        start_month = backtest_config.get('START_MONTH', self.config.get('START_MONTH', 3))
+        start_date_day = backtest_config.get('START_DATE', self.config.get('START_DATE', 13))
+
+        self.logger.info(f"📅 Backtest period: {start_year}/{start_month}/{start_date_day} ~ {end_year}/12/31")
+
+        start_date = datetime(start_year, start_month, start_date_day)
+        end_date = datetime(end_year, 12, 31)
 
         rebalance_dates = []
         current = start_date
