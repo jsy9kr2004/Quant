@@ -81,7 +81,8 @@ class MLBacktest:
         top_k: int = 20,
         retrain_frequency: str = 'quarterly',  # 'every', 'quarterly', 'yearly', 'once'
         window_type: str = 'expanding',  # 'expanding' or 'rolling'
-        window_size: Optional[int] = 3  # rolling window size in years
+        window_size: Optional[int] = 3,  # rolling window size in years
+        use_sector_model: Optional[bool] = None  # None = use config, True/False = override
     ):
         self.config = config
         self.main_ctx = main_ctx
@@ -99,6 +100,14 @@ class MLBacktest:
         self.data_path = Path(main_ctx.root_path) / 'ml_per_year'
         self.model_path = Path(main_ctx.root_path) / 'MODELS_WALKFORWARD'
         self.model_path.mkdir(exist_ok=True)
+
+        # 섹터별 모델 사용 여부
+        if use_sector_model is None:
+            self.use_sector_model = ml_config.get('USE_SECTOR_MODEL', 'N') == 'Y'
+        else:
+            self.use_sector_model = use_sector_model
+
+        self.sector_config = ml_config.get('SECTOR_CONFIG', {}) if self.use_sector_model else {}
 
         # 결과 저장용
         self.backtest_results = []
@@ -201,7 +210,7 @@ class MLBacktest:
 
     def _train_model(self, train_data: pd.DataFrame, cutoff_date: datetime) -> Dict[str, Any]:
         """
-        모델 학습
+        모델 학습 (섹터별 또는 통합)
 
         Parameters:
         ----------
@@ -214,14 +223,30 @@ class MLBacktest:
         -------
         Dict[str, Any]
             학습된 모델 딕셔너리
-            {
-                'classifiers': [모델1, 모델2, ...],
-                'regressors': [모델1, 모델2, ...],
-                'features': [특성명 리스트],
-                'scaler': 스케일러
-            }
         """
-        self.logger.info(f"🔧 Training models with data until {cutoff_date.date()}")
+        if self.use_sector_model:
+            self.logger.info(f"🔧 Training SECTOR-BASED models with data until {cutoff_date.date()}")
+            return self._train_model_sector(train_data, cutoff_date)
+        else:
+            self.logger.info(f"🔧 Training UNIFIED model with data until {cutoff_date.date()}")
+            return self._train_model_unified(train_data, cutoff_date)
+
+    def _train_model_unified(self, train_data: pd.DataFrame, cutoff_date: datetime) -> Dict[str, Any]:
+        """
+        통합 모델 학습 (전체 데이터를 하나의 모델로)
+
+        Parameters:
+        ----------
+        train_data : pd.DataFrame
+            학습 데이터
+        cutoff_date : datetime
+            학습 기준 날짜
+
+        Returns:
+        -------
+        Dict[str, Any]
+            학습된 모델 딕셔너리
+        """
         self.logger.info(f"   Training samples: {len(train_data)}")
 
         # 특성과 타겟 분리
@@ -285,6 +310,135 @@ class MLBacktest:
 
         return models
 
+    def _train_model_sector(self, train_data: pd.DataFrame, cutoff_date: datetime) -> Dict[str, Any]:
+        """
+        섹터별 모델 학습 (각 섹터마다 별도 모델)
+
+        Parameters:
+        ----------
+        train_data : pd.DataFrame
+            학습 데이터 (sector 컬럼 필요)
+        cutoff_date : datetime
+            학습 기준 날짜
+
+        Returns:
+        -------
+        Dict[str, Any]
+            섹터별 학습된 모델 딕셔너리
+            {
+                'type': 'sector',
+                'sectors': {
+                    'Technology': {'classifier': ..., 'regressor': ..., 'features': ..., 'scaler': ...},
+                    'Financial': {...},
+                    ...
+                }
+            }
+        """
+        if 'sector' not in train_data.columns:
+            self.logger.warning("⚠️ 'sector' column not found! Falling back to unified model.")
+            return self._train_model_unified(train_data, cutoff_date)
+
+        self.logger.info(f"   Training samples: {len(train_data)}")
+
+        # 섹터별 모델 저장
+        sector_models = {}
+
+        # 제외할 컬럼
+        exclude_cols = [
+            'symbol', 'sector', 'industry', 'exchangeShortName',
+            'label', 'price_dev_prediction', 'start_date',
+            'fillingDate', 'acceptedDate', 'year_period'
+        ]
+
+        # 각 섹터별로 학습
+        sectors = train_data['sector'].unique()
+        self.logger.info(f"   Sectors found: {list(sectors)}")
+
+        for sector in sectors:
+            sector_data = train_data[train_data['sector'] == sector]
+
+            if len(sector_data) < 50:  # 최소 샘플 수
+                self.logger.warning(f"   ⚠️ {sector}: Too few samples ({len(sector_data)}), skipping")
+                continue
+
+            self.logger.info(f"   Training {sector} sector ({len(sector_data)} samples)")
+
+            # 섹터별 설정 가져오기 (없으면 기본값)
+            sector_config = self.sector_config.get(sector, {
+                'model': 'xgboost',
+                'n_estimators': 100,
+                'max_depth': 8,
+                'learning_rate': 0.1
+            })
+
+            # 특성과 타겟 분리
+            feature_cols = [col for col in sector_data.columns if col not in exclude_cols]
+            X = sector_data[feature_cols].copy()
+            y = sector_data['label'].copy()
+
+            # NaN 처리
+            X = X.fillna(0)
+            y = y.fillna(0)
+
+            # 스케일링
+            scaler = RobustScaler()
+            X_scaled = scaler.fit_transform(X)
+
+            # 이진 분류용 타겟
+            y_binary = (y > 0).astype(int)
+
+            try:
+                # 분류 모델
+                clf = XGBClassifier(
+                    n_estimators=sector_config.get('n_estimators', 100),
+                    max_depth=sector_config.get('max_depth', 8),
+                    learning_rate=sector_config.get('learning_rate', 0.1),
+                    tree_method='gpu_hist' if self._is_gpu_available() else 'hist',
+                    random_state=42
+                )
+                clf.fit(X_scaled, y_binary)
+
+                # 회귀 모델
+                reg = XGBRegressor(
+                    n_estimators=sector_config.get('n_estimators', 100),
+                    max_depth=sector_config.get('max_depth', 8),
+                    learning_rate=sector_config.get('learning_rate', 0.1),
+                    tree_method='gpu_hist' if self._is_gpu_available() else 'hist',
+                    random_state=42
+                )
+                reg.fit(X_scaled, y)
+
+                sector_models[sector] = {
+                    'classifier': clf,
+                    'regressor': reg,
+                    'features': feature_cols,
+                    'scaler': scaler,
+                    'train_samples': len(sector_data)
+                }
+
+                self.logger.info(f"      ✅ {sector} trained successfully")
+
+            except Exception as e:
+                self.logger.error(f"      ❌ {sector} training failed: {str(e)}")
+                continue
+
+        if not sector_models:
+            self.logger.warning("⚠️ No sector models trained! Falling back to unified model.")
+            return self._train_model_unified(train_data, cutoff_date)
+
+        # 모델 저장
+        models = {
+            'type': 'sector',
+            'sectors': sector_models
+        }
+
+        model_file = self.model_path / f'model_sector_{cutoff_date.strftime("%Y%m%d")}.pkl'
+        joblib.dump(models, model_file)
+        self.logger.info(f"   ✅ Sector models saved: {model_file}")
+        self.logger.info(f"   Trained {len(sector_models)} sectors: {list(sector_models.keys())}")
+
+        return models
+
     def _is_gpu_available(self) -> bool:
         """GPU 사용 가능 여부 확인"""
         try:
@@ -295,12 +449,33 @@ class MLBacktest:
 
     def _predict(self, models: Dict[str, Any], test_data: pd.DataFrame) -> pd.DataFrame:
         """
-        예측 수행
+        예측 수행 (섹터별 또는 통합)
 
         Parameters:
         ----------
         models : Dict[str, Any]
             학습된 모델
+        test_data : pd.DataFrame
+            예측할 데이터
+
+        Returns:
+        -------
+        pd.DataFrame
+            예측 결과 포함 데이터프레임
+        """
+        if models.get('type') == 'sector':
+            return self._predict_sector(models, test_data)
+        else:
+            return self._predict_unified(models, test_data)
+
+    def _predict_unified(self, models: Dict[str, Any], test_data: pd.DataFrame) -> pd.DataFrame:
+        """
+        통합 모델 예측
+
+        Parameters:
+        ----------
+        models : Dict[str, Any]
+            학습된 통합 모델
         test_data : pd.DataFrame
             예측할 데이터
 
@@ -329,6 +504,67 @@ class MLBacktest:
 
         # 최종 점수: 확률 * 예상 수익률
         result['ml_score'] = y_pred_proba * y_pred_return
+
+        return result
+
+    def _predict_sector(self, models: Dict[str, Any], test_data: pd.DataFrame) -> pd.DataFrame:
+        """
+        섹터별 모델 예측
+
+        Parameters:
+        ----------
+        models : Dict[str, Any]
+            학습된 섹터별 모델
+        test_data : pd.DataFrame
+            예측할 데이터 (sector 컬럼 필요)
+
+        Returns:
+        -------
+        pd.DataFrame
+            예측 결과 포함 데이터프레임
+        """
+        if 'sector' not in test_data.columns:
+            self.logger.warning("⚠️ 'sector' column not found! Cannot use sector models.")
+            return test_data.copy()
+
+        sector_models = models['sectors']
+        result = test_data.copy()
+
+        # 초기화
+        result['pred_up_proba'] = 0.0
+        result['pred_return'] = 0.0
+        result['ml_score'] = 0.0
+
+        # 섹터별 예측
+        for sector, sector_model in sector_models.items():
+            sector_mask = result['sector'] == sector
+            sector_data = result[sector_mask]
+
+            if len(sector_data) == 0:
+                continue
+
+            try:
+                feature_cols = sector_model['features']
+                scaler = sector_model['scaler']
+
+                X = sector_data[feature_cols].copy()
+                X = X.fillna(0)
+                X_scaled = scaler.transform(X)
+
+                # 예측
+                y_pred_proba = sector_model['classifier'].predict_proba(X_scaled)[:, 1]
+                y_pred_return = sector_model['regressor'].predict(X_scaled)
+
+                # 결과 저장
+                result.loc[sector_mask, 'pred_up_proba'] = y_pred_proba
+                result.loc[sector_mask, 'pred_return'] = y_pred_return
+                result.loc[sector_mask, 'ml_score'] = y_pred_proba * y_pred_return
+
+                self.logger.info(f"   Predicted {sector}: {len(sector_data)} stocks")
+
+            except Exception as e:
+                self.logger.error(f"   ❌ {sector} prediction failed: {str(e)}")
+                continue
 
         return result
 
@@ -477,6 +713,7 @@ class MLBacktest:
         self.logger.info("="*80)
         self.logger.info("ML Walk-Forward Backtest Starting")
         self.logger.info("="*80)
+        self.logger.info(f"Model type: {'SECTOR-BASED' if self.use_sector_model else 'UNIFIED'}")
         self.logger.info(f"Rebalance period: {self.rebalance_period} months")
         self.logger.info(f"Top K: {self.top_k}")
         self.logger.info(f"Retrain frequency: {self.retrain_frequency}")

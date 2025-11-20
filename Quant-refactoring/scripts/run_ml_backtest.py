@@ -80,6 +80,18 @@ def parse_args():
         help='리밸런싱 주기 (개월, 기본값: 3)'
     )
 
+    parser.add_argument(
+        '--use-sector',
+        action='store_true',
+        help='섹터별 모델 사용 (기본값: Config 파일 설정 따름)'
+    )
+
+    parser.add_argument(
+        '--no-sector',
+        action='store_true',
+        help='통합 모델 사용 (섹터 구분 없음)'
+    )
+
     return parser.parse_args()
 
 
@@ -103,6 +115,18 @@ def main():
     logger.info("="*80)
     logger.info("ML Walk-Forward Backtest")
     logger.info("="*80)
+
+    # 섹터 모델 사용 여부 결정
+    use_sector_model = None
+    if args.use_sector:
+        use_sector_model = True
+        logger.info("Model type: SECTOR-BASED (forced by --use-sector)")
+    elif args.no_sector:
+        use_sector_model = False
+        logger.info("Model type: UNIFIED (forced by --no-sector)")
+    else:
+        logger.info("Model type: From config file")
+
     logger.info(f"Retrain frequency: {args.retrain_freq}")
     logger.info(f"Window type: {args.window}")
     if args.window == 'rolling':
@@ -167,7 +191,8 @@ def main():
             top_k=args.top_k,
             retrain_frequency=args.retrain_freq,
             window_type=args.window,
-            window_size=args.window_size if args.window == 'rolling' else None
+            window_size=args.window_size if args.window == 'rolling' else None,
+            use_sector_model=use_sector_model
         )
 
         # 실행
