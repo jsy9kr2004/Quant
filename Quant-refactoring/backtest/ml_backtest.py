@@ -353,6 +353,37 @@ class MLBacktest:
 
         return top_k_df['symbol'].tolist()
 
+    def _get_trade_date(self, pdate: datetime, price_table: pd.DataFrame) -> Optional[datetime]:
+        """
+        Find the nearest trading date for a given date.
+
+        Since markets may be closed on weekends and holidays, this method finds
+        the nearest actual trading date by looking for price data within 10 days
+        before the given date.
+
+        Parameters:
+        ----------
+        pdate : datetime
+            Target date to find trading date for
+        price_table : pd.DataFrame
+            Price data table
+
+        Returns:
+        -------
+        datetime or None
+            Nearest trading date, or None if no trading date found within 10 days
+        """
+        from dateutil.relativedelta import relativedelta
+
+        post_date = pdate - relativedelta(days=10)
+        res = price_table.query("date >= @post_date and date <= @pdate")
+
+        if res.empty:
+            return None
+
+        # 가장 최근 거래일 반환 (pdate에 가장 가까운 날짜)
+        return res['date'].max()
+
     def _calculate_period_return(
         self,
         selected_symbols: List[str],
@@ -379,19 +410,29 @@ class MLBacktest:
         float
             평균 수익률
         """
+        # 실제 거래일 찾기 (주말/휴일 처리)
+        actual_buy_date = self._get_trade_date(buy_date, price_table)
+        actual_sell_date = self._get_trade_date(sell_date, price_table)
+
+        if actual_buy_date is None or actual_sell_date is None:
+            self.logger.warning(
+                f"Trading date not found: buy={buy_date.date()}, sell={sell_date.date()}"
+            )
+            return 0.0
+
         returns = []
 
         for symbol in selected_symbols:
             symbol_prices = price_table[price_table['symbol'] == symbol]
 
-            # 매수 가격
-            buy_price_rows = symbol_prices[symbol_prices['date'] >= buy_date]
+            # 매수 가격 (실제 거래일)
+            buy_price_rows = symbol_prices[symbol_prices['date'] == actual_buy_date]
             if buy_price_rows.empty:
                 continue
             buy_price = buy_price_rows.iloc[0]['close']
 
-            # 매도 가격
-            sell_price_rows = symbol_prices[symbol_prices['date'] >= sell_date]
+            # 매도 가격 (실제 거래일)
+            sell_price_rows = symbol_prices[symbol_prices['date'] == actual_sell_date]
             if sell_price_rows.empty:
                 continue
             sell_price = sell_price_rows.iloc[0]['close']
