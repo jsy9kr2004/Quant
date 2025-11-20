@@ -106,9 +106,10 @@ def detect_xgboost_device() -> str:
     XGBoost에서 사용 가능한 최적의 디바이스를 자동으로 감지합니다.
 
     감지 순서:
-    1. CUDA GPU 사용 가능 여부 확인 (torch.cuda 사용)
-    2. GPU 있으면 'cuda:0' 반환
-    3. GPU 없으면 'cpu' 반환
+    1. CuPy를 통한 CUDA GPU 사용 가능 여부 확인
+    2. PyTorch를 통한 CUDA GPU 사용 가능 여부 확인
+    3. GPU 있으면 'cuda:0' 반환
+    4. GPU 없으면 'cpu' 반환
 
     Returns:
         str: 'cuda:0' (GPU 사용 가능) 또는 'cpu' (GPU 없음)
@@ -118,12 +119,22 @@ def detect_xgboost_device() -> str:
         >>> print(f"Using device: {device}")
         Using device: cuda:0
     """
+    # 먼저 CuPy를 통해 GPU 확인 (XGBoost는 CuPy를 사용할 수 있음)
+    try:
+        import cupy as cp
+        _ = cp.cuda.Device(0)
+        logging.info("🎮 GPU detected (via CuPy): Using CUDA acceleration")
+        return 'cuda:0'
+    except Exception as e:
+        logging.debug(f"CuPy GPU detection failed: {e}")
+
+    # CuPy가 실패하면 PyTorch로 시도
     try:
         if torch.cuda.is_available():
-            logging.info("🎮 GPU detected: Using CUDA acceleration")
+            logging.info("🎮 GPU detected (via PyTorch): Using CUDA acceleration")
             return 'cuda:0'
     except Exception as e:
-        logging.debug(f"GPU detection failed: {e}")
+        logging.debug(f"PyTorch GPU detection failed: {e}")
 
     logging.info("💻 No GPU detected: Using CPU")
     return 'cpu'
