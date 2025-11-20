@@ -895,20 +895,29 @@ class Regressor:
         logging.info(f"y_train_binary shape: {y_values.shape}")
         logging.info(f"y_train_binary unique values: {np.unique(y_values)}")
 
-        # 매우 큰 값 제거 (XGBoost "too large" 방지)
+        # Too large 값 처리: 제거가 아닌 Clipping으로 정보 보존
+        # Infinite는 의미 없는 값이지만, too large는 실제 extreme 값!
         LARGE_THRESHOLD = 1e10  # 100억
         large_mask_per_row = (np.abs(x_values) > LARGE_THRESHOLD).any(axis=1)
+
         if large_mask_per_row.sum() > 0:
             logging.warning(f"⚠️  Found {large_mask_per_row.sum()} rows with values > {LARGE_THRESHOLD}")
-            logging.warning(f"   These are not 'inf' but may be 'too large' for XGBoost")
-            logging.warning(f"   Removing these rows...")
+            logging.warning(f"   These are REAL extreme values, not errors!")
+            logging.warning(f"   Using CLIPPING instead of removal to preserve information")
 
-            self.x_train = self.x_train[~large_mask_per_row]
-            y_train_binary = y_train_binary[~large_mask_per_row]
-            self.y_train = self.y_train[~large_mask_per_row.values]
-            self.y_train_cls = self.y_train_cls[~large_mask_per_row.values]
+            # Clipping: 값을 범위 내로 제한 (정보 보존)
+            x_values_clipped = np.clip(x_values, -LARGE_THRESHOLD, LARGE_THRESHOLD)
+            rows_clipped = (x_values != x_values_clipped).any(axis=1).sum()
 
-            logging.info(f"   After removing large values: {len(self.x_train)} rows")
+            if rows_clipped > 0:
+                logging.info(f"   Clipped {rows_clipped} rows to range [{-LARGE_THRESHOLD}, {LARGE_THRESHOLD}]")
+                # DataFrame 업데이트
+                self.x_train.iloc[:, :] = x_values_clipped
+
+            # 재확인
+            x_values = self.x_train.values
+            max_after_clip = np.abs(x_values).max()
+            logging.info(f"   After clipping, max abs value: {max_after_clip}")
 
         logging.info("=" * 80)
 
