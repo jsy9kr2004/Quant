@@ -2,15 +2,15 @@ import logging
 import multiprocessing
 import os
 import yaml
-import pandas as pd
 
 from backtest import Backtest, PlanHandler
 from database import Database
 from fmp import FMP
 from parquet import Parquet
-from make_mldata import AIDataMaker
 from regressor import Regressor
+from make_mldata import AIDataMaker
 
+import pandas as pd
 
 class MainCtx:
     def __init__(self, config):
@@ -89,61 +89,13 @@ if __name__ == '__main__':
     conf = get_config()
     main_ctx = MainCtx(conf)
     conf_check(conf)
+    # AIDataMaker(main_ctx, conf)
+    regor = Regressor(conf)
+    # regor.dataload()
+    regor.val_dataload()
+    # regor.train_dl()
+    # regor.train()
+    regor.evaluation()
+    regor.last_dataload()
+    regor.latest_prediction()
 
-    main_ctx.create_dir("./reports")
-    if conf['GET_FMP'] == "Y":
-        fmp = FMP(conf, main_ctx)
-        fmp.get_new()
-        if conf['STORAGE_TYPE'] == "DB":
-            db = Database(main_ctx)
-            db.insert_csv()
-            db.rebuild_table_view()
-        elif conf['STORAGE_TYPE'] == "PARQUET":
-            df_engine = Parquet(main_ctx)
-            df_engine.insert_csv()
-            df_engine.rebuild_table_view()
-        else:
-            logging.error("Check conf.yaml. don't choose db and parquet both")
-
-    # TODO 잠깐 놓은거임 고쳐야댐!!!!!!!!!!!!!!!
-    # df_engine = Parquet(main_ctx)
-    # df_engine.insert_csv()
-    # df_engine.rebuild_table_view()
-
-    # for mem_cnt in range(5, 21, 5):
-    #    for top_k_num in range(200, 3001, 400):
-    #        for score_ratio in range(0, 201, 25):
-    #            conf['MEMBER_CNT'] = mem_cnt
-    #            conf['TOP_K_NUM'] = top_k_num
-    #            conf['ABSOLUTE_SCORE'] = int(top_k_num * 10 * (1 + score_ratio / 100))
-
-    exit()
-    if conf['RUN_REGRESSION'] == "Y":
-        AIDataMaker(main_ctx, conf)
-        regor = Regressor(conf)
-        regor.dataload()
-        regor.train()
-        regor.evaluation()
-        regor.latest_prediction()
-        exit()
-
-    
-    plan_handler = PlanHandler(conf['TOP_K_NUM'], conf['ABSOLUTE_SCORE'], main_ctx)
-    plan = []
-    plan_df = pd.read_csv("./plan.csv")
-    plan_info = plan_df.values.tolist()
-    for i in range(len(plan_info)):
-        plan.append(
-            {"f_name": plan_handler.single_metric_plan_no_parallel,
-             "params": {"key": plan_info[i][0],
-                        "key_dir": plan_info[i][1], "weight": plan_info[i][2],
-                        "diff": plan_info[i][3], "base": plan_info[i][4], "base_dir": plan_info[i][5]}}
-        )
-    plan_handler.plan_list = plan
-
-    bt = Backtest(main_ctx, conf, plan_handler, rebalance_period=conf['REBALANCE_PERIOD'])
-
-    del plan_handler
-    del bt
-
-    logging.shutdown()

@@ -80,16 +80,16 @@ meaning_col_list = ["commonStockRepurchased", "interestCoverage", "averageInvent
                     "otherExpenses", "deferredRevenue", "shortTermInvestments", "deferredTaxLiabilitiesNonCurrent",
                     "taxAssets", "researchAndDevelopmentExpenses"]
 
-cal_timefeature_col_list =[
+cal_timefeature_col_list1 =[
     "bookValuePerShare",
     "capexPerShare",
     "cashPerShare",
-    # "changeInWorkingCapital",
+    "changeInWorkingCapital",
     "currentRatio",
     "daysSalesOutstanding",
     "dcf",
     "dividendsperShareGrowth",
-    # "ebitdaratio",
+    "ebitdaratio",
     "enterpriseValue",
     "enterpriseValueOverEBITDA",
     "evToFreeCashFlow",
@@ -98,16 +98,16 @@ cal_timefeature_col_list =[
     "freeCashFlowPerShare",
     "grahamNetNet",
     "grahamNumber",
-    # "grossProfitRatio",
+    "grossProfitRatio",
     "interestDebtPerShare",
     "inventoryTurnover",
-    # "netCashProvidedByOperatingActivities",
-    # "netCashUsedForInvestingActivites",
-    # "netChangeInCash",
+    "netCashProvidedByOperatingActivities",
+    "netCashUsedForInvestingActivites",
+    "netChangeInCash",
     "netDebtToEBITDA",
-    # "netIncomeRatio",
-    # "operatingCashFlowPerShare",
-    # "operatingIncomeRatio",
+    "netIncomeRatio",
+    "operatingCashFlowPerShare",
+    "operatingIncomeRatio",
     "payablesTurnover",
     "pbRatio",
     "peRatio",
@@ -120,6 +120,28 @@ cal_timefeature_col_list =[
     "salesGeneralAndAdministrativeToRevenue",
     "shareholdersEquityPerShare"
 ]
+
+cal_timefeature_col_list = [
+    "price_dev_3month", "price_dev_6month", "volume_mul_price",
+    "grahamNetNet",  "grahamNumber", "ebitda", "ebitdaratio", "epsdiluted", "epsgrowth",
+    "dcf", "evToOperatingCashFlow", "enterpriseValue", "enterpriseValueOverEBITDA",
+    "pocfratio", "ptbRatio", "peRatio", "pbRatio", 
+    "roe", "roic", "capexToRevenue", "capexPerShare",
+    "cashPerShare", "cashAndCashEquivalents", "cashAndShortTermInvestments",   
+    "changeInWorkingCapital", "revenue", "revenueGrowth", 
+    "grossProfit", "netIncomeRatio", "netIncomeGrowth", 
+    "operatingCashFlowGrowth", "operatingCashFlowPerShare", "freeCashFlowPerShare", 
+    "capitalExpenditure", 
+    "workingCapital", "currentRatio", "netChangeInCash", 
+    "interestCoverage", "netDebtToEBITDA", "debtToAssets", "interestExpense",
+    "inventoryTurnover", "receivablesTurnover", "payablesTurnover",
+    "priceToSalesRatio", "bookValuePerShare", "tangibleBookValuePerShare",
+    "researchAndDevelopmentExpenses", "dividendsperShareGrowth", "payoutRatio", "stockBasedCompensation", "totalAssets",
+    "totalLiabilities", "depreciationAndAmortization", 
+    "netCashUsedForInvestingActivites", "netCashUsedProvidedByFinancingActivities", "netCashProvidedByOperatingActivities",
+]
+
+
 
 cal_ev_col_list = ["freeCashFlow", "ebitda"]
 # "netdebt", # (netdebt + 시총) = EV

@@ -433,6 +433,7 @@ class FMP:
         del_count = 0
         pass_count = 0
         for dir_name in os.listdir(basepath):
+            # TODO: 폴더에 있는 모든 dir에 대해서 하지 말고, fmp와 관련된 폴더만 해야됨.. read_csv도 오래걸림
             if os.path.isdir(os.path.join(basepath, dir_name)):
                 cur_path = os.path.join(basepath, dir_name)
                 par_list = [file for file in os.listdir(cur_path) if file.endswith('csv')]

@@ -62,7 +62,13 @@ class AIDataMaker:
         일부 필요한 내용한 init하거나 분할해서 가져오려고 한다면 쿼리가 더 복잡해질 수 있기에 따로 빼놓음
         init에서 세팅하지 않은 이유를 코드에 도입. 해당하는 year에 값을 가져오도록 변경
         """
-
+        def clean_dates(date):
+            try:
+                # Attempt to parse the date
+                return pd.to_datetime(date, format='%Y-%m-%d', errors='coerce')  # Coerce will set invalid dates to NaT
+            except Exception as e:
+                print(f"Error parsing date: {date} - {e}")
+                return pd.NaT
         self.symbol_table = pd.read_csv(self.main_ctx.root_path + "/VIEW/symbol_list.csv")
         self.symbol_table = self.symbol_table.drop_duplicates('symbol', keep='first')
         self.symbol_table['ipoDate'] = pd.to_datetime(self.symbol_table['ipoDate'])
@@ -81,6 +87,7 @@ class AIDataMaker:
         del tmp_fs
         self.fs_table['date'] = pd.to_datetime(self.fs_table['date'])
         self.fs_table['fillingDate'] = pd.to_datetime(self.fs_table['fillingDate'])
+        self.fs_table['acceptedDate'] = self.fs_table['acceptedDate'].apply(clean_dates)
         self.fs_table['acceptedDate'] = pd.to_datetime(self.fs_table['acceptedDate'])
 
         self.metrics_table = pd.DataFrame()
@@ -89,6 +96,8 @@ class AIDataMaker:
                                         dtype={'period_x': str, 'period_y': str})
             self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
         del tmp_metrics
+
+        self.metrics_table['date'] = self.metrics_table['date'].apply(clean_dates)
         self.metrics_table['date'] = pd.to_datetime(self.metrics_table['date'])
         
     def get_trade_date(self, pdate):
@@ -134,22 +143,225 @@ class AIDataMaker:
     def set_date(self):
         date_list = self.generate_date_list()
         self.trade_date_list = self.set_trade_date_list(date_list)
-    
-    
-    def process_price_table_wdate(self):
-        # 원본 price VIEW에서 관련 날짜만 필터링
-        self.price_table = self.price_table[self.price_table['date'].isin(self.trade_date_list)]
-        # 데이터를 'symbol'과 'date' 기준으로 정렬
-        self.price_table = self.price_table.sort_values(by=['symbol', 'date'])
-        # 각 'symbol' 내에서 인접한 행들의 'close' 값 차이를 계산하여 'price_diff' 열에 추가
-        self.price_table['price_diff'] = self.price_table.groupby('symbol')['close'].diff()
-        self.price_table['volume_mul_price'] = self.price_table['close'] * self.price_table['volume']
         
-        # 변화량은 이전 row(이전 period)기준으로 얼마나 올랐나이므로 이전 price로 나눔
-        # self.price_table['price_dev'] = self.price_table['price_diff'] / self.price_table['close']
-        self.price_table['price_dev'] = self.price_table['price_diff'] / self.price_table.groupby('symbol')['close'].shift(1)
-        self.price_table.rename(columns={'close': 'price'}, inplace=True)
-        self.price_table.to_csv(self.main_ctx.root_path + "/VIEW/price_diff.csv", index=False)
+    
+    # def process_price_table_wdate(self):
+    #     # 원본 price VIEW에서 trade 날짜만 필터링
+    #     self.price_table = self.price_table[self.price_table['date'].isin(self.trade_date_list)]
+        
+    #     # 데이터를 'symbol'과 'date' 기준으로 정렬
+    #     self.price_table = self.price_table.sort_values(by=['symbol', 'date'])
+    #     self.price_table['volume_mul_price'] = self.price_table['close'] * self.price_table['volume']
+        
+    #     # 각 'symbol' 내에서 인접한 행들의 'close' 값 차이를 계산하여 'price_diff' 열에 추가
+    #     self.price_table['price_diff_3month'] = self.price_table.groupby('symbol')['close'].diff()
+    #     self.price_table['price_diff_6month'] = self.price_table.groupby('symbol')['close'].diff(2)
+        
+    #     # 변화량은 이전 row(이전 period) 기준으로 얼마나 올랐나이므로 이전 price로 나눔
+    #     self.price_table['price_dev_3month'] = self.price_table['price_diff_3month'] / self.price_table.groupby('symbol')['close'].shift(1)
+    #     self.price_table['price_dev_6month'] = self.price_table['price_diff_6month'] / self.price_table.groupby('symbol')['close'].shift(2)    
+        
+    #     self.price_table.rename(columns={'close': 'price'}, inplace=True)
+    #     # 앞으로 3개월의 변화를 'price_diff_prediction' 열에 추가
+    #     self.price_table['price_diff_prediction'] = self.price_table.groupby('symbol')['price_diff_3month'].shift(-1)        
+    #     # 'price_diff_prediction'을 사용하여 'price_dev_prediction' 계산
+    #     self.price_table['price_dev_prediction'] = self.price_table['price_diff_prediction'] / self.price_table['price']
+            
+    #     self.price_table.to_csv(self.main_ctx.root_path + "/VIEW/price_diff.csv", index=False)
+
+    def process_price_table_wdate(self):
+        import pandas as pd
+
+        # ------------------------------------------------
+        # 1) 원본 테이블 전체를 'symbol', 'date' 기준으로 정렬
+        # ------------------------------------------------
+        self.price_table.sort_values(by=['symbol', 'date'], inplace=True)
+
+        # ------------------------------------------------
+        # 2) Price 계산: 앞뒤 3일 포함, 총 7일 rolling 평균
+        #    (NaN은 자동 제외되어 평균이 계산됨)
+        # ------------------------------------------------
+        self.price_table['price_7d_avg'] = (
+            self.price_table
+            .groupby('symbol')['close']
+            .transform(
+                lambda s: s.rolling(window=7, center=True, min_periods=1).mean()
+            )
+        )
+        # -----------------------------------------------------------------------------
+        # 2-1) [디버그] price_7d_avg가 실제로 제대로 계산되었는지 샘플로 확인
+        # -----------------------------------------------------------------------------
+        # 예시) 심볼 몇 개와, 그 심볼 내 몇 개 row만 골라서
+        #       (해당 row 중심 ±3일 close 값)과 rolling 평균을 확인
+
+        # 2-1.a) 디버그용 심볼 선택
+        debug_symbols = self.price_table['symbol'].unique()[:1]  # 예: 상위 1개 심볼만 확인
+        # 2-1.b) 각 심볼에 대해 소팅 후, 중간 인덱스 몇 개만 확인
+        for sym in debug_symbols:
+            sub = self.price_table[self.price_table['symbol'] == sym].copy()
+            sub = sub.sort_values('date').reset_index(drop=True)
+
+            print(f"\n[DEBUG] ===== symbol: {sym} =====")
+
+            # 예: row 수가 많다면 index 중간값 2~3개 골라본다
+            # 여기서는 그냥 가운데 지점 2개 정도를 임의로 pick
+            if len(sub) > 10:
+                idx_list = [len(sub)//2 - 1, len(sub)//2]
+            else:
+                idx_list = [1, 2]  # 너무 적으면 대체
+
+            for i in idx_list:
+                if i < 0 or i >= len(sub):
+                    continue
+
+                cur_date = sub.loc[i, 'date']
+                cur_price_7d = sub.loc[i, 'price_7d_avg']
+
+                # ±3일 구간 인덱스
+                start_i = max(0, i-3)
+                end_i = min(len(sub)-1, i+3)
+
+                # 해당 구간의 date/close 목록
+                window_df = sub.loc[start_i:end_i, ['date','close']]
+                
+                print(f"\n  [Row Index: {i}] 날짜={cur_date}")
+                print(f"    => price_7d_avg = {cur_price_7d}")
+                print("    => ±3일 window:")
+                print(window_df.to_string(index=False))
+
+                # 직접 평균(결측 없다고 가정)과 비교
+                window_mean = window_df['close'].mean()
+                print(f"    => 위 window의 close 평균(직접 계산) = {window_mean}")
+                print("    => rolling 계산과 비교 => ",
+                    "일치" if abs(window_mean - cur_price_7d) < 1e-12 else "불일치")
+        # ------------------------------------------------
+        # 3) Volume 계산: (이전 트레이드 날짜 ~ 현재 트레이드 날짜) 사이 평균
+        #    3-1) 우선 "symbol별 전체 DF" => "trade_date_list만 모은 sub-DF"를 만든 뒤,
+        #         연속된 두 트레이드 날짜(prev_date, cur_date) 사이 구간 평균을 구함.
+        # ------------------------------------------------
+        def compute_avg_volume(grp):
+            """
+            grp: 특정 symbol의 모든 일자(원본, 필터 전).
+            """
+            grp = grp.sort_values('date')
+
+            # symbol 내에서 trade_date_list에 해당하는 일자만 발라낸 sub-DF
+            trade_sub = grp[grp['date'].isin(self.trade_date_list)].copy()
+            trade_sub.sort_values('date', inplace=True)
+
+            # prev_date(직전 트레이드 날짜) 열을 추가
+            trade_sub['prev_date'] = trade_sub['date'].shift(1)
+
+            volume_avg_list = []
+            
+            for i, row in trade_sub.iterrows():
+                cur_date = row['date']
+                prev_date = row['prev_date']
+
+                if pd.isnull(prev_date):
+                    # 첫 번째 트레이드 날짜는 이전 날짜가 없으므로 평균 산출 불가(NaN)
+                    volume_avg_list.append(pd.NA)
+                    continue
+
+                # 예) "직전 날짜(미포함) ~ 현재 날짜(포함)" 구간의 volume 평균
+                #    원하시는 구간에 맞게 조건을 조정하시면 됩니다.
+                mask = (grp['date'] > prev_date) & (grp['date'] <= cur_date)
+                
+                vol_slice = grp.loc[mask, ['date','volume']].sort_values('date')
+
+                # -----------------------------
+                # (중요) 만약 개수가 66개 초과라면,
+                # "가장 최근(가장 늦은 날짜) 66개"만 사용
+                # -----------------------------
+                if len(vol_slice) > 66:
+                    vol_slice = vol_slice.tail(66)
+
+                vol_avg = vol_slice['volume'].mean()                
+                volume_avg_list.append(vol_avg)
+
+    
+            trade_sub['volume_avg_prev_curr'] = volume_avg_list
+
+            # # 예: 상위 2개만
+            # debug_sample_v = trade_sub.head(2)
+            # symbol_ = grp['symbol'].iloc[0]
+            # print(f"\n[DEBUG] VOLUME for symbol={symbol_} (subset of trade_sub):")
+            # for i, drow in debug_sample_v.iterrows():
+            #     cd = drow['date']
+            #     pd_ = drow['prev_date']
+            #     vavg = drow['volume_avg_prev_curr']
+            #     print(f"  - CurDate={cd}, PrevDate={pd_}, vol_avg={vavg}")
+
+            #     if pd.notna(pd_):
+            #         mask_ = (grp['date'] > pd_) & (grp['date'] <= cd)
+            #         used_df = grp.loc[mask_, ['date','volume']].sort_values('date')
+            #         print("    => 평균에 사용된 date & volume:")
+            #         print(used_df.to_string(index=False))
+            #         print(f"    => 위 구간 volume 평균(수작업)={used_df['volume'].mean()}")
+            #         print()
+
+            
+            return trade_sub
+
+        # 심볼별로 apply
+        vol_avg_df = self.price_table.groupby('symbol', group_keys=False).apply(compute_avg_volume)
+
+        # ------------------------------------------------
+        # 4) 이제 "최종적으로 사용할 DF"를 날짜 필터링으로 만든 뒤
+        #    (symbol, date)를 키로 하여 volume_avg_prev_curr를 merge
+        # ------------------------------------------------
+        filtered_table = self.price_table[self.price_table['date'].isin(self.trade_date_list)].copy()
+        filtered_table.sort_values(by=['symbol', 'date'], inplace=True)
+
+        filtered_table = pd.merge(
+            filtered_table,
+            vol_avg_df[['symbol', 'date', 'volume_avg_prev_curr']],
+            on=['symbol', 'date'],
+            how='left'
+        )
+
+        # ------------------------------------------------
+        # 5) 최종 계산
+        #    - volume_mul_price: 예시로 (volume_avg_prev_curr) * (price_7d_avg)
+        #    - diff, dev 등은 7일 평균 가격으로 진행한다고 가정
+        # ------------------------------------------------
+
+        # (원하는 대로 계산 식을 조합해서 쓰시면 됩니다)
+        filtered_table['volume_mul_price'] = (
+            filtered_table['volume_avg_prev_curr'] * filtered_table['price_7d_avg']
+        )
+
+        # 기존 close가 아니라, 7일 평균 price를 'price' 컬럼으로 사용한다고 가정
+        filtered_table.rename(columns={'price_7d_avg': 'price'}, inplace=True)
+
+        # -- diff, dev 계산 (예: 3개월 = 1스텝, 6개월 = 2스텝 방식은 예시)
+        filtered_table['price_diff_3month'] = filtered_table.groupby('symbol')['price'].diff()
+        filtered_table['price_diff_6month'] = filtered_table.groupby('symbol')['price'].diff(2)
+
+        filtered_table['price_dev_3month'] = (
+            filtered_table['price_diff_3month']
+            / filtered_table.groupby('symbol')['price'].shift(1)
+        )
+        filtered_table['price_dev_6month'] = (
+            filtered_table['price_diff_6month']
+            / filtered_table.groupby('symbol')['price'].shift(2)
+        )
+
+        # 예시로 "다음 행(shift -1) 기준"을 prediction으로 삼는 경우
+        filtered_table['price_diff_prediction'] = (
+            filtered_table.groupby('symbol')['price_diff_3month'].shift(-1)
+        )
+        filtered_table['price_dev_prediction'] = (
+            filtered_table['price_diff_prediction'] / filtered_table['price']
+        )
+
+        # ------------------------------------------------
+        # 6) CSV 저장 & self.price_table 교체
+        # ------------------------------------------------
+        filtered_table.to_csv(self.main_ctx.root_path + "/VIEW/price_diff.csv", index=False)
+
+        self.price_table = filtered_table  # 추후 다른 곳에서도 활용하려면
+
 
 
     def filter_columns_by_suffixes(self, df):
@@ -180,7 +392,7 @@ class AIDataMaker:
         # 'fillingDate'를 datetime 타입으로 변환
         df[target_col_name] = pd.to_datetime(df[target_col_name])
         start_date = pd.Timestamp(year=start_year, month=1, day=1)
-        end_date = pd.Timestamp(year=end_year+1, month=3, day=1)
+        end_date = pd.Timestamp(year=end_year+1, month=12, day=31)
         filtered_df = df[(df[target_col_name] >= start_date) & (df[target_col_name] <= end_date)]
         return filtered_df
 
@@ -212,11 +424,11 @@ class AIDataMaker:
         for cur_year in range(start_year, end_year+1):
             table_for_ai = self.symbol_table.copy()
             cur_price_table = self.price_table.copy()
-            cur_price_table = self.filter_dates(cur_price_table, 'date', cur_year-4, cur_year)
+            cur_price_table = self.filter_dates(cur_price_table, 'date', cur_year-5, cur_year)
             # 각 symbol 별로 volume_mul_price의 평균을 계산
             symbol_means = cur_price_table.groupby('symbol')['volume_mul_price'].mean().reset_index()
             # 평균 값이 상위 50%에 해당하는 symbol만 선택(총거래액 작은 50% drop)
-            top_symbols = symbol_means.nlargest(int(len(symbol_means) * 0.50), 'volume_mul_price')
+            top_symbols = symbol_means.nlargest(int(len(symbol_means) * 0.20), 'volume_mul_price')
             # 원래 데이터프레임에서 상위 50%에 해당하는 symbol의 데이터만 남김
             cur_price_table = cur_price_table[cur_price_table['symbol'].isin(top_symbols['symbol'])]
             
@@ -225,7 +437,8 @@ class AIDataMaker:
             
             fs = self.fs_table.copy()
             fs = fs[fs['symbol'].isin(top_symbols['symbol'])]
-            fs = self.filter_dates(fs, 'fillingDate', cur_year-4, cur_year)
+            # fs = self.filter_dates(fs, 'fillingDate', cur_year-5, cur_year)
+            fs = self.filter_dates(fs, 'date', cur_year-5, cur_year)
             fs = fs.drop_duplicates(['symbol', 'date'], keep='first')
             
             metrics = self.metrics_table
@@ -241,7 +454,7 @@ class AIDataMaker:
 
             # df1의 'date' 컬럼을 datetime 타입으로 변환합니다.
             fs_metrics['date'] = pd.to_datetime(fs_metrics['date'])
-            fs_metrics.rename(columns={'date': 'report_date'}, inplace=True)
+            # fs_metrics.rename(columns={'date': 'report_date'}, inplace=True)
             fs_metrics['fillingDate'] = pd.to_datetime(fs_metrics['fillingDate'])
 
             # 각 행의 'date'보다 크면서 가장 가까운 'date2'를 찾아 'date3' 컬럼에 할당합니다.
@@ -255,13 +468,26 @@ class AIDataMaker:
             # 날짜 인덱스 생성 및 정렬
             date_index = np.sort(date_index)
             # 각 'fillingDate_x'에 대해 다음 'date2'를 한 번에 찾기
-            indices = np.searchsorted(date_index, fs_metrics['fillingDate'], side='right')
+            # indices = np.searchsorted(date_index, fs_metrics['fillingDate'], side='right')
+            indices = np.searchsorted(date_index, fs_metrics['date'], side='right')
             fs_metrics['rebalance_date'] = [date_index[i] if i < len(date_index) else pd.NaT for i in indices]        
             
             # calendarYear_x와 period_x를 결합하여 새로운 컬럼 'year_period'를 생성
-            fs_metrics = fs_metrics.dropna(subset=['calendarYear'])
-            period_map = {'Q1': 0.2, 'Q2': 0.4, 'Q3': 0.6, 'Q4': 0.8}
-            fs_metrics['year_period'] = fs_metrics['calendarYear'] + fs_metrics['period'].map(period_map)
+            # fs_metrics = fs_metrics.dropna(subset=['calendarYear'])
+            # period_map = {'Q1': 0.2, 'Q2': 0.4, 'Q3': 0.6, 'Q4': 0.8}
+            # fs_metrics['year_period'] = fs_metrics['calendarYear'] + fs_metrics['period'].map(period_map)
+            # 'date' 열에서 연도 추출
+            fs_metrics['date'] = pd.to_datetime(fs_metrics['date'], errors='coerce')
+            fs_metrics['year'] = fs_metrics['date'].dt.year
+            # 분기 계산 (Q1 -> 0.2, Q2 -> 0.4, Q3 -> 0.6, Q4 -> 0.8)
+            fs_metrics['quarter'] = pd.cut(fs_metrics['date'].dt.month, 
+                                        bins=[0, 3, 6, 9, 12], 
+                                        labels=[0.2, 0.4, 0.6, 0.8],
+                                        right=True)
+            # 'year_period' 생성: year + quarter
+            fs_metrics['year_period'] = fs_metrics['year'] + fs_metrics['quarter'].astype(float)
+            # 필요 없는 임시 열 제거
+            fs_metrics = fs_metrics.drop(columns=['year', 'quarter'])            
             fs_metrics = fs_metrics.sort_values(by=['symbol', 'year_period'])
             
             # 각 symbol 별로 time 값을 0부터 11까지 할당하는 함수
@@ -312,6 +538,9 @@ class AIDataMaker:
                     continue
                 
                 print(base_year_period)
+                ## TODO: 20XX XQ 미만으로하면 이상하게 꼬이는 애들도 있음(엄청 옛날에 filling 한 애들) -> filling date 기준으로 짜르고 -> 12개 가져오기 ? 
+                ## TODO: 아니면 그런 이상한 애들은 버리기? ㅁ버리는것 보다 year_period를 만들 때 filling date 기준으로 만드는게 나을듯..
+                
                 filtered_data = fs_metrics[fs_metrics['year_period'] <= float(base_year_period)]
                 # 각 symbol 별로 최근 12개의 row만 선택하는 함수
                 def get_last_12_rows(group):
@@ -325,25 +554,31 @@ class AIDataMaker:
                 symbols_to_remove = symbol_counts[symbol_counts < 12].index
                 # window_data에서 해당 'symbol'을 제거하는 코드
                 window_data = window_data[~window_data['symbol'].isin(symbols_to_remove)]                
-                # window_data.to_csv(self.main_ctx.root_path + f"/window_data2_{str(cur_year)}.csv", index=False)
+                # window_data.to_csv(self.main_ctx.root_path + f"/window_data2_{str(cur_year)}_{quarter_str}.csv", index=False)
 
                 df_for_extract_feature = pd.DataFrame()
                 for target_col in cal_timefeature_col_list:
-                    if target_col in window_data.columns and not window_data[target_col].isna().any():
-                        # print("***window_data***")
-                        # print(window_data)
-                        temp_df = pd.DataFrame({
-                            'id': window_data['symbol'],
-                            'kind' : target_col,
-                            'time': window_data['time_for_sort'],
-                            'value': window_data[target_col].values,
-                            'year_period' : window_data['year_period'] 
-                        })
-                        df_for_extract_feature = pd.concat([df_for_extract_feature, temp_df])
+                    if target_col in window_data.columns: # and not window_data[target_col].isna().any():
+                        non_nan_window_data = window_data.dropna(subset=[target_col])
+                        print(f"drop nan before feature_extract  orig : {len(window_data)} after drop : {len(non_nan_window_data)}")
+                        if not non_nan_window_data.empty:
+                            # print("***window_data***")
+                            # print(window_data)
+                            temp_df = pd.DataFrame({
+                                'id': non_nan_window_data['symbol'],
+                                'kind' : target_col,
+                                'time': non_nan_window_data['time_for_sort'],
+                                'value': non_nan_window_data[target_col].values,
+                                'year_period' : non_nan_window_data['year_period'] 
+                            })
+                            df_for_extract_feature = pd.concat([df_for_extract_feature, temp_df])
                     
                 if not df_for_extract_feature.empty:
                     features = extract_features(df_for_extract_feature, column_id='id', column_kind = 'kind', column_sort='time', column_value='value',
                                                 default_fc_parameters=EfficientFCParameters())
+                    # tmp = features.copy()
+                    # tmp['symbol'] = tmp.index
+                    # tmp.to_csv(self.main_ctx.root_path + f'/after_ts_{str(cur_year)}_{quarter_str}.csv', index=False)
                     features = features.rename(columns=lambda x: f"{x.partition('__')[0]}_ts_{x.partition('__')[2]}")
 
                     # 각 키워드에 대해 필터링을 수행하고, 결과 컬럼을 새로운 DataFrame에 추가합니다.
@@ -353,16 +588,21 @@ class AIDataMaker:
                     # 필터링된 컬럼으로 새로운 DataFrame 생성
                     df_w_time_feature = features[filtered_columns]
                     df_w_time_feature['symbol'] = features.index
+                    # df_w_time_feature.to_csv(self.main_ctx.root_path + f'/after_ts2_{str(cur_year)}_{quarter_str}.csv', index=False)
+                    window_data['year_period'] = window_data['year_period'].astype(float)
+
                     window_data = window_data[window_data['year_period'] == float(base_year_period)]
-                    df_w_time_feature = pd.merge(window_data, df_w_time_feature, how='inner', on='symbol')
-                    
+                    # window_data.to_csv(self.main_ctx.root_path + f'/window_data_year_period_{str(cur_year)}_{quarter_str}.csv', index=False)
+                    df_w_time_feature = pd.merge(window_data, df_w_time_feature, how='left', on='symbol')
+                    # df_w_time_feature.to_csv(self.main_ctx.root_path + f'/after_ts3_{str(cur_year)}_{quarter_str}.csv', index=False)
+
                     # 절대 값 column 도 입력으로 쓰기엔 의미 없으니 제거
                     abs_col_list = list(set(meaning_col_list) - set(ratio_col_list))
                     for col in abs_col_list:
                         df_w_time_feature = df_w_time_feature.drop([col], axis=1, errors='ignore')
 
                     # 정규화에서 제외한 컬럼들은 별도로 보관
-                    excluded_columns = ['symbol', 'rebalance_date', 'report_date', 'fillingDate_x', 'year_period']
+                    excluded_columns = ['symbol', 'rebalance_date', 'date', 'fillingDate_x', 'year_period']
                     excluded_df = df_w_time_feature[excluded_columns]
                     filtered_columns = [
                         col for col in df_w_time_feature.columns 
@@ -371,8 +611,15 @@ class AIDataMaker:
                         col.startswith('OverMC_') or 
                         col.startswith('adaptiveMC_')
                     ]
+                    print(len(filtered_columns))
                     # filtered_columns.append("volume_mul_price")
                     filtered_df = df_w_time_feature[filtered_columns]
+                    # filtered_df.to_csv(self.main_ctx.root_path + f'/after_ts3_{str(cur_year)}_{quarter_str}.csv', index=False)
+
+                    # Check for infinity and large values
+                    filtered_df.replace([np.inf, -np.inf], np.nan, inplace=True)
+                    # filtered_df = filtered_df.dropna()                    
+                    
                     # RobustScaler를 사용하여 정규화
                     scaler = RobustScaler()
                     scaled_data = scaler.fit_transform(filtered_df)
@@ -394,14 +641,15 @@ class AIDataMaker:
                     cur_table_for_ai["sector"] = cur_table_for_ai["industry"].map(sector_map)
                     
                     cur_table_for_ai['price_dev_subavg'] \
-                        = cur_table_for_ai['price_dev'] - cur_table_for_ai['price_dev'].mean()                    
+                        = cur_table_for_ai['price_dev_prediction'] - cur_table_for_ai['price_dev_prediction'].mean()                    
+                                            
                     
                     sector_list = list(cur_table_for_ai['sector'].unique())
                     sector_list = [x for x in sector_list if str(x) != 'nan']
                     for sec in sector_list:
                         sec_mask = cur_table_for_ai['sector'] == sec
-                        sec_mean = cur_table_for_ai.loc[sec_mask, 'price_dev'].mean()
-                        cur_table_for_ai.loc[sec_mask, 'sec_price_dev_subavg'] = cur_table_for_ai.loc[sec_mask, 'price_dev'] - sec_mean
+                        sec_mean = cur_table_for_ai.loc[sec_mask, 'price_dev_prediction'].mean()
+                        cur_table_for_ai.loc[sec_mask, 'sec_price_dev_subavg'] = cur_table_for_ai.loc[sec_mask, 'price_dev_prediction'] - sec_mean
                     cur_table_for_ai.to_csv(file2_path, index=False)
                         
                     # # N% 넘게 비어있는 row drop
