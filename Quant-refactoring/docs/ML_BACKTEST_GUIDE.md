@@ -94,6 +94,56 @@ else:
 
 ---
 
+## ⚙️ **설정 파일 구성**
+
+### **위치**
+```
+/home/user/Quant/Quant-refactoring/config/conf.yaml
+```
+
+### **여러 구간 백테스트 (권장)**
+
+```yaml
+BACKTEST:
+  # 여러 시기를 별도로 백테스트
+  PERIODS:
+    # 구간 1: 금융위기 (2008-2009)
+    - START_YEAR: 2008
+      END_YEAR: 2009
+      START_MONTH: 3
+      START_DATE: 13
+
+    # 구간 2: 최근 (2024-2025)
+    - START_YEAR: 2024
+      END_YEAR: 2025
+      START_MONTH: 3
+      START_DATE: 13
+
+  REBALANCE_PERIOD: 3
+  TOP_K_NUM: 20
+```
+
+**장점:**
+- 서로 다른 시장 환경(금융위기 vs 호황기)에서 성과 비교
+- 각 구간의 수익률을 별도로 측정
+- 모델의 견고성 검증
+
+### **단일 구간 백테스트**
+
+```yaml
+BACKTEST:
+  # PERIODS 섹션 제거하고 단일 구간 설정
+  START_YEAR: 2023
+  END_YEAR: 2024
+  START_MONTH: 3
+  START_DATE: 13
+
+  REBALANCE_PERIOD: 3
+  TOP_K_NUM: 20
+```
+
+---
+
 ## 🚀 사용법
 
 ### **기본 실행**
@@ -101,7 +151,7 @@ else:
 ```bash
 cd /home/user/Quant/Quant-refactoring
 
-# 분기마다 재학습, Expanding window (권장)
+# config/conf.yaml에 설정된 구간으로 실행
 python scripts/run_ml_backtest.py
 ```
 

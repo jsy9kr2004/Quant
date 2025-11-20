@@ -427,34 +427,80 @@ class MLBacktest:
         price_table['date'] = pd.to_datetime(price_table['date'])
 
         # 리밸런싱 날짜 생성
-        # BACKTEST 섹션에서 설정 읽기 (신규 형식)
-        # 없으면 최상위 레벨에서 읽기 (레거시 형식)
+        # BACKTEST 섹션에서만 설정 읽기
         backtest_config = self.config.get('BACKTEST', {})
 
-        # START_YEAR (신규 → 레거시 순서로 폴백)
-        start_year = backtest_config.get('START_YEAR') or self.config.get('TEST_START_YEAR') or self.config.get('START_YEAR', 2023)
-        if isinstance(start_year, str):
-            start_year = int(start_year)
+        if not backtest_config:
+            raise ValueError(
+                "BACKTEST section not found in config/conf.yaml!\n"
+                "Please add BACKTEST section to Quant-refactoring/config/conf.yaml"
+            )
 
-        # END_YEAR
-        end_year = backtest_config.get('END_YEAR') or self.config.get('TEST_END_YEAR') or self.config.get('END_YEAR', 2024)
-        if isinstance(end_year, str):
-            end_year = int(end_year)
+        # 여러 구간 지원: PERIODS 리스트 또는 단일 START_YEAR/END_YEAR
+        periods = backtest_config.get('PERIODS', [])
 
-        # START_MONTH, START_DATE
-        start_month = backtest_config.get('START_MONTH', self.config.get('START_MONTH', 3))
-        start_date_day = backtest_config.get('START_DATE', self.config.get('START_DATE', 13))
+        if periods:
+            # 여러 구간 모드
+            self.logger.info(f"📅 Multiple backtest periods configured: {len(periods)} periods")
+            all_rebalance_dates = []
 
-        self.logger.info(f"📅 Backtest period: {start_year}/{start_month}/{start_date_day} ~ {end_year}/12/31")
+            for i, period in enumerate(periods):
+                start_year = period.get('START_YEAR')
+                end_year = period.get('END_YEAR')
+                start_month = period.get('START_MONTH', backtest_config.get('START_MONTH', 3))
+                start_date_day = period.get('START_DATE', backtest_config.get('START_DATE', 13))
 
-        start_date = datetime(start_year, start_month, start_date_day)
-        end_date = datetime(end_year, 12, 31)
+                if not start_year or not end_year:
+                    raise ValueError(f"Period {i+1} missing START_YEAR or END_YEAR")
 
-        rebalance_dates = []
-        current = start_date
-        while current <= end_date:
-            rebalance_dates.append(current)
-            current += relativedelta(months=self.rebalance_period)
+                if isinstance(start_year, str):
+                    start_year = int(start_year)
+                if isinstance(end_year, str):
+                    end_year = int(end_year)
+
+                self.logger.info(f"  Period {i+1}: {start_year}/{start_month}/{start_date_day} ~ {end_year}/12/31")
+
+                start_date = datetime(start_year, start_month, start_date_day)
+                end_date = datetime(end_year, 12, 31)
+
+                # 이 구간의 리밸런싱 날짜 생성
+                current = start_date
+                while current <= end_date:
+                    all_rebalance_dates.append(current)
+                    current += relativedelta(months=self.rebalance_period)
+
+            rebalance_dates = sorted(all_rebalance_dates)
+
+        else:
+            # 단일 구간 모드 (하위 호환성)
+            start_year = backtest_config.get('START_YEAR')
+            end_year = backtest_config.get('END_YEAR')
+
+            if not start_year or not end_year:
+                raise ValueError(
+                    "BACKTEST section must have either:\n"
+                    "  - PERIODS: list of period configurations, or\n"
+                    "  - START_YEAR and END_YEAR for single period"
+                )
+
+            if isinstance(start_year, str):
+                start_year = int(start_year)
+            if isinstance(end_year, str):
+                end_year = int(end_year)
+
+            start_month = backtest_config.get('START_MONTH', 3)
+            start_date_day = backtest_config.get('START_DATE', 13)
+
+            self.logger.info(f"📅 Single backtest period: {start_year}/{start_month}/{start_date_day} ~ {end_year}/12/31")
+
+            start_date = datetime(start_year, start_month, start_date_day)
+            end_date = datetime(end_year, 12, 31)
+
+            rebalance_dates = []
+            current = start_date
+            while current <= end_date:
+                rebalance_dates.append(current)
+                current += relativedelta(months=self.rebalance_period)
 
         self.logger.info(f"\n📅 Rebalance dates: {len(rebalance_dates)}")
         for date in rebalance_dates:
