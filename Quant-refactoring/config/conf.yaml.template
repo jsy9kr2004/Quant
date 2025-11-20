@@ -73,27 +73,52 @@ ML:
   EXIT_AFTER_ML: Y  # Y = Exit after ML, N = Continue to backtest
 
 # ============================================================================
-# BACKTEST Configuration
+# BACKTEST Configuration (ML Walk-Forward 백테스트)
 # ============================================================================
 BACKTEST:
-  # Run backtesting (only if ML EXIT_AFTER_ML = N)
-  RUN_BACKTEST: N  # Y = Run backtest, N = Skip
+  # Run backtesting
+  RUN_BACKTEST: Y  # Y = Run backtest, N = Skip
 
-  # Rebalancing
-  REBALANCE_PERIOD: 3  # months
-  START_MONTH: 1
-  START_DATE: 1
+  # ===== 옵션 1: 여러 구간 백테스트 (권장) =====
+  # 서로 다른 시기의 성과를 별도로 측정 (예: 금융위기 vs 호황기)
+  PERIODS:
+    # 구간 1: 2023년
+    - START_YEAR: 2023
+      END_YEAR: 2023
+      START_MONTH: 3
+      START_DATE: 13
 
-  # Stock selection
-  TOP_K_NUM: 100  # Select top K stocks
+    # 구간 2: 2024년
+    - START_YEAR: 2024
+      END_YEAR: 2024
+      START_MONTH: 3
+      START_DATE: 13
+
+    # 추가 예시: 금융위기와 호황기 비교
+    # - START_YEAR: 2008
+    #   END_YEAR: 2009
+    # - START_YEAR: 2020
+    #   END_YEAR: 2021
+
+  # ===== 옵션 2: 단일 구간 백테스트 =====
+  # PERIODS를 주석 처리하고 아래 사용
+  # START_YEAR: 2023
+  # END_YEAR: 2024
+  # START_MONTH: 3
+  # START_DATE: 13
+
+  # 공통 설정
+  REBALANCE_PERIOD: 3  # 리밸런싱 주기 (개월)
+  TOP_K_NUM: 20        # 선택할 종목 수
+  MEMBER_CNT: 20       # 실제 매수 종목 수
   ABSOLUTE_SCORE: 500
+  TOTAL_ASSET: 100000
 
   # Reports to generate
   REPORT_LIST:
     - EVAL
     - RANK
     - AI
-    - AVG
 
 # ============================================================================
 # FEATURE ENGINEERING Configuration
