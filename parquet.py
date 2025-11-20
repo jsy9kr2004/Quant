@@ -90,10 +90,10 @@ class Parquet:
         # income_statement = pd.read_parquet(self.rawpq_path + "income_statement.parquet")
         # balance_sheet_statement = pd.read_parquet(self.rawpq_path + "balance_sheet_statement.parquet")
         # cash_flow_statement = pd.read_parquet(self.rawpq_path + "cash_flow_statement.parquet")
+    
         income_statement = pd.read_csv(self.rawpq_path + "income_statement.csv")
         balance_sheet_statement = pd.read_csv(self.rawpq_path + "balance_sheet_statement.csv")
         cash_flow_statement = pd.read_csv(self.rawpq_path + "cash_flow_statement.csv")
-    
         financial_statement = income_statement.merge(balance_sheet_statement,
                                                      how='outer', on=['date', 'symbol']).merge(cash_flow_statement,
                                                                                                how='outer',
@@ -101,10 +101,22 @@ class Parquet:
         financial_statement['date'] = pd.to_datetime(financial_statement['date'], errors='coerce')
         # financial_statement['date'] = financial_statement['date'].astype('datetime64[ns]')
         # financial_statement['acceptedDate'] = financial_statement['acceptedDate'].astype('datetime64[ns]')
+        # You can create a function to clean up invalid dates
+        def clean_dates(date):
+            try:
+                # Attempt to parse the date
+                return pd.to_datetime(date, format='%Y-%m-%d', errors='coerce')  # Coerce will set invalid dates to NaT
+            except Exception as e:
+                print(f"Error parsing date: {date} - {e}")
+                return pd.NaT
+
+        # Apply the function to the 'fillingDate' column
+        financial_statement['fillingDate'] = financial_statement['fillingDate'].apply(clean_dates)
         financial_statement['fillingDate'] = financial_statement['fillingDate'].astype('datetime64[ns]')
                                                 
         # financial_statement.to_parquet(self.view_path + "financial_statement.parquet",
         #                                engine="pyarrow", compression="gzip")
+        #"date"가 기준일
         financial_statement.to_csv(self.view_path + "financial_statement.csv", index=False)
         logging.info("create financial_statement df")
         for year in range(self.main_ctx.start_year - 1, self.main_ctx.end_year + 1):
@@ -134,6 +146,8 @@ class Parquet:
                                                                               how='left', on=['date', 'symbol'])
         metrics['date'] = metrics['date'].astype('datetime64[ns]')
         # metrics.to_parquet(self.view_path + "metrics.parquet", engine="pyarrow", compression="gzip")
+        
+        #"date"가 기준일
         metrics.to_csv(self.view_path + "metrics.csv", index=False)
         logging.info("create metrics df")
 
