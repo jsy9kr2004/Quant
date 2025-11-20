@@ -102,6 +102,7 @@ class MLBacktest:
 
         # 결과 저장용
         self.backtest_results = []
+        self.detailed_results = []  # 각 종목별 상세 거래 내역
         self.predictions_history = []
 
     def _get_available_data_until(self, cutoff_date: datetime) -> pd.DataFrame:
@@ -390,9 +391,9 @@ class MLBacktest:
         buy_date: datetime,
         sell_date: datetime,
         price_table: pd.DataFrame
-    ) -> float:
+    ) -> dict:
         """
-        기간 수익률 계산
+        기간 수익률 계산 (상세 정보 포함)
 
         Parameters:
         ----------
@@ -407,8 +408,11 @@ class MLBacktest:
 
         Returns:
         -------
-        float
-            평균 수익률
+        dict
+            {
+                'avg_return': float,  # 평균 수익률
+                'details': list[dict]  # 각 종목별 상세 정보
+            }
         """
         # 실제 거래일 찾기 (주말/휴일 처리)
         actual_buy_date = self._get_trade_date(buy_date, price_table)
@@ -418,9 +422,10 @@ class MLBacktest:
             self.logger.warning(
                 f"Trading date not found: buy={buy_date.date()}, sell={sell_date.date()}"
             )
-            return 0.0
+            return {'avg_return': 0.0, 'details': [], 'actual_buy_date': None, 'actual_sell_date': None}
 
         returns = []
+        details = []
 
         for symbol in selected_symbols:
             symbol_prices = price_table[price_table['symbol'] == symbol]
@@ -441,10 +446,24 @@ class MLBacktest:
             ret = (sell_price - buy_price) / buy_price
             returns.append(ret)
 
-        if not returns:
-            return 0.0
+            # 상세 정보 저장
+            details.append({
+                'symbol': symbol,
+                'buy_price': buy_price,
+                'sell_price': sell_price,
+                'return': ret,
+                'return_pct': ret * 100
+            })
 
-        return np.mean(returns)
+        if not returns:
+            return {'avg_return': 0.0, 'details': [], 'actual_buy_date': actual_buy_date, 'actual_sell_date': actual_sell_date}
+
+        return {
+            'avg_return': np.mean(returns),
+            'details': details,
+            'actual_buy_date': actual_buy_date,
+            'actual_sell_date': actual_sell_date
+        }
 
     def run(self) -> pd.DataFrame:
         """
@@ -602,32 +621,59 @@ class MLBacktest:
             # 6. 수익률 계산 (다음 리밸런싱 날짜까지)
             if i < len(rebalance_dates) - 1:
                 next_rebalance = rebalance_dates[i + 1]
-                period_return = self._calculate_period_return(
+                period_result = self._calculate_period_return(
                     selected_symbols,
                     rebalance_date,
                     next_rebalance,
                     price_table
                 )
 
-                self.logger.info(f"💰 Period return: {period_return*100:.2f}%")
+                avg_return = period_result['avg_return']
+                self.logger.info(f"💰 Period return: {avg_return*100:.2f}%")
 
-                # 결과 저장
+                # 결과 저장 (요약)
                 self.backtest_results.append({
-                    'date': rebalance_date,
-                    'selected_symbols': selected_symbols,
-                    'return': period_return,
+                    'rebalance_date': rebalance_date,
+                    'actual_buy_date': period_result['actual_buy_date'],
+                    'actual_sell_date': period_result['actual_sell_date'],
+                    'num_stocks': len(selected_symbols),
+                    'avg_return': avg_return,
                     'retrained': should_retrain
                 })
+
+                # 상세 정보 저장 (각 종목별)
+                for detail in period_result['details']:
+                    self.detailed_results.append({
+                        'rebalance_date': rebalance_date,
+                        'actual_buy_date': period_result['actual_buy_date'],
+                        'actual_sell_date': period_result['actual_sell_date'],
+                        'symbol': detail['symbol'],
+                        'buy_price': detail['buy_price'],
+                        'sell_price': detail['sell_price'],
+                        'return': detail['return'],
+                        'return_pct': detail['return_pct']
+                    })
 
         # 7. 최종 리포트
         results_df = pd.DataFrame(self.backtest_results)
         self._print_summary(results_df)
 
         # 결과 저장
-        output_file = Path('./reports') / f'ml_backtest_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-        output_file.parent.mkdir(exist_ok=True)
-        results_df.to_csv(output_file, index=False)
-        self.logger.info(f"\n✅ Results saved: {output_file}")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # 요약 레포트
+        summary_file = Path('./reports') / f'ml_backtest_summary_{timestamp}.csv'
+        summary_file.parent.mkdir(exist_ok=True)
+        results_df.to_csv(summary_file, index=False)
+        self.logger.info(f"\n✅ Summary report saved: {summary_file}")
+
+        # 상세 레포트
+        detailed_df = pd.DataFrame(self.detailed_results)
+        if not detailed_df.empty:
+            detail_file = Path('./reports') / f'ml_backtest_detailed_{timestamp}.csv'
+            detailed_df.to_csv(detail_file, index=False)
+            self.logger.info(f"✅ Detailed report saved: {detail_file}")
+            self.logger.info(f"   Total trades: {len(detailed_df)}")
 
         return results_df
 
@@ -637,18 +683,18 @@ class MLBacktest:
         self.logger.info("BACKTEST SUMMARY")
         self.logger.info("="*80)
 
-        total_return = (1 + results['return']).prod() - 1
-        avg_return = results['return'].mean()
-        std_return = results['return'].std()
+        total_return = (1 + results['avg_return']).prod() - 1
+        avg_return = results['avg_return'].mean()
+        std_return = results['avg_return'].std()
         sharpe = avg_return / std_return * np.sqrt(12/self.rebalance_period) if std_return > 0 else 0
 
         # MDD 계산
-        cumulative = (1 + results['return']).cumprod()
+        cumulative = (1 + results['avg_return']).cumprod()
         running_max = cumulative.cummax()
         drawdown = (cumulative - running_max) / running_max
         mdd = drawdown.min()
 
-        win_rate = (results['return'] > 0).sum() / len(results)
+        win_rate = (results['avg_return'] > 0).sum() / len(results)
 
         self.logger.info(f"Total Periods: {len(results)}")
         self.logger.info(f"Total Return: {total_return*100:.2f}%")
