@@ -72,6 +72,63 @@ ML:
   # Exit after ML (don't run backtest)
   EXIT_AFTER_ML: Y  # Y = Exit after ML, N = Continue to backtest
 
+  # ============================================================================
+  # Sector-based Model Training (섹터별 모델 학습)
+  # ============================================================================
+  USE_SECTOR_MODEL: N  # Y = Train separate models per sector, N = Train unified model (default)
+
+  # Sector configuration (only used if USE_SECTOR_MODEL = Y)
+  SECTOR_CONFIG:
+    # Default: Use same model for all sectors (XGBoost)
+    # Advanced: Customize model per sector for better performance
+
+    # Example 1: Same model, different parameters per sector
+    Technology:
+      model: xgboost  # xgboost, lightgbm, catboost
+      n_estimators: 200
+      max_depth: 8
+      learning_rate: 0.05
+
+    Financial:
+      model: xgboost
+      n_estimators: 150
+      max_depth: 6
+      learning_rate: 0.1
+
+    Healthcare:
+      model: xgboost
+      n_estimators: 200
+      max_depth: 7
+      learning_rate: 0.05
+
+    Consumer:
+      model: xgboost
+      n_estimators: 150
+      max_depth: 6
+      learning_rate: 0.1
+
+    Industrial:
+      model: xgboost
+      n_estimators: 150
+      max_depth: 6
+      learning_rate: 0.1
+
+    # Example 2: Different models per sector (uncomment to use)
+    # Technology:
+    #   model: xgboost
+    #   n_estimators: 200
+    #   max_depth: 8
+    #
+    # Financial:
+    #   model: lightgbm
+    #   n_estimators: 150
+    #   num_leaves: 31
+    #
+    # Healthcare:
+    #   model: catboost
+    #   iterations: 200
+    #   depth: 7
+
 # ============================================================================
 # BACKTEST Configuration (ML Walk-Forward 백테스트)
 # ============================================================================
