@@ -114,9 +114,10 @@ def detect_xgboost_device() -> str:
         str: 'cuda:0' (GPU 사용 가능) 또는 'cpu' (GPU 없음)
 
     Example:
-        >>> device = detect_xgboost_device()
-        >>> print(f"Using device: {device}")
-        Using device: cuda:0
+        # 디바이스 자동 감지
+        device = detect_xgboost_device()
+        print(f"Using device: {device}")
+        # 출력: Using device: cuda:0
     """
     try:
         if torch.cuda.is_available():
@@ -140,9 +141,10 @@ def check_cupy_available() -> bool:
         bool: CuPy 사용 가능 여부
 
     Example:
-        >>> if check_cupy_available():
-        ...     import cupy as cp
-        ...     X_gpu = cp.asarray(X)
+        # CuPy 사용 가능 여부 확인
+        if check_cupy_available():
+            import cupy as cp
+            X_gpu = cp.asarray(X)
     """
     try:
         import cupy as cp
@@ -169,7 +171,8 @@ def predict_with_gpu_support(model, X, use_gpu: bool):
         numpy.ndarray: 예측 결과
 
     Example:
-        >>> y_pred = predict_with_gpu_support(model, X_test, use_gpu=True)
+        # GPU 지원 예측 실행
+        y_pred = predict_with_gpu_support(model, X_test, use_gpu=True)
     """
     if use_gpu:
         try:
@@ -201,8 +204,9 @@ def predict_proba_with_gpu_support(model, X, use_gpu: bool):
         numpy.ndarray: 예측 확률 (shape: [n_samples, n_classes])
 
     Example:
-        >>> y_proba = predict_proba_with_gpu_support(model, X_test, use_gpu=True)
-        >>> y_proba_class1 = y_proba[:, 1]  # 클래스 1의 확률
+        # GPU 지원 확률 예측
+        y_proba = predict_proba_with_gpu_support(model, X_test, use_gpu=True)
+        y_proba_class1 = y_proba[:, 1]  # 클래스 1의 확률
     """
     if use_gpu:
         try:
