@@ -1109,6 +1109,12 @@ class Regressor:
             logging.info("model {} score : ".format(str(i)))
             logging.info(model.score(self.x_train, self.y_train))
 
+        # ===== Feature columns 저장 (예측 시 피처 정렬용) =====
+        feature_columns = self.x_train.columns.tolist()
+        feature_columns_file = MODEL_SAVE_PATH + 'feature_columns.pkl'
+        joblib.dump(feature_columns, feature_columns_file)
+        logging.info(f"✅ Saved {len(feature_columns)} feature columns to {feature_columns_file}")
+
             # 주석 처리됨: 특성 중요도 분석
             # logging.info("end fitting RandomForestRegressor")
             # ftr_importances_values = model.feature_importances_
@@ -1281,6 +1287,35 @@ class Regressor:
 
             # LightGBM을 위해 특성 이름 정리
             x_test = self.clean_feature_names(x_test)
+
+            # ===== Feature Alignment (피처 정렬) =====
+            # 학습 시 사용한 피처 리스트 로드
+            feature_columns_file = MODEL_SAVE_PATH + 'feature_columns.pkl'
+            try:
+                train_feature_columns = joblib.load(feature_columns_file)
+                logging.info(f"✅ Loaded {len(train_feature_columns)} train feature columns")
+                logging.info(f"   Test data has {len(x_test.columns)} features")
+
+                # 누락된 피처는 0으로 채우기
+                missing_features = set(train_feature_columns) - set(x_test.columns)
+                if missing_features:
+                    logging.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with 0")
+                    for col in missing_features:
+                        x_test[col] = 0
+
+                # 추가 피처는 제거
+                extra_features = set(x_test.columns) - set(train_feature_columns)
+                if extra_features:
+                    logging.info(f"   Removing {len(extra_features)} extra features from test data")
+                    x_test = x_test.drop(columns=list(extra_features))
+
+                # 피처 순서 맞추기 (중요!)
+                x_test = x_test[train_feature_columns]
+                logging.info(f"   ✅ Feature alignment complete: {len(x_test.columns)} features")
+
+            except FileNotFoundError:
+                logging.warning(f"⚠️  Feature columns file not found: {feature_columns_file}")
+                logging.warning("   Proceeding without feature alignment (may cause errors)")
 
             # ===== NaN 값 처리 (Evaluation 단계) =====
             logging.info(f"🔬 Checking for NaN values in test data ({tdate})...")
