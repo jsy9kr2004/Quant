@@ -1,4 +1,7 @@
-# 🔧 에러 해결 가이드
+# 🔧 에러 해결 가이드 (빠른 참조)
+
+> **⚡ 빠른 해결**: 이 문서는 가장 흔한 에러의 빠른 해결 방법을 제공합니다.
+> **📚 상세 가이드**: 더 자세한 설명과 추가 문제는 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)를 참조하세요.
 
 ---
 
@@ -11,6 +14,7 @@
 **다른 문제가 있나요?**
 - 시스템 이해 → [../README.md](../README.md)
 - 빠른 시작 → [QUICK_START.md](QUICK_START.md)
+- 상세 문제 해결 → [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 
 ---
 
