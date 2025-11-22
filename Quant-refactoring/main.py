@@ -63,11 +63,12 @@ class RegressorIntegrated:
         legacy_regressor (Optional[Regressor]): 폴백용 레거시 regressor 인스턴스
 
     Example:
-        >>> config = load_config('config/conf.yaml')
-        >>> regressor = RegressorIntegrated(config, use_new_models=True)
-        >>> regressor.dataload()
-        >>> regressor.train()
-        >>> regressor.evaluation()
+        # RegressorIntegrated 사용
+        config = load_config('config/conf.yaml')
+        regressor = RegressorIntegrated(config, use_new_models=True)
+        regressor.dataload()
+        regressor.train()
+        regressor.evaluation()
 
     TODO:
         - 레거시 의존성 없이 네이티브 데이터 로딩 구현
@@ -309,9 +310,10 @@ def get_config_path() -> str:
         FileNotFoundError: 모든 위치에서 설정 파일을 찾을 수 없는 경우
 
     Example:
-        >>> config_path = get_config_path()
-        >>> print(config_path)
-        'config/conf.yaml'
+        # 설정 파일 경로 찾기
+        config_path = get_config_path()
+        print(config_path)
+        # 출력: 'config/conf.yaml'
     """
     possible_paths = [
         'config/conf.yaml',
@@ -345,9 +347,10 @@ def conf_check(config: Dict[str, Any]) -> None:
         SystemExit: 검증 실패 시 (종료 코드 1)
 
     Example:
-        >>> config = load_config('config/conf.yaml')
-        >>> conf_check(config)
-        INFO: ✅ Configuration validated
+        # 설정 파일 검증
+        config = load_config('config/conf.yaml')
+        conf_check(config)
+        # 출력: INFO: ✅ Configuration validated
     """
     logger = get_logger('config_check')
 

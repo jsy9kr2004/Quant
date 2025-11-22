@@ -1,73 +1,71 @@
-"""Backtesting System for Quantitative Trading Strategies.
+"""퀀트 트레이딩 전략을 위한 백테스팅 시스템입니다.
 
-This module provides a comprehensive backtesting framework for quantitative trading strategies.
-It simulates historical trading by:
-1. Loading financial data (prices, fundamentals, metrics) for multiple time periods
-2. Applying scoring plans to rank stocks based on various financial indicators
-3. Selecting top-k stocks for each rebalancing period
-4. Calculating returns and performance metrics (MDD, Sharpe ratio, etc.)
+이 모듈은 퀀트 트레이딩 전략을 위한 종합적인 백테스팅 프레임워크를 제공합니다.
+다음 과정을 통해 과거 트레이딩을 시뮬레이션합니다:
+1. 여러 기간에 대한 금융 데이터(가격, 재무제표, 메트릭) 로드
+2. 다양한 재무 지표를 기반으로 주식 순위를 매기는 스코어링 플랜 적용
+3. 각 리밸런싱 기간마다 상위 k개 종목 선택
+4. 수익률 및 성능 메트릭(MDD, 샤프 비율 등) 계산
 
-The backtesting workflow consists of 4 main components:
-- Backtest: Main controller that orchestrates the entire backtesting process
-- PlanHandler: Manages scoring plans and applies them to rank stocks
-- DateHandler: Prepares feature-engineered data for a specific date
-- EvaluationHandler: Calculates performance metrics and generates reports
+백테스팅 워크플로우는 4개의 주요 컴포넌트로 구성됩니다:
+- Backtest: 전체 백테스팅 프로세스를 조율하는 메인 컨트롤러
+- PlanHandler: 스코어링 플랜을 관리하고 주식 순위를 매김
+- DateHandler: 특정 날짜에 대한 특성 엔지니어링 데이터를 준비
+- EvaluationHandler: 성능 메트릭을 계산하고 리포트를 생성
 
-Key Features:
-- Multi-period backtesting with configurable rebalancing intervals
-- Parallel processing support for improved performance
-- Feature engineering with time-series analysis (tsfresh)
-- Comprehensive reporting (EVAL, RANK, AVG reports)
-- Support for both database and parquet storage backends
+주요 기능:
+- 설정 가능한 리밸런싱 간격을 가진 다중 기간 백테스팅
+- 성능 향상을 위한 병렬 처리 지원
+- 시계열 분석(tsfresh)을 통한 특성 엔지니어링
+- 종합적인 리포팅(EVAL, RANK, AVG 리포트)
+- 데이터베이스 및 parquet 스토리지 백엔드 모두 지원
 
-Plan.csv Format:
-The plan.csv file defines scoring rules with the following columns:
-- key: Financial metric name (e.g., 'PER', 'PBR', 'operatingIncome')
-- key_dir: Direction ('high' = higher is better, 'low' = lower is better)
-- weight: Score weight for this metric
-- diff: Score difference between adjacent ranks
-- base: Threshold value
-- base_dir: Threshold direction ('>' or '<')
+Plan.csv 형식:
+plan.csv 파일은 다음 열로 스코어링 규칙을 정의합니다:
+- key: 재무 메트릭 이름 (예: 'PER', 'PBR', 'operatingIncome')
+- key_dir: 방향 ('high' = 높을수록 좋음, 'low' = 낮을수록 좋음)
+- weight: 이 메트릭의 점수 가중치
+- diff: 인접 순위 간 점수 차이
+- base: 임계값
+- base_dir: 임계값 방향 ('>' 또는 '<')
 
-Example Usage:
-    ```python
+사용 예시:
     from g_variables import Context
 
-    # Initialize context
+    # 컨텍스트 초기화
     ctx = Context(start_year=2020, end_year=2023)
 
-    # Create plan handler
+    # 플랜 핸들러 생성
     plan_handler = PlanHandler(k_num=20, absolute_score=100, main_ctx=ctx)
     plan_handler.plan_list = load_plans_from_csv('plan.csv')
 
-    # Run backtest with 3-month rebalancing
+    # 3개월 리밸런싱으로 백테스트 실행
     backtest = Backtest(
         main_ctx=ctx,
         conf=config,
         plan_handler=plan_handler,
         rebalance_period=3
     )
-    ```
 
-Performance Considerations:
-- First run generates DATE_TABLE and PLANED_DATE_TABLE files (slow)
-- Subsequent runs read from cached files (fast)
-- Memory usage scales with number of stocks and features
-- Parallel processing can be enabled but may increase memory usage
+성능 고려사항:
+- 첫 실행 시 DATE_TABLE 및 PLANED_DATE_TABLE 파일 생성 (느림)
+- 이후 실행은 캐시된 파일에서 읽음 (빠름)
+- 메모리 사용량은 종목 수와 특성 수에 비례
+- 병렬 처리를 활성화하면 메모리 사용량이 증가할 수 있음
 
-Typical Workflow:
-1. Backtest.run() iterates through rebalancing periods
-2. For each period:
-   a. DateHandler loads and engineers features
-   b. PlanHandler applies scoring plans
-   c. EvaluationHandler selects best-k stocks
-3. After all periods:
-   a. Calculate prices at buy/sell dates
-   b. Calculate returns and performance metrics
-   c. Generate EVAL, RANK, and AVG reports
+일반적인 워크플로우:
+1. Backtest.run()이 리밸런싱 기간을 반복
+2. 각 기간마다:
+   a. DateHandler가 특성을 로드하고 엔지니어링
+   b. PlanHandler가 스코어링 플랜 적용
+   c. EvaluationHandler가 최상위 k개 종목 선택
+3. 모든 기간 이후:
+   a. 매수/매도 날짜의 가격 계산
+   b. 수익률 및 성능 메트릭 계산
+   c. EVAL, RANK, AVG 리포트 생성
 
-Author: Quantitative Trading Team
-Date: 2024
+작성자: Quantitative Trading Team
+날짜: 2024
 """
 
 import copy
@@ -232,9 +230,10 @@ class Backtest:
             Path to the created report file, or None if report_type not in REPORT_LIST
 
         Example:
-            >>> path = backtest.create_report('EVAL')
-            >>> print(path)
-            './reports/EVAL_REPORT_0.csv'
+            # 리포트 생성
+            path = backtest.create_report('EVAL')
+            print(path)
+            # 출력: './reports/EVAL_REPORT_0.csv'
         """
         if report_type in self.conf['REPORT_LIST']:
             path = "./reports/" + report_type + "_REPORT_"
@@ -285,8 +284,9 @@ class Backtest:
             DataFrame containing all query results
 
         Example:
-            >>> query = "SELECT * FROM PRICE WHERE date >= '2020-01-01'"
-            >>> df = backtest.data_from_database(query)
+            # 데이터베이스에서 데이터 로드
+            query = "SELECT * FROM PRICE WHERE date >= '2020-01-01'"
+            df = backtest.data_from_database(query)
         """
         logging.info("Query : " + query)
         chunks = pd.read_sql_query(sql=query, con=self.main_ctx.conn, chunksize=CHUNK_SIZE)
@@ -420,8 +420,9 @@ class Backtest:
             Nearest trading date, or None if no trading date found within 10 days
 
         Example:
-            >>> trade_date = backtest.get_trade_date(datetime.datetime(2023, 7, 4))
-            >>> # Returns 2023-07-03 if July 4th is a holiday
+            # 거래 날짜 찾기 (공휴일 처리)
+            trade_date = backtest.get_trade_date(datetime.datetime(2023, 7, 4))
+            # 출력: 7월 4일이 휴일이면 2023-07-03 반환
         """
         post_date = pdate - relativedelta(days=10)
         res = self.price_table.query("date >= @post_date and date <= @pdate")
@@ -978,10 +979,11 @@ class DateHandler:
             DataFrame with duplicate columns merged and cleaned
 
         Example:
-            >>> df = pd.merge(df1, df2, on='symbol')
-            >>> # Results in 'revenue_x' and 'revenue_y' columns
-            >>> df = remove_x_y_columns(df)
-            >>> # Now has single 'revenue' column
+            # DataFrame 병합 후 중복 컬럼 제거
+            df = pd.merge(df1, df2, on='symbol')
+            # 결과: 'revenue_x'와 'revenue_y' 컬럼 생성
+            df = remove_x_y_columns(df)
+            # 결과: 단일 'revenue' 컬럼으로 통합
         """
         new_df = df.copy()
 

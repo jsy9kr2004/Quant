@@ -52,10 +52,11 @@ def __flatten_json(js: Any, expand_all: bool = False) -> pd.DataFrame:
         pd.DataFrame: 테이블 형식으로 평탄화된 데이터.
 
     Example:
-        >>> json_data = {"symbol": "AAPL", "data": [{"date": "2023-01-01", "price": 150}]}
-        >>> df = __flatten_json(json_data, expand_all=True)
-        >>> df.columns
-        Index(['symbol', 'date', 'price'])
+        # JSON 데이터 평탄화
+        json_data = {"symbol": "AAPL", "data": [{"date": "2023-01-01", "price": 150}]}
+        df = __flatten_json(json_data, expand_all=True)
+        print(df.columns)
+        # 출력: Index(['symbol', 'date', 'price'])
 
     Note:
         초기 평탄화에 pandas.json_normalize를 사용한 다음 리스트 컬럼을 확장합니다.
@@ -93,33 +94,34 @@ def __fmp_worker(
     file_postfix: str,
     url: str
 ) -> Tuple[int, bool]:
-    """Ray worker function for fetching and processing FMP API data.
+    """FMP API 데이터를 가져오고 처리하는 Ray 워커 함수입니다.
 
-    Each worker makes an HTTP request to the FMP API, processes the JSON response,
-    flattens the data structure, and saves it as a Parquet file. Implements automatic
-    retry on rate limit errors.
+    각 워커는 FMP API에 HTTP 요청을 보내고, JSON 응답을 처리하고,
+    데이터 구조를 평탄화하고, Parquet 파일로 저장합니다. 속도 제한 오류 시
+    자동 재시도를 구현합니다.
 
     Args:
-        worker_id (int): Unique identifier for this worker instance.
-        main_ctx: Main context object with configuration.
-        file_path (str): Directory path for output file.
-        symbol (str): Stock symbol being fetched.
-        file_postfix (str): Suffix for output filename (e.g., '_2023_Q1').
-        url (str): Complete FMP API URL to fetch.
+        worker_id (int): 이 워커 인스턴스의 고유 식별자.
+        main_ctx: 구성 정보를 포함한 메인 컨텍스트 객체.
+        file_path (str): 출력 파일의 디렉토리 경로.
+        symbol (str): 가져올 주식 심볼.
+        file_postfix (str): 출력 파일명의 접미사 (예: '_2023_Q1').
+        url (str): 가져올 완전한 FMP API URL.
 
     Returns:
         Tuple[int, bool]: (worker_id, success_flag)
-            - worker_id: The worker's ID for task management
-            - success_flag: True if data was fetched and saved, False otherwise
+            - worker_id: 작업 관리를 위한 워커 ID
+            - success_flag: 데이터가 가져와지고 저장되면 True, 아니면 False
 
     Note:
-        - Creates .parquetx file (instead of .parquet) when API returns empty data
-        - Retries indefinitely on "Limit Reach" errors with 1-second delay
-        - Logs all operations with worker-specific logger
+        - API가 빈 데이터를 반환하면 .parquet 대신 .parquetx 파일 생성
+        - "Limit Reach" 오류 시 1초 지연으로 무한 재시도
+        - 워커별 로거로 모든 작업 로깅
 
     Example:
-        >>> result = ray.get(__fmp_worker.remote(0, ctx, '/data/profile', 'AAPL', '', url))
-        >>> worker_id, success = result
+        # Ray 워커 실행
+        result = ray.get(__fmp_worker.remote(0, ctx, '/data/profile', 'AAPL', '', url))
+        worker_id, success = result
     """
     # Setup multiprocessing logger for Ray worker
     setup_logger_for_multiprocessing()
@@ -206,36 +208,37 @@ def __fmp_worker(
 
 
 def fetch_fmp(main_ctx, api_list: List[Any]) -> None:
-    """Fetch data from FMP APIs using parallel Ray workers.
+    """병렬 Ray 워커를 사용하여 FMP API에서 데이터를 가져옵니다.
 
-    Orchestrates parallel data fetching for multiple API endpoints using Ray.
-    Handles two types of APIs:
-    1. Normal APIs: Fetch a predetermined list of URLs
-    2. Paginated APIs: Continuously fetch pages until no data is returned
+    Ray를 사용하여 여러 API 엔드포인트에 대한 병렬 데이터 가져오기를 조정합니다.
+    두 가지 유형의 API를 처리합니다:
+    1. 일반 API: 미리 정의된 URL 목록 가져오기
+    2. 페이지네이션 API: 데이터가 없을 때까지 페이지를 계속 가져오기
 
-    The function manages a pool of Ray workers, distributing tasks as workers
-    complete their assignments. This ensures maximum parallelism while respecting
-    API rate limits.
+    이 함수는 Ray 워커 풀을 관리하고, 워커가 작업을 완료하면 작업을 분배합니다.
+    이를 통해 API 속도 제한을 준수하면서 최대 병렬성을 보장합니다.
 
     Args:
-        main_ctx: Main context object with configuration.
-        api_list (List[FMPAPI]): List of FMPAPI objects to fetch data from.
+        main_ctx: 구성 정보를 포함한 메인 컨텍스트 객체.
+        api_list (List[FMPAPI]): 데이터를 가져올 FMPAPI 객체 목록.
 
     Note:
-        Worker count is limited to 8 (or cpu_count, whichever is smaller) to
-        avoid overwhelming the FMP API with requests and hitting rate limits.
+        FMP API에 과도한 요청을 보내 속도 제한에 도달하는 것을 방지하기 위해
+        워커 수를 8개(또는 cpu_count 중 더 작은 값)로 제한합니다.
 
     Example:
-        >>> from data_collector.fmp_api import FMPAPI
-        >>> api1 = FMPAPI(main_ctx, "https://fmp.com/api/v3/profile/AAPL?apikey=xxx")
-        >>> api2 = FMPAPI(main_ctx, "https://fmp.com/api/v3/income-statement/AAPL")
-        >>> fetch_fmp(main_ctx, [api1, api2])
+        # FMP API에서 데이터 가져오기
+        from data_collector.fmp_api import FMPAPI
 
-    Ray Architecture:
-        - Initializes Ray with limited workers (8 max)
-        - Maintains a task queue with active worker assignments
-        - Uses ray.wait() to get completed tasks and assign new ones
-        - Continues until all URLs are processed
+        api1 = FMPAPI(main_ctx, "https://fmp.com/api/v3/profile/AAPL?apikey=xxx")
+        api2 = FMPAPI(main_ctx, "https://fmp.com/api/v3/income-statement/AAPL")
+        fetch_fmp(main_ctx, [api1, api2])
+
+    Ray 아키텍처:
+        - 제한된 워커(최대 8개)로 Ray 초기화
+        - 활성 워커 할당으로 작업 큐 유지
+        - ray.wait()를 사용하여 완료된 작업을 가져오고 새 작업 할당
+        - 모든 URL이 처리될 때까지 계속
     """
     logger = get_logger('fmp.fetch')
 
