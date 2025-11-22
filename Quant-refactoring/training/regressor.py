@@ -218,12 +218,18 @@ def predict_proba_with_gpu_support(model, X, use_gpu: bool):
     if use_gpu:
         try:
             import cupy as cp
+
+            # CUDA가 실제로 사용 가능한지 확인
+            if not cp.cuda.is_available():
+                logging.warning("GPU enabled but CUDA not available, using CPU fallback")
+                return model.predict_proba(X)
+
             X_values = X.values if hasattr(X, 'values') else X
             X_gpu = cp.asarray(X_values)
             y_proba = model.predict_proba(X_gpu)
             return cp.asnumpy(y_proba)
         except Exception as e:
-            logging.debug(f"GPU prediction failed, using CPU fallback: {e}")
+            logging.warning(f"GPU prediction failed, using CPU fallback: {e}")
             return model.predict_proba(X)
     else:
         return model.predict_proba(X)
@@ -419,6 +425,118 @@ class Regressor:
             logging.warning("   Predictions will work but with device mismatch warnings")
             logging.warning("   For better performance, install CuPy:")
             logging.warning("   pip install cupy-cuda11x  # or cupy-cuda12x for CUDA 12.x")
+
+    def _export_nan_removal_details(self, x_data: pd.DataFrame, y_data: pd.DataFrame,
+                                    y_cls_data: pd.DataFrame, stage: str = "train") -> None:
+        """
+        NaN 제거 시 실제로 제거되는 row들의 상세 정보를 CSV로 저장합니다.
+
+        Args:
+            x_data: 특성 데이터
+            y_data: 회귀 타겟 데이터
+            y_cls_data: 분류 타겟 데이터
+            stage: 'train' 또는 'evaluation'
+        """
+        # 출력 디렉토리 생성
+        removal_dir = os.path.join(self.root_path, "NAN_REMOVAL_DETAILS", "training")
+        os.makedirs(removal_dir, exist_ok=True)
+
+        # NaN이 있는 행 찾기
+        nan_mask_x = x_data.isna().any(axis=1)
+        nan_mask_y = y_data.isna().any(axis=1)
+        nan_mask_y_cls = y_cls_data.isna().any(axis=1)
+        nan_mask_combined = nan_mask_x | nan_mask_y | nan_mask_y_cls
+
+        total_nan_rows = nan_mask_combined.sum()
+
+        if total_nan_rows == 0:
+            logging.info(f"✅ [{stage.upper()}] No NaN values found - no removal needed")
+            return
+
+        logging.info(f"📝 [{stage.upper()}] Exporting NaN removal details...")
+
+        # ===== 1. 제거될 row들 저장 =====
+        nan_rows_x = x_data[nan_mask_combined].copy()
+        nan_rows_y = y_data[nan_mask_combined].copy()
+        nan_rows_y_cls = y_cls_data[nan_mask_combined].copy()
+
+        # 합쳐서 저장 (x, y, y_cls 모두 포함)
+        combined_nan_rows = pd.concat([nan_rows_x, nan_rows_y, nan_rows_y_cls], axis=1)
+
+        # timestamp 추가
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        rows_file = os.path.join(removal_dir, f"nan_removal_rows_{stage}_{timestamp}.csv")
+        combined_nan_rows.to_csv(rows_file, index=True)
+        logging.info(f"   Saved {len(combined_nan_rows)} rows to be removed → {os.path.basename(rows_file)}")
+
+        # 컬럼별 NaN 통계
+        nan_per_column = nan_rows_x.isna().sum()
+        nan_columns_with_nans = nan_per_column[nan_per_column > 0].sort_values(ascending=False)
+
+        if len(nan_columns_with_nans) > 0:
+            logging.info(f"   NaN breakdown by column (top 10):")
+            for col, count in list(nan_columns_with_nans.items())[:10]:
+                logging.info(f"      {col}: {count} rows")
+
+        # ===== 2. 요약 통계 저장 =====
+        summary_data = []
+        total_rows_before = len(x_data)
+        total_clean_rows = total_rows_before - total_nan_rows
+        nan_ratio = (total_nan_rows / total_rows_before * 100) if total_rows_before > 0 else 0
+
+        summary_data.append({
+            'metric': 'stage',
+            'value': stage,
+            'description': 'Training or Evaluation stage'
+        })
+        summary_data.append({
+            'metric': 'total_rows_before_dropna',
+            'value': total_rows_before,
+            'description': '전체 row 개수 (제거 전)'
+        })
+        summary_data.append({
+            'metric': 'nan_rows_removed',
+            'value': total_nan_rows,
+            'description': 'NaN으로 제거될 row 개수'
+        })
+        summary_data.append({
+            'metric': 'nan_rows_from_x',
+            'value': nan_mask_x.sum(),
+            'description': 'x (특성)에서 NaN이 있는 row 개수'
+        })
+        summary_data.append({
+            'metric': 'nan_rows_from_y',
+            'value': nan_mask_y.sum(),
+            'description': 'y (타겟)에서 NaN이 있는 row 개수'
+        })
+        summary_data.append({
+            'metric': 'nan_rows_from_y_cls',
+            'value': nan_mask_y_cls.sum(),
+            'description': 'y_cls (분류 타겟)에서 NaN이 있는 row 개수'
+        })
+        summary_data.append({
+            'metric': 'clean_rows_remaining',
+            'value': total_clean_rows,
+            'description': '제거 후 남은 row 개수'
+        })
+        summary_data.append({
+            'metric': 'nan_removal_ratio_percent',
+            'value': f"{nan_ratio:.2f}",
+            'description': 'NaN 제거 비율 (%)'
+        })
+        summary_data.append({
+            'metric': 'unique_columns_with_nan',
+            'value': len(nan_columns_with_nans),
+            'description': 'NaN이 있는 컬럼 개수'
+        })
+
+        # 요약을 CSV로 저장
+        summary_file = os.path.join(removal_dir, f"nan_removal_summary_{stage}_{timestamp}.csv")
+        summary_df = pd.DataFrame(summary_data)
+        summary_df.to_csv(summary_file, index=False)
+        logging.info(f"   Saved removal summary → {os.path.basename(summary_file)}")
+
+        logging.info(f"✅ [{stage.upper()}] NaN removal details export complete")
 
     def clean_feature_names(self, df: pd.DataFrame) -> pd.DataFrame:
         """LightGBM과 호환되도록 특성 이름을 정리합니다.
@@ -725,15 +843,15 @@ class Regressor:
         self.clsmodels[0] = xgboost.XGBClassifier(
             tree_method='hist', device=self.device, n_estimators=500, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=8,
-            objective='binary:logistic', eval_metric='logloss')
+            objective='binary:logistic', eval_metric='logloss', missing=np.nan)
         self.clsmodels[1] = xgboost.XGBClassifier(
             tree_method='hist', device=self.device, n_estimators=500, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=9,
-            objective='binary:logistic', eval_metric='logloss')
+            objective='binary:logistic', eval_metric='logloss', missing=np.nan)
         self.clsmodels[2] = xgboost.XGBClassifier(
             tree_method='hist', device=self.device, n_estimators=500, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=10,
-            objective='binary:logistic', eval_metric='logloss')
+            objective='binary:logistic', eval_metric='logloss', missing=np.nan)
 
         # LightGBM 분류 모델
         # Grid search로 최적의 파라미터를 찾았습니다:
@@ -747,11 +865,11 @@ class Regressor:
         self.models[0] = xgboost.XGBRegressor(
             tree_method='hist', device=self.device, n_estimators=1000, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=8,
-            objective='reg:squarederror', eval_metric='rmse')
+            objective='reg:squarederror', eval_metric='rmse', missing=np.nan)
         self.models[1] = xgboost.XGBRegressor(
             tree_method='hist', device=self.device, n_estimators=1000, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=10,
-            objective='reg:squarederror', eval_metric='rmse')
+            objective='reg:squarederror', eval_metric='rmse', missing=np.nan)
 
         # LightGBM 회귀 모델 (비활성화됨 - 낮은 정확도)
         # self.models[1] = lgb.LGBMRegressor(
@@ -767,12 +885,12 @@ class Regressor:
                 self.sector_models[cur_key] = xgboost.XGBRegressor(
                     tree_method='hist', device=self.device, n_estimators=1000,
                     learning_rate=0.05, gamma=0.01, subsample=0.8,
-                    colsample_bytree=0.7, max_depth=7)  # 최적 하이퍼파라미터
+                    colsample_bytree=0.7, max_depth=7, missing=np.nan)  # 최적 하이퍼파라미터
                 cur_key = (sec, 1)
                 self.sector_models[cur_key] = xgboost.XGBRegressor(
                     tree_method='hist', device=self.device, n_estimators=1000,
                     learning_rate=0.05, gamma=0.01, subsample=0.8,
-                    colsample_bytree=0.7, max_depth=8)
+                    colsample_bytree=0.7, max_depth=8, missing=np.nan)
 
     def train(self) -> None:
         """모든 분류 및 회귀 모델을 학습하고 디스크에 저장합니다.
@@ -929,6 +1047,47 @@ class Regressor:
             x_values = self.x_train.values
             max_after_clip = np.abs(x_values).max()
             logging.info(f"   After clipping, max abs value: {max_after_clip}")
+
+        logging.info("=" * 80)
+
+        # ===== NaN 값 처리 =====
+        # XGBoost에 missing 파라미터를 설정했지만, NaN 제거로 더 안정적인 학습 가능
+        logging.info("🔬 Checking for NaN values in training data...")
+
+        # NaN 체크
+        nan_mask_x = self.x_train.isna().any(axis=1)
+        nan_mask_y = self.y_train.isna().any(axis=1)
+        nan_mask_y_cls = self.y_train_cls.isna().any(axis=1)
+        nan_mask_combined = nan_mask_x | nan_mask_y | nan_mask_y_cls
+
+        total_nan_rows = nan_mask_combined.sum()
+
+        if total_nan_rows > 0:
+            logging.warning(f"⚠️  Found {total_nan_rows} rows with NaN values")
+            logging.warning(f"   - NaN in x_train: {nan_mask_x.sum()} rows")
+            logging.warning(f"   - NaN in y_train: {nan_mask_y.sum()} rows")
+            logging.warning(f"   - NaN in y_train_cls: {nan_mask_y_cls.sum()} rows")
+            logging.warning(f"   Exporting removal details and removing these rows...")
+
+            # NaN 제거 세부사항 저장 (제거 전)
+            self._export_nan_removal_details(
+                self.x_train,
+                self.y_train,
+                self.y_train_cls,
+                stage="train"
+            )
+
+            # NaN 행 제거
+            self.x_train = self.x_train[~nan_mask_combined]
+            self.y_train = self.y_train[~nan_mask_combined]
+            self.y_train_cls = self.y_train_cls[~nan_mask_combined]
+
+            # y_train_binary도 업데이트 필요
+            y_train_binary = (self.y_train_cls > 0).astype(int)
+
+            logging.info(f"   After NaN removal: {len(self.x_train)} rows remaining")
+        else:
+            logging.info(f"✅ No NaN values found in training data")
 
         logging.info("=" * 80)
 
@@ -1122,6 +1281,43 @@ class Regressor:
 
             # LightGBM을 위해 특성 이름 정리
             x_test = self.clean_feature_names(x_test)
+
+            # ===== NaN 값 처리 (Evaluation 단계) =====
+            logging.info(f"🔬 Checking for NaN values in test data ({tdate})...")
+
+            # NaN 체크
+            nan_mask_x_test = x_test.isna().any(axis=1)
+            nan_mask_y_test = y_test.isna().any(axis=1)
+            nan_mask_y_test_cls = y_test_cls.isna().any(axis=1)
+            nan_mask_combined_test = nan_mask_x_test | nan_mask_y_test | nan_mask_y_test_cls
+
+            total_nan_rows_test = nan_mask_combined_test.sum()
+
+            if total_nan_rows_test > 0:
+                logging.warning(f"⚠️  Found {total_nan_rows_test} rows with NaN values in test data")
+                logging.warning(f"   - NaN in x_test: {nan_mask_x_test.sum()} rows")
+                logging.warning(f"   - NaN in y_test: {nan_mask_y_test.sum()} rows")
+                logging.warning(f"   - NaN in y_test_cls: {nan_mask_y_test_cls.sum()} rows")
+                logging.warning(f"   Exporting removal details and removing these rows...")
+
+                # NaN 제거 세부사항 저장 (제거 전)
+                self._export_nan_removal_details(
+                    x_test,
+                    y_test,
+                    y_test_cls,
+                    stage=f"evaluation_{tdate}"
+                )
+
+                # NaN 행 제거 (모든 관련 변수)
+                x_test = x_test[~nan_mask_combined_test]
+                y_test = y_test[~nan_mask_combined_test]
+                y_test_cls = y_test_cls[~nan_mask_combined_test]
+                y_test_binary = y_test_binary[~nan_mask_combined_test]
+                df = df[~nan_mask_combined_test]  # DataFrame도 함께 필터링
+
+                logging.info(f"   After NaN removal: {len(x_test)} rows remaining")
+            else:
+                logging.info(f"✅ No NaN values found in test data ({tdate})")
 
             # === 분류 단계 ===
             # 4개의 모든 분류기를 실행하고 성능 평가
