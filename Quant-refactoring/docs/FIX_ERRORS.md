@@ -44,6 +44,58 @@ pip install -r requirements_fix.txt
 
 ---
 
+## 문제: XGBoost 3.1+ 호환성 에러
+
+### 에러 메시지 1: gpu_id 파라미터
+```
+XGBoostError: Invalid Parameter format for gpu_id
+XGBoostError: gpu_id has been removed since 3.1
+```
+
+### 에러 메시지 2: gpu_hist 값
+```
+XGBoostError: Invalid Input: 'gpu_hist', valid values are: {'approx', 'auto', 'exact', 'hist'}
+```
+
+### 해결 방법 (빠른 수정)
+
+`models/config.py` 파일을 열고 XGBoost 파라미터 수정:
+
+```python
+# ❌ 잘못된 설정 (삭제)
+xgb_params = {
+    'gpu_id': 0,
+    'tree_method': 'gpu_hist'
+}
+
+# ✅ 올바른 설정 (교체)
+xgb_params = {
+    'device': 'cuda:0',      # GPU 사용
+    'tree_method': 'hist'
+}
+
+# 또는 CPU 사용
+xgb_params = {
+    'device': 'cpu',
+    'tree_method': 'hist'
+}
+```
+
+**XGBoost 버전 확인**:
+```bash
+python -c "import xgboost; print(xgboost.__version__)"
+# 3.1.0 이상 필요
+```
+
+**업그레이드**:
+```bash
+pip install --upgrade xgboost>=3.1.0
+```
+
+**자세한 정보**: [TROUBLESHOOTING.md](TROUBLESHOOTING.md#3-5-xgboost-31-호환성-에러)
+
+---
+
 ## 새로운 스크립트 실행 방법
 
 ### ⚠️ 중요: 기존 main.py가 아닌 새 스크립트 사용

@@ -116,6 +116,128 @@ logger.error("Failed to connect", extra={'host': 'localhost', 'port': 5432})
 
 자세한 사용법은 [LOGGING_GUIDE.md](LOGGING_GUIDE.md)를 참조하세요.
 
+### 1.4 데이터 및 진단 설정 (`conf.yaml`)
+
+#### MAKE_VIEW 옵션 (신규 - PR #47)
+
+FMP API 호출 없이 기존 rawpq 데이터에서 VIEW CSV를 재구성합니다.
+
+**사용 시나리오**:
+- FMP API 호출 없이 데이터만 재가공하고 싶을 때
+- VIEW 테이블 손상 시 복구
+- 데이터 변환 로직 변경 후 재생성
+- API 할당량 절약
+
+**설정** (`config/conf.yaml`):
+```yaml
+DATA:
+  GET_FMP: N        # FMP API 호출 안 함
+  MAKE_VIEW: Y      # VIEW 폴더 재구성
+```
+
+**실행 예시**:
+```bash
+# config/conf.yaml에서 위와 같이 설정 후
+python main.py
+```
+
+**처리 과정**:
+1. 기존 `rawpq/` 폴더의 Parquet 파일 로드
+2. VIEW 테이블 재계산 (재무 비율, 메트릭 등)
+3. `VIEW/` 폴더에 CSV 파일로 저장
+
+**장점**:
+- ✅ FMP API 호출 없이 빠르게 VIEW 재생성 (수분 내)
+- ✅ 기존 rawpq 데이터 활용
+- ✅ 데이터 수집 대기 시간 없음
+- ✅ API 할당량 절약
+
+**제한사항**:
+- ❌ 새로운 회사 데이터 추가 불가 (기존 데이터만 재가공)
+- ❌ rawpq 폴더가 비어있으면 작동 안 함
+
+---
+
+#### EXPORT_NAN_REMOVAL_DETAILS 옵션 (신규 - PR #58)
+
+NaN 제거 과정을 CSV 파일로 상세 추적하여 데이터 품질을 진단합니다.
+
+**사용 시나리오**:
+- 초기 데이터 품질 확인
+- NaN 제거로 인한 데이터 손실 파악
+- 특정 컬럼/심볼의 데이터 품질 문제 진단
+- ML 학습 데이터 생성 전 검증
+
+**설정** (`config/conf.yaml`):
+```yaml
+ML:
+  EXPORT_NAN_REMOVAL_DETAILS: Y  # Y = CSV 저장, N = 로그만
+```
+
+**출력 파일 구조**:
+```
+NAN_REMOVAL_DETAILS/
+├── nan_removal_rows_2024_Q1.csv      # 제거된 실제 row 데이터
+├── nan_removal_summary_2024_Q1.csv   # 제거 통계 요약
+├── nan_removal_rows_2024_Q2.csv
+├── nan_removal_summary_2024_Q2.csv
+└── ...
+```
+
+**출력 내용**:
+
+1. **rows CSV** (제거된 row 상세):
+   ```
+   id, kind, time, value, year_period
+   1234, AAPL, 2024-03-31, NaN, 2024_Q1
+   5678, MSFT, 2024-03-31, inf, 2024_Q1
+   ```
+
+2. **summary CSV** (통계 요약):
+   ```csv
+   metric,value
+   total_rows_before,50000
+   total_rows_after,48500
+   total_removed,1500
+   removal_rate,3.0%
+   columns_affected,"OverMC_netIncome,roe,roa"
+   symbols_affected,"AAPL,TSLA,NVDA"
+   ```
+
+**사용 예시**:
+
+```python
+# 1. 설정 활성화
+# config/conf.yaml에서 EXPORT_NAN_REMOVAL_DETAILS: Y
+
+# 2. ML 데이터 생성 실행
+from training.make_mldata import AIDataMaker
+
+aidata = AIDataMaker(ctx, config)
+aidata.make_ml_data()
+
+# 3. 생성된 CSV 파일 확인
+import pandas as pd
+
+# 제거된 row 확인
+removed_rows = pd.read_csv('NAN_REMOVAL_DETAILS/nan_removal_rows_2024_Q1.csv')
+print(f"Removed {len(removed_rows)} rows")
+
+# 통계 요약 확인
+summary = pd.read_csv('NAN_REMOVAL_DETAILS/nan_removal_summary_2024_Q1.csv')
+print(summary)
+```
+
+**추천 사용법**:
+
+1. **초기 실행 시**: `Y`로 설정하여 데이터 품질 확인
+2. **문제 발견 시**: CSV 파일 분석하여 원인 파악
+3. **문제 해결 후**: `N`으로 변경하여 성능 향상 (CSV 저장 생략)
+
+**성능 영향**:
+- `Y`: CSV 저장 오버헤드 있음 (~5-10% 느림)
+- `N`: 로그만 출력, 성능 영향 미미
+
 ---
 
 ## 2. Models (`models/`)
@@ -181,10 +303,13 @@ xgb_reg.fit(X_train, y_train, X_val, y_val)
 predictions = xgb_reg.predict(X_test)
 ```
 
-**주요 파라미터**:
+**주요 파라미터** (XGBoost 3.1+ 기준):
 ```python
 {
-    'tree_method': 'gpu_hist',      # GPU 가속
+    'tree_method': 'hist',          # XGBoost 3.1+에서는 'hist' 사용
+    'device': 'cuda:0',             # GPU 사용 (XGBoost 3.1+에서 'gpu_id' 대신 사용)
+                                    # GPU: 'cuda:0', 'cuda:1', ...
+                                    # CPU: 'cpu'
     'n_estimators': 500,            # 트리 개수
     'max_depth': 9,                 # 트리 깊이
     'learning_rate': 0.1,           # 학습률
@@ -192,6 +317,82 @@ predictions = xgb_reg.predict(X_test)
     'subsample': 0.8,               # 샘플 샘플링 비율
     'colsample_bytree': 0.8         # Feature 샘플링 비율
 }
+```
+
+**⚠️ 중요 - XGBoost 버전별 차이**:
+```python
+# ❌ XGBoost < 3.1 (구버전, 더 이상 사용 안 함)
+{
+    'tree_method': 'gpu_hist',
+    'gpu_id': 0
+}
+
+# ✅ XGBoost >= 3.1 (현재 버전)
+{
+    'tree_method': 'hist',
+    'device': 'cuda:0'  # 또는 'cpu'
+}
+```
+
+### 2.2.1 GPU 지원 및 자동 감지
+
+시스템은 자동으로 GPU를 감지하고 CuPy를 통해 예측 성능을 향상시킵니다.
+
+**요구사항**:
+- **XGBoost**: 3.1 이상 필수
+- **CuPy** (GPU 사용 시): `pip install cupy-cuda11x` 또는 `cupy-cuda12x`
+- **CUDA**: GPU 사용 시 NVIDIA CUDA 11.x 또는 12.x
+
+**자동 구성**:
+시스템이 자동으로 환경을 감지하고 최적의 설정을 선택합니다:
+
+| 상황 | 자동 설정 |
+|------|-----------|
+| GPU 사용 가능 + CuPy 설치됨 | GPU 가속 예측 (CuPy 배열 사용) |
+| GPU 없음 또는 CuPy 없음 | 자동으로 CPU 폴백 (NumPy 배열 사용) |
+| XGBoost < 3.1 | 경고 메시지 출력, 업그레이드 권장 |
+
+**수동 설정** (`models/config.py` 또는 모델 파라미터):
+
+```python
+# GPU 사용 (단일 GPU)
+xgb_params = {
+    'tree_method': 'hist',
+    'device': 'cuda:0'       # 첫 번째 GPU
+}
+
+# GPU 사용 (다중 GPU)
+xgb_params = {
+    'tree_method': 'hist',
+    'device': 'cuda:1'       # 두 번째 GPU
+}
+
+# CPU 강제 사용
+xgb_params = {
+    'tree_method': 'hist',
+    'device': 'cpu'          # GPU가 있어도 CPU 사용
+}
+```
+
+**예측 성능 비교** (10,000 rows):
+```
+CPU (NumPy):  ~200ms
+GPU (CuPy):   ~50ms   (4배 빠름)
+```
+
+**CuPy 설치 확인**:
+```bash
+python -c "import cupy; print(cupy.__version__)"
+# 12.3.0  (설치됨)
+# ModuleNotFoundError  (미설치)
+```
+
+**로그 확인**:
+모델 예측 시 다음 로그로 GPU 사용 여부 확인:
+```
+INFO: Using GPU prediction with CuPy acceleration
+# 또는
+INFO: CuPy not available, using CPU prediction
 ```
 
 ### 2.3 LightGBM Model
