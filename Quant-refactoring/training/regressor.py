@@ -845,15 +845,15 @@ class Regressor:
         # 분류 모델: 이진 상승/하락 예측
         # 앙상블 다양성을 위해 다양한 깊이를 가진 여러 모델 사용
         self.clsmodels[0] = xgboost.XGBClassifier(
-            tree_method='hist', device=self.device, n_estimators=500, learning_rate=0.1,
+            tree_method='hist', device='cpu', n_estimators=500, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=8,
             objective='binary:logistic', eval_metric='logloss', missing=np.nan)
         self.clsmodels[1] = xgboost.XGBClassifier(
-            tree_method='hist', device=self.device, n_estimators=500, learning_rate=0.1,
+            tree_method='hist', device='cpu', n_estimators=500, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=9,
             objective='binary:logistic', eval_metric='logloss', missing=np.nan)
         self.clsmodels[2] = xgboost.XGBClassifier(
-            tree_method='hist', device=self.device, n_estimators=500, learning_rate=0.1,
+            tree_method='hist', device='cpu', n_estimators=500, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=10,
             objective='binary:logistic', eval_metric='logloss', missing=np.nan)
 
@@ -863,15 +863,15 @@ class Regressor:
         #  'n_estimators': 1000, 'num_leaves': 31}
         self.clsmodels[3] = lgb.LGBMClassifier(
             boosting_type='gbdt', objective='binary', n_estimators=1000,
-            max_depth=8, learning_rate=0.1, device='gpu', boost_from_average=False)
+            max_depth=8, learning_rate=0.1, device='cpu', boost_from_average=False)
 
         # 회귀 모델: 가격 변동의 크기 예측
         self.models[0] = xgboost.XGBRegressor(
-            tree_method='hist', device=self.device, n_estimators=1000, learning_rate=0.1,
+            tree_method='hist', device='cpu', n_estimators=1000, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=8,
             objective='reg:squarederror', eval_metric='rmse', missing=np.nan)
         self.models[1] = xgboost.XGBRegressor(
-            tree_method='hist', device=self.device, n_estimators=1000, learning_rate=0.1,
+            tree_method='hist', device='cpu', n_estimators=1000, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=10,
             objective='reg:squarederror', eval_metric='rmse', missing=np.nan)
 
@@ -887,12 +887,12 @@ class Regressor:
                 # 섹터당 다양한 하이퍼파라미터를 가진 2개 변형
                 cur_key = (sec, 0)
                 self.sector_models[cur_key] = xgboost.XGBRegressor(
-                    tree_method='hist', device=self.device, n_estimators=1000,
+                    tree_method='hist', device='cpu', n_estimators=1000,
                     learning_rate=0.05, gamma=0.01, subsample=0.8,
                     colsample_bytree=0.7, max_depth=7, missing=np.nan)  # 최적 하이퍼파라미터
                 cur_key = (sec, 1)
                 self.sector_models[cur_key] = xgboost.XGBRegressor(
-                    tree_method='hist', device=self.device, n_estimators=1000,
+                    tree_method='hist', device='cpu', n_estimators=1000,
                     learning_rate=0.05, gamma=0.01, subsample=0.8,
                     colsample_bytree=0.7, max_depth=8, missing=np.nan)
 
