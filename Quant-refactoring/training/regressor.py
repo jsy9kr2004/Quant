@@ -1085,17 +1085,18 @@ class Regressor:
             self.y_train = self.y_train[~nan_mask_labels]
             self.y_train_cls = self.y_train_cls[~nan_mask_labels]
 
-        # 3단계: 나머지 x_train의 NaN을 0으로 채움 (데이터 손실 최소화)
+        # 3단계: 나머지 NaN은 그대로 유지 (XGBoost의 missing=np.nan이 처리)
         remaining_nan_count = self.x_train.isna().sum().sum()
         if remaining_nan_count > 0:
-            logging.info(f"   Filling {remaining_nan_count} remaining NaN values with 0")
-            self.x_train = self.x_train.fillna(0)
+            logging.info(f"   Keeping {remaining_nan_count} NaN values for XGBoost to handle (missing=np.nan)")
+            logging.info(f"   XGBoost will treat NaN as a separate category in tree splits")
 
         # y_train_binary 업데이트
         y_train_binary = (self.y_train_cls > 0).astype(int)
 
         logging.info(f"✅ NaN handling complete: {original_rows} → {len(self.x_train)} rows ({len(self.x_train)/original_rows*100:.1f}% retained)")
         logging.info(f"   Final data: {len(self.x_train)} rows × {len(self.x_train.columns)} features")
+        logging.info(f"   Remaining NaN values: {remaining_nan_count} (will be handled by XGBoost)")
 
         logging.info("=" * 80)
 
@@ -1341,14 +1342,14 @@ class Regressor:
                 y_test_binary = y_test_binary[~nan_mask_labels_test]
                 df = df[~nan_mask_labels_test]
 
-            # 2단계: x_test의 NaN을 0으로 채움
-            # (Feature alignment 단계에서 이미 train features에 맞춰져 있음)
+            # 2단계: 나머지 NaN은 그대로 유지 (XGBoost의 missing=np.nan이 처리)
             remaining_nan_count = x_test.isna().sum().sum()
             if remaining_nan_count > 0:
-                logging.info(f"   Filling {remaining_nan_count} NaN values in x_test with 0")
-                x_test = x_test.fillna(0)
+                logging.info(f"   Keeping {remaining_nan_count} NaN values for XGBoost to handle")
 
             logging.info(f"✅ NaN handling complete: {original_test_rows} → {len(x_test)} rows ({len(x_test)/original_test_rows*100:.1f}% retained)")
+            if remaining_nan_count > 0:
+                logging.info(f"   Remaining NaN values: {remaining_nan_count} (will be handled by XGBoost)")
 
             # NaN 제거 완료 후 preds 배열 초기화 (회귀 예측 저장용)
             preds = np.empty((0, x_test.shape[0]))
