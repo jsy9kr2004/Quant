@@ -438,7 +438,7 @@ class Regressor:
             stage: 'train' 또는 'evaluation'
         """
         # 출력 디렉토리 생성
-        removal_dir = os.path.join(self.main_ctx.root_path, "NAN_REMOVAL_DETAILS", "training")
+        removal_dir = os.path.join(self.root_path, "NAN_REMOVAL_DETAILS", "training")
         os.makedirs(removal_dir, exist_ok=True)
 
         # NaN이 있는 행 찾기
