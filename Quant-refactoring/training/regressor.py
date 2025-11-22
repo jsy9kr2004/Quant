@@ -1054,44 +1054,48 @@ class Regressor:
 
         logging.info("=" * 80)
 
-        # ===== NaN 값 처리 =====
-        # XGBoost에 missing 파라미터를 설정했지만, NaN 제거로 더 안정적인 학습 가능
+        # ===== NaN 값 처리 (개선된 전략) =====
         logging.info("🔬 Checking for NaN values in training data...")
 
-        # NaN 체크
-        nan_mask_x = self.x_train.isna().any(axis=1)
+        original_rows = len(self.x_train)
+        original_cols = len(self.x_train.columns)
+
+        # 1단계: NaN이 많은 컬럼 제거 (threshold: 50%)
+        nan_threshold = 0.5
+        nan_ratio_per_col = self.x_train.isna().sum() / len(self.x_train)
+        high_nan_cols = nan_ratio_per_col[nan_ratio_per_col > nan_threshold].index.tolist()
+
+        if high_nan_cols:
+            logging.warning(f"⚠️  Removing {len(high_nan_cols)} columns with >{nan_threshold*100}% NaN:")
+            for col in high_nan_cols[:5]:  # 상위 5개만 로깅
+                logging.warning(f"   - {col}: {nan_ratio_per_col[col]*100:.1f}% NaN")
+            if len(high_nan_cols) > 5:
+                logging.warning(f"   ... and {len(high_nan_cols)-5} more columns")
+            self.x_train = self.x_train.drop(columns=high_nan_cols)
+            logging.info(f"   Columns: {original_cols} → {len(self.x_train.columns)}")
+
+        # 2단계: y에 NaN이 있는 행만 제거 (레이블이 없으면 학습 불가)
         nan_mask_y = self.y_train.isna().any(axis=1)
         nan_mask_y_cls = self.y_train_cls.isna().any(axis=1)
-        nan_mask_combined = nan_mask_x | nan_mask_y | nan_mask_y_cls
+        nan_mask_labels = nan_mask_y | nan_mask_y_cls
 
-        total_nan_rows = nan_mask_combined.sum()
+        if nan_mask_labels.sum() > 0:
+            logging.warning(f"⚠️  Removing {nan_mask_labels.sum()} rows with NaN labels")
+            self.x_train = self.x_train[~nan_mask_labels]
+            self.y_train = self.y_train[~nan_mask_labels]
+            self.y_train_cls = self.y_train_cls[~nan_mask_labels]
 
-        if total_nan_rows > 0:
-            logging.warning(f"⚠️  Found {total_nan_rows} rows with NaN values")
-            logging.warning(f"   - NaN in x_train: {nan_mask_x.sum()} rows")
-            logging.warning(f"   - NaN in y_train: {nan_mask_y.sum()} rows")
-            logging.warning(f"   - NaN in y_train_cls: {nan_mask_y_cls.sum()} rows")
-            logging.warning(f"   Exporting removal details and removing these rows...")
+        # 3단계: 나머지 x_train의 NaN을 0으로 채움 (데이터 손실 최소화)
+        remaining_nan_count = self.x_train.isna().sum().sum()
+        if remaining_nan_count > 0:
+            logging.info(f"   Filling {remaining_nan_count} remaining NaN values with 0")
+            self.x_train = self.x_train.fillna(0)
 
-            # NaN 제거 세부사항 저장 (제거 전)
-            self._export_nan_removal_details(
-                self.x_train,
-                self.y_train,
-                self.y_train_cls,
-                stage="train"
-            )
+        # y_train_binary 업데이트
+        y_train_binary = (self.y_train_cls > 0).astype(int)
 
-            # NaN 행 제거
-            self.x_train = self.x_train[~nan_mask_combined]
-            self.y_train = self.y_train[~nan_mask_combined]
-            self.y_train_cls = self.y_train_cls[~nan_mask_combined]
-
-            # y_train_binary도 업데이트 필요
-            y_train_binary = (self.y_train_cls > 0).astype(int)
-
-            logging.info(f"   After NaN removal: {len(self.x_train)} rows remaining")
-        else:
-            logging.info(f"✅ No NaN values found in training data")
+        logging.info(f"✅ NaN handling complete: {original_rows} → {len(self.x_train)} rows ({len(self.x_train)/original_rows*100:.1f}% retained)")
+        logging.info(f"   Final data: {len(self.x_train)} rows × {len(self.x_train.columns)} features")
 
         logging.info("=" * 80)
 
@@ -1284,8 +1288,6 @@ class Regressor:
             y_test_cls = df[['price_dev']]
             y_test_binary = (y_test_cls > 0).astype(int)
 
-            preds = np.empty((0, x_test.shape[0]))  # 원시 회귀 예측 저장
-
             df['label'] = y_test  # 실제 가격 변동
             df['label_binary'] = y_test_binary  # 실제 이진 레이블
 
@@ -1321,42 +1323,35 @@ class Regressor:
                 logging.warning(f"⚠️  Feature columns file not found: {feature_columns_file}")
                 logging.warning("   Proceeding without feature alignment (may cause errors)")
 
-            # ===== NaN 값 처리 (Evaluation 단계) =====
+            # ===== NaN 값 처리 (Evaluation 단계 - 개선된 전략) =====
             logging.info(f"🔬 Checking for NaN values in test data ({tdate})...")
 
-            # NaN 체크
-            nan_mask_x_test = x_test.isna().any(axis=1)
+            original_test_rows = len(x_test)
+
+            # 1단계: y에 NaN이 있는 행만 제거 (레이블이 없으면 평가 불가)
             nan_mask_y_test = y_test.isna().any(axis=1)
             nan_mask_y_test_cls = y_test_cls.isna().any(axis=1)
-            nan_mask_combined_test = nan_mask_x_test | nan_mask_y_test | nan_mask_y_test_cls
+            nan_mask_labels_test = nan_mask_y_test | nan_mask_y_test_cls
 
-            total_nan_rows_test = nan_mask_combined_test.sum()
+            if nan_mask_labels_test.sum() > 0:
+                logging.warning(f"⚠️  Removing {nan_mask_labels_test.sum()} rows with NaN labels")
+                x_test = x_test[~nan_mask_labels_test]
+                y_test = y_test[~nan_mask_labels_test]
+                y_test_cls = y_test_cls[~nan_mask_labels_test]
+                y_test_binary = y_test_binary[~nan_mask_labels_test]
+                df = df[~nan_mask_labels_test]
 
-            if total_nan_rows_test > 0:
-                logging.warning(f"⚠️  Found {total_nan_rows_test} rows with NaN values in test data")
-                logging.warning(f"   - NaN in x_test: {nan_mask_x_test.sum()} rows")
-                logging.warning(f"   - NaN in y_test: {nan_mask_y_test.sum()} rows")
-                logging.warning(f"   - NaN in y_test_cls: {nan_mask_y_test_cls.sum()} rows")
-                logging.warning(f"   Exporting removal details and removing these rows...")
+            # 2단계: x_test의 NaN을 0으로 채움
+            # (Feature alignment 단계에서 이미 train features에 맞춰져 있음)
+            remaining_nan_count = x_test.isna().sum().sum()
+            if remaining_nan_count > 0:
+                logging.info(f"   Filling {remaining_nan_count} NaN values in x_test with 0")
+                x_test = x_test.fillna(0)
 
-                # NaN 제거 세부사항 저장 (제거 전)
-                self._export_nan_removal_details(
-                    x_test,
-                    y_test,
-                    y_test_cls,
-                    stage=f"evaluation_{tdate}"
-                )
+            logging.info(f"✅ NaN handling complete: {original_test_rows} → {len(x_test)} rows ({len(x_test)/original_test_rows*100:.1f}% retained)")
 
-                # NaN 행 제거 (모든 관련 변수)
-                x_test = x_test[~nan_mask_combined_test]
-                y_test = y_test[~nan_mask_combined_test]
-                y_test_cls = y_test_cls[~nan_mask_combined_test]
-                y_test_binary = y_test_binary[~nan_mask_combined_test]
-                df = df[~nan_mask_combined_test]  # DataFrame도 함께 필터링
-
-                logging.info(f"   After NaN removal: {len(x_test)} rows remaining")
-            else:
-                logging.info(f"✅ No NaN values found in test data ({tdate})")
+            # NaN 제거 완료 후 preds 배열 초기화 (회귀 예측 저장용)
+            preds = np.empty((0, x_test.shape[0]))
 
             # === 분류 단계 ===
             # 4개의 모든 분류기를 실행하고 성능 평가
