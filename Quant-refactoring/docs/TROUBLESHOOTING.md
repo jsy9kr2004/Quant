@@ -296,6 +296,123 @@ CUDARuntimeError
 nvidia-smi
 ```
 
+### 3-5. XGBoost 3.1+ 호환성 에러
+
+XGBoost 3.0에서 3.1로 업그레이드하면서 GPU 관련 파라미터가 변경되었습니다.
+
+#### 에러 1: gpu_id 파라미터 에러
+
+**에러 메시지:**
+```
+XGBoostError: Invalid Parameter format for gpu_id
+XGBoostError: gpu_id has been removed since 3.1
+```
+
+**원인**: XGBoost 3.1 이상에서는 `gpu_id` 파라미터가 제거됨
+
+**해결 방법:**
+
+`models/config.py` 또는 모델 설정 파일 수정:
+
+```python
+# ❌ 잘못된 설정 (XGBoost < 3.1)
+xgb_params = {
+    'gpu_id': 0,
+    'tree_method': 'gpu_hist'
+}
+
+# ✅ 올바른 설정 (XGBoost >= 3.1)
+xgb_params = {
+    'device': 'cuda:0',      # 첫 번째 GPU
+    'tree_method': 'hist'    # 'gpu_hist' 대신 'hist' 사용
+}
+
+# CPU 사용
+xgb_params = {
+    'device': 'cpu',
+    'tree_method': 'hist'
+}
+```
+
+#### 에러 2: tree_method 에러
+
+**에러 메시지:**
+```
+XGBoostError: Invalid Input: 'gpu_hist', valid values are: {'approx', 'auto', 'exact', 'hist'}
+```
+
+**원인**: XGBoost 3.1+에서는 `gpu_hist`가 제거되고 `hist`로 통합됨
+
+**해결 방법:**
+
+```python
+# ❌ 잘못된 설정
+'tree_method': 'gpu_hist'
+
+# ✅ 올바른 설정
+'tree_method': 'hist'     # GPU는 device 파라미터로 지정
+'device': 'cuda:0'        # GPU 사용
+# 또는
+'device': 'cpu'           # CPU 사용
+```
+
+#### 에러 3: 무한대 값으로 인한 학습 실패
+
+**에러 메시지:**
+```
+XGBoostError: Invalid input - contains inf or -inf
+XGBoostError: Invalid input - data contains NaN
+ValueError: Input contains infinity or a value too large
+```
+
+**원인**:
+- VIEW 데이터에 포함된 무한대 값 (division by zero)
+- RobustScaler가 IQR=0인 경우 무한대 생성
+- 특정 재무 지표의 극단적인 값
+
+**해결 방법**:
+
+**이 문제는 PR #56, #60, #62에서 자동으로 해결되었습니다:**
+- ✅ VIEW 데이터 로드 시 무한대 값을 자동으로 NaN으로 변환
+- ✅ 스케일링 전후로 무한대 값 자동 제거
+- ✅ 제거된 데이터의 상세 리포트 CSV 파일로 출력 (선택적)
+
+**진단 활성화** (선택 사항):
+
+`config/conf.yaml` 파일에서:
+```yaml
+ML:
+  EXPORT_NAN_REMOVAL_DETAILS: Y  # 제거된 데이터 추적 활성화
+```
+
+출력 파일 위치:
+```
+NAN_REMOVAL_DETAILS/
+├── nan_removal_rows_2024_Q1.csv      # 제거된 실제 row 데이터
+├── nan_removal_summary_2024_Q1.csv   # 제거 통계 요약
+└── ...
+```
+
+**로그 확인**:
+```
+INFO: Converted 1234 infinite values to NaN in fs_table
+INFO: Converted 567 infinite values to NaN in metrics_table
+INFO: Removed 89 rows containing infinite values before scaling
+INFO: Removed 12 rows containing infinite values after scaling
+```
+
+#### XGBoost 버전 확인
+
+```bash
+python -c "import xgboost; print(xgboost.__version__)"
+# 3.1.0 이상이어야 함
+```
+
+**XGBoost 업그레이드**:
+```bash
+pip install --upgrade xgboost>=3.1.0
+```
+
 ---
 
 ## 4. 데이터 관련 에러
@@ -345,6 +462,104 @@ from storage.data_validator import DataValidator
 
 validator = DataValidator()
 results = validator.validate_all_tables()
+```
+
+### 4-3. 2024-2025년 데이터 사용 문제 (해결됨)
+
+#### 문제
+
+2024 Q1부터 2025 Q3까지 9개 분기에서 27개 컬럼에 무한대 값이 포함되어 ML 데이터 생성이 실패하거나 XGBoost 학습 에러 발생
+
+**영향받은 컬럼 예시**:
+- `OverMC_researchAndDevelopmentExpenses`
+- `OverMC_operatingExpenses`
+- `OverMC_netIncome`
+- 기타 24개 컬럼
+
+#### 원인
+
+VIEW 파일의 원본 메트릭 데이터에 division by zero로 생성된 무한대 값 존재
+- 예: `researchAndDevelopmentExpenses / marketCap` 계산 시 marketCap=0인 경우
+
+#### 해결 방법 (자동)
+
+**PR #56에서 자동으로 해결됨** - 별도 조치 불필요
+
+시스템이 자동으로:
+1. `fs_table`과 `metrics_table` 로드 직후 무한대 값을 NaN으로 변환
+2. 변환된 무한대 값 개수를 로그로 출력
+3. 이후 NaN 처리 로직에서 안전하게 제거
+
+**확인 방법**:
+
+로그 파일에서 다음 메시지 확인:
+```
+INFO: Converted 1,234 infinite values to NaN in fs_table
+INFO: Converted 567 infinite values to NaN in metrics_table
+```
+
+이 메시지가 보이면 2024-2025 데이터를 정상적으로 사용할 수 있습니다.
+
+### 4-4. Q1 분기 파일 누락 문제 (해결됨)
+
+#### 문제
+
+다음 Q1 분기 파일이 생성되지 않음:
+- `rnorm_ml_2015_Q1.parquet`
+- `rnorm_ml_2016_Q1.parquet`
+- `rnorm_ml_2019_Q1.parquet`
+- `rnorm_ml_2020_Q1.parquet`
+- `rnorm_ml_2021_Q1.parquet`
+- `rnorm_ml_2022_Q1.parquet`
+
+총 6개 분기 (1.5년 치) 데이터 손실
+
+#### 원인
+
+리밸런싱 날짜를 찾을 수 없을 때 파일 저장을 건너뛰는 로직
+- Q1의 경우 특정 년도에서 리밸런싱 날짜 데이터 누락
+- 과거 로직: 날짜 없으면 해당 분기 전체 스킵
+
+#### 해결 방법 (자동)
+
+**PR #62에서 자동으로 해결됨** - 별도 조치 불필요
+
+시스템이 자동으로:
+1. 리밸런싱 날짜가 없을 때 **분기 말일을 기본값**으로 사용
+   - Q1: 3월 31일
+   - Q2: 6월 30일
+   - Q3: 9월 30일
+   - Q4: 12월 31일
+2. 예측 전용 Parquet 파일 생성 (학습용 라벨 없음)
+3. 6개 Q1 분기 추가 확보 → 총 1.5년 치 예측 데이터 확보
+
+**확인 방법**:
+
+```bash
+# Windows
+dir data\ml_per_year\*_Q1.parquet
+
+# Linux/macOS
+ls data/ml_per_year/*_Q1.parquet
+```
+
+모든 Q1 분기 파일이 존재하는지 확인:
+```
+rnorm_ml_2015_Q1.parquet  ✅
+rnorm_ml_2016_Q1.parquet  ✅
+rnorm_ml_2017_Q1.parquet
+rnorm_ml_2018_Q1.parquet
+rnorm_ml_2019_Q1.parquet  ✅
+rnorm_ml_2020_Q1.parquet  ✅
+rnorm_ml_2021_Q1.parquet  ✅
+rnorm_ml_2022_Q1.parquet  ✅
+...
+```
+
+**로그 확인**:
+```
+INFO: No rebalance_date found for 2015 Q1, using quarter end date: 2015-03-31
+INFO: Saved prediction-only file: rnorm_ml_2015_Q1.parquet (no label)
 ```
 
 ---
@@ -517,10 +732,13 @@ X_selected = selector.fit_transform(X, y)
 |------|------|
 | PyArrow 에러 | `pip install --upgrade pyarrow>=14.0.0` |
 | Module 없음 | `pip install -r requirements.txt` |
+| XGBoost gpu_id 에러 | `'gpu_id': 0` → `'device': 'cuda:0'` |
+| XGBoost gpu_hist 에러 | `'tree_method': 'gpu_hist'` → `'tree_method': 'hist'` |
+| XGBoost infinite 에러 | 자동 해결됨 (PR #60, #62), 로그 확인 |
 | API 키 에러 | `config/conf.yaml`에서 `API_KEY` 확인 |
 | 파일 없음 | 데이터 경로 확인 (`DATA_PATH`) |
 | 메모리 부족 | 배치 크기 줄이기, 데이터 필터링 |
-| GPU 에러 | CPU 모드로 전환 (`tree_method: hist`) |
+| GPU 에러 | CPU 모드로 전환 (`device: cpu`) |
 | Permission 에러 | `pip install --user` 또는 관리자 권한 |
 
 ### 7-2. 플랫폼별 명령어 비교
