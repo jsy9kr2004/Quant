@@ -80,9 +80,10 @@
 Quant-refactoring/
 │
 ├── 📜 main.py                          # 🎯 메인 실행 진입점
-├── 📜 backtest.py                      # 백테스팅 로직
 ├── 📄 README.md                        # 프로젝트 문서
 ├── 📄 requirements.txt                 # Python 패키지 의존성
+│
+├── 📜 ../backtest.py                   # 백테스팅 로직 (프로젝트 외부)
 │
 ├── 📁 config/                          # ⚙️ 설정 파일
 │   ├── __init__.py
