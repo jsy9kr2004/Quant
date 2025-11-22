@@ -114,7 +114,7 @@ class ConfigLoader:
             yaml.YAMLError: YAML 파일이 잘못된 형식인 경우.
             IOError: 파일 읽기에 문제가 있는 경우.
         """
-        with open(self.config_path, 'r') as f:
+        with open(self.config_path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
 
         logging.info(f"✅ Configuration loaded from: {self.config_path}")
