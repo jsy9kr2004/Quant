@@ -1579,7 +1579,7 @@ class AIDataMaker:
             - infinite_removal_summary_{year}_{quarter}{suffix}.csv: 제거 요약 통계
         """
         # 출력 디렉토리 생성
-        removal_dir = os.path.join(self.main_ctx.root_path, "INFINITE_REMOVAL_DETAILS")
+        removal_dir = os.path.join(self.main_ctx.root_path, "analysis/infinite_removal")
         self.main_ctx.create_dir(removal_dir)
 
         # 년도와 분기 추출

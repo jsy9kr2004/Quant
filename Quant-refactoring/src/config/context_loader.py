@@ -479,7 +479,7 @@ class MainContext:
         log_lvl_int = int(config.get('LOG_LVL', 20))
         self.log_lvl = log_lvl_int
         self.log_level_name = log_level_map.get(log_lvl_int, 'INFO')
-        self.log_path = "outputs/logs/main.log"
+        self.log_path = "log.txt"  # 루트 디렉토리에 위치
 
         # 모든 기능과 함께 unified logging system 설정
         setup_logging(
