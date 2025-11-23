@@ -169,7 +169,7 @@ class FMP:
                 all_symbol = pd.concat([all_symbol, delisted])
 
         # 모든 심볼을 CSV에 저장하고 완전한 심볼 리스트 생성
-        all_symbol.to_csv('outputs/debug/allsymbol.csv', index=False)
+        all_symbol.to_csv('allsymbol.csv', index=False)
         all_symbol = all_symbol.drop_duplicates('symbol', keep='first')
         all_symbol = all_symbol.reset_index(drop=True)
         self.symbol_list = all_symbol["symbol"].to_list()
@@ -185,7 +185,7 @@ class FMP:
         # 2. 상장폐지되지 않음 (NaT 또는 None)
         query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(recent_date)
         current_symbol = all_symbol.query(query)
-        current_symbol.to_csv('outputs/debug/current_list.csv', index=False)
+        current_symbol.to_csv('current_list.csv', index=False)
         current_symbol = current_symbol.drop_duplicates('symbol', keep='first')
         current_symbol = current_symbol.reset_index(drop=True)
         self.current_list = current_symbol["symbol"].to_list()
