@@ -18,7 +18,7 @@
     - rnorm_ml_{year}_{quarter}.parquet: 타겟 변수 포함 특성 (학습/테스트용)
 
 사용 예시:
-    from src.config.context_loader import load_config, MainContext
+    from config.context_loader import load_config, MainContext
     from src.training.make_mldata import AIDataMaker
 
     config = load_config('config/conf.yaml')
@@ -42,8 +42,8 @@ from tsfresh import extract_features
 from tsfresh.feature_extraction import EfficientFCParameters, ComprehensiveFCParameters, MinimalFCParameters
 from dateutil.relativedelta import relativedelta
 from functools import reduce
-from src.config.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, cal_timefeature_col_list
-from src.config.logger import get_logger
+from config.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, cal_timefeature_col_list
+from config.logger import get_logger
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from warnings import simplefilter
 import warnings

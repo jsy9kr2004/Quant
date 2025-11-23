@@ -39,8 +39,8 @@ from pathlib import Path
 # Add current directory to path for module imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.config.context_loader import load_config, MainContext
-from src.config.logger import get_logger
+from config.context_loader import load_config, MainContext
+from config.logger import get_logger
 from storage import ParquetStorage
 from src.data_collector.fmp import FMP
 from src.training.make_mldata import AIDataMaker

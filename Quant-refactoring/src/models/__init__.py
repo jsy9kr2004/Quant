@@ -102,7 +102,7 @@ Available Models:
     - VotingEnsemble: Voting ensemble combiner (not exported by default)
 
 Configuration:
-    All models use pre-configured settings from src.config.py, optimized for
+    All models use pre-configured settings from config.py, optimized for
     financial time series data. Configurations can be customized by:
     1. Using different config_name presets
     2. Passing custom parameters to build_model()

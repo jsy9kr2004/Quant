@@ -49,7 +49,7 @@ config 패키지는 다음을 포함합니다:
 
     현대적인 config loader 사용::
 
-        from src.config.context_loader import ConfigLoader
+        from config.context_loader import ConfigLoader
 
         # Configuration 로드 및 접근
         config = ConfigLoader('config/conf.yaml')
@@ -64,7 +64,7 @@ config 패키지는 다음을 포함합니다:
 
     Logging system 직접 사용::
 
-        from src.config.logger import setup_logging, get_logger
+        from config.logger import setup_logging, get_logger
 
         # Logging 설정 (애플리케이션 시작 시 한 번 호출)
         setup_logging(
@@ -81,7 +81,7 @@ config 패키지는 다음을 포함합니다:
 
     전역 변수 사용::
 
-        from src.config.g_variables import ratio_col_list, sector_map
+        from config.g_variables import ratio_col_list, sector_map
 
         # Financial ratio feature 선택
         ratio_features = df[ratio_col_list]
@@ -130,7 +130,7 @@ Configuration 파일 형식 (conf.yaml):
     레거시 ContextLoader에서 현대적인 방식으로::
 
         # 기존 코드
-        from src.config.context_loader import ContextLoader
+        from config.context_loader import ContextLoader
         context = ContextLoader()
         logger = context.get_logger('MyModule')
 
@@ -155,7 +155,7 @@ Configuration 파일 형식 (conf.yaml):
     완전한 application 초기화::
 
         from config import load_config, MainContext
-        from src.config.logger import get_logger
+        from config.logger import get_logger
 
         def main():
             # Configuration 로드
@@ -184,7 +184,7 @@ Configuration 파일 형식 (conf.yaml):
     Multiprocessing application::
 
         from config import load_config, MainContext
-        from src.config.logger import setup_logger_for_multiprocessing, get_logger
+        from config.logger import setup_logger_for_multiprocessing, get_logger
         import multiprocessing as mp
 
         def worker_function(symbol, config):

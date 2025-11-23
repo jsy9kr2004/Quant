@@ -27,7 +27,7 @@ import os
 from typing import List, Dict, Any
 
 # Import Windows-safe filename utility
-from src.config.file_utils import safe_filename
+from config.file_utils import safe_filename
 
 
 class FMPAPI:

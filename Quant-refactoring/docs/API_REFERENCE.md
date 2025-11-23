@@ -35,7 +35,7 @@
 #### MainContext 클래스
 
 ```python
-from src.config.context_loader import load_config, MainContext
+from config.context_loader import load_config, MainContext
 
 # 설정 파일 로드
 config = load_config('config/conf.yaml')
@@ -75,7 +75,7 @@ ctx.get_ml_data_path('2023_Q1')             # ROOT_PATH/processed/ml_data/per_ye
 전역 변수 및 Feature 리스트 정의
 
 ```python
-from src.config.g_variables import (
+from config.g_variables import (
     ratio_col_list,              # 139개 재무 비율
     meaning_col_list,            # 158개 절대값 지표
     cal_timefeature_col_list,    # 36개 시계열 특성 대상
@@ -95,7 +95,7 @@ sector = sector_map.get('Software', 'Technology')
 멀티프로세싱 안전 로깅 시스템
 
 ```python
-from src.config.logger import setup_logging, get_logger
+from config.logger import setup_logging, get_logger
 
 # 전역 로깅 설정
 setup_logging(log_level=20)  # INFO
@@ -749,7 +749,7 @@ model.fit(X_train, y_train)
 ### Example 2: 전체 파이프라인 커스터마이징
 
 ```python
-from src.config.context_loader import load_config, MainContext
+from config.context_loader import load_config, MainContext
 from src.data_collector.fmp import FMP
 from src.training.make_mldata import AIDataMaker
 from src.training.regressor import Regressor
