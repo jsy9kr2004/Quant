@@ -82,12 +82,6 @@ Quant-refactoring/
 ├── 📄 requirements.txt                 # Python 패키지 의존성
 │
 ├── 📁 src/                             # 모든 소스코드
-│   ├── 📁 config/                      # ⚙️ 설정
-│   │   ├── context_loader.py          # 설정 로더
-│   │   ├── logger.py                  # 로깅 시스템
-│   │   ├── g_variables.py             # 전역 변수
-│   │   └── file_utils.py              # 파일 유틸리티
-│   │
 │   ├── 📁 data_collector/              # 📡 데이터 수집 (Ray)
 │   │   ├── fmp.py                     # FMP 메인
 │   │   ├── fmp_api.py                 # API 관리
@@ -135,7 +129,11 @@ Quant-refactoring/
 │       ├── parquet_viewer.py
 │       └── rank_processing.py
 │
-├── 📁 config/                          # 설정 파일
+├── 📁 config/                          # ⚙️ 설정 (코드 + 파일)
+│   ├── context_loader.py              # 설정 로더
+│   ├── logger.py                      # 로깅 시스템
+│   ├── g_variables.py                 # 전역 변수
+│   ├── file_utils.py                  # 파일 유틸리티
 │   ├── conf.yaml.template             # 설정 템플릿
 │   └── config_quick_test.json         # 테스트 설정
 │

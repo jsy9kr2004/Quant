@@ -324,7 +324,7 @@ python main.py
 # main.py 내부 흐름
 
 # 1. Configuration 로드
-from src.config.context_loader import load_config, MainContext
+from config.context_loader import load_config, MainContext
 config = load_config('config/conf.yaml')
 ctx = MainContext(config)
 

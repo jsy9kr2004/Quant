@@ -19,7 +19,7 @@
     - 상위 K개 주식 선택을 통한 종합적인 평가
 
 사용 예시:
-    from src.config.config_loader import load_config
+    from config.config_loader import load_config
     conf = load_config('config/config.yaml')
 
     # 회귀 모델 초기화
@@ -78,7 +78,7 @@ from typing import Dict, List, Tuple, Optional, Any
 
 # datasets 라이브러리는 사용되지 않으므로 import 제거됨
 # from datasets import Dataset
-from src.config.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, sparse_col_list
+from config.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, sparse_col_list
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.neural_network import MLPRegressor
@@ -304,7 +304,7 @@ class Regressor:
         sector_y_train (Dict[str, pd.DataFrame]): 섹터별 학습 레이블
 
     사용 예시:
-        from src.config.config_loader import load_config
+        from config.config_loader import load_config
         conf = load_config('config/config.yaml')
 
         # 회귀 모델 생성

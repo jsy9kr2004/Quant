@@ -13,7 +13,7 @@ unified logging system과 통합됩니다.
 사용법:
     Modern approach::
 
-        from src.config.context_loader import ConfigLoader, MainContext
+        from config.context_loader import ConfigLoader, MainContext
 
         # Load configuration
         config_loader = ConfigLoader('config/conf.yaml')
@@ -31,7 +31,7 @@ unified logging system과 통합됩니다.
 
     Legacy approach::
 
-        from src.config.context_loader import ContextLoader
+        from config.context_loader import ContextLoader
 
         # Create legacy context
         context = ContextLoader()
@@ -51,7 +51,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 # Import new logging system
-from src.config.logger import setup_logging, get_logger
+from config.logger import setup_logging, get_logger
 
 
 class ConfigLoader:
@@ -421,7 +421,7 @@ class MainContext:
         log_path (str): Log 파일 경로.
 
     사용 예시:
-        from src.config.context_loader import load_config, MainContext
+        from config.context_loader import load_config, MainContext
 
         # Configuration 로드 및 context 생성
         config = load_config('config/conf.yaml')

@@ -16,8 +16,8 @@ sys.path.append('Quant-refactoring')
 
 import pandas as pd
 import numpy as np
-from src.config.g_variables import cal_timefeature_col_list
-from src.config.context_loader import load_config, MainContext
+from config.g_variables import cal_timefeature_col_list
+from config.context_loader import load_config, MainContext
 
 def diagnose_nan_patterns():
     """NaN 패턴 진단"""

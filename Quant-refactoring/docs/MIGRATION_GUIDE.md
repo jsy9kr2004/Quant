@@ -282,7 +282,7 @@ find . -type d -empty -delete
 cd /home/user/Quant/Quant-refactoring
 
 # 간단한 테스트
-python -c "from src.config.context_loader import load_config, MainContext; config = load_config('config/conf.yaml'); ctx = MainContext(config); print('✅ Config loaded successfully')"
+python -c "from config.context_loader import load_config, MainContext; config = load_config('config/conf.yaml'); ctx = MainContext(config); print('✅ Config loaded successfully')"
 ```
 
 **에러가 나지 않으면 성공!**

@@ -30,7 +30,7 @@ from dateutil.relativedelta import relativedelta
 from typing import List, Optional
 
 # Import Windows-safe filename utility
-from src.config.file_utils import safe_filename, restore_symbol_from_filename
+from config.file_utils import safe_filename, restore_symbol_from_filename
 
 
 class FMP:

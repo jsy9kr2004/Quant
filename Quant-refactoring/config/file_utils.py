@@ -10,7 +10,7 @@ Windows에서는 특정 이름들이 디바이스 이름으로 예약되어 있�
 - LPT1, LPT2, ..., LPT9
 
 사용 예시:
-    from src.config.file_utils import safe_filename, restore_symbol_from_filename
+    from config.file_utils import safe_filename, restore_symbol_from_filename
 
     # 파일 저장 시
     symbol = "CON"

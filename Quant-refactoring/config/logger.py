@@ -27,7 +27,7 @@ Architecture:
 Usage:
     Basic setup (call once at application start)::
 
-        from src.config.logger import setup_logging, get_logger
+        from config.logger import setup_logging, get_logger
 
         # Setup logging system once
         setup_logging(
@@ -44,7 +44,7 @@ Usage:
 
     Multiprocessing usage::
 
-        from src.config.logger import setup_logger_for_multiprocessing, get_logger
+        from config.logger import setup_logger_for_multiprocessing, get_logger
         import multiprocessing as mp
 
         def worker_function(symbol):
@@ -571,7 +571,7 @@ def setup_logger_for_multiprocessing() -> None:
     사용 예시:
         multiprocessing.Pool과 함께 사용::
 
-            from src.config.logger import setup_logging, setup_logger_for_multiprocessing, get_logger
+            from config.logger import setup_logging, setup_logger_for_multiprocessing, get_logger
             import multiprocessing as mp
 
             def process_symbol(symbol):
