@@ -111,7 +111,7 @@
 
 ```python
 # 다중 데이터 소스 통합 전략
-from data_collector.multi_source import MultiSourceCollector
+from src.data_collector.multi_source import MultiSourceCollector
 
 # 1단계: Primary 소스 (FMP) + Secondary 소스 (Yahoo Finance, Alpha Vantage)
 collector = MultiSourceCollector(
@@ -230,7 +230,7 @@ for sector in SECTORS:
 
 ```python
 # 1단계: Stacking Ensemble로 성능 향상
-from models.ensemble import StackingEnsemble
+from src.models.ensemble import StackingEnsemble
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
