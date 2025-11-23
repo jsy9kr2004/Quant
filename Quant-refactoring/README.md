@@ -72,9 +72,7 @@
 
 ## 프로젝트 구조
 
-### 📂 실행 전 (소스 코드)
-
-시스템 실행 전 프로젝트 파일 구조입니다.
+### 📂 로컬 프로젝트 (Quant-refactoring/)
 
 ```
 Quant-refactoring/
@@ -83,159 +81,162 @@ Quant-refactoring/
 ├── 📄 README.md                        # 프로젝트 문서
 ├── 📄 requirements.txt                 # Python 패키지 의존성
 │
-├── 📜 ../backtest.py                   # 백테스팅 로직 (프로젝트 외부)
+├── 📁 src/                             # 모든 소스코드
+│   ├── 📁 config/                      # ⚙️ 설정
+│   │   ├── context_loader.py          # 설정 로더
+│   │   ├── logger.py                  # 로깅 시스템
+│   │   ├── g_variables.py             # 전역 변수
+│   │   └── file_utils.py              # 파일 유틸리티
+│   │
+│   ├── 📁 data_collector/              # 📡 데이터 수집 (Ray)
+│   │   ├── fmp.py                     # FMP 메인
+│   │   ├── fmp_api.py                 # API 관리
+│   │   ├── fmp_fetch_worker.py        # 병렬 처리
+│   │   └── target_api_list.csv        # API 목록
+│   │
+│   ├── 📁 storage/                     # 💾 데이터 저장소
+│   │   ├── parquet_storage.py         # Parquet 저장
+│   │   ├── parquet_converter.py       # 변환기
+│   │   └── data_validator.py          # 검증
+│   │
+│   ├── 📁 training/                    # 🎓 ML 학습
+│   │   ├── make_mldata.py             # 데이터 전처리
+│   │   ├── regressor.py               # 학습 모델
+│   │   ├── optimizer.py               # Optuna 튜닝
+│   │   └── mlflow_tracker.py          # MLflow 추적
+│   │
+│   ├── 📁 models/                      # 🤖 ML 모델
+│   │   ├── base_model.py              # 기본 클래스
+│   │   ├── xgboost_model.py           # XGBoost
+│   │   ├── lightgbm_model.py          # LightGBM
+│   │   ├── catboost_model.py          # CatBoost
+│   │   └── ensemble.py                # 앙상블
+│   │
+│   ├── 📁 backtest/                    # 📊 백테스트
+│   │   └── ml_backtest.py             # Walk-Forward
+│   │
+│   ├── 📁 validation/                  # ✅ 검증
+│   │   ├── walk_forward.py
+│   │   └── time_series_cv.py
+│   │
+│   ├── 📁 optimization/                # 🎯 최적화
+│   │   ├── rebalance_optimizer.py
+│   │   └── model_comparator.py
+│   │
+│   ├── 📁 scripts/                     # 🚀 실행 스크립트
+│   │   ├── run_ml_backtest.py
+│   │   ├── run_model_comparison.py
+│   │   └── debug/
+│   │
+│   ├── 📁 examples/                    # 📚 예제
+│   │   └── example_complete_pipeline.py
+│   │
+│   └── 📁 tools/                       # 🔧 도구
+│       ├── parquet_viewer.py
+│       └── rank_processing.py
 │
-├── 📁 config/                          # ⚙️ 설정 파일
-│   ├── __init__.py
-│   ├── conf.yaml.template             # 설정 템플릿 (복사 필요)
-│   ├── conf.yaml                      # 실제 설정 파일 (생성 필요, .gitignore)
-│   ├── context_loader.py              # 설정 로더
-│   └── g_variables.py                 # 전역 변수 (컬럼 정의, 상수)
+├── 📁 config/                          # 설정 파일
+│   ├── conf.yaml.template             # 설정 템플릿
+│   └── config_quick_test.json         # 테스트 설정
 │
-├── 📁 data_collector/                  # 📡 데이터 수집 (Ray 기반)
-│   ├── fmp.py                         # FMP 데이터 수집 메인 클래스
-│   ├── fmp_api.py                     # FMP API 관리
-│   ├── fmp_fetch_worker.py            # Ray worker (병렬 처리)
-│   └── target_api_list.csv            # 수집할 API 목록
+├── 📁 docs/                            # 📖 문서
+│   ├── QUICK_START.md                 # 빠른 시작
+│   ├── WORKFLOW_GUIDE.md              # 워크플로우
+│   ├── MIGRATION_GUIDE.md             # 마이그레이션
+│   ├── analysis/                      # 분석 보고서
+│   └── archive/                       # 레거시 문서
 │
-├── 📁 storage/                         # 💾 데이터 저장소
-│   ├── __init__.py
-│   ├── parquet_storage.py             # Parquet 저장 + 자동 검증
-│   ├── parquet_converter.py           # CSV → Parquet 변환 + 테이블 재구성
-│   └── data_validator.py              # 데이터 품질 검증
-│
-├── 📁 models/                          # 🤖 ML 모델
-│   ├── __init__.py
-│   ├── base_model.py                  # 기본 모델 추상 클래스
-│   ├── xgboost_model.py               # XGBoost 래퍼
-│   ├── lightgbm_model.py              # LightGBM 래퍼
-│   ├── catboost_model.py              # CatBoost 래퍼 (신규)
-│   ├── ensemble.py                    # Stacking 앙상블
-│   └── config.py                      # 모델 하이퍼파라미터 설정
-│
-├── 📁 training/                        # 🎓 ML 학습 파이프라인
-│   ├── __init__.py
-│   ├── regressor.py                   # 레거시 통합 학습 모델
-│   ├── make_mldata.py                 # ML 데이터 전처리 (feature engineering)
-│   ├── optimizer.py                   # Optuna 하이퍼파라미터 튜닝
-│   └── mlflow_tracker.py              # MLflow 실험 추적
-│
-├── 📁 tools/                           # 🔧 분석 도구
-│   ├── __init__.py
-│   ├── parquet_viewer.py              # Parquet 파일 뷰어 CLI
-│   └── rank_processing.py             # 순위 분석 도구
-│
-└── 📁 examples/                        # 📚 사용 예제
-    └── example_complete_pipeline.py   # 전체 파이프라인 예제
+└── 📁 outputs/                         # 실행 결과물 (gitignore)
+    ├── logs/                          # 로그 파일
+    │   ├── main.log
+    │   └── archived/
+    ├── reports/                       # 백테스트 결과
+    ├── debug/                         # 디버그 파일
+    ├── mlruns/                        # MLflow 추적
+    └── temp/                          # 임시 파일
 ```
 
-### 📂 실행 후 (생성되는 파일 및 디렉토리)
+### 📂 외장하드 (ROOT_PATH)
 
-`python main.py` 실행 시 자동으로 생성되는 파일과 디렉토리입니다.
+**이동성을 위한 분리된 데이터 저장소** (외장하드에 저장하여 다양한 컴퓨터에서 사용)
 
 ```
-Quant-refactoring/
+{ROOT_PATH}/  (예: /mnt/external_hdd/quant_data/)
 │
-├── 📄 log.txt                          # 실행 로그
-├── 📄 allsymbol.csv                    # 전체 종목 리스트
-├── 📄 current_list.csv                 # 현재 거래 종목 리스트
+├── 📁 fmp_raw/                         # FMP 원본 데이터
+│   ├── income_statement/              # API 카테고리별
+│   ├── balance_sheet_statement/
+│   ├── cash_flow_statement/
+│   ├── key_metrics/
+│   ├── stock_list/
+│   └── ... (심볼별 .parquet 파일)
 │
-├── 📁 data/                            # 💾 수집된 데이터 (ROOT_PATH 설정값)
-│   ├── parquet/                       # 원본 데이터 (현재는 CSV 형식)
-│   │   ├── stock_list.csv
-│   │   ├── delisted_companies.csv
-│   │   ├── historical_price_full.csv
-│   │   ├── income_statement.csv
-│   │   ├── balance_sheet_statement.csv
-│   │   ├── cash_flow_statement.csv
-│   │   ├── key_metrics.csv
-│   │   ├── financial_growth.csv
-│   │   └── ... (기타 FMP 데이터)
+├── 📁 processed/                       # 가공된 데이터
+│   ├── views/                         # VIEW 테이블
+│   │   ├── price.parquet
+│   │   ├── symbol_list.parquet
+│   │   └── financial_statement_*.parquet
 │   │
-│   ├── VIEW/                          # 가공된 뷰 테이블 (CSV 형식, 1회만 읽음)
-│   │   ├── symbol_list.csv
-│   │   ├── price.csv
-│   │   ├── financial_statement_*.csv
-│   │   ├── metrics_*.csv
-│   │   └── indexes.csv
+│   ├── ml_data/                       # ML 학습 데이터
+│   │   └── per_year/
+│   │       ├── rnorm_ml_2020_Q1.parquet
+│   │       └── rnorm_fs_2020_Q1.parquet
 │   │
-│   ├── ml_per_year/                   # 🚀 ML 학습 데이터 (Parquet 형식 - 고성능)
-│   │   ├── rnorm_ml_2015_Q1.parquet  # 학습용 (y값 포함)
-│   │   ├── rnorm_ml_2015_Q2.parquet
-│   │   ├── ... (연도별 분기별)
-│   │   ├── rnorm_fs_2015_Q1.parquet  # 예측용 (y값 없음)
-│   │   └── ... (연도별 분기별)
+│   └── intermediate/                  # 중간 데이터
+│       ├── DATE_TABLE/
+│       └── parquet/
+│
+├── 📁 models/                          # 학습된 모델
+│   ├── production/                    # 프로덕션
+│   │   ├── best_model.pkl
+│   │   └── ensemble_final.pkl
 │   │
-│   └── {API 종류별 폴더}/             # FMP API별 원본 데이터
-│       ├── stock_list/
-│       ├── historical_price_full/
-│       ├── income_statement/
-│       └── ... (symbol별 CSV 파일)
+│   └── walkforward/                   # Walk-Forward
+│       ├── model_20230313.pkl
+│       └── model_sector_20230613.pkl
 │
-├── 📁 mlruns/                          # 🔬 MLflow 실험 추적 데이터
-│   ├── 0/                             # Experiment ID
-│   │   ├── meta.yaml
-│   │   └── {run_id}/                  # 각 실행 결과
-│   │       ├── params/                # 하이퍼파라미터
-│   │       ├── metrics/               # 평가 지표
-│   │       ├── artifacts/             # 모델 파일
-│   │       └── tags/
-│   └── .trash/
+├── 📁 analysis/                        # 분석 결과
+│   ├── nan_analysis/                  # NaN 분석
+│   └── nan_removal/                   # NaN 제거 상세
 │
-├── 📁 models/                          # 💾 학습된 모델 저장
-│   ├── xgboost_default.pkl
-│   ├── lightgbm_default.pkl
-│   ├── catboost_default.pkl
-│   ├── ensemble_stacking.pkl
-│   └── ... (각 모델 파일)
-│
-├── 📁 reports/                         # 📊 백테스트 리포트
-│   ├── backtest_results_*.csv
-│   ├── performance_summary.csv
-│   └── feature_importance.png
-│
-└── 📁 optuna_study/                    # 🎯 Optuna 튜닝 결과 (선택)
-    ├── study_*.db                     # SQLite DB
-    └── optimization_history.png       # 최적화 히스토리 플롯
+└── 📁 debug/                           # 디버그 파일
+    └── fs_metric_wdate_*.parquet
 ```
 
 ### 📋 주요 파일 설명
 
-#### 실행 전 (소스 코드)
+#### 로컬 프로젝트 (소스 코드)
 | 파일/디렉토리 | 설명 | 필수 여부 |
 |--------------|------|----------|
-| `main.py` | 전체 파이프라인 실행 진입점 | ✅ 필수 |
-| `config/conf.yaml` | 실제 설정 파일 (API 키, 경로 등) | ✅ 필수 (생성) |
-| `config/conf.yaml.template` | 설정 템플릿 | ✅ 필수 |
-| `data_collector/` | FMP API 데이터 수집 모듈 | ✅ 필수 |
-| `storage/` | Parquet 저장 및 검증 | ✅ 필수 |
-| `models/` | ML 모델 클래스 | ✅ 필수 |
-| `training/` | 학습 파이프라인 | ✅ 필수 |
-| `tools/` | 분석 도구 | ⚪ 선택 |
-| `examples/` | 사용 예제 | ⚪ 선택 |
+| `main.py` | 메인 실행 진입점 | ✅ 필수 |
+| `src/` | 모든 소스코드 | ✅ 필수 |
+| `config/conf.yaml` | 설정 파일 (생성 필요) | ✅ 필수 |
+| `docs/` | 문서 | ⚪ 권장 |
+| `outputs/` | 실행 결과 (자동 생성, gitignore) | ⚪ 자동 |
 
-#### 실행 후 (자동 생성)
-| 파일/디렉토리 | 생성 시점 | 형식 | 설명 |
-|--------------|---------|------|------|
-| `data/parquet/` | FMP 데이터 수집 시 | CSV | 원본 데이터 (현재는 CSV) |
-| `data/VIEW/` | VIEW 재구성 시 | CSV | 가공 데이터 (1회만 읽음) |
-| `data/ml_per_year/` | ML 데이터 생성 시 | **Parquet** | **학습 데이터 (매 학습마다 읽음, 고성능)** |
-| `mlruns/` | MLflow 사용 시 | - | 실험 추적 데이터 |
-| `models/` | 모델 학습 시 | PKL | 학습된 모델 파일 |
-| `reports/` | 백테스트 실행 시 | CSV/PNG | 성과 리포트 |
-| `log.txt` | 실행 즉시 | TXT | 전체 실행 로그 |
+#### 외장하드 (데이터)
+| 파일/디렉토리 | 설명 | 크기 |
+|--------------|------|------|
+| `fmp_raw/` | FMP 원본 데이터 | 대용량 |
+| `processed/views/` | 가공 데이터 | 중간 |
+| `processed/ml_data/` | ML 학습 데이터 | 중간 |
+| `models/` | 학습된 모델 | 소규모 |
 
 ### 🔑 핵심 개념
 
-**데이터 흐름 (최적화됨):**
+**데이터 흐름:**
 ```
-FMP API → data/{api_name}/ (원본 CSV)
-       → data/parquet/ (CSV 저장 - 현재)
-       → data/VIEW/ (가공된 뷰 - CSV, 1회만 읽음)
-       → data/ml_per_year/ (학습 데이터 - Parquet, 5-10배 빠름 🚀)
-       → ML 학습 → models/ (모델 저장)
-       → 백테스팅 → reports/ (결과)
+FMP API → ROOT_PATH/fmp_raw/ (원본)
+       → ROOT_PATH/processed/views/ (가공)
+       → ROOT_PATH/processed/ml_data/ (ML 데이터)
+       → 학습 → ROOT_PATH/models/ (모델 저장)
+       → 백테스트 → outputs/reports/ (결과)
 ```
+
+**코드와 데이터 분리:**
+- **로컬**: 코드만 (Git 관리)
+- **외장하드**: 데이터만 (이동 가능)
+- **이동성**: ROOT_PATH만 변경하면 어디서든 실행
 
 **설정 우선순위:**
 1. `config/conf.yaml` (사용자 설정)

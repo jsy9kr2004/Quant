@@ -96,8 +96,8 @@ optimizer.plot_results('./results/rebalancing_optimization.png')
 
 ```python
 from optimization.model_comparator import ModelComparator
-from models.xgboost_model import XGBoostModel
-from models.lightgbm_model import LightGBMModel
+from src.models.xgboost_model import XGBoostModel
+from src.models.lightgbm_model import LightGBMModel
 
 # 1. ModelComparator 초기화
 comparator = ModelComparator(experiment_name="model_version_comparison")
@@ -220,7 +220,7 @@ comparator.plot_comparison('./results/model_comparison.png')
 
 ```python
 from strategy.sector_ensemble import SectorEnsemble, create_default_sector_configs
-from models.xgboost_model import XGBoostModel
+from src.models.xgboost_model import XGBoostModel
 
 # 1. SectorEnsemble 초기화
 ensemble = SectorEnsemble(sector_col='sector')
@@ -415,7 +415,7 @@ top_stocks = ensemble.select_top_stocks(
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from strategy.sector_ensemble import SectorEnsemble, create_default_sector_configs
-from models.xgboost_model import XGBoostModel
+from src.models.xgboost_model import XGBoostModel
 
 # 1단계: 최적 리밸런싱 기간 찾기 (최초 1회)
 from optimization.rebalance_optimizer import RebalancingOptimizer

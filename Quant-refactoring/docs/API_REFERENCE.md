@@ -19,23 +19,23 @@
 
 ## 📋 목차
 
-1. [Configuration (`config/`)](#1-configuration-config)
-2. [Models (`models/`)](#2-models-models)
-3. [Training Pipeline (`training/`)](#3-training-pipeline-training)
-4. [Backtesting (`backtest.py`)](#4-backtesting-backtestpy)
-5. [Storage (`storage/`)](#5-storage-storage)
-6. [Data Collector (`data_collector/`)](#6-data-collector-data_collector)
+1. [Configuration (`src/config/`)](#1-configuration-srcconfig)
+2. [Models (`src/models/`)](#2-models-srcmodels)
+3. [Training Pipeline (`src/training/`)](#3-training-pipeline-srctraining)
+4. [Backtesting (`src/backtest/`)](#4-backtesting-srcbacktest)
+5. [Storage (`src/storage/`)](#5-storage-srcstorage)
+6. [Data Collector (`src/data_collector/`)](#6-data-collector-srcdata_collector)
 
 ---
 
-## 1. Configuration (`config/`)
+## 1. Configuration (`src/config/`)
 
 ### 1.1 `context_loader.py`
 
 #### MainContext 클래스
 
 ```python
-from config.context_loader import load_config, MainContext
+from src.config.context_loader import load_config, MainContext
 
 # 설정 파일 로드
 config = load_config('config/conf.yaml')
@@ -65,9 +65,9 @@ ctx.setup_logging(
 )
 
 # 경로 생성
-ctx.get_data_path('VIEW')                    # /data/VIEW/
-ctx.get_model_path()                         # /data/MODELS/
-ctx.get_ml_data_path('2023_Q1')             # /data/ml_per_year/rnorm_ml_2023_Q1.parquet
+ctx.get_data_path('processed/views')         # ROOT_PATH/processed/views/
+ctx.get_model_path()                         # ROOT_PATH/models/production/
+ctx.get_ml_data_path('2023_Q1')             # ROOT_PATH/processed/ml_data/per_year/rnorm_ml_2023_Q1.parquet
 ```
 
 ### 1.2 `g_variables.py`
@@ -75,7 +75,7 @@ ctx.get_ml_data_path('2023_Q1')             # /data/ml_per_year/rnorm_ml_2023_Q1
 전역 변수 및 Feature 리스트 정의
 
 ```python
-from config.g_variables import (
+from src.config.g_variables import (
     ratio_col_list,              # 139개 재무 비율
     meaning_col_list,            # 158개 절대값 지표
     cal_timefeature_col_list,    # 36개 시계열 특성 대상
@@ -95,7 +95,7 @@ sector = sector_map.get('Software', 'Technology')
 멀티프로세싱 안전 로깅 시스템
 
 ```python
-from config.logger import setup_logging, get_logger
+from src.config.logger import setup_logging, get_logger
 
 # 전역 로깅 설정
 setup_logging(log_level=20)  # INFO
@@ -211,7 +211,7 @@ NAN_REMOVAL_DETAILS/
 # config/conf.yaml에서 EXPORT_NAN_REMOVAL_DETAILS: Y
 
 # 2. ML 데이터 생성 실행
-from training.make_mldata import AIDataMaker
+from src.training.make_mldata import AIDataMaker
 
 aidata = AIDataMaker(ctx, config)
 aidata.make_ml_data()
@@ -240,14 +240,14 @@ print(summary)
 
 ---
 
-## 2. Models (`models/`)
+## 2. Models (`src/models/`)
 
 ### 2.1 Base Model 구조
 
 모든 모델은 `BaseModel`을 상속받습니다:
 
 ```python
-from models.base_model import BaseModel
+from src.models.base_model import BaseModel
 
 class CustomModel(BaseModel):
     def __init__(self, task='classification', config_name='default'):
@@ -282,7 +282,7 @@ class CustomModel(BaseModel):
 ### 2.2 XGBoost Model
 
 ```python
-from models.xgboost_model import XGBoostModel
+from src.models.xgboost_model import XGBoostModel
 
 # Classification
 xgb_cls = XGBoostModel(task='classification', config_name='depth_9')
@@ -398,7 +398,7 @@ INFO: CuPy not available, using CPU prediction
 ### 2.3 LightGBM Model
 
 ```python
-from models.lightgbm_model import LightGBMModel
+from src.models.lightgbm_model import LightGBMModel
 
 lgb = LightGBMModel(task='classification')
 lgb.build_model()
@@ -421,7 +421,7 @@ predictions = lgb.predict(X_test)
 ### 2.4 CatBoost Model
 
 ```python
-from models.catboost_model import CatBoostModel
+from src.models.catboost_model import CatBoostModel
 
 cat = CatBoostModel(task='classification')
 cat.build_model()
@@ -439,7 +439,7 @@ importance = cat.get_feature_importance(top_n=20)
 ### 2.5 Ensemble
 
 ```python
-from models.ensemble import StackingEnsemble
+from src.models.ensemble import StackingEnsemble
 
 # Base models
 base_models = [
@@ -464,13 +464,13 @@ probas = ensemble.predict_proba(X_test)
 
 ---
 
-## 3. Training Pipeline (`training/`)
+## 3. Training Pipeline (`src/training/`)
 
 ### 3.1 Hyperparameter Optimization
 
 ```python
-from training.optimizer import OptunaOptimizer
-from models.xgboost_model import XGBoostModel
+from src.training.optimizer import OptunaOptimizer
+from src.models.xgboost_model import XGBoostModel
 
 # Search space 정의
 search_space = {
@@ -507,7 +507,7 @@ optimizer.plot_param_importances('param_importances.png')
 ### 3.2 MLflow Tracking
 
 ```python
-from training.mlflow_tracker import MLflowTracker
+from src.training.mlflow_tracker import MLflowTracker
 
 # Tracker 초기화
 tracker = MLflowTracker(
@@ -562,7 +562,7 @@ mlflow ui --backend-store-uri /home/user/Quant/data/mlruns
 ### 3.3 ML Data Maker
 
 ```python
-from training.make_mldata import AIDataMaker
+from src.training.make_mldata import AIDataMaker
 
 # 초기화
 aidata_maker = AIDataMaker(ctx, config)
@@ -582,7 +582,7 @@ aidata_maker.make_ml_data()
 ### 3.4 Regressor (Legacy)
 
 ```python
-from training.regressor import Regressor
+from src.training.regressor import Regressor
 
 # 초기화
 regressor = Regressor(config)
@@ -603,7 +603,7 @@ regressor.latest_prediction()
 
 ---
 
-## 4. Backtesting (`backtest.py`)
+## 4. Backtesting (`src/backtest/`)
 
 ### 4.1 Plan Handler
 
@@ -643,12 +643,12 @@ bt.generate_reports(['EVAL', 'RANK', 'AVG'])
 
 ---
 
-## 5. Storage (`storage/`)
+## 5. Storage (`src/storage/`)
 
 ### 5.1 Parquet Storage
 
 ```python
-from storage.parquet_storage import ParquetStorage
+from src.storage.parquet_storage import ParquetStorage
 
 # 초기화
 storage = ParquetStorage(
@@ -672,7 +672,7 @@ results = storage.validate_all_tables()
 ### 5.2 Parquet Converter
 
 ```python
-from storage.parquet_converter import ParquetConverter
+from src.storage.parquet_converter import ParquetConverter
 
 converter = ParquetConverter(ctx, storage)
 
@@ -685,12 +685,12 @@ converter.rebuild_table_view()
 
 ---
 
-## 6. Data Collector (`data_collector/`)
+## 6. Data Collector (`src/data_collector/`)
 
 ### 6.1 FMP API
 
 ```python
-from data_collector.fmp import FMP
+from src.data_collector.fmp import FMP
 
 # 초기화
 fmp = FMP(ctx)
@@ -716,7 +716,7 @@ fmp.collect()
 ### Example 1: 새 모델 추가
 
 ```python
-from models.base_model import BaseModel
+from src.models.base_model import BaseModel
 import some_ml_library
 
 class MyCustomModel(BaseModel):
@@ -749,10 +749,10 @@ model.fit(X_train, y_train)
 ### Example 2: 전체 파이프라인 커스터마이징
 
 ```python
-from config.context_loader import load_config, MainContext
-from data_collector.fmp import FMP
-from training.make_mldata import AIDataMaker
-from training.regressor import Regressor
+from src.config.context_loader import load_config, MainContext
+from src.data_collector.fmp import FMP
+from src.training.make_mldata import AIDataMaker
+from src.training.regressor import Regressor
 from backtest import Backtest, PlanHandler
 
 # 1. Config

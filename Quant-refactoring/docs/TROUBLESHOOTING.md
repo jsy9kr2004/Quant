@@ -458,7 +458,7 @@ pandas.errors.ParserError
 1. CSV 파일 인코딩 확인 (UTF-8이어야 함)
 2. 데이터 검증 실행:
 ```python
-from storage.data_validator import DataValidator
+from src.storage.data_validator import DataValidator
 
 validator = DataValidator()
 results = validator.validate_all_tables()

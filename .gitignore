@@ -12,53 +12,28 @@ build/
 .ipynb_checkpoints/
 *.ipynb
 
-# Data files (크기가 큰 데이터 파일들)
+# Config (API 키 등 민감 정보)
+conf.yaml
+**/conf.yaml
+
+# 실행 결과물 전체 (중요!)
+Quant-refactoring/outputs/
+Quant-refactoring/outputs/**/*
+
+# 개별 데이터 파일 (ROOT_PATH에 있음)
 *.csv
-!target_api_list.csv
+!src/data_collector/target_api_list.csv
 !**/target_api_list.csv
 *.parquet
 *.feather
 *.h5
 *.hdf5
-
-# ML Models (학습된 모델 파일들)
 *.pkl
 *.pickle
 *.joblib
 *.pt
 *.pth
 *.onnx
-*.h5
-
-# Data directories
-data/
-*/data/
-Quant-refactoring/data/
-ml_per_year/
-*/ml_per_year/
-DATE_TABLE/
-*/DATE_TABLE/
-VIEW/
-*/VIEW/
-
-# Reports
-reports/
-*/reports/
-
-# Logs
-*.log
-log.txt
-*.txt.lock
-
-# MLflow
-mlruns/
-mlartifacts/
-
-# Config (API 키 등 민감 정보)
-conf.yaml
-**/conf.yaml
-allsymbol.csv
-current_list.csv
 
 # IDE
 .vscode/
@@ -71,6 +46,11 @@ current_list.csv
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 로그
+*.log
+log.txt
+*.txt.lock
 
 # Temporary files
 *.tmp

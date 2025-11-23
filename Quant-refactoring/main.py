@@ -39,11 +39,11 @@ from pathlib import Path
 # Add current directory to path for module imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config.context_loader import load_config, MainContext
-from config.logger import get_logger
+from src.config.context_loader import load_config, MainContext
+from src.config.logger import get_logger
 from storage import ParquetStorage
-from data_collector.fmp import FMP
-from training.make_mldata import AIDataMaker
+from src.data_collector.fmp import FMP
+from src.training.make_mldata import AIDataMaker
 from models import XGBoostModel, LightGBMModel, CatBoostModel, StackingEnsemble
 from training import OptunaOptimizer, MLflowTracker
 from backtest import Backtest, PlanHandler
@@ -93,7 +93,7 @@ class RegressorIntegrated:
 
         # Import legacy Regressor as fallback
         try:
-            from training.regressor import Regressor
+            from src.training.regressor import Regressor
             self.legacy_regressor: Optional['Regressor'] = Regressor(conf)
         except ImportError:
             logger = get_logger('RegressorIntegrated')
@@ -501,7 +501,7 @@ def main() -> None:
         logger.info("="*80)
 
         try:
-            from data_collector.fmp import FMP
+            from src.data_collector.fmp import FMP
             fmp = FMP(main_ctx)
             fmp.collect()
 

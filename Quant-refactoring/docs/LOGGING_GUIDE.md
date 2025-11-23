@@ -30,7 +30,7 @@
 ### 1. 단일 프로세스 애플리케이션
 
 ```python
-from config.logger import get_logger
+from src.config.logger import get_logger
 
 # 로거 가져오기
 logger = get_logger(__name__)
@@ -45,7 +45,7 @@ logger.error("Failed to connect", extra={'host': 'localhost', 'port': 5432})
 
 **메인 프로세스:**
 ```python
-from config.logger import setup_logging, get_logger
+from src.config.logger import setup_logging, get_logger
 
 # 메인 프로세스에서 한 번만 호출
 setup_logging(
@@ -61,7 +61,7 @@ logger.info("Application started")
 
 **워커 프로세스 (Ray, multiprocessing 등):**
 ```python
-from config.logger import setup_logger_for_multiprocessing, get_logger
+from src.config.logger import setup_logger_for_multiprocessing, get_logger
 
 # 각 워커 프로세스 시작 시 호출
 setup_logger_for_multiprocessing()
@@ -118,7 +118,7 @@ setup_logging(
 ### 예제 1: 기본 사용
 
 ```python
-from config.logger import get_logger
+from src.config.logger import get_logger
 
 class DataProcessor:
     def __init__(self):
@@ -139,7 +139,7 @@ class DataProcessor:
 ### 예제 2: Context 정보 추가
 
 ```python
-from config.logger import get_logger
+from src.config.logger import get_logger
 
 logger = get_logger('trading')
 
@@ -158,7 +158,7 @@ logger.info(
 
 ```python
 import ray
-from config.logger import setup_logger_for_multiprocessing, get_logger
+from src.config.logger import setup_logger_for_multiprocessing, get_logger
 
 @ray.remote
 def process_data(worker_id, data):
@@ -187,7 +187,7 @@ logging.error("Error occurred")
 
 **After (새 통합 로거):**
 ```python
-from config.logger import get_logger
+from src.config.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -205,7 +205,7 @@ adapter = logging.LoggerAdapter(logger, extra={'name': name})
 
 **After:**
 ```python
-from config.logger import get_logger
+from src.config.logger import get_logger
 
 logger = get_logger(name)  # 자동으로 컨텍스트 포함
 ```
@@ -222,7 +222,7 @@ logger = get_logger(name)  # 자동으로 컨텍스트 포함
 
 ```python
 # 로거가 초기화되었는지 확인
-from config.logger import setup_logging
+from src.config.logger import setup_logging
 
 setup_logging(log_level='DEBUG')  # 명시적 초기화
 ```
@@ -231,7 +231,7 @@ setup_logging(log_level='DEBUG')  # 명시적 초기화
 
 ```python
 # 각 워커에서 반드시 호출
-from config.logger import setup_logger_for_multiprocessing
+from src.config.logger import setup_logger_for_multiprocessing
 
 def worker_init():
     setup_logger_for_multiprocessing()  # 필수!

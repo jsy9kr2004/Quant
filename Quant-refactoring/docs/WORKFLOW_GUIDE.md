@@ -76,27 +76,27 @@ ML 프레임워크: XGBoost, LightGBM, CatBoost, scikit-learn
 ┌─────────────────────────────────────────────────────────────────┐
 │              2. Data Collection (Optional, GET_FMP=Y)            │
 │                                                                  │
-│  [FMP API] → data_collector/fmp.py                              │
+│  [FMP API] → src/data_collector/fmp.py                           │
 │     ├─ Stock List (NASDAQ, NYSE)                                │
 │     ├─ Delisted Companies                                       │
 │     ├─ Financial Statements (Income, Balance, CashFlow)         │
 │     ├─ Key Metrics (P/E, ROE, Debt Ratios...)                   │
 │     └─ Historical Price Data                                    │
 │            ↓                                                     │
-│     CSV Files → /data/{category}/{symbol}.csv                   │
+│     Parquet Files → ROOT_PATH/fmp_raw/{category}/{symbol}.parquet│
 │            ↓                                                     │
-│  storage/parquet_converter.py                                   │
-│     → Parquet Files (5-10x faster, 85-90% compressed)           │
+│  src/storage/parquet_converter.py                               │
+│     → VIEW 테이블 생성 (통합 뷰)                                   │
 │            ↓                                                     │
-│     /data/VIEW/ (통합 뷰)                                         │
-│       ├─ symbol_list.csv                                        │
-│       ├─ price.csv                                              │
-│       ├─ financial_statement_{year}.csv                         │
-│       └─ metrics_{year}.csv                                     │
+│     ROOT_PATH/processed/views/ (통합 뷰)                          │
+│       ├─ symbol_list.parquet                                    │
+│       ├─ price.parquet                                          │
+│       ├─ financial_statement_{year}.parquet                     │
+│       └─ metrics_{year}.parquet                                 │
 └────────────────────────────┬────────────────────────────────────┘
                              ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│           3. ML Data Preparation (training/make_mldata.py)       │
+│           3. ML Data Preparation (src/training/make_mldata.py)   │
 │                                                                  │
 │  VIEW 데이터 로드 → Merge (symbol, date 기준)                    │
 │            ↓                                                     │
@@ -116,11 +116,11 @@ ML 프레임워크: XGBoost, LightGBM, CatBoost, scikit-learn
 │            ↓                                                     │
 │  Target 변수 생성: price_dev, price_dev_subavg                  │
 │            ↓                                                     │
-│  /data/ml_per_year/rnorm_ml_{year}_{quarter}.parquet           │
+│  ROOT_PATH/processed/ml_data/per_year/rnorm_ml_{year}_{quarter}.parquet│
 └────────────────────────────┬────────────────────────────────────┘
                              ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│              4. Model Training (training/regressor.py)           │
+│              4. Model Training (src/training/regressor.py)       │
 │                                                                  │
 │  데이터 로드 (2015-2021 학습, 2022-2023 테스트)                   │
 │            ↓                                                     │
@@ -180,7 +180,7 @@ ML 프레임워크: XGBoost, LightGBM, CatBoost, scikit-learn
 ## 📊 데이터 파이프라인
 
 ### 1. FMP API 데이터 수집
-**파일**: `data_collector/fmp.py`
+**파일**: `src/data_collector/fmp.py`
 
 **수집 데이터**:
 - `stock_list`: 상장 종목 리스트 (symbol, sector, industry, ipoDate)
@@ -193,19 +193,18 @@ ML 프레임워크: XGBoost, LightGBM, CatBoost, scikit-learn
 - `historical_price_full`: 일별 가격 데이터
 
 **특징**:
-- **병렬 다운로드**: `fmp_fetch_worker.py`에서 멀티프로세싱
+- **병렬 다운로드**: `src/data_collector/fmp_fetch_worker.py`에서 멀티프로세싱
 - **NASDAQ, NYSE만**: 미국 주요 거래소 필터링
-- **중복 방지**: `config/update_date.txt`로 재수집 방지
+- **저장 위치**: `ROOT_PATH/fmp_raw/{category}/{symbol}.parquet`
 
 ### 2. Parquet 변환 및 VIEW 생성
-**파일**: `storage/parquet_converter.py`
+**파일**: `src/storage/parquet_converter.py`
 
 **변환 프로세스**:
 ```python
-CSV → Parquet 변환
-├─ 압축률: 85-90%
-├─ 읽기 속도: CSV 대비 5-10배 빠름
-└─ VIEW 테이블 재구성
+FMP 원본 데이터 (ROOT_PATH/fmp_raw/)
+├─ 이미 Parquet 형식으로 저장됨
+└─ VIEW 테이블 재구성 → ROOT_PATH/processed/views/
    ├─ symbol_list.parquet
    ├─ price.parquet
    ├─ financial_statement_{year}.parquet
@@ -215,7 +214,7 @@ CSV → Parquet 변환
 **VIEW의 역할**: 여러 Parquet 파일을 통합하여 ML 학습에 바로 사용 가능한 형태로 재구성
 
 ### 3. ML 데이터 생성
-**파일**: `training/make_mldata.py`
+**파일**: `src/training/make_mldata.py`
 
 **프로세스**:
 ```python
@@ -225,7 +224,7 @@ For each year, quarter:
   3. 재무 비율 계산 (139개)
   4. RobustScaler 정규화
   5. Target 변수 생성 (price_dev, price_dev_subavg)
-  6. Parquet 저장 → rnorm_ml_{year}_{quarter}.parquet
+  6. Parquet 저장 → ROOT_PATH/processed/ml_data/per_year/rnorm_ml_{year}_{quarter}.parquet
 ```
 
 **생성되는 Feature**:
@@ -293,7 +292,7 @@ For each year, quarter:
 `config/conf.yaml` 편집:
 ```yaml
 DATA:
-  ROOT_PATH: /home/user/Quant/data
+  ROOT_PATH: /mnt/external_hdd/quant_data  # 외장하드 경로
   START_YEAR: 2015
   END_YEAR: 2023
   GET_FMP: Y  # 새 데이터 수집 여부
@@ -316,7 +315,7 @@ BACKTEST:
 
 #### 2. Main Script 실행
 ```bash
-cd Quant-refactoring
+cd /home/user/Quant/Quant-refactoring
 python main.py
 ```
 
@@ -325,22 +324,29 @@ python main.py
 # main.py 내부 흐름
 
 # 1. Configuration 로드
+from src.config.context_loader import load_config, MainContext
 config = load_config('config/conf.yaml')
 ctx = MainContext(config)
 
 # 2. 데이터 수집 (GET_FMP=Y일 때)
 if config['DATA']['GET_FMP'] == 'Y':
+    from src.data_collector.fmp import FMP
+    from src.storage.parquet_storage import ParquetStorage
+    from src.storage.parquet_converter import ParquetConverter
+
     fmp = FMP(ctx)
     fmp.collect()
 
-    # Parquet 변환
+    # VIEW 테이블 생성
     storage = ParquetStorage(ctx.root_path)
     converter = ParquetConverter(ctx, storage)
-    converter.insert_csv()
     converter.rebuild_table_view()
 
 # 3. ML 데이터 준비 및 학습
 if config['ML']['RUN_REGRESSION'] == 'Y':
+    from src.training.make_mldata import AIDataMaker
+    from src.training.regressor import Regressor
+
     aidata_maker = AIDataMaker(ctx, config)
 
     regressor = Regressor(config)
@@ -351,6 +357,8 @@ if config['ML']['RUN_REGRESSION'] == 'Y':
 
 # 4. 백테스팅
 if config['BACKTEST']['RUN_BACKTEST'] == 'Y':
+    from src.backtest.ml_backtest import Backtest, PlanHandler
+
     plan_handler = PlanHandler(ctx, 'plan.csv')
     bt = Backtest(ctx, config, plan_handler)
     bt.run()
@@ -362,22 +370,22 @@ if config['BACKTEST']['RUN_BACKTEST'] == 'Y':
 
 #### 전체 파이프라인
 ```bash
-python scripts/run_full_pipeline.py
+python src/scripts/run_full_pipeline.py
 ```
 
 #### 모델 비교
 ```bash
-python scripts/run_model_comparison.py
+python src/scripts/run_model_comparison.py
 ```
 
 #### 리밸런싱 최적화
 ```bash
-python scripts/run_rebalance_optimization.py
+python src/scripts/run_rebalance_optimization.py
 ```
 
 #### 섹터별 트레이딩
 ```bash
-python scripts/run_sector_trading.py
+python src/scripts/run_sector_trading.py
 ```
 
 ---
@@ -417,35 +425,38 @@ python scripts/run_sector_trading.py
 ### 주요 파일 위치
 - **Configuration**: `config/conf.yaml`
 - **Main Entry**: `main.py`
-- **Data Collection**: `data_collector/fmp.py`
-- **Feature Engineering**: `training/make_mldata.py`
-- **Model Training**: `training/regressor.py`
-- **Models**: `models/*.py`
-- **Backtesting**: `backtest.py`
-- **Examples**: `examples/*.py`
-- **Scripts**: `scripts/*.py`
+- **Data Collection**: `src/data_collector/fmp.py`
+- **Feature Engineering**: `src/training/make_mldata.py`
+- **Model Training**: `src/training/regressor.py`
+- **Models**: `src/models/*.py`
+- **Backtesting**: `src/backtest/ml_backtest.py`
+- **Examples**: `src/examples/*.py`
+- **Scripts**: `src/scripts/*.py`
 
 ### 로깅 확인
 ```bash
-tail -f logs/quant_trading.log
+tail -f outputs/logs/main.log
 ```
 
 ### MLflow UI
 ```bash
-mlflow ui --backend-store-uri /home/user/Quant/data/mlruns
+mlflow ui --backend-store-uri {ROOT_PATH}/outputs/mlruns
 # http://localhost:5000
 ```
 
 ### 데이터 위치
 ```
-/home/user/Quant/data/
-├── stock_list/
-├── financial_statements/
-├── key_metrics/
-├── historical_price/
-├── VIEW/                   # 통합 뷰
-├── ml_per_year/            # ML 학습 데이터
-└── MODELS/                 # 학습된 모델
+{ROOT_PATH}/  (외장하드)
+├── fmp_raw/                        # FMP 원본 데이터
+│   ├── income_statement/
+│   ├── balance_sheet_statement/
+│   └── ...
+├── processed/
+│   ├── views/                      # 통합 뷰
+│   └── ml_data/per_year/           # ML 학습 데이터
+└── models/                         # 학습된 모델
+    ├── production/
+    └── walkforward/
 ```
 
 ---

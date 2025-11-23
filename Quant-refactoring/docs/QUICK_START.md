@@ -22,14 +22,14 @@
 ### 1. 데이터 준비
 
 ```bash
-# 데이터 위치
-./VIEW/
-├── symbol_list.csv                    # 심볼 목록 (sector 정보 포함)
-├── price.csv                          # 가격 데이터
-├── financial_statement_2018.csv       # 재무제표
-├── financial_statement_2019.csv
+# 데이터 위치 (ROOT_PATH 외장하드)
+{ROOT_PATH}/processed/views/
+├── symbol_list.parquet                # 심볼 목록 (sector 정보 포함)
+├── price.parquet                      # 가격 데이터
+├── financial_statement_2018.parquet   # 재무제표
+├── financial_statement_2019.parquet
 ├── ...
-└── financial_statement_2023.csv
+└── financial_statement_2023.parquet
 ```
 
 ### 2. 필수 컬럼
@@ -51,8 +51,8 @@
 ### Option 1: 전체 파이프라인 실행 (권장)
 
 ```bash
-cd Quant-refactoring/scripts
-python run_full_pipeline.py
+cd /home/user/Quant/Quant-refactoring
+python src/scripts/run_full_pipeline.py
 ```
 
 이 스크립트는 3단계를 순차적으로 실행합니다:
@@ -75,39 +75,39 @@ RUN_SECTOR_TRADING = True            # 매번 True
 #### 1️⃣ 리밸런싱 기간 최적화 (최초 1회)
 
 ```bash
-python scripts/run_rebalance_optimization.py
+python src/scripts/run_rebalance_optimization.py
 ```
 
 **출력**:
 - 최적 리밸런싱 기간
 - 각 기간별 성능 메트릭
-- 결과 저장: `./results/rebalancing_optimization/`
-- 설정 저장: `./config/optimal_rebalance_period.txt`
+- 결과 저장: `outputs/reports/rebalancing_optimization/`
+- 설정 저장: `config/optimal_rebalance_period.txt`
 
 #### 2️⃣ 모델 성능 비교 (모델 변경 시)
 
 ```bash
-python scripts/run_model_comparison.py
+python src/scripts/run_model_comparison.py
 ```
 
 **출력**:
 - 여러 모델 버전 비교
 - 통계적 유의성 검정
 - 최고 성능 모델 선택
-- 결과 저장: `./results/model_comparison/`
-- 설정 저장: `./config/best_model.txt`
+- 결과 저장: `outputs/reports/model_comparison/`
+- 설정 저장: `config/best_model.txt`
 
 #### 3️⃣ 섹터별 주식 선택 (매 리밸런싱마다)
 
 ```bash
-python scripts/run_sector_trading.py
+python src/scripts/run_sector_trading.py
 ```
 
 **출력**:
 - 선택된 top N 주식
 - 섹터별 분포
 - 예측 점수
-- 결과 저장: `./results/sector_trading/selected_stocks_YYYYMMDD_HHMMSS.csv`
+- 결과 저장: `outputs/reports/sector_trading/selected_stocks_YYYYMMDD_HHMMSS.csv`
 
 ---
 
@@ -157,21 +157,21 @@ python scripts/run_sector_trading.py
 
 ### 리밸런싱 기간 변경
 
-`scripts/run_rebalance_optimization.py`:
+`src/scripts/run_rebalance_optimization.py`:
 ```python
 PERIODS_TO_TEST = [1, 2, 3, 4, 6, 12]  # 테스트할 기간들
 ```
 
 ### 선택할 주식 개수 변경
 
-`scripts/run_sector_trading.py`:
+`src/scripts/run_sector_trading.py`:
 ```python
 TOP_K = 10  # 5개 or 10개 or 20개
 ```
 
 ### 섹터별 피처 변경
 
-`strategy/sector_ensemble.py`의 `create_default_sector_configs()` 함수 수정:
+`src/strategy/sector_ensemble.py`의 `create_default_sector_configs()` 함수 수정:
 
 ```python
 'Technology': {
@@ -193,15 +193,15 @@ TOP_K = 10  # 5개 or 10개 or 20개
 
 ```bash
 # 1. (최초 1회) 최적 리밸런싱 기간 찾기
-python scripts/run_rebalance_optimization.py
+python src/scripts/run_rebalance_optimization.py
 # 출력: 최적 기간 = 3개월
 
 # 2. (모델 변경 시) 모델 성능 비교
-python scripts/run_model_comparison.py
+python src/scripts/run_model_comparison.py
 # 출력: XGBoost_v2가 v1보다 3% 개선
 
 # 3. (매 리밸런싱) 주식 선택
-python scripts/run_sector_trading.py
+python src/scripts/run_sector_trading.py
 # 출력:
 # 1. TECH_001 (Technology, 점수: 0.92)
 # 2. FIN_002 (Financial, 점수: 0.88)
@@ -212,7 +212,7 @@ python scripts/run_sector_trading.py
 ### 결과 확인
 
 ```bash
-cat ./results/sector_trading/selected_stocks_20240101_090000.csv
+cat outputs/reports/sector_trading/selected_stocks_20240101_090000.csv
 ```
 
 ---
@@ -223,7 +223,7 @@ cat ./results/sector_trading/selected_stocks_20240101_090000.csv
 
 ```bash
 # 매달 1일 오전 9시에 실행
-0 9 1 * * cd /path/to/Quant-refactoring && python scripts/run_sector_trading.py >> logs/cron.log 2>&1
+0 9 1 * * cd /home/user/Quant/Quant-refactoring && python src/scripts/run_sector_trading.py >> outputs/logs/cron.log 2>&1
 ```
 
 ### Python 스케줄러
@@ -233,7 +233,7 @@ import schedule
 import time
 
 def job():
-    os.system('python scripts/run_sector_trading.py')
+    os.system('python src/scripts/run_sector_trading.py')
 
 # 매달 1일 실행
 schedule.every().month.at("09:00").do(job)
@@ -248,7 +248,7 @@ while True:
 ## 📂 출력 파일 구조
 
 ```
-results/
+outputs/reports/
 ├── rebalancing_optimization/
 │   ├── optimization_results_20240101_080000.csv
 │   ├── optimization_results_20240101_080000_summary.txt
@@ -275,7 +275,7 @@ results/
 ERROR: Price 파일을 찾을 수 없습니다
 ```
 
-**해결**: `./VIEW/` 디렉토리에 데이터 파일 확인
+**해결**: `{ROOT_PATH}/processed/views/` 디렉토리에 데이터 파일 확인
 
 ### 섹터 정보 없음
 
@@ -303,19 +303,19 @@ ERROR: 선택된 주식이 없습니다!
 ### 1. 최초 실행 순서
 
 ```bash
+cd /home/user/Quant/Quant-refactoring
+
 # 1단계: 샘플 데이터로 테스트
-cd examples
-python comprehensive_example.py
+python src/examples/comprehensive_example.py
 
 # 2단계: 실제 데이터로 리밸런싱 기간 최적화
-cd ../scripts
-python run_rebalance_optimization.py
+python src/scripts/run_rebalance_optimization.py
 
 # 3단계: 모델 비교
-python run_model_comparison.py
+python src/scripts/run_model_comparison.py
 
 # 4단계: 주식 선택
-python run_sector_trading.py
+python src/scripts/run_sector_trading.py
 ```
 
 ### 2. 빠른 테스트
@@ -328,7 +328,7 @@ TRAIN_YEARS = 1  # 3 → 1로 변경 (빠른 테스트)
 ### 3. 로그 확인
 
 ```bash
-tail -f logs/sector_trading.log
+tail -f outputs/logs/main.log
 ```
 
 ---

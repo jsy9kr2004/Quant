@@ -32,7 +32,7 @@
 
 ```python
 from validation.time_series_cv import TimeSeriesCV
-from models.xgboost_model import XGBoostModel
+from src.models.xgboost_model import XGBoostModel
 
 # 1. TimeSeriesCV 초기화
 cv = TimeSeriesCV(n_splits=5)
@@ -57,7 +57,7 @@ print(f"표준편차: {avg_scores['accuracy_std']:.4f}")
 **BaseModel에 통합된 메서드 사용**
 
 ```python
-from models.xgboost_model import XGBoostModel
+from src.models.xgboost_model import XGBoostModel
 
 model = XGBoostModel(n_estimators=100)
 model.build_model({})
@@ -85,7 +85,7 @@ avg_scores, all_scores = model.fit_with_cv(
 
 ```python
 from validation.walk_forward import WalkForwardValidator
-from models.xgboost_model import XGBoostModel
+from src.models.xgboost_model import XGBoostModel
 from datetime import datetime
 
 # 1. Walk-Forward Validator 초기화
@@ -265,7 +265,7 @@ extracted_features = extract_features(
 
 ```python
 from robust_backtester import RobustBacktester
-from models.xgboost_model import XGBoostModel
+from src.models.xgboost_model import XGBoostModel
 from datetime import datetime
 
 # 1. RobustBacktester 초기화
