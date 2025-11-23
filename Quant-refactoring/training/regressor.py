@@ -1303,12 +1303,12 @@ class Regressor:
                 logging.info(f"✅ Loaded {len(train_feature_columns)} train feature columns")
                 logging.info(f"   Test data has {len(x_test.columns)} features")
 
-                # 누락된 피처는 0으로 채우기
+                # 누락된 피처는 NaN으로 채우기 (XGBoost가 처리)
                 missing_features = set(train_feature_columns) - set(x_test.columns)
                 if missing_features:
-                    logging.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with 0")
+                    logging.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with NaN")
                     for col in missing_features:
-                        x_test[col] = 0
+                        x_test[col] = np.nan
 
                 # 추가 피처는 제거
                 extra_features = set(x_test.columns) - set(train_feature_columns)
@@ -1773,6 +1773,52 @@ class Regressor:
         # 입력 특성 준비
         input = ldf[ldf.columns.difference(y_col_list)]
         input = self.clean_feature_names(input)
+
+        # ===== Feature Alignment (피처 정렬) =====
+        # 학습 시 사용한 피처 리스트 로드 (evaluation()과 동일한 방식)
+        feature_columns_file = MODEL_SAVE_PATH + 'feature_columns.pkl'
+        try:
+            train_feature_columns = joblib.load(feature_columns_file)
+            logging.info(f"✅ Loaded {len(train_feature_columns)} train feature columns")
+            logging.info(f"   Latest prediction data has {len(input.columns)} features")
+
+            # 누락된 피처는 NaN으로 채우기 (XGBoost가 처리)
+            missing_features = set(train_feature_columns) - set(input.columns)
+            if missing_features:
+                logging.warning(f"   ⚠️  {len(missing_features)} features missing in prediction data, filling with NaN")
+                if len(missing_features) <= 10:
+                    for col in missing_features:
+                        logging.warning(f"      - {col}")
+                else:
+                    for col in list(missing_features)[:10]:
+                        logging.warning(f"      - {col}")
+                    logging.warning(f"      ... and {len(missing_features)-10} more")
+                for col in missing_features:
+                    input[col] = np.nan
+
+            # 추가 피처는 제거
+            extra_features = set(input.columns) - set(train_feature_columns)
+            if extra_features:
+                logging.info(f"   Removing {len(extra_features)} extra features from prediction data")
+                if len(extra_features) <= 10:
+                    for col in extra_features:
+                        logging.info(f"      - {col}")
+                else:
+                    for col in list(extra_features)[:10]:
+                        logging.info(f"      - {col}")
+                    logging.info(f"      ... and {len(extra_features)-10} more")
+                input = input.drop(columns=list(extra_features))
+
+            # 피처 순서 맞추기 (중요!)
+            input = input[train_feature_columns]
+            logging.info(f"   ✅ Feature alignment complete: {len(input.columns)} features")
+
+        except FileNotFoundError:
+            logging.error(f"❌ Feature columns file not found: {feature_columns_file}")
+            logging.error("   Cannot proceed with prediction - feature alignment required")
+            logging.error("   Please run training first to generate feature_columns.pkl")
+            return
+
         preds = np.empty((0, input.shape[0]))
 
         # === 분류 단계 ===
