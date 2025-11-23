@@ -35,6 +35,7 @@ mkdir -p models/production
 mkdir -p models/walkforward
 mkdir -p analysis/nan_analysis
 mkdir -p analysis/nan_removal
+mkdir -p analysis/infinite_removal
 mkdir -p debug
 mkdir -p cache/samples
 ```
@@ -73,8 +74,9 @@ for dir in */; do
        [[ "$dir" != "VIEW/" ]] && [[ "$dir" != "ml_per_year/" ]] && \
        [[ "$dir" != "MODELS_WALKFORWARD/" ]] && [[ "$dir" != "MODELS/" ]] && \
        [[ "$dir" != "NAN_ANALYSIS/" ]] && [[ "$dir" != "NAN_REMOVAL_DETAILS/" ]] && \
+       [[ "$dir" != "INFINITE_REMOVAL_DETAILS/" ]] && \
        [[ "$dir" != "DATE_TABLE/" ]] && [[ "$dir" != "parquet/" ]] && \
-       [[ "$dir" != "samples/" ]]; then
+       [[ "$dir" != "samples/" ]] && [[ "$dir" != "symbol_available_indexes/" ]]; then
         mv "$dir" fmp_raw/
         echo "Moved $dir to fmp_raw/"
     fi
@@ -82,6 +84,8 @@ done
 ```
 
 ### 4. 가공 데이터 이동
+
+**Linux/Mac (Bash):**
 
 ```bash
 cd ${ROOT_PATH}
@@ -92,13 +96,38 @@ mv VIEW/ processed/views/
 # ML 학습 데이터 이동
 mv ml_per_year/ processed/ml_data/per_year/
 
-# 중간 데이터 이동
+# 중간 데이터 이동 (없으면 무시)
 mv DATE_TABLE/ processed/intermediate/DATE_TABLE/ 2>/dev/null || true
 mv parquet/ processed/intermediate/parquet/ 2>/dev/null || true
 mv samples/ cache/samples/ 2>/dev/null || true
+
+# symbol_available_indexes 파일 이동 (있다면)
+mv symbol_available_indexes.csv processed/intermediate/parquet/ 2>/dev/null || true
+```
+
+**Windows (PowerShell):**
+
+```powershell
+cd $env:ROOT_PATH
+
+# VIEW 폴더 이동
+Move-Item -Path "VIEW" -Destination "processed\views" -ErrorAction Stop
+
+# ML 학습 데이터 이동
+Move-Item -Path "ml_per_year" -Destination "processed\ml_data\per_year" -ErrorAction Stop
+
+# 중간 데이터 이동 (없으면 무시)
+Move-Item -Path "DATE_TABLE" -Destination "processed\intermediate\DATE_TABLE" -ErrorAction SilentlyContinue
+Move-Item -Path "parquet" -Destination "processed\intermediate\parquet" -ErrorAction SilentlyContinue
+Move-Item -Path "samples" -Destination "cache\samples" -ErrorAction SilentlyContinue
+
+# symbol_available_indexes 파일 이동 (있다면)
+Move-Item -Path "symbol_available_indexes.csv" -Destination "processed\intermediate\parquet\" -ErrorAction SilentlyContinue
 ```
 
 ### 5. 모델 파일 이동
+
+**Linux/Mac (Bash):**
 
 ```bash
 cd ${ROOT_PATH}
@@ -110,7 +139,21 @@ mv MODELS_WALKFORWARD/ models/walkforward/
 mv MODELS/ models/production/ 2>/dev/null || true
 ```
 
+**Windows (PowerShell):**
+
+```powershell
+cd $env:ROOT_PATH
+
+# Walk-Forward 백테스트 모델
+Move-Item -Path "MODELS_WALKFORWARD" -Destination "models\walkforward" -ErrorAction Stop
+
+# 프로덕션 모델 (있다면)
+Move-Item -Path "MODELS" -Destination "models\production" -ErrorAction SilentlyContinue
+```
+
 ### 6. 분석 결과 이동
+
+**Linux/Mac (Bash):**
 
 ```bash
 cd ${ROOT_PATH}
@@ -120,9 +163,29 @@ mv NAN_ANALYSIS/ analysis/nan_analysis/ 2>/dev/null || true
 
 # NaN 제거 상세
 mv NAN_REMOVAL_DETAILS/ analysis/nan_removal/ 2>/dev/null || true
+
+# Infinite 값 제거 상세
+mv INFINITE_REMOVAL_DETAILS/ analysis/infinite_removal/ 2>/dev/null || true
+```
+
+**Windows (PowerShell):**
+
+```powershell
+cd $env:ROOT_PATH
+
+# NaN 분석 결과
+Move-Item -Path "NAN_ANALYSIS" -Destination "analysis\nan_analysis" -ErrorAction SilentlyContinue
+
+# NaN 제거 상세
+Move-Item -Path "NAN_REMOVAL_DETAILS" -Destination "analysis\nan_removal" -ErrorAction SilentlyContinue
+
+# Infinite 값 제거 상세
+Move-Item -Path "INFINITE_REMOVAL_DETAILS" -Destination "analysis\infinite_removal" -ErrorAction SilentlyContinue
 ```
 
 ### 7. 디버그 파일 이동
+
+**Linux/Mac (Bash):**
 
 ```bash
 cd ${ROOT_PATH}
@@ -130,6 +193,16 @@ cd ${ROOT_PATH}
 # fs_metric_wdate 파일들
 mv fs_metric_wdate_*.parquet debug/ 2>/dev/null || true
 mv fs_metric_wdate_*.csv debug/ 2>/dev/null || true
+```
+
+**Windows (PowerShell):**
+
+```powershell
+cd $env:ROOT_PATH
+
+# fs_metric_wdate 파일들
+Get-ChildItem -Path "fs_metric_wdate_*.parquet" -ErrorAction SilentlyContinue | Move-Item -Destination "debug\" -ErrorAction SilentlyContinue
+Get-ChildItem -Path "fs_metric_wdate_*.csv" -ErrorAction SilentlyContinue | Move-Item -Destination "debug\" -ErrorAction SilentlyContinue
 ```
 
 ---
@@ -167,7 +240,8 @@ tree -L 2 -d
 │
 ├── analysis
 │   ├── nan_analysis
-│   └── nan_removal
+│   ├── nan_removal
+│   └── infinite_removal
 │
 ├── debug
 └── cache

@@ -487,29 +487,29 @@ class FMP:
         See Also:
             remove_first_loop: 심볼 리스트 새로고침 전의 첫 번째 단계.
         """
-        self.remove_files(self.main_ctx.root_path+"/symbol_available_indexes")
-        self.remove_current_year(self.main_ctx.root_path+"/earning_calendar/earning_calendar_")
+        self.remove_files(self.main_ctx.root_path+"/processed/intermediate/parquet/symbol_available_indexes")
+        self.remove_current_year(self.main_ctx.root_path+"/fmp_raw/earning_calendar/earning_calendar_")
 
         # 75일보다 오래된 재무제표 파일 제거
-        self.remove_current_list_files(self.main_ctx.root_path+"/income_statement")
-        self.remove_current_list_files(self.main_ctx.root_path+"/balance_sheet_statement")
-        self.remove_current_list_files(self.main_ctx.root_path+"/cash_flow_statement")
-        self.remove_current_list_files(self.main_ctx.root_path+"/key_metrics")
-        self.remove_current_list_files(self.main_ctx.root_path+"/financial_growth")
+        self.remove_current_list_files(self.main_ctx.root_path+"/fmp_raw/income_statement")
+        self.remove_current_list_files(self.main_ctx.root_path+"/fmp_raw/balance_sheet_statement")
+        self.remove_current_list_files(self.main_ctx.root_path+"/fmp_raw/cash_flow_statement")
+        self.remove_current_list_files(self.main_ctx.root_path+"/fmp_raw/key_metrics")
+        self.remove_current_list_files(self.main_ctx.root_path+"/fmp_raw/financial_growth")
 
         # 각 심볼에 대한 현재 연도 히스토리컬 가격 파일 제거
         for symbol in self.current_list:
             # Convert symbol to Windows-safe filename
             safe_symbol = safe_filename(symbol)
-            self.remove_current_year(self.main_ctx.root_path+"/historical_price_full/" + str(safe_symbol) + "_")
+            self.remove_current_year(self.main_ctx.root_path+"/fmp_raw/historical_price_full/" + str(safe_symbol) + "_")
 
         # FIXME: 이 두 작업은 가장 느린 작업 중 하나입니다. 최적화를 고려하십시오.
         # 가장 시간 소모적인 작업 상위 2개 - 더 나은 접근 방식 필요
-        self.remove_current_list_files(self.main_ctx.root_path+"/historical_daily_discounted_cash_flow")
-        self.remove_current_list_files(self.main_ctx.root_path+"/historical_market_capitalization", False)
+        self.remove_current_list_files(self.main_ctx.root_path+"/fmp_raw/historical_daily_discounted_cash_flow")
+        self.remove_current_list_files(self.main_ctx.root_path+"/fmp_raw/historical_market_capitalization", False)
 
         # 프로필 데이터는 의도적으로 업데이트되지 않습니다
-        self.remove_current_list_files(self.main_ctx.root_path+"/profile", False)
+        self.remove_current_list_files(self.main_ctx.root_path+"/fmp_raw/profile", False)
 
     def collect(self) -> None:
         """완전한 FMP 데이터 수집 워크플로우를 실행합니다.
