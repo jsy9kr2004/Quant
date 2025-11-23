@@ -397,7 +397,16 @@ class Parquet:
 
         # 5. Copy Indexes Table
         # Simple copy operation for index membership data
-        indexes = pd.read_csv(self.rawpq_path + "symbol_available_indexes.csv")
+        # Read from FMP raw data
+        indexes_path = self.main_ctx.root_path + "/fmp_raw/symbol_available_indexes/"
+        # Find the CSV file in the directory (should be only one)
+        import glob
+        csv_files = glob.glob(indexes_path + "*.csv")
+        if csv_files:
+            indexes = pd.read_csv(csv_files[0])
+        else:
+            logging.warning(f"⚠️ No symbol_available_indexes CSV found in {indexes_path}")
+            return
 
         # Save to Parquet (main format)
         indexes.to_parquet(self.view_path + "indexes.parquet", index=False)

@@ -487,7 +487,7 @@ class FMP:
         See Also:
             remove_first_loop: 심볼 리스트 새로고침 전의 첫 번째 단계.
         """
-        self.remove_files(self.main_ctx.root_path+"/processed/intermediate/parquet/symbol_available_indexes")
+        self.remove_files(self.main_ctx.root_path+"/fmp_raw/symbol_available_indexes")
         self.remove_current_year(self.main_ctx.root_path+"/fmp_raw/earning_calendar/earning_calendar_")
 
         # 75일보다 오래된 재무제표 파일 제거

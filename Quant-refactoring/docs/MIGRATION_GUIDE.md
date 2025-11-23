@@ -56,6 +56,7 @@ mv financial_ratios/ fmp_raw/
 mv stock_list/ fmp_raw/
 mv delisted_companies/ fmp_raw/
 mv historical_daily_discounted_cash_flow/ fmp_raw/
+mv symbol_available_indexes/ fmp_raw/
 
 # 기타 FMP 카테고리가 있다면 모두 이동
 # (ROOT_PATH 하위에 있던 모든 데이터 폴더들)
@@ -76,7 +77,7 @@ for dir in */; do
        [[ "$dir" != "NAN_ANALYSIS/" ]] && [[ "$dir" != "NAN_REMOVAL_DETAILS/" ]] && \
        [[ "$dir" != "INFINITE_REMOVAL_DETAILS/" ]] && \
        [[ "$dir" != "DATE_TABLE/" ]] && [[ "$dir" != "parquet/" ]] && \
-       [[ "$dir" != "samples/" ]] && [[ "$dir" != "symbol_available_indexes/" ]]; then
+       [[ "$dir" != "samples/" ]]; then
         mv "$dir" fmp_raw/
         echo "Moved $dir to fmp_raw/"
     fi
@@ -100,9 +101,6 @@ mv ml_per_year/ processed/ml_data/per_year/
 mv DATE_TABLE/ processed/intermediate/DATE_TABLE/ 2>/dev/null || true
 mv parquet/ processed/intermediate/parquet/ 2>/dev/null || true
 mv samples/ cache/samples/ 2>/dev/null || true
-
-# symbol_available_indexes 파일 이동 (있다면)
-mv symbol_available_indexes.csv processed/intermediate/parquet/ 2>/dev/null || true
 ```
 
 **Windows (PowerShell):**
@@ -120,9 +118,6 @@ Move-Item -Path "ml_per_year" -Destination "processed\ml_data\per_year" -ErrorAc
 Move-Item -Path "DATE_TABLE" -Destination "processed\intermediate\DATE_TABLE" -ErrorAction SilentlyContinue
 Move-Item -Path "parquet" -Destination "processed\intermediate\parquet" -ErrorAction SilentlyContinue
 Move-Item -Path "samples" -Destination "cache\samples" -ErrorAction SilentlyContinue
-
-# symbol_available_indexes 파일 이동 (있다면)
-Move-Item -Path "symbol_available_indexes.csv" -Destination "processed\intermediate\parquet\" -ErrorAction SilentlyContinue
 ```
 
 ### 5. 모델 파일 이동
