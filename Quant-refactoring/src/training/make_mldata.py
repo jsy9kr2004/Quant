@@ -24,7 +24,7 @@
     config = load_config('config/conf.yaml')
     ctx = MainContext(config)
     maker = AIDataMaker(ctx, config)
-    # ML data files created in /data/ml_per_year/
+    # ML data files created in /processed/ml_data/per_year/
 
 작성자: Quant Trading Team
 날짜: 2025-10-29
@@ -96,7 +96,7 @@ class AIDataMaker:
         ctx = MainContext(config)
         # 2015-2023년도 ML 데이터 생성
         maker = AIDataMaker(ctx, config)
-        # 출력: ml_per_year/rnorm_ml_2015_Q1.parquet, rnorm_ml_2015_Q2.parquet, ...
+        # 출력: processed/ml_data/per_year/rnorm_ml_2015_Q1.parquet, rnorm_ml_2015_Q2.parquet, ...
 
     See Also:
         - config.g_variables: 특성 리스트 및 섹터 매핑
@@ -569,7 +569,7 @@ class AIDataMaker:
             - 커스텀 특성 추출 파라미터 지원 추가
         """
         # 출력 디렉토리 생성
-        ml_dir = os.path.join(self.main_ctx.root_path, "ml_per_year")
+        ml_dir = os.path.join(self.main_ctx.root_path, "processed/ml_data/per_year")
         self.main_ctx.create_dir(ml_dir)
 
         for cur_year in range(start_year, end_year+1):
@@ -690,9 +690,11 @@ class AIDataMaker:
             # 디버깅을 위한 스냅샷 저장
             print("*** fs_metrics w/ rebalance_date")
             print(fs_metrics)
-            fs_metrics.head(1000).to_parquet(self.main_ctx.root_path + f"/fs_metric_wdate_{str(cur_year)}.parquet", index=False)
+            debug_dir = os.path.join(self.main_ctx.root_path, "debug")
+            self.main_ctx.create_dir(debug_dir)
+            fs_metrics.head(1000).to_parquet(os.path.join(debug_dir, f"fs_metric_wdate_{str(cur_year)}.parquet"), index=False)
             if self.main_ctx.save_debug_csv:
-                fs_metrics.head(1000).to_csv(self.main_ctx.root_path + f"/fs_metric_wdate_{str(cur_year)}.csv", index=False)
+                fs_metrics.head(1000).to_csv(os.path.join(debug_dir, f"fs_metric_wdate_{str(cur_year)}.csv"), index=False)
 
             # 분기별 통계 수집 (균형 검증용)
             quarterly_stats = []
@@ -702,8 +704,8 @@ class AIDataMaker:
                 base_year_period = cur_year * 100 + quarter_num  # 예: 202401, 202402, 202403, 202404
 
                 # 출력 파일 경로
-                file_path = os.path.join(self.main_ctx.root_path, "ml_per_year", f"rnorm_fs_{str(cur_year)}_{quarter_str}.parquet")
-                file2_path = os.path.join(self.main_ctx.root_path, "ml_per_year", f"rnorm_ml_{str(cur_year)}_{quarter_str}.parquet")
+                file_path = os.path.join(ml_dir, f"rnorm_fs_{str(cur_year)}_{quarter_str}.parquet")
+                file2_path = os.path.join(ml_dir, f"rnorm_ml_{str(cur_year)}_{quarter_str}.parquet")
 
                 # 이미 존재하면 건너뛰기
                 if os.path.isfile(file2_path):
