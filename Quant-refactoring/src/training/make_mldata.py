@@ -707,8 +707,8 @@ class AIDataMaker:
                 file_path = os.path.join(ml_dir, f"rnorm_fs_{str(cur_year)}_{quarter_str}.parquet")
                 file2_path = os.path.join(ml_dir, f"rnorm_ml_{str(cur_year)}_{quarter_str}.parquet")
 
-                # 이미 존재하면 건너뛰기
-                if os.path.isfile(file2_path):
+                # 이미 존재하면 건너뛰기 (둘 다 체크)
+                if os.path.isfile(file_path) and os.path.isfile(file2_path):
                     print(f"*** there is parquet file {str(cur_year)}_{quarter_str}")
                     continue
 
