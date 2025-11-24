@@ -344,7 +344,7 @@ class Regressor:
                 }
 
         Raises:
-            ValueError: ROOT_PATH/ml_per_year/에 학습 데이터 디렉토리가 없는 경우
+            ValueError: ROOT_PATH/processed/ml_data/per_year/에 학습 데이터 디렉토리가 없는 경우
         """
         self.conf = conf
         self.x_train: Optional[pd.DataFrame] = None
@@ -358,7 +358,7 @@ class Regressor:
         ml_config = conf.get('ML', {})
         self.root_path: str = data_config.get('ROOT_PATH', '/home/user/Quant/data')
 
-        aidata_dir = self.root_path + '/ml_per_year/'
+        aidata_dir = self.root_path + '/processed/ml_data/per_year/'
         print("aidata path : " + aidata_dir)
         if not os.path.exists(aidata_dir):
             print("there is no ai data : " + aidata_dir)
@@ -1686,7 +1686,7 @@ class Regressor:
         self.models[0] = joblib.load(MODEL_SAVE_PATH + 'model_0.sav')
         self.models[1] = joblib.load(MODEL_SAVE_PATH + 'model_1.sav')
 
-        aidata_dir = self.root_path + '/ml_per_year/'
+        aidata_dir = self.root_path + '/processed/ml_data/per_year/'
 
         # 예측 컬럼 리스트 생성 (evaluation과 동일)
         pred_col_list = ['ai_pred_avg']
