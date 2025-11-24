@@ -67,7 +67,7 @@ class Backtest:
         self.run() 
 
     def create_report(self, report_type):
-        if report_type in self.conf['REPORT_LIST']:
+        if report_type in self.conf.get('BACKTEST', {}).get('REPORT_LIST', []):
             path = "./reports/" + report_type + "_REPORT_"
             idx = 0
             while True:

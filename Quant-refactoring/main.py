@@ -7,13 +7,13 @@ Quant Trading System - Main Pipeline (Refactored)
 1. 설정 로딩: YAML 설정 파일을 로드하고 검증합니다
 2. 데이터 수집: FMP API에서 금융 데이터를 가져옵니다 (선택사항)
 3. ML 파이프라인: 학습 데이터를 준비하고, 모델을 학습시키며, 성능을 평가합니다
-4. 백테스팅: 과거 데이터로 트레이딩 전략을 시뮬레이션합니다
+4. ML Walk-Forward 백테스팅: 미래 유출을 방지하며 실제 투자 성과를 측정합니다
 
 시스템 기능:
 - Parquet 기반 스토리지로 효율적인 데이터 처리
 - 다양한 ML 모델 지원 (XGBoost, LightGBM, CatBoost)
 - MLflow 추적이 가능한 앙상블 전략
-- 커스텀 스코어링 전략을 사용한 유연한 백테스팅
+- Walk-Forward Analysis로 미래 유출 없는 백테스팅
 
 사용법:
     python main.py
@@ -22,10 +22,12 @@ Quant Trading System - Main Pipeline (Refactored)
     config/conf.yaml 파일을 편집하여 커스터마이즈:
     - DATA.GET_FMP: 데이터 수집 활성화/비활성화
     - ML.RUN_REGRESSION: ML 학습 활성화/비활성화
-    - BACKTEST.RUN_BACKTEST: 백테스팅 활성화/비활성화
+    - BACKTEST.RUN_BACKTEST: ML 백테스팅 활성화/비활성화
+    - BACKTEST.RETRAIN_FREQUENCY: 모델 재학습 주기 (quarterly/yearly/every)
+    - BACKTEST.WINDOW_TYPE: 학습 윈도우 타입 (expanding/rolling)
 
 작성자: Quant Trading Team
-날짜: 2025-10-29
+날짜: 2025-11-24
 """
 
 import logging
@@ -46,7 +48,7 @@ from src.data_collector.fmp import FMP
 from src.training.make_mldata import AIDataMaker
 from src.models import XGBoostModel, LightGBMModel, CatBoostModel, StackingEnsemble
 from src.training import OptunaOptimizer, MLflowTracker
-from src.backtest import Backtest, PlanHandler
+from src.backtest import MLBacktest
 
 
 class RegressorIntegrated:
@@ -605,61 +607,40 @@ def main() -> None:
             logger.info("Exiting after ML (set EXIT_AFTER_ML=N to continue to backtest)")
             sys.exit(0)
 
-    # 7. Backtesting (Optional)
+    # 7. ML Walk-Forward Backtesting (Optional)
     backtest_config = config.get('BACKTEST', {})
     # Support both 'Y'/True and 'N'/False from YAML parsing (default True)
     run_backtest_val = backtest_config.get('RUN_BACKTEST', True)
     if run_backtest_val not in ('N', False, 'no', 'NO', 'No', 'OFF', 'Off', 'off', 'FALSE', 'False'):
         logger.info("="*80)
-        logger.info("Step 3: Backtesting")
+        logger.info("Step 3: ML Walk-Forward Backtesting")
         logger.info("="*80)
 
-        # Initialize plan handler for stock scoring
-        plan_handler = PlanHandler(
-            backtest_config.get('TOP_K_NUM', 100),
-            backtest_config.get('ABSOLUTE_SCORE', 500),
-            main_ctx
+        # Initialize ML-based walk-forward backtesting
+        ml_backtest = MLBacktest(
+            config=config,
+            main_ctx=main_ctx,
+            rebalance_period=backtest_config.get('REBALANCE_PERIOD', 3),
+            top_k=backtest_config.get('TOP_K_NUM', 20),
+            retrain_frequency=backtest_config.get('RETRAIN_FREQUENCY', 'quarterly'),
+            window_type=backtest_config.get('WINDOW_TYPE', 'expanding'),
+            window_size=backtest_config.get('WINDOW_SIZE', 3)
         )
 
-        # Load custom scoring plan from CSV
-        plan: List[Dict[str, Any]] = []
-        plan_file = "plan.csv"
+        # Run walk-forward backtest
+        logger.info("Starting ML walk-forward backtest...")
+        logger.info(f"  Rebalance period: {backtest_config.get('REBALANCE_PERIOD', 3)} months")
+        logger.info(f"  Top K: {backtest_config.get('TOP_K_NUM', 20)}")
+        logger.info(f"  Retrain frequency: {backtest_config.get('RETRAIN_FREQUENCY', 'quarterly')}")
+        logger.info(f"  Window type: {backtest_config.get('WINDOW_TYPE', 'expanding')}")
 
-        if os.path.exists(plan_file):
-            plan_df = pd.read_csv(plan_file)
-            plan_info = plan_df.values.tolist()
+        results = ml_backtest.run()
 
-            for i in range(len(plan_info)):
-                plan.append({
-                    "f_name": plan_handler.single_metric_plan_no_parallel,
-                    "params": {
-                        "key": plan_info[i][0],         # Metric name (e.g., 'roe')
-                        "key_dir": plan_info[i][1],     # Direction ('ascending'/'descending')
-                        "weight": plan_info[i][2],      # Weight in scoring
-                        "diff": plan_info[i][3],        # Use price difference
-                        "base": plan_info[i][4],        # Base metric for normalization
-                        "base_dir": plan_info[i][5]     # Base direction
-                    }
-                })
-
-            plan_handler.plan_list = plan
-        else:
-            logger.warning(f"Plan file not found: {plan_file}")
-            logger.info("Using default plan (empty)")
-
-        # Run backtest simulation
-        bt = Backtest(
-            main_ctx,
-            config,
-            plan_handler,
-            rebalance_period=backtest_config.get('REBALANCE_PERIOD', 3)
-        )
-
-        logger.info("✅ Backtesting completed")
+        logger.info("✅ ML backtesting completed")
+        logger.info(f"  Results saved to: {results.get('report_path', 'reports/')}")
 
         # Cleanup
-        del plan_handler
-        del bt
+        del ml_backtest
 
     # 8. Pipeline completed
     logger.info("="*80)
