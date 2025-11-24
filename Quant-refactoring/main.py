@@ -41,12 +41,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config.context_loader import load_config, MainContext
 from config.logger import get_logger
-from storage import ParquetStorage
+from src.storage import ParquetStorage
 from src.data_collector.fmp import FMP
 from src.training.make_mldata import AIDataMaker
-from models import XGBoostModel, LightGBMModel, CatBoostModel, StackingEnsemble
-from training import OptunaOptimizer, MLflowTracker
-from backtest import Backtest, PlanHandler
+from src.models import XGBoostModel, LightGBMModel, CatBoostModel, StackingEnsemble
+from src.training import OptunaOptimizer, MLflowTracker
+from src.backtest import Backtest, PlanHandler
 
 
 class RegressorIntegrated:
@@ -516,7 +516,7 @@ def main() -> None:
                 )
 
                 # Use legacy converter to process CSV files
-                from storage.parquet_converter import Parquet
+                from src.storage.parquet_converter import Parquet
                 df_engine = Parquet(main_ctx)
                 df_engine.insert_csv()
                 df_engine.rebuild_table_view()
@@ -525,7 +525,7 @@ def main() -> None:
 
             elif storage_type == 'DB':
                 logger.warning("Database storage not recommended. Use PARQUET instead.")
-                from database import Database
+                from src.database import Database
                 db = Database(main_ctx)
                 db.insert_csv()
                 db.rebuild_table_view()
@@ -551,7 +551,7 @@ def main() -> None:
                 )
 
                 # Use legacy converter to rebuild VIEW tables
-                from storage.parquet_converter import Parquet
+                from src.storage.parquet_converter import Parquet
                 df_engine = Parquet(main_ctx)
                 df_engine.insert_csv()
                 df_engine.rebuild_table_view()
@@ -560,7 +560,7 @@ def main() -> None:
 
             elif storage_type == 'DB':
                 logger.warning("Database storage not recommended. Use PARQUET instead.")
-                from database import Database
+                from src.database import Database
                 db = Database(main_ctx)
                 db.insert_csv()
                 db.rebuild_table_view()
