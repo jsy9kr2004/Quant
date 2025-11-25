@@ -91,6 +91,16 @@ from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.metrics import accuracy_score, classification_report, precision_recall_fscore_support
 
+# Optuna for hyperparameter optimization
+try:
+    import optuna
+    from optuna.samplers import TPESampler
+    from optuna.pruners import MedianPruner
+    OPTUNA_AVAILABLE = True
+except ImportError:
+    OPTUNA_AVAILABLE = False
+    logging.warning("⚠️  Optuna not installed. Hyperparameter tuning will be disabled.")
+
 # 전역 설정
 # TODO: 섹터 기반 예측을 위한 PER_SECTOR=True 기능 구현
 PER_SECTOR = False  # 섹터별로 개별 모델을 학습할지 여부
@@ -814,13 +824,13 @@ class Regressor:
             self.y_test = self.test_df[['price_dev_subavg']]
             self.y_test_cls = self.test_df[['price_dev']]
 
-    def def_model(self) -> None:
+    def def_model(self, optuna_params: Optional[Dict[str, Any]] = None) -> None:
         """분류 및 회귀 모델을 정의하고 초기화합니다.
 
         앙상블 예측을 위해 다양한 하이퍼파라미터를 가진 여러 모델 변형을 생성합니다:
 
         분류 모델 (4개 변형):
-            - clsmodels[0]: XGBClassifier, max_depth=8, GPU 가속
+            - clsmodels[0]: XGBClassifier, Optuna 최적화 or max_depth=8
             - clsmodels[1]: XGBClassifier, max_depth=9, GPU 가속
             - clsmodels[2]: XGBClassifier, max_depth=10, GPU 가속
             - clsmodels[3]: LGBMClassifier, max_depth=8, GPU 가속
@@ -829,7 +839,8 @@ class Regressor:
             - models[0]: XGBRegressor, max_depth=8, GPU 가속
             - models[1]: XGBRegressor, max_depth=10, GPU 가속
 
-        모든 모델은 GPU 가속을 사용합니다 (XGBoost는 tree_method='gpu_hist', LightGBM은 device='gpu').
+        Args:
+            optuna_params: Optuna로 찾은 최적 파라미터 (clsmodel_0에 적용)
 
         참고:
             - LGBMRegressor는 테스트되었지만 낮은 정확도로 인해 비활성화됨
@@ -843,11 +854,24 @@ class Regressor:
             - PER_SECTOR=True인 경우 self.sector_models 채우기
         """
         # 분류 모델: 이진 상승/하락 예측
-        # 앙상블 다양성을 위해 다양한 깊이를 가진 여러 모델 사용
-        self.clsmodels[0] = xgboost.XGBClassifier(
-            tree_method='hist', device='cpu', n_estimators=500, learning_rate=0.1,
-            gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=8,
-            objective='binary:logistic', eval_metric='logloss', missing=np.nan)
+        # clsmodel_0: Optuna 최적화 파라미터 사용 (있으면)
+        if optuna_params:
+            logging.info(f"✅ Using Optuna-optimized params for clsmodel_0: {optuna_params}")
+            self.clsmodels[0] = xgboost.XGBClassifier(
+                tree_method='hist', device='cpu',
+                n_estimators=optuna_params.get('n_estimators', 500),
+                learning_rate=optuna_params.get('learning_rate', 0.1),
+                gamma=optuna_params.get('gamma', 0),
+                subsample=optuna_params.get('subsample', 0.8),
+                colsample_bytree=optuna_params.get('colsample_bytree', 0.8),
+                max_depth=optuna_params.get('max_depth', 8),
+                objective='binary:logistic', eval_metric='logloss', missing=np.nan)
+        else:
+            # 기본 파라미터
+            self.clsmodels[0] = xgboost.XGBClassifier(
+                tree_method='hist', device='cpu', n_estimators=500, learning_rate=0.1,
+                gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=8,
+                objective='binary:logistic', eval_metric='logloss', missing=np.nan)
         self.clsmodels[1] = xgboost.XGBClassifier(
             tree_method='hist', device='cpu', n_estimators=500, learning_rate=0.1,
             gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=9,
@@ -962,15 +986,129 @@ class Regressor:
 
         # 모델 저장 경로 설정
         MODEL_SAVE_PATH = self.root_path + '/MODELS/'
-        self.def_model()
 
         # 필요시 저장 디렉토리 생성
         if not os.path.exists(MODEL_SAVE_PATH):
             print("creating MODELS path : " + MODEL_SAVE_PATH)
             os.makedirs(MODEL_SAVE_PATH)
 
-        # LightGBM 호환성을 위해 특성 이름 정리
-        self.x_train = self.clean_feature_names(self.x_train)
+        # ========== Optuna Hyperparameter Optimization ==========
+        ml_config = self.conf.get('ML', {})
+        use_optuna = ml_config.get('USE_OPTUNA', False)
+        optuna_best_params = None
+
+        if use_optuna and OPTUNA_AVAILABLE:
+            from src.training.optuna_utils import (
+                optimize_xgboost_params,
+                save_optuna_report,
+                save_optuna_plots
+            )
+
+            logging.info("="*80)
+            logging.info("🔧 OPTUNA HYPERPARAMETER OPTIMIZATION")
+            logging.info("="*80)
+
+            # Optuna 설정
+            n_trials = int(ml_config.get('OPTUNA_TRIALS', 50))
+            cv_folds = int(ml_config.get('OPTUNA_CV_FOLDS', 5))
+            timeout = ml_config.get('OPTUNA_TIMEOUT', None)
+            save_report = ml_config.get('OPTUNA_SAVE_REPORT', True)
+            save_plots = ml_config.get('OPTUNA_SAVE_PLOTS', True)
+
+            # 탐색 공간 (config에서 읽기 or 기본값)
+            search_space_config = ml_config.get('OPTUNA_SEARCH_SPACE', {})
+            search_space = {
+                'n_estimators': search_space_config.get('n_estimators', [100, 2000]),
+                'learning_rate': search_space_config.get('learning_rate', [0.001, 0.3]),
+                'max_depth': search_space_config.get('max_depth', [3, 15]),
+                'subsample': search_space_config.get('subsample', [0.5, 1.0]),
+                'colsample_bytree': search_space_config.get('colsample_bytree', [0.5, 1.0]),
+                'gamma': search_space_config.get('gamma', [0, 10])
+            }
+
+            # LightGBM 호환성을 위해 특성 이름 정리 (Optuna 전에 수행)
+            self.x_train = self.clean_feature_names(self.x_train)
+
+            # Baseline 파라미터 (기존 설정)
+            baseline_params = {
+                'n_estimators': 500,
+                'learning_rate': 0.1,
+                'max_depth': 8,
+                'subsample': 0.8,
+                'colsample_bytree': 0.8,
+                'gamma': 0
+            }
+
+            # Classification 모델 최적화 (clsmodel_0 기준)
+            logging.info(f"Optimizing XGBoost Classifier (clsmodel_0)")
+            logging.info(f"  Trials: {n_trials}, CV folds: {cv_folds}")
+            logging.info(f"  Search space: {search_space}")
+
+            # 이진 레이블 생성 (Optuna용)
+            y_train_binary_optuna = (self.y_train_cls > 0).astype(int)
+
+            # Baseline 성능 측정
+            from sklearn.model_selection import cross_val_score
+            baseline_model = xgboost.XGBClassifier(
+                **baseline_params,
+                tree_method='hist',
+                device='cpu',
+                objective='binary:logistic',
+                eval_metric='logloss',
+                missing=np.nan
+            )
+            baseline_scores = cross_val_score(
+                baseline_model, self.x_train, y_train_binary_optuna,
+                cv=cv_folds, scoring='accuracy', n_jobs=-1
+            )
+            baseline_score = baseline_scores.mean()
+            logging.info(f"📊 Baseline accuracy: {baseline_score:.4f} (±{baseline_scores.std():.4f})")
+
+            # Optuna 최적화 실행
+            study, best_params = optimize_xgboost_params(
+                self.x_train,
+                y_train_binary_optuna,
+                search_space,
+                n_trials=n_trials,
+                cv_folds=cv_folds,
+                timeout=timeout,
+                task='classification'
+            )
+
+            if study and best_params:
+                optuna_best_params = best_params
+                improvement = study.best_value - baseline_score
+                logging.info("="*80)
+                logging.info("✅ OPTIMIZATION RESULTS")
+                logging.info("="*80)
+                logging.info(f"Best accuracy: {study.best_value:.4f} ({improvement:+.4f}, {improvement/baseline_score*100:+.2f}%)")
+                logging.info(f"Best params: {best_params}")
+
+                # 리포트 저장
+                if save_report:
+                    save_optuna_report(
+                        study, baseline_params, baseline_score,
+                        'clsmodel_0', 'reports'
+                    )
+
+                # 차트 저장
+                if save_plots and PLOT_AVAILABLE:
+                    save_optuna_plots(study, 'clsmodel_0', 'reports')
+
+                logging.info("="*80)
+            else:
+                logging.warning("⚠️  Optuna optimization failed, using baseline params")
+
+        elif use_optuna and not OPTUNA_AVAILABLE:
+            logging.warning("⚠️  USE_OPTUNA=Y but Optuna not installed. Using default params.")
+            logging.warning("   Install with: pip install optuna plotly kaleido")
+
+        # ========== 모델 정의 (Optuna 결과 반영) ==========
+        self.def_model(optuna_params=optuna_best_params)
+
+        # LightGBM 호환성을 위해 특성 이름 정리 (Optuna를 사용하지 않은 경우에만)
+        if not (use_optuna and OPTUNA_AVAILABLE):
+            self.x_train = self.clean_feature_names(self.x_train)
 
         # [최종 체크] XGBoost 학습 전 infinite 값 검증
         numeric_cols_final = self.x_train.select_dtypes(include=[np.number]).columns

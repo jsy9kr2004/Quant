@@ -61,8 +61,21 @@ ML:
 
   # Hyperparameter optimization
   USE_OPTUNA: N  # Y = Auto-tune hyperparameters (takes time)
-  OPTUNA_TRIALS: 50
-  OPTUNA_CV_FOLDS: 5
+  OPTUNA_TRIALS: 50  # Number of optimization trials (10-20: quick, 50-100: thorough, 200+: comprehensive)
+  OPTUNA_CV_FOLDS: 5  # Cross-validation folds for each trial
+  OPTUNA_TIMEOUT: null  # Max optimization time in seconds (null = no limit)
+  OPTUNA_SAVE_REPORT: Y  # Y = Save detailed TXT/CSV/JSON reports
+  OPTUNA_SAVE_PLOTS: Y  # Y = Save PNG visualization charts
+
+  # Optuna search space (parameter ranges for tuning)
+  # These ranges will be used for XGBoost models
+  OPTUNA_SEARCH_SPACE:
+    n_estimators: [100, 2000]  # Number of trees
+    learning_rate: [0.001, 0.3]  # Learning rate
+    max_depth: [3, 15]  # Tree depth
+    subsample: [0.5, 1.0]  # Row sampling ratio
+    colsample_bytree: [0.5, 1.0]  # Column sampling ratio
+    gamma: [0, 10]  # Minimum loss reduction for split
 
   # MLflow experiment tracking
   USE_MLFLOW: N  # Y = Track experiments with MLflow
