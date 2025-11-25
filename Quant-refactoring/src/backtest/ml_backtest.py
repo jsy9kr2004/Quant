@@ -97,7 +97,7 @@ class MLBacktest:
 
         # 경로 설정
         ml_config = config.get('ML', {})
-        self.data_path = Path(main_ctx.root_path) / 'ml_per_year'
+        self.data_path = Path(main_ctx.root_path) / 'processed' / 'ml_data' / 'per_year'
         self.model_path = Path(main_ctx.root_path) / 'MODELS_WALKFORWARD'
         self.model_path.mkdir(exist_ok=True)
 
