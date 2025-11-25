@@ -255,8 +255,8 @@ class AIDataMaker:
         """
         달력 날짜를 실제 거래 날짜로 변환합니다.
 
-        주어진 날짜 이전 10일 이내의 가장 가까운 거래 날짜(가격 데이터가 있는 날짜)를
-        찾습니다. 이는 주말, 공휴일, 시장 휴장일을 처리합니다.
+        월초(1~15일)는 미래 방향, 월말(16일~)은 과거 방향에서 가장 가까운 거래일을 찾습니다.
+        이는 분기 초(1/1, 4/1 등)가 공휴일일 때 같은 분기 내의 거래일을 찾기 위함입니다.
 
         Args:
             pdate: 목표 달력 날짜
@@ -265,16 +265,29 @@ class AIDataMaker:
             거래 날짜를 찾으면 반환, 그렇지 않으면 None
 
         사용 예시:
-            # pdate가 일요일이면, 이전 금요일의 거래 날짜를 반환
-            trading_date = maker.get_trade_date(pd.Timestamp('2023-01-01'))
+            # 1998-01-01 (월초) → 1998-01-02 반환 (미래 방향, 같은 분기)
+            # 1998-12-31 (월말) → 1998-12-30 반환 (과거 방향, 같은 분기)
+            trading_date = maker.get_trade_date(pd.Timestamp('1998-01-01'))
         """
-        # 목표 날짜 이전 10일 이내의 거래 날짜 검색
-        post_date = pdate - relativedelta(days=10)
-        res = self.price_table.query("date >= @post_date and date <= @pdate")
-        if res.empty:
-            return None
+        # 월초/월말 구분: 15일 기준
+        is_month_start = pdate.day <= 15
+
+        if is_month_start:
+            # 월초: 날짜 이후 10일 내에서 가장 가까운 거래일 찾기
+            future_date = pdate + relativedelta(days=10)
+            res = self.price_table.query("date >= @pdate and date <= @future_date")
+            if res.empty:
+                return None
+            else:
+                return res.iloc[0].date  # 첫 번째 = 가장 가까운 미래 거래일
         else:
-            return res.iloc[0].date
+            # 월말: 날짜 이전 10일 내에서 가장 가까운 거래일 찾기
+            past_date = pdate - relativedelta(days=10)
+            res = self.price_table.query("date >= @past_date and date <= @pdate")
+            if res.empty:
+                return None
+            else:
+                return res.iloc[-1].date  # 마지막 = 가장 가까운 과거 거래일
 
     def generate_date_list(self) -> List[datetime.datetime]:
         """
