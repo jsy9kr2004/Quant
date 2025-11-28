@@ -137,13 +137,17 @@ from .xgboost_model import XGBoostModel
 from .lightgbm_model import LightGBMModel
 from .catboost_model import CatBoostModel
 from .ensemble import StackingEnsemble
+from .model_factory import ModelFactory, create_models_for_regressor, create_models_for_backtest
 
 __all__ = [
     'BaseModel',
     'XGBoostModel',
     'LightGBMModel',
     'CatBoostModel',
-    'StackingEnsemble'
+    'StackingEnsemble',
+    'ModelFactory',
+    'create_models_for_regressor',
+    'create_models_for_backtest'
 ]
 
 __version__ = '1.0.0'
