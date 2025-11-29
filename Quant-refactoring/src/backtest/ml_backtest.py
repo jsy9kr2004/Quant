@@ -235,6 +235,8 @@ class MLBacktest:
         """
         통합 모델 학습 (전체 데이터를 하나의 모델로)
 
+        ✨ REFACTORED: Now uses ModelFactory for consistent model creation!
+
         Parameters:
         ----------
         train_data : pd.DataFrame
@@ -247,7 +249,10 @@ class MLBacktest:
         Dict[str, Any]
             학습된 모델 딕셔너리
         """
+        from src.models.model_factory import create_models_for_backtest
+
         self.logger.info(f"   Training samples: {len(train_data)}")
+        self.logger.info("   🔧 Using ModelFactory (same models as regressor.py)")
 
         # 특성과 타겟 분리
         # 제외할 컬럼 (메타데이터, 타겟 변수 등)
@@ -273,30 +278,20 @@ class MLBacktest:
         # 이진 분류용 타겟 (상승/하락)
         y_binary = (y > 0).astype(int)
 
+        # ✨ Create models using ModelFactory (same as regressor.py!)
+        use_gpu = self._is_gpu_available()
+        clf, reg = create_models_for_backtest(self.config, use_gpu=use_gpu)
+
         # 모델 학습
         models = {}
 
         # 분류 모델 (상승/하락 예측)
         self.logger.info("   Training classifier...")
-        clf = XGBClassifier(
-            n_estimators=100,
-            max_depth=8,
-            learning_rate=0.1,
-            tree_method='gpu_hist' if self._is_gpu_available() else 'hist',
-            random_state=42
-        )
         clf.fit(X_scaled, y_binary)
         models['classifier'] = clf
 
         # 회귀 모델 (수익률 크기 예측)
         self.logger.info("   Training regressor...")
-        reg = XGBRegressor(
-            n_estimators=100,
-            max_depth=8,
-            learning_rate=0.1,
-            tree_method='gpu_hist' if self._is_gpu_available() else 'hist',
-            random_state=42
-        )
         reg.fit(X_scaled, y)
         models['regressor'] = reg
 
@@ -313,6 +308,8 @@ class MLBacktest:
     def _train_model_sector(self, train_data: pd.DataFrame, cutoff_date: datetime) -> Dict[str, Any]:
         """
         섹터별 모델 학습 (각 섹터마다 별도 모델)
+
+        ✨ REFACTORED: Now uses ModelFactory for consistent model creation!
 
         Parameters:
         ----------
@@ -334,11 +331,14 @@ class MLBacktest:
                 }
             }
         """
+        from src.models.model_factory import create_models_for_backtest
+
         if 'sector' not in train_data.columns:
             self.logger.warning("⚠️ 'sector' column not found! Falling back to unified model.")
             return self._train_model_unified(train_data, cutoff_date)
 
         self.logger.info(f"   Training samples: {len(train_data)}")
+        self.logger.info("   🔧 Using ModelFactory for sector models (same params as regressor.py)")
 
         # 섹터별 모델 저장
         sector_models = {}
@@ -354,6 +354,8 @@ class MLBacktest:
         sectors = train_data['sector'].unique()
         self.logger.info(f"   Sectors found: {list(sectors)}")
 
+        use_gpu = self._is_gpu_available()
+
         for sector in sectors:
             sector_data = train_data[train_data['sector'] == sector]
 
@@ -362,14 +364,6 @@ class MLBacktest:
                 continue
 
             self.logger.info(f"   Training {sector} sector ({len(sector_data)} samples)")
-
-            # 섹터별 설정 가져오기 (없으면 기본값)
-            sector_config = self.sector_config.get(sector, {
-                'model': 'xgboost',
-                'n_estimators': 100,
-                'max_depth': 8,
-                'learning_rate': 0.1
-            })
 
             # 특성과 타겟 분리
             feature_cols = [col for col in sector_data.columns if col not in exclude_cols]
@@ -388,24 +382,11 @@ class MLBacktest:
             y_binary = (y > 0).astype(int)
 
             try:
-                # 분류 모델
-                clf = XGBClassifier(
-                    n_estimators=sector_config.get('n_estimators', 100),
-                    max_depth=sector_config.get('max_depth', 8),
-                    learning_rate=sector_config.get('learning_rate', 0.1),
-                    tree_method='gpu_hist' if self._is_gpu_available() else 'hist',
-                    random_state=42
-                )
-                clf.fit(X_scaled, y_binary)
+                # ✨ Create models using ModelFactory (config-based, same as regressor.py!)
+                clf, reg = create_models_for_backtest(self.config, use_gpu=use_gpu)
 
-                # 회귀 모델
-                reg = XGBRegressor(
-                    n_estimators=sector_config.get('n_estimators', 100),
-                    max_depth=sector_config.get('max_depth', 8),
-                    learning_rate=sector_config.get('learning_rate', 0.1),
-                    tree_method='gpu_hist' if self._is_gpu_available() else 'hist',
-                    random_state=42
-                )
+                # 학습
+                clf.fit(X_scaled, y_binary)
                 reg.fit(X_scaled, y)
 
                 sector_models[sector] = {

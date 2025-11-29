@@ -827,98 +827,52 @@ class Regressor:
     def def_model(self, optuna_params: Optional[Dict[str, Any]] = None) -> None:
         """분류 및 회귀 모델을 정의하고 초기화합니다.
 
+        ✨ REFACTORED: Now uses ModelFactory for consistent model creation!
+
         앙상블 예측을 위해 다양한 하이퍼파라미터를 가진 여러 모델 변형을 생성합니다:
 
         분류 모델 (4개 변형):
             - clsmodels[0]: XGBClassifier, Optuna 최적화 or max_depth=8
-            - clsmodels[1]: XGBClassifier, max_depth=9, GPU 가속
-            - clsmodels[2]: XGBClassifier, max_depth=10, GPU 가속
-            - clsmodels[3]: LGBMClassifier, max_depth=8, GPU 가속
+            - clsmodels[1]: XGBClassifier, max_depth=9
+            - clsmodels[2]: XGBClassifier, max_depth=10
+            - clsmodels[3]: LGBMClassifier, max_depth=8
 
         회귀 모델 (2개 변형):
-            - models[0]: XGBRegressor, max_depth=8, GPU 가속
-            - models[1]: XGBRegressor, max_depth=10, GPU 가속
+            - models[0]: XGBRegressor, max_depth=8
+            - models[1]: XGBRegressor, max_depth=10
 
         Args:
             optuna_params: Optuna로 찾은 최적 파라미터 (clsmodel_0에 적용)
-
-        참고:
-            - LGBMRegressor는 테스트되었지만 낮은 정확도로 인해 비활성화됨
-            - Grid search로 최적의 LGB 파라미터를 찾았습니다: learning_rate=0.01, max_depth=6,
-              min_child_samples=30, n_estimators=1000, num_leaves=31
-            - PER_SECTOR 모드의 경우 섹터별 회귀 모델도 생성합니다
 
         부작용:
             - 4개의 분류 모델로 self.clsmodels 채우기
             - 2개의 회귀 모델로 self.models 채우기
             - PER_SECTOR=True인 경우 self.sector_models 채우기
         """
-        # 분류 모델: 이진 상승/하락 예측
-        # clsmodel_0: Optuna 최적화 파라미터 사용 (있으면)
-        if optuna_params:
-            logging.info(f"✅ Using Optuna-optimized params for clsmodel_0: {optuna_params}")
-            self.clsmodels[0] = xgboost.XGBClassifier(
-                tree_method='hist', device='cpu',
-                n_estimators=optuna_params.get('n_estimators', 500),
-                learning_rate=optuna_params.get('learning_rate', 0.1),
-                gamma=optuna_params.get('gamma', 0),
-                subsample=optuna_params.get('subsample', 0.8),
-                colsample_bytree=optuna_params.get('colsample_bytree', 0.8),
-                max_depth=optuna_params.get('max_depth', 8),
-                objective='binary:logistic', eval_metric='logloss', missing=np.nan)
-        else:
-            # 기본 파라미터
-            self.clsmodels[0] = xgboost.XGBClassifier(
-                tree_method='hist', device='cpu', n_estimators=500, learning_rate=0.1,
-                gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=8,
-                objective='binary:logistic', eval_metric='logloss', missing=np.nan)
-        self.clsmodels[1] = xgboost.XGBClassifier(
-            tree_method='hist', device='cpu', n_estimators=500, learning_rate=0.1,
-            gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=9,
-            objective='binary:logistic', eval_metric='logloss', missing=np.nan)
-        self.clsmodels[2] = xgboost.XGBClassifier(
-            tree_method='hist', device='cpu', n_estimators=500, learning_rate=0.1,
-            gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=10,
-            objective='binary:logistic', eval_metric='logloss', missing=np.nan)
+        from src.models.model_factory import create_models_for_regressor
 
-        # LightGBM 분류 모델
-        # Grid search로 최적의 파라미터를 찾았습니다:
-        # {'learning_rate': 0.01, 'max_depth': 6, 'min_child_samples': 30,
-        #  'n_estimators': 1000, 'num_leaves': 31}
-        self.clsmodels[3] = lgb.LGBMClassifier(
-            boosting_type='gbdt', objective='binary', n_estimators=1000,
-            max_depth=8, learning_rate=0.1, device='cpu', boost_from_average=False)
+        logging.info("🔧 Creating models using ModelFactory (ensures consistency with ml_backtest.py)")
 
-        # 회귀 모델: 가격 변동의 크기 예측
-        self.models[0] = xgboost.XGBRegressor(
-            tree_method='hist', device='cpu', n_estimators=1000, learning_rate=0.1,
-            gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=8,
-            objective='reg:squarederror', eval_metric='rmse', missing=np.nan)
-        self.models[1] = xgboost.XGBRegressor(
-            tree_method='hist', device='cpu', n_estimators=1000, learning_rate=0.1,
-            gamma=0, subsample=0.8, colsample_bytree=0.8, max_depth=10,
-            objective='reg:squarederror', eval_metric='rmse', missing=np.nan)
+        # Use ModelFactory to create all models
+        classifiers, regressors, sector_models = create_models_for_regressor(
+            config=self.conf,
+            optuna_params=optuna_params,
+            sector_list=self.sector_list if PER_SECTOR else None,
+            use_sector_model=PER_SECTOR
+        )
 
-        # LightGBM 회귀 모델 (비활성화됨 - 낮은 정확도)
-        # self.models[1] = lgb.LGBMRegressor(
-        #     boosting_type='gbdt', objective='regression', max_depth=8,
-        #     learning_rate=0.1, n_estimators=1000, subsample=0.8,
-        #     colsample_bytree=0.8, device='gpu')
+        # Assign to instance variables
+        for i, clf in enumerate(classifiers):
+            self.clsmodels[i] = clf
 
-        # 섹터별 모델 (PER_SECTOR 모드용)
+        for i, reg in enumerate(regressors):
+            self.models[i] = reg
+
         if PER_SECTOR:
-            for sec in self.sector_list:
-                # 섹터당 다양한 하이퍼파라미터를 가진 2개 변형
-                cur_key = (sec, 0)
-                self.sector_models[cur_key] = xgboost.XGBRegressor(
-                    tree_method='hist', device='cpu', n_estimators=1000,
-                    learning_rate=0.05, gamma=0.01, subsample=0.8,
-                    colsample_bytree=0.7, max_depth=7, missing=np.nan)  # 최적 하이퍼파라미터
-                cur_key = (sec, 1)
-                self.sector_models[cur_key] = xgboost.XGBRegressor(
-                    tree_method='hist', device='cpu', n_estimators=1000,
-                    learning_rate=0.05, gamma=0.01, subsample=0.8,
-                    colsample_bytree=0.7, max_depth=8, missing=np.nan)
+            self.sector_models = sector_models
+
+        logging.info(f"✅ Models created: {len(classifiers)} classifiers, {len(regressors)} regressors" +
+                    (f", {len(sector_models)} sector models" if PER_SECTOR else ""))
 
     def train(self) -> None:
         """모든 분류 및 회귀 모델을 학습하고 디스크에 저장합니다.
