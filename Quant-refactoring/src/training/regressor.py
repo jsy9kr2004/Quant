@@ -874,6 +874,94 @@ class Regressor:
         logging.info(f"✅ Models created: {len(classifiers)} classifiers, {len(regressors)} regressors" +
                     (f", {len(sector_models)} sector models" if PER_SECTOR else ""))
 
+    def _diagnose_extreme_values(self, X: np.ndarray, y: np.ndarray, name: str = "data") -> bool:
+        """
+        Phase 1: Optuna가 거부할 만한 극단값을 미리 진단합니다.
+
+        Args:
+            X: Feature 데이터 (numpy array)
+            y: Label 데이터 (numpy array)
+            name: 로그용 데이터 이름
+
+        Returns:
+            bool: QuantileDMatrix 생성 성공 여부
+        """
+        logging.info("=" * 80)
+        logging.info(f"🔬 Phase 1: Diagnosing extreme values in {name}")
+        logging.info("=" * 80)
+
+        # 1. 기존 체크 (infinite)
+        inf_count = np.isinf(X).sum()
+        logging.info(f"Infinite values: {inf_count}")
+
+        # 2. 극단값 체크 (여러 임계값)
+        thresholds = [1e10, 1e8, 1e6, 1e4]
+        max_abs = np.nanmax(np.abs(X[np.isfinite(X)])) if np.isfinite(X).any() else 0
+        logging.info(f"Max absolute value: {max_abs:.2e}")
+
+        for thresh in thresholds:
+            count = (np.abs(X) > thresh).sum()
+            if count > 0:
+                pct = count / X.size * 100
+                logging.warning(f"  Values > {thresh:.0e}: {count} ({pct:.3f}%)")
+
+        # 3. QuantileDMatrix 시뮬레이션
+        try:
+            from xgboost import QuantileDMatrix
+            test_dm = QuantileDMatrix(X, label=y)
+            logging.info("✅ QuantileDMatrix creation successful")
+            del test_dm
+            return True
+        except Exception as e:
+            logging.error(f"❌ QuantileDMatrix creation failed: {e}")
+            return False
+
+    def _safe_clip_for_xgboost(self, X: pd.DataFrame, y: np.ndarray, max_abs_value: float = 1e7) -> Tuple[pd.DataFrame, np.ndarray]:
+        """
+        Phase 2: XGBoost를 위한 안전한 clipping (정보 손실 최소화)
+
+        철학:
+        - Infinite: 제거 (계산 에러)
+        - 극단값: Clipping (실제 데이터, 보존)
+        - 임계값을 점진적으로 낮춰가며 최소한만 clip
+
+        Args:
+            X: Feature DataFrame
+            y: Label array
+            max_abs_value: Clipping 임계값 (기본: 1e7)
+
+        Returns:
+            (X_clipped, y): Clipping된 데이터
+        """
+        logging.info("=" * 80)
+        logging.info(f"🔧 Phase 2: Safe clipping for XGBoost")
+        logging.info("=" * 80)
+
+        X_values = X.values
+        original_max = np.nanmax(np.abs(X_values[np.isfinite(X_values)])) if np.isfinite(X_values).any() else 0
+
+        if original_max > max_abs_value:
+            logging.warning(f"⚠️  Found extreme values (max: {original_max:.2e})")
+            logging.warning(f"   These are REAL data, not errors")
+            logging.warning(f"   Applying CLIPPING to [{-max_abs_value:.2e}, {max_abs_value:.2e}]")
+
+            # Clipping (정보 보존 - 방향성과 상대적 크기 유지)
+            X_clipped = np.clip(X_values, -max_abs_value, max_abs_value)
+
+            affected = (np.abs(X_values) > max_abs_value).sum()
+            pct = affected / X_values.size * 100
+            logging.info(f"   Clipped {affected} values ({pct:.3f}%)")
+            logging.info(f"   New max: {np.nanmax(np.abs(X_clipped)):.2e}")
+
+            # DataFrame 업데이트
+            X_result = X.copy()
+            X_result.iloc[:, :] = X_clipped
+
+            return X_result, y
+        else:
+            logging.info(f"✅ No extreme values found (max: {original_max:.2e})")
+            return X, y
+
     def train(self) -> None:
         """모든 분류 및 회귀 모델을 학습하고 디스크에 저장합니다.
 
@@ -1000,6 +1088,38 @@ class Regressor:
 
             # 이진 레이블 생성 (Optuna용)
             y_train_binary_optuna = (self.y_train_cls > 0).astype(int)
+
+            # ========== Phase 1 & 2: 극단값 진단 및 클리핑 ==========
+            # Optuna CV 실행 전에 데이터 품질 확인 및 처리
+            logging.info("")
+            logging.info("="*80)
+            logging.info("🔬 PRE-OPTUNA DATA QUALITY CHECK")
+            logging.info("="*80)
+
+            # Phase 1: 진단
+            X_values = self.x_train.values
+            y_values = y_train_binary_optuna.values if hasattr(y_train_binary_optuna, 'values') else y_train_binary_optuna
+            diagnosis_ok = self._diagnose_extreme_values(X_values, y_values, "x_train")
+
+            # Phase 2: 극단값이 발견되면 클리핑 적용
+            if not diagnosis_ok:
+                logging.warning("⚠️  QuantileDMatrix test failed - applying clipping")
+                self.x_train, _ = self._safe_clip_for_xgboost(self.x_train, y_values, max_abs_value=1e7)
+
+                # 재진단
+                logging.info("")
+                logging.info("🔄 Re-diagnosing after clipping...")
+                X_values_clipped = self.x_train.values
+                diagnosis_ok_after = self._diagnose_extreme_values(X_values_clipped, y_values, "x_train_clipped")
+
+                if not diagnosis_ok_after:
+                    logging.error("❌ Still failing after clipping - trying lower threshold (1e6)")
+                    self.x_train, _ = self._safe_clip_for_xgboost(self.x_train, y_values, max_abs_value=1e6)
+            else:
+                logging.info("✅ Data quality check passed - no clipping needed")
+
+            logging.info("="*80)
+            logging.info("")
 
             # Baseline 성능 측정
             from sklearn.model_selection import cross_val_score

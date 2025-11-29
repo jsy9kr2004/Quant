@@ -70,26 +70,28 @@ def optimize_xgboost_params(
             else:
                 params[param_name] = trial.suggest_float(param_name, min_val, max_val, log=(param_name=='learning_rate'))
 
-        # 모델 생성
+        # 모델 생성 (Phase 4: 극단값 처리 개선 파라미터)
         if task == 'classification':
             model = xgb.XGBClassifier(
                 **params,
-                tree_method='hist',
+                tree_method='hist',  # Histogram-based (극단값에 robust)
                 device='cpu',
                 objective='binary:logistic',
                 eval_metric='logloss',
-                missing=np.nan,
+                missing=np.nan,       # NaN 처리 (철학 유지)
+                max_bin=512,          # Phase 4: 빈 개수 증가 (극단값 처리 개선)
                 random_state=42
             )
             scoring = 'accuracy'
         else:
             model = xgb.XGBRegressor(
                 **params,
-                tree_method='hist',
+                tree_method='hist',  # Histogram-based (극단값에 robust)
                 device='cpu',
                 objective='reg:squarederror',
                 eval_metric='rmse',
-                missing=np.nan,
+                missing=np.nan,       # NaN 처리 (철학 유지)
+                max_bin=512,          # Phase 4: 빈 개수 증가 (극단값 처리 개선)
                 random_state=42
             )
             scoring = 'r2'
