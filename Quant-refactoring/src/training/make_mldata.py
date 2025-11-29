@@ -48,6 +48,14 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 from warnings import simplefilter
 import warnings
 
+# Phase 3: Winsorization을 위한 scipy import
+try:
+    from scipy.stats.mstats import winsorize
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
+    winsorize = None
+
 # 디버깅을 위한 pandas 디스플레이 설정
 pd.options.display.width = 30
 
@@ -147,6 +155,12 @@ class AIDataMaker:
         self.export_nan_removal_details = ml_config.get('EXPORT_NAN_REMOVAL_DETAILS', True)
         if isinstance(self.export_nan_removal_details, str):
             self.export_nan_removal_details = self.export_nan_removal_details.upper() == 'Y'
+
+        # Phase 3: Winsorization 플래그 (기본값: False - 선택적 기능)
+        self.use_winsorization = ml_config.get('USE_WINSORIZATION', False)
+        if isinstance(self.use_winsorization, str):
+            self.use_winsorization = self.use_winsorization.upper() == 'Y'
+        self.winsorization_limits = ml_config.get('WINSORIZATION_LIMITS', (0.01, 0.99))  # 1%, 99% percentile
 
         # 데이터 컨테이너 초기화
         self.symbol_table = pd.DataFrame()
@@ -994,6 +1008,9 @@ class AIDataMaker:
                     # [무한대 체크 #5] 스케일링 직전 (최종 체크)
                     self._check_infinite_values(filtered_df, base_year_period, "BEFORE scaling (final check)")
 
+                    # Phase 3: Winsorization 적용 (선택적, config 플래그 확인)
+                    filtered_df = self._apply_winsorization(filtered_df, base_year_period)
+
                     # 무한대 제거 (RobustScaler는 infinite 값을 처리할 수 없음)
                     inf_mask = np.isinf(filtered_df)
                     has_inf = inf_mask.any().any()
@@ -1525,6 +1542,62 @@ class AIDataMaker:
         self.logger.info(f"   Saved removal summary → {os.path.basename(summary_file)}")
 
         self.logger.info(f"✅ [{base_year_period}] NaN removal details export complete")
+
+    def _apply_winsorization(self, df: pd.DataFrame, base_year_period: int) -> pd.DataFrame:
+        """
+        Phase 3: 극단값을 percentile로 제한 (Winsorization)
+
+        철학:
+        - 극단값의 "방향성"은 보존 (여전히 높거나 낮음)
+        - 분포 형태 유지
+        - Clipping보다 통계적으로 더 건전함
+
+        예시:
+        원본: [1, 2, 3, ..., 98, 99, 10000000]
+        99%ile = 99
+        결과: [1, 2, 3, ..., 98, 99, 99]
+
+        Args:
+            df: 처리할 DataFrame
+            base_year_period: 로깅용 년도_분기
+
+        Returns:
+            Winsorization이 적용된 DataFrame
+        """
+        if not self.use_winsorization:
+            return df
+
+        if not SCIPY_AVAILABLE:
+            self.logger.warning(f"⚠️  [{base_year_period}] Winsorization requested but scipy not available")
+            self.logger.warning(f"   Install with: pip install scipy")
+            return df
+
+        self.logger.info(f"🔧 [{base_year_period}] Applying winsorization (limits={self.winsorization_limits})")
+
+        df_result = df.copy()
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+
+        affected_count = 0
+        for col in numeric_cols:
+            original = df[col].values
+            # NaN을 제외하고 winsorization 적용
+            finite_mask = np.isfinite(original)
+            if finite_mask.sum() == 0:
+                continue
+
+            # Winsorization 적용 (scipy.stats.mstats.winsorize)
+            winsorized = winsorize(original, limits=self.winsorization_limits, nan_policy='propagate')
+            changed = (original != winsorized) & finite_mask
+            affected_count += changed.sum()
+
+            df_result[col] = winsorized
+
+        total_values = len(numeric_cols) * len(df)
+        pct = affected_count / total_values * 100 if total_values > 0 else 0
+        self.logger.info(f"   Winsorized {affected_count} values ({pct:.3f}%)")
+        self.logger.info(f"   ✅ Extreme values preserved with percentile limits")
+
+        return df_result
 
     def _check_infinite_values(self, df: pd.DataFrame, base_year_period: int, stage: str) -> None:
         """
