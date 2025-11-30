@@ -1058,11 +1058,12 @@ class Regressor:
             save_plots = ml_config.get('OPTUNA_SAVE_PLOTS', True)
 
             # 탐색 공간 (config에서 읽기 or 기본값)
+            # Option A: 메모리 안전 + 성능 보장 (과적합 방지)
             search_space_config = ml_config.get('OPTUNA_SEARCH_SPACE', {})
             search_space = {
-                'n_estimators': search_space_config.get('n_estimators', [100, 2000]),
-                'learning_rate': search_space_config.get('learning_rate', [0.001, 0.3]),
-                'max_depth': search_space_config.get('max_depth', [3, 15]),
+                'n_estimators': search_space_config.get('n_estimators', [100, 500]),  # 2000→500: 메모리 안전
+                'learning_rate': search_space_config.get('learning_rate', [0.01, 0.3]),  # 0.001→0.01: 너무 낮은 lr 방지
+                'max_depth': search_space_config.get('max_depth', [3, 8]),  # 15→8: 과적합 방지, 메모리 안전
                 'subsample': search_space_config.get('subsample', [0.5, 1.0]),
                 'colsample_bytree': search_space_config.get('colsample_bytree', [0.5, 1.0]),
                 'gamma': search_space_config.get('gamma', [0, 10])

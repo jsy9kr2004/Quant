@@ -7,11 +7,13 @@ Optuna hyperparameter optimization utilities for regressor.py
 import logging
 import json
 import os
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 
 try:
     import optuna
@@ -60,8 +62,15 @@ def optimize_xgboost_params(
     import xgboost as xgb
     from sklearn.model_selection import cross_val_score
 
+    # 시간 추적을 위한 변수
+    trial_times = []
+    trial_start_time = None
+
     def objective(trial):
-        """Optuna objective function"""
+        """Optuna objective function with time tracking"""
+        nonlocal trial_start_time
+        trial_start_time = time.time()
+
         # 파라미터 샘플링
         params = {}
         for param_name, (min_val, max_val) in search_space.items():
@@ -126,25 +135,73 @@ def optimize_xgboost_params(
         pruner=pruner
     )
 
+    # Progress bar와 시간 추적을 위한 callback
+    pbar = tqdm(total=n_trials, desc="Optuna Optimization", unit="trial")
+    optimization_start = time.time()
+
+    def progress_callback(study, trial):
+        """각 trial 완료 시 호출되는 callback"""
+        nonlocal trial_start_time, trial_times
+
+        if trial.value is not None:
+            # Trial 소요 시간 계산
+            trial_elapsed = time.time() - trial_start_time
+            trial_times.append(trial_elapsed)
+
+            # 평균 시간 및 ETA 계산
+            avg_time = np.mean(trial_times)
+            remaining_trials = n_trials - (trial.number + 1)
+            eta_seconds = avg_time * remaining_trials
+            eta_time = datetime.now() + timedelta(seconds=eta_seconds)
+
+            # Best score 추적
+            best_score = study.best_value
+
+            # Progress bar 업데이트
+            pbar.set_postfix({
+                'best': f'{best_score:.4f}',
+                'curr': f'{trial.value:.4f}',
+                'time': f'{trial_elapsed/60:.1f}min',
+                'avg': f'{avg_time/60:.1f}min/trial',
+                'ETA': eta_time.strftime('%H:%M')
+            })
+            pbar.update(1)
+
+            # 로그 출력 (기존 방식 유지)
+            logging.info(
+                f"  Trial {trial.number + 1}/{n_trials}: "
+                f"score={trial.value:.4f} (best={best_score:.4f}), "
+                f"time={trial_elapsed/60:.1f}min, "
+                f"ETA={eta_time.strftime('%Y-%m-%d %H:%M')}"
+            )
+        else:
+            # Trial이 실패하거나 pruned된 경우
+            pbar.update(1)
+
     # 최적화 실행
     logging.info(f"🔧 Starting Optuna optimization ({n_trials} trials, {cv_folds}-fold CV)")
-    study.optimize(
-        objective,
-        n_trials=n_trials,
-        timeout=timeout,
-        show_progress_bar=False,
-        callbacks=[
-            lambda study, trial: logging.info(
-                f"  Trial {trial.number}/{n_trials}: "
-                f"score={trial.value:.4f}, "
-                f"params={trial.params}"
-            ) if trial.value is not None else None
-        ]
-    )
+    logging.info(f"   Memory-safe mode: n_jobs=1 (sequential trials)")
+    try:
+        study.optimize(
+            objective,
+            n_trials=n_trials,
+            timeout=timeout,
+            n_jobs=1,  # Sequential (메모리 안전: max_depth=8 시 trial당 3-5GB)
+            show_progress_bar=False,
+            callbacks=[progress_callback]
+        )
+    finally:
+        pbar.close()
 
-    logging.info(f"✅ Optimization completed!")
+    # 전체 최적화 시간
+    total_time = time.time() - optimization_start
+    logging.info(f"✅ Optimization completed in {total_time/60:.1f} minutes")
     logging.info(f"  Best score: {study.best_value:.4f}")
     logging.info(f"  Best params: {study.best_params}")
+    if trial_times:
+        logging.info(f"  Average trial time: {np.mean(trial_times)/60:.1f} minutes")
+        logging.info(f"  Fastest trial: {np.min(trial_times)/60:.1f} minutes")
+        logging.info(f"  Slowest trial: {np.max(trial_times)/60:.1f} minutes")
 
     return study, study.best_params
 

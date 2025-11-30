@@ -5,9 +5,9 @@
 # DATA Configuration
 # ============================================================================
 DATA:
-  # Years to process
-  START_YEAR: 2015
-  END_YEAR: 2023
+  # Years to process (maximum historical range for comprehensive learning)
+  START_YEAR: 1996  # FMP API provides ~30 years of historical data
+  END_YEAR: 2025
 
   # Data root path (will create subdirectories here)
   ROOT_PATH: /home/user/Quant/data
@@ -35,10 +35,12 @@ ML:
   RUN_REGRESSION: Y  # Y = Train models, N = Skip
 
   # Training/test split by year
-  TRAIN_START_YEAR: 2015
-  TRAIN_END_YEAR: 2021
-  TEST_START_YEAR: 2022
-  TEST_END_YEAR: 2023
+  # Train on maximum historical data for diverse market conditions
+  TRAIN_START_YEAR: 1996
+  TRAIN_END_YEAR: 2022
+  # Test on recent 3 years to validate performance on latest market trends
+  TEST_START_YEAR: 2023
+  TEST_END_YEAR: 2025
 
   # NaN removal diagnostics (초기 데이터 품질 확인용)
   EXPORT_NAN_REMOVAL_DETAILS: Y  # Y = 제거된 NaN 데이터를 CSV로 저장, N = 로그만 출력
@@ -59,20 +61,28 @@ ML:
   USE_ENSEMBLE: N  # Y = Use stacking ensemble
   ENSEMBLE_TYPE: stacking  # stacking or voting
 
-  # Hyperparameter optimization
-  USE_OPTUNA: N  # Y = Auto-tune hyperparameters (takes time)
-  OPTUNA_TRIALS: 50  # Number of optimization trials (10-20: quick, 50-100: thorough, 200+: comprehensive)
-  OPTUNA_CV_FOLDS: 5  # Cross-validation folds for each trial
-  OPTUNA_TIMEOUT: null  # Max optimization time in seconds (null = no limit)
+  # Hyperparameter optimization (recommended for production)
+  USE_OPTUNA: Y  # Y = Auto-tune hyperparameters for optimal performance
+
+  # ===== Test Mode (빠른 동작 확인용 - 모델 성능보다 실행 가능 여부 테스트) =====
+  OPTUNA_TRIALS: 3  # Minimal trials for quick test
+  OPTUNA_CV_FOLDS: 2  # Minimal CV folds
+  OPTUNA_TIMEOUT: 300  # 5 minutes limit
+
+  # ===== Production Mode (실전 투자용 - 최고 성능 추구) =====
+  # OPTUNA_TRIALS: 50  # Thorough optimization (recommended)
+  # OPTUNA_CV_FOLDS: 5  # Full cross-validation
+  # OPTUNA_TIMEOUT: null  # No time limit (may take 40-80 hours)
+
   OPTUNA_SAVE_REPORT: Y  # Y = Save detailed TXT/CSV/JSON reports
   OPTUNA_SAVE_PLOTS: Y  # Y = Save PNG visualization charts
 
-  # Optuna search space (parameter ranges for tuning)
-  # These ranges will be used for XGBoost models
+  # Optuna search space (updated for memory safety and overfitting prevention)
+  # Based on analysis: max_depth=8, n_estimators=500 prevents memory errors
   OPTUNA_SEARCH_SPACE:
-    n_estimators: [100, 2000]  # Number of trees
-    learning_rate: [0.001, 0.3]  # Learning rate
-    max_depth: [3, 15]  # Tree depth
+    n_estimators: [100, 500]  # Limited to prevent memory allocation errors
+    learning_rate: [0.01, 0.3]  # Minimum 0.01 to avoid extremely slow learning
+    max_depth: [3, 8]  # Limited to 8 for memory safety and overfitting prevention
     subsample: [0.5, 1.0]  # Row sampling ratio
     colsample_bytree: [0.5, 1.0]  # Column sampling ratio
     gamma: [0, 10]  # Minimum loss reduction for split
@@ -88,7 +98,7 @@ ML:
   # ============================================================================
   # Sector-based Model Training (섹터별 모델 학습)
   # ============================================================================
-  USE_SECTOR_MODEL: N  # Y = Train separate models per sector, N = Train unified model (default)
+  USE_SECTOR_MODEL: Y  # Y = Train separate models per sector for better sector-specific predictions
 
   # Sector configuration (only used if USE_SECTOR_MODEL = Y)
   SECTOR_CONFIG:
@@ -150,25 +160,25 @@ BACKTEST:
   RUN_BACKTEST: Y  # Y = Run backtest, N = Skip
 
   # ===== 옵션 1: 여러 구간 백테스트 (권장) =====
-  # 서로 다른 시기의 성과를 별도로 측정 (예: 금융위기 vs 호황기)
+  # 서로 다른 시기의 성과를 별도로 측정
   PERIODS:
-    # 구간 1: 2023년
-    - START_YEAR: 2023
-      END_YEAR: 2023
-      START_MONTH: 3
-      START_DATE: 13
+    # 구간 1: 팬데믹 충격과 유동성 주도 장세
+    - START_YEAR: 2020
+      END_YEAR: 2021  # 2021.12.31까지 백테스트
+      START_MONTH: 1
+      START_DATE: 1
 
-    # 구간 2: 2024년
-    - START_YEAR: 2024
-      END_YEAR: 2024
-      START_MONTH: 3
-      START_DATE: 13
+    # 구간 2: 금리 급등기와 AI 중심 회복 장세
+    - START_YEAR: 2022
+      END_YEAR: 2023  # 2023.12.31까지 백테스트
+      START_MONTH: 1
+      START_DATE: 1
 
-    # 추가 예시: 금융위기와 호황기 비교
-    # - START_YEAR: 2008
-    #   END_YEAR: 2009
-    # - START_YEAR: 2020
-    #   END_YEAR: 2021
+    # 추가 예시: 2024-2025년 백테스트
+    # - START_YEAR: 2024
+    #   END_YEAR: 2025
+    #   START_MONTH: 1
+    #   START_DATE: 1
 
   # ===== 옵션 2: 단일 구간 백테스트 =====
   # PERIODS를 주석 처리하고 아래 사용
