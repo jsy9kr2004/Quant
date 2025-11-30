@@ -255,11 +255,19 @@ class MLBacktest:
         self.logger.info("   🔧 Using ModelFactory (same models as regressor.py)")
 
         # 특성과 타겟 분리
-        # 제외할 컬럼 (메타데이터, 타겟 변수 등)
+        # 제외할 컬럼 (메타데이터 및 타겟 변수) - regressor.py의 y_col_list와 일치
         exclude_cols = [
-            'symbol', 'sector', 'industry', 'exchangeShortName',
-            'price_dev', 'price_dev_subavg', 'price_dev_prediction', 'start_date',
-            'fillingDate', 'acceptedDate', 'year_period'
+            # Metadata columns
+            'symbol', 'exchangeShortName', 'type', 'delistedDate',
+            'industry', 'ipoDate', 'sector',
+            # Date columns
+            'rebalance_date', 'report_date', 'fillingDate', 'fillingDate_x',
+            'acceptedDate', 'start_date', 'year_period',
+            # Price/volume columns (not features)
+            'price', 'volume', 'marketCap', 'price_diff', 'volume_mul_price',
+            # Target variables
+            'price_dev', 'price_dev_subavg', 'sec_price_dev_subavg',
+            'price_dev_prediction'
         ]
 
         feature_cols = [col for col in train_data.columns if col not in exclude_cols]
@@ -343,11 +351,19 @@ class MLBacktest:
         # 섹터별 모델 저장
         sector_models = {}
 
-        # 제외할 컬럼
+        # 제외할 컬럼 (메타데이터 및 타겟 변수) - regressor.py의 y_col_list와 일치
         exclude_cols = [
-            'symbol', 'sector', 'industry', 'exchangeShortName',
-            'label', 'price_dev_prediction', 'start_date',
-            'fillingDate', 'acceptedDate', 'year_period'
+            # Metadata columns
+            'symbol', 'exchangeShortName', 'type', 'delistedDate',
+            'industry', 'ipoDate', 'sector',
+            # Date columns
+            'rebalance_date', 'report_date', 'fillingDate', 'fillingDate_x',
+            'acceptedDate', 'start_date', 'year_period',
+            # Price/volume columns (not features)
+            'price', 'volume', 'marketCap', 'price_diff', 'volume_mul_price',
+            # Target variables
+            'price_dev', 'price_dev_subavg', 'sec_price_dev_subavg',
+            'price_dev_prediction'
         ]
 
         # 각 섹터별로 학습
