@@ -17,6 +17,7 @@ Date: 2025-11-28
 
 from typing import Dict, Any, List, Optional, Tuple
 import logging
+import numpy as np
 import xgboost
 import lightgbm as lgb
 from .config import (
@@ -112,25 +113,25 @@ class ModelFactory:
                 max_depth=self.optuna_params.get('max_depth', 8),
                 objective='binary:logistic',
                 eval_metric='logloss',
-                missing=None  # XGBoost handles NaN automatically
+                missing=np.nan  # XGBoost handles NaN automatically (use np.nan, not None)
             )
         else:
             clf_config = XGBOOST_CLASSIFIER_CONFIGS['default'].copy()
             clf_config['device'] = 'cpu'  # Override to CPU
-            clf_0 = xgboost.XGBClassifier(**clf_config, missing=None)
+            clf_0 = xgboost.XGBClassifier(**clf_config, missing=np.nan)
 
         classifiers.append(clf_0)
 
         # Classifier 1: XGBoost depth=9
         clf_config_9 = XGBOOST_CLASSIFIER_CONFIGS['depth_9'].copy()
         clf_config_9['device'] = 'cpu'
-        clf_1 = xgboost.XGBClassifier(**clf_config_9, missing=None)
+        clf_1 = xgboost.XGBClassifier(**clf_config_9, missing=np.nan)
         classifiers.append(clf_1)
 
         # Classifier 2: XGBoost depth=10
         clf_config_10 = XGBOOST_CLASSIFIER_CONFIGS['depth_10'].copy()
         clf_config_10['device'] = 'cpu'
-        clf_2 = xgboost.XGBClassifier(**clf_config_10, missing=None)
+        clf_2 = xgboost.XGBClassifier(**clf_config_10, missing=np.nan)
         classifiers.append(clf_2)
 
         # Classifier 3: LightGBM
@@ -152,13 +153,13 @@ class ModelFactory:
         # Regressor 0: XGBoost depth=8
         reg_config_8 = XGBOOST_REGRESSOR_CONFIGS['default'].copy()
         reg_config_8['device'] = 'cpu'
-        reg_0 = xgboost.XGBRegressor(**reg_config_8, missing=None)
+        reg_0 = xgboost.XGBRegressor(**reg_config_8, missing=np.nan)
         regressors.append(reg_0)
 
         # Regressor 1: XGBoost depth=10
         reg_config_10 = XGBOOST_REGRESSOR_CONFIGS['depth_10'].copy()
         reg_config_10['device'] = 'cpu'
-        reg_1 = xgboost.XGBRegressor(**reg_config_10, missing=None)
+        reg_1 = xgboost.XGBRegressor(**reg_config_10, missing=np.nan)
         regressors.append(reg_1)
 
         self.logger.info(f" Created ensemble models: {len(classifiers)} classifiers, {len(regressors)} regressors")
@@ -211,13 +212,13 @@ class ModelFactory:
             clf_config = XGBOOST_CLASSIFIER_CONFIGS['default'].copy()
             clf_config['device'] = device
             clf_config['tree_method'] = tree_method
-            classifier = xgboost.XGBClassifier(**clf_config, random_state=42, missing=None)
+            classifier = xgboost.XGBClassifier(**clf_config, random_state=42, missing=np.nan)
 
         # Regressor: Use same config as ensemble's first regressor
         reg_config = XGBOOST_REGRESSOR_CONFIGS['default'].copy()
         reg_config['device'] = device
         reg_config['tree_method'] = tree_method
-        regressor = xgboost.XGBRegressor(**reg_config, random_state=42, missing=None)
+        regressor = xgboost.XGBRegressor(**reg_config, random_state=42, missing=np.nan)
 
         self.logger.info(f" Created single models (device={device})")
 
