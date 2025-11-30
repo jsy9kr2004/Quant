@@ -179,12 +179,13 @@ def optimize_xgboost_params(
             pbar.update(1)
 
     # 최적화 실행
-    logging.info(f"🔧 Starting Optuna optimization ({n_trials} trials, {cv_folds}-fold CV)")
+    logging.info(f"🔧 Starting Optuna optimization ({n_trials} trials, {cv_folds}-fold CV, n_jobs=2)")
     try:
         study.optimize(
             objective,
             n_trials=n_trials,
             timeout=timeout,
+            n_jobs=2,  # CPU 병렬화: 2 trials 동시 실행 (메모리 안전성 보장)
             show_progress_bar=False,
             callbacks=[progress_callback]
         )
