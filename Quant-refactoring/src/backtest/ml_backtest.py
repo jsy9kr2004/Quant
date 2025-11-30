@@ -258,14 +258,14 @@ class MLBacktest:
         # 제외할 컬럼 (메타데이터, 타겟 변수 등)
         exclude_cols = [
             'symbol', 'sector', 'industry', 'exchangeShortName',
-            'label', 'price_dev_prediction', 'start_date',
+            'price_dev', 'price_dev_subavg', 'price_dev_prediction', 'start_date',
             'fillingDate', 'acceptedDate', 'year_period'
         ]
 
         feature_cols = [col for col in train_data.columns if col not in exclude_cols]
 
         X = train_data[feature_cols].copy()
-        y = train_data['label'].copy()  # 수익률
+        y = train_data['price_dev_subavg'].copy()  # 회귀 타겟 (regressor.py와 일관성)
 
         # NaN 처리
         X = X.fillna(0)
@@ -368,7 +368,7 @@ class MLBacktest:
             # 특성과 타겟 분리
             feature_cols = [col for col in sector_data.columns if col not in exclude_cols]
             X = sector_data[feature_cols].copy()
-            y = sector_data['label'].copy()
+            y = sector_data['price_dev_subavg'].copy()  # 회귀 타겟 (regressor.py와 일관성)
 
             # NaN 처리
             X = X.fillna(0)
