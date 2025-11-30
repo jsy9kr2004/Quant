@@ -1043,7 +1043,8 @@ class Regressor:
             from src.training.optuna_utils import (
                 optimize_xgboost_params,
                 save_optuna_report,
-                save_optuna_plots
+                save_optuna_plots,
+                PLOT_AVAILABLE
             )
 
             logging.info("="*80)
