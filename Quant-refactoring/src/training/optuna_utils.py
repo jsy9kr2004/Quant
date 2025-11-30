@@ -179,13 +179,14 @@ def optimize_xgboost_params(
             pbar.update(1)
 
     # 최적화 실행
-    logging.info(f"🔧 Starting Optuna optimization ({n_trials} trials, {cv_folds}-fold CV, n_jobs=2)")
+    logging.info(f"🔧 Starting Optuna optimization ({n_trials} trials, {cv_folds}-fold CV)")
+    logging.info(f"   Memory-safe mode: n_jobs=1 (sequential trials)")
     try:
         study.optimize(
             objective,
             n_trials=n_trials,
             timeout=timeout,
-            n_jobs=2,  # CPU 병렬화: 2 trials 동시 실행 (메모리 안전성 보장)
+            n_jobs=1,  # Sequential (메모리 안전: max_depth=8 시 trial당 3-5GB)
             show_progress_bar=False,
             callbacks=[progress_callback]
         )
