@@ -101,6 +101,18 @@ XGBOOST_REGRESSOR_CONFIGS: Dict[str, Dict[str, Any]] = {
         'objective': 'reg:squarederror',  # Squared error regression objective
         'eval_metric': 'rmse'             # Root mean squared error
     },
+    'depth_10': {
+        'tree_method': 'hist',
+        'device': 'cuda:0',
+        'n_estimators': 1000,
+        'learning_rate': 0.1,
+        'gamma': 0,
+        'subsample': 0.8,
+        'colsample_bytree': 0.8,
+        'max_depth': 10,                  # Deeper trees for regression (consistent with classifier)
+        'objective': 'reg:squarederror',
+        'eval_metric': 'rmse'
+    },
     'deep': {
         'tree_method': 'hist',
         'device': 'cuda:0',
@@ -109,7 +121,7 @@ XGBOOST_REGRESSOR_CONFIGS: Dict[str, Dict[str, Any]] = {
         'gamma': 0,
         'subsample': 0.8,
         'colsample_bytree': 0.8,
-        'max_depth': 10,                  # Deeper trees for regression
+        'max_depth': 10,                  # Deeper trees for regression (alias for depth_10)
         'objective': 'reg:squarederror',
         'eval_metric': 'rmse'
     }
