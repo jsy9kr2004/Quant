@@ -636,6 +636,88 @@ class DataProcessor:
         return df
 
     @staticmethod
+    def winsorize_features(
+        df: pd.DataFrame,
+        lower_percentile: float = 0.01,
+        upper_percentile: float = 0.99,
+        exclude_cols: Optional[List[str]] = None,
+        enabled: bool = True
+    ) -> pd.DataFrame:
+        """
+        Apply Winsorization to handle outliers by capping at percentiles.
+
+        Winsorization replaces extreme values with percentile values rather than
+        removing them. This is gentler than clipping and preserves information.
+
+        DIFFERENCE from clipping:
+        - Clipping: [1, 2, 5, 10, 50, 100, 1000] → [2, 2, 5, 10, 50, 100, 100]
+          (cuts off extremes, hard boundary)
+        - Winsorization: [1, 2, 5, 10, 50, 100, 1000] → [2, 2, 5, 10, 50, 100, 100]
+          (replaces with percentile values, soft cap)
+
+        Args:
+            df: Input DataFrame
+            lower_percentile: Lower percentile (default 0.01 = 1%)
+            upper_percentile: Upper percentile (default 0.99 = 99%)
+            exclude_cols: Columns to skip (e.g., ['sector'])
+            enabled: If False, returns df unchanged (for easy on/off toggle)
+
+        Returns:
+            Winsorized DataFrame
+
+        Example:
+            >>> # Enable Winsorization
+            >>> df_clean = DataProcessor.winsorize_features(df, enabled=True)
+            >>>
+            >>> # Disable for comparison
+            >>> df_raw = DataProcessor.winsorize_features(df, enabled=False)
+            >>>
+            >>> # More aggressive (0.5-99.5 percentile)
+            >>> df_gentle = DataProcessor.winsorize_features(
+            ...     df, lower_percentile=0.005, upper_percentile=0.995
+            ... )
+
+        Note:
+            - enabled=False: Easy way to disable without changing code
+            - Recommended for tree-based models: Try enabled=False first
+            - Use Winsorization if raw data has too many extreme outliers
+            - Default 1-99% is gentler than clipping's 2-98%
+        """
+        if not enabled:
+            logging.info("Winsorization disabled (enabled=False)")
+            return df.copy()
+
+        exclude_cols = exclude_cols or []
+        df = df.copy()
+
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        winsorized_count = 0
+
+        for col in numeric_cols:
+            if col in exclude_cols:
+                continue
+
+            # Get percentile values
+            lower_val = df[col].quantile(lower_percentile)
+            upper_val = df[col].quantile(upper_percentile)
+
+            # Count how many will be winsorized
+            lower_mask = df[col] < lower_val
+            upper_mask = df[col] > upper_val
+
+            if lower_mask.any() or upper_mask.any():
+                # Replace extreme values with percentile values
+                df.loc[lower_mask, col] = lower_val
+                df.loc[upper_mask, col] = upper_val
+                winsorized_count += 1
+
+        if winsorized_count > 0:
+            logging.info(f"Winsorized {winsorized_count} columns "
+                        f"(percentiles: {lower_percentile*100:.1f}-{upper_percentile*100:.1f}%)")
+
+        return df
+
+    @staticmethod
     def filter_by_liquidity(
         df: pd.DataFrame,
         threshold: Optional[float] = None,

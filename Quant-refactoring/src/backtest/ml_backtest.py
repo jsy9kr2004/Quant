@@ -277,6 +277,17 @@ class MLBacktest:
         # fillna(0) was WRONG: NaN (missing) ≠ 0 (actual zero value)
         # X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)  # REMOVED
 
+        # ✅ Winsorization: Outlier handling (OPTIONAL - disabled by default)
+        # Try enabled=True if models struggle with extreme values
+        # Disabled for tree-based models (XGBoost/LightGBM are outlier-robust)
+        USE_WINSORIZATION = False  # ← Set to True to enable
+        X = DataProcessor.winsorize_features(
+            X,
+            lower_percentile=0.01,  # 1%
+            upper_percentile=0.99,  # 99%
+            enabled=USE_WINSORIZATION
+        )
+
         # ✅ REFACTORED: Use DataProcessor for feature scaling
         X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
 
@@ -377,6 +388,17 @@ class MLBacktest:
 
             # ✅ NaN handling: Let XGBoost/LightGBM handle NaN internally
             # X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)  # REMOVED
+
+            # ✅ Winsorization: Outlier handling (OPTIONAL - disabled by default)
+            # Try enabled=True if models struggle with extreme values
+            # Disabled for tree-based models (XGBoost/LightGBM are outlier-robust)
+            USE_WINSORIZATION = False  # ← Set to True to enable
+            X = DataProcessor.winsorize_features(
+                X,
+                lower_percentile=0.01,  # 1%
+                upper_percentile=0.99,  # 99%
+                enabled=USE_WINSORIZATION
+            )
 
             # ✅ REFACTORED: Use DataProcessor for feature scaling
             X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
