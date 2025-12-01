@@ -288,6 +288,24 @@ class MLBacktest:
             enabled=USE_WINSORIZATION
         )
 
+        # ✅ Feature Selection: Reduce dimension using model-based importance
+        # Target: 4,279 → ~1,000 features (improve sample/feature ratio)
+        # Disabled by default - enable to test if dimensionality is an issue
+        USE_FEATURE_SELECTION = False  # ← Set to True to enable
+        TARGET_FEATURES = 1000  # Target number of features
+        if USE_FEATURE_SELECTION:
+            X, selected_features = DataProcessor.select_features_by_importance(
+                X, y,
+                n_features=TARGET_FEATURES,
+                task='regression',
+                enabled=True
+            )
+            # Update feature_cols to selected features for model saving
+            feature_cols = selected_features
+            self.selected_features_unified = selected_features
+        else:
+            self.selected_features_unified = None
+
         # ✅ REFACTORED: Use DataProcessor for feature scaling
         X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
 
@@ -400,6 +418,29 @@ class MLBacktest:
                 enabled=USE_WINSORIZATION
             )
 
+            # ✅ Feature Selection: Reduce dimension using model-based importance
+            # Target: 4,279 → ~1,000 features (improve sample/feature ratio)
+            # Disabled by default - enable to test if dimensionality is an issue
+            USE_FEATURE_SELECTION = False  # ← Set to True to enable
+            TARGET_FEATURES = 1000  # Target number of features
+            if USE_FEATURE_SELECTION:
+                X, selected_features = DataProcessor.select_features_by_importance(
+                    X, y,
+                    n_features=TARGET_FEATURES,
+                    task='regression',
+                    enabled=True
+                )
+                # Update feature_cols to selected features for model saving
+                feature_cols = selected_features
+                # Save selected features for this sector
+                if not hasattr(self, 'selected_features_sectors'):
+                    self.selected_features_sectors = {}
+                self.selected_features_sectors[sector] = selected_features
+            else:
+                if not hasattr(self, 'selected_features_sectors'):
+                    self.selected_features_sectors = {}
+                self.selected_features_sectors[sector] = None
+
             # ✅ REFACTORED: Use DataProcessor for feature scaling
             X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
 
@@ -494,7 +535,8 @@ class MLBacktest:
         scaler = models['scaler']
 
         X = test_data[feature_cols].copy()
-        X = X.fillna(0)
+        # ✅ NaN handling: Let XGBoost/LightGBM handle NaN during prediction
+        # Don't fillna(0) - models trained with NaN can handle NaN in test data
         X_scaled = scaler.transform(X)
 
         # 분류 예측 (상승 확률)
@@ -554,7 +596,7 @@ class MLBacktest:
                 scaler = sector_model['scaler']
 
                 X = sector_data[feature_cols].copy()
-                X = X.fillna(0)
+                # ✅ NaN handling: Let XGBoost/LightGBM handle NaN during prediction
                 X_scaled = scaler.transform(X)
 
                 # 예측

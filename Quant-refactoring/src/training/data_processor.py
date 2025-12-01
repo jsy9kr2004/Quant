@@ -718,6 +718,130 @@ class DataProcessor:
         return df
 
     @staticmethod
+    def select_features_by_importance(
+        X: pd.DataFrame,
+        y: Union[pd.Series, pd.DataFrame],
+        n_features: Optional[int] = None,
+        top_pct: Optional[float] = None,
+        task: str = 'regression',
+        enabled: bool = True,
+        random_state: int = 42
+    ) -> Tuple[pd.DataFrame, List[str]]:
+        """
+        Select features using model-based importance (LightGBM).
+
+        Uses LightGBM's built-in feature importance to identify the most
+        predictive features. This is more robust than correlation-based
+        methods and handles multicollinearity automatically.
+
+        STRATEGY: Model-based selection (강력한 방법)
+        - Trains a LightGBM model to compute feature importances
+        - Selects top N features or top percentage
+        - Handles interactions and non-linear relationships
+        - No need for feature scaling
+
+        Args:
+            X: Feature dataframe
+            y: Target variable
+            n_features: Number of top features to select (e.g., 1000)
+            top_pct: Percentage of top features (e.g., 0.3 for top 30%)
+            task: 'regression' or 'classification'
+            enabled: If False, returns all features unchanged
+            random_state: Random seed for reproducibility
+
+        Returns:
+            Tuple of (selected feature dataframe, list of selected feature names)
+
+        Example:
+            >>> # Reduce from 4,279 to 1,000 features
+            >>> X_selected, selected_cols = DataProcessor.select_features_by_importance(
+            ...     X, y, n_features=1000, task='regression'
+            ... )
+            >>> # Apply same selection to test set
+            >>> X_test_selected = X_test[selected_cols]
+
+        Note:
+            - Default disabled (enabled=False) - user can test with/without
+            - Must specify either n_features or top_pct (not both)
+            - Selected feature names must be saved for test set application
+            - Target ratio recommendation: samples/features >= 10:1
+        """
+        if not enabled:
+            logging.info("Feature selection disabled (enabled=False)")
+            return X.copy(), list(X.columns)
+
+        # Validate parameters
+        if n_features is None and top_pct is None:
+            raise ValueError("Must specify either n_features or top_pct")
+        if n_features is not None and top_pct is not None:
+            raise ValueError("Cannot specify both n_features and top_pct")
+
+        # Import LightGBM
+        try:
+            import lightgbm as lgb
+        except ImportError:
+            logging.warning("LightGBM not available, returning all features")
+            return X.copy(), list(X.columns)
+
+        # Calculate target number of features
+        if top_pct is not None:
+            n_features = max(1, int(len(X.columns) * top_pct))
+
+        n_features = min(n_features, len(X.columns))
+
+        logging.info(f"Selecting top {n_features} features from {len(X.columns)} "
+                    f"using LightGBM importance ({task})")
+
+        # Prepare data
+        X_np = X.values
+        y_np = y.values.ravel() if hasattr(y, 'values') else y
+
+        # Train LightGBM model for feature importance
+        if task == 'regression':
+            model = lgb.LGBMRegressor(
+                n_estimators=100,
+                max_depth=5,
+                learning_rate=0.1,
+                random_state=random_state,
+                verbose=-1,
+                force_col_wise=True  # Suppress warning
+            )
+        else:  # classification
+            model = lgb.LGBMClassifier(
+                n_estimators=100,
+                max_depth=5,
+                learning_rate=0.1,
+                random_state=random_state,
+                verbose=-1,
+                force_col_wise=True
+            )
+
+        # Fit model
+        model.fit(X_np, y_np)
+
+        # Get feature importances (gain-based)
+        importances = model.feature_importances_
+
+        # Select top N features by importance
+        top_indices = np.argsort(importances)[-n_features:]
+        selected_cols = [X.columns[i] for i in top_indices]
+
+        # Create selected dataframe
+        X_selected = X[selected_cols].copy()
+
+        # Calculate reduction stats
+        reduction_pct = (1 - n_features / len(X.columns)) * 100
+        new_ratio = len(X) / n_features
+
+        logging.info(f"✓ Feature selection complete: "
+                    f"{len(X.columns)} → {n_features} features "
+                    f"({reduction_pct:.1f}% reduction)")
+        logging.info(f"  New sample/feature ratio: {new_ratio:.1f}:1 "
+                    f"(recommended >= 10:1)")
+
+        return X_selected, selected_cols
+
+    @staticmethod
     def filter_by_liquidity(
         df: pd.DataFrame,
         threshold: Optional[float] = None,
