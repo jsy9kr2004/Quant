@@ -80,6 +80,7 @@ from typing import Dict, List, Tuple, Optional, Any
 # from datasets import Dataset
 from config.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, sparse_col_list
 from src.constants.data_schema import DataSchema  # ✨ Unified column definitions
+from src.training.data_processor import DataProcessor  # ✨ Unified preprocessing
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.neural_network import MLPRegressor
@@ -614,13 +615,16 @@ class Regressor:
             df = pd.read_parquet(fpath, engine='pyarrow')
             df = df.dropna(axis=0, subset=['price_diff'])
 
-            # infinite 값 체크 및 제거 (XGBoost는 infinite를 처리할 수 없음)
+            # ✅ REFACTORED: Use DataProcessor for infinite value handling
+            # XGBoost cannot handle infinite values
             numeric_cols = df.select_dtypes(include=[np.number]).columns
-            inf_mask = np.isinf(df[numeric_cols])
-            rows_with_inf = inf_mask.any(axis=1)
-            if rows_with_inf.sum() > 0:
-                logging.warning(f"⚠️  Found {rows_with_inf.sum()} rows with infinite values in {os.path.basename(fpath)}")
-                df = df[~rows_with_inf]
+            df_numeric_clean, _ = DataProcessor.remove_infinite_values(df[numeric_cols], None)
+
+            # If rows were removed, update the full dataframe
+            if len(df_numeric_clean) < len(df):
+                removed_count = len(df) - len(df_numeric_clean)
+                logging.warning(f"⚠️  Found {removed_count} rows with infinite values in {os.path.basename(fpath)}")
+                df = df.loc[df_numeric_clean.index]
                 logging.info(f"   After infinite removal: {len(df)} rows remaining")
 
             self.train_df = pd.concat([self.train_df, df], axis=0)
@@ -651,11 +655,9 @@ class Regressor:
         print(f'Removed columns # : {len(columns_to_drop)}')
         print(f'Cleaned DataFrame shape: {self.train_df.shape}')
 
-        # 과도한 누락 데이터가 있는 행 제거 (>60% NaN)
+        # ✅ REFACTORED: Use DataProcessor for excessive NaN row removal
         print("in train set before dtable len : ", len(self.train_df))
-        self.train_df['nan_count_per_row'] = self.train_df.isnull().sum(axis=1)
-        filtered_row = self.train_df['nan_count_per_row'] < int(len(self.train_df.columns)*0.6)
-        self.train_df = self.train_df.loc[filtered_row,:]
+        self.train_df = DataProcessor.drop_many_nan_row(self.train_df, threshold=0.6)
         print("in train set after dtable len : ", len(self.train_df))
 
         # TODO: 이것은 여기가 아니라 make_mldata.py에서 처리되어야 합니다
@@ -668,14 +670,15 @@ class Regressor:
             sec_mean = self.train_df.loc[sec_mask, 'price_dev'].mean()
             self.train_df.loc[sec_mask, 'sec_price_dev_subavg'] = self.train_df.loc[sec_mask, 'price_dev'] - sec_mean
 
-        # 섹터 계산 후 infinite 값 체크 및 제거
+        # ✅ REFACTORED: Use DataProcessor for infinite value handling after sector calculation
         numeric_cols_train = self.train_df.select_dtypes(include=[np.number]).columns
-        inf_mask_train = np.isinf(self.train_df[numeric_cols_train])
-        rows_with_inf_train = inf_mask_train.any(axis=1)
-        if rows_with_inf_train.sum() > 0:
-            logging.warning(f"⚠️  Found {rows_with_inf_train.sum()} rows with infinite values after sector calculation")
+        train_numeric_clean, _ = DataProcessor.remove_infinite_values(self.train_df[numeric_cols_train], None)
+
+        if len(train_numeric_clean) < len(self.train_df):
+            removed_count = len(self.train_df) - len(train_numeric_clean)
+            logging.warning(f"⚠️  Found {removed_count} rows with infinite values after sector calculation")
             logging.warning(f"   This may be caused by sector mean calculation or subtraction overflow")
-            self.train_df = self.train_df[~rows_with_inf_train]
+            self.train_df = self.train_df.loc[train_numeric_clean.index]
             logging.info(f"   After infinite removal: {len(self.train_df)} rows remaining")
 
         # PER_SECTOR 모드: 섹터별로 학습 데이터 분리
@@ -700,23 +703,22 @@ class Regressor:
             df = pd.read_parquet(fpath, engine='pyarrow')
             df = df.dropna(axis=0, subset=['price_diff'])
 
-            # infinite 값 체크 및 제거 (학습 데이터와 동일)
+            # ✅ REFACTORED: Use DataProcessor for infinite value handling (same as train data)
             numeric_cols_test = df.select_dtypes(include=[np.number]).columns
-            inf_mask_test = np.isinf(df[numeric_cols_test])
-            rows_with_inf_test = inf_mask_test.any(axis=1)
-            if rows_with_inf_test.sum() > 0:
-                logging.warning(f"⚠️  Found {rows_with_inf_test.sum()} rows with infinite values in test file {os.path.basename(fpath)}")
-                df = df[~rows_with_inf_test]
+            df_test_numeric_clean, _ = DataProcessor.remove_infinite_values(df[numeric_cols_test], None)
+
+            if len(df_test_numeric_clean) < len(df):
+                removed_count = len(df) - len(df_test_numeric_clean)
+                logging.warning(f"⚠️  Found {removed_count} rows with infinite values in test file {os.path.basename(fpath)}")
+                df = df.loc[df_test_numeric_clean.index]
                 logging.info(f"   After infinite removal: {len(df)} rows remaining")
 
             # 학습과 동일한 특성 제거
             df = df.drop(columns=columns_to_drop, errors='ignore')
 
-            # 과도한 누락 데이터가 있는 행 제거
+            # ✅ REFACTORED: Use DataProcessor for excessive NaN row removal
             print("in test set before dtable len : ", len(df))
-            df['nan_count_per_row'] = df.isnull().sum(axis=1)
-            filtered_row = df['nan_count_per_row'] < int(len(df.columns)*0.6)
-            df = df.loc[filtered_row,:]
+            df = DataProcessor.drop_many_nan_row(df, threshold=0.6)
             print("in test set after dtable len : ", len(df))
 
             # TODO: 이것은 make_mldata.py에서 처리되어야 합니다
@@ -729,13 +731,14 @@ class Regressor:
                 sec_mean = df.loc[sec_mask, 'price_dev'].mean()
                 df.loc[sec_mask, 'sec_price_dev_subavg'] = df.loc[sec_mask, 'price_dev'] - sec_mean
 
-            # 테스트 데이터도 섹터 계산 후 infinite 체크
+            # ✅ REFACTORED: Use DataProcessor for infinite value handling after sector calculation
             numeric_cols_test2 = df.select_dtypes(include=[np.number]).columns
-            inf_mask_test2 = np.isinf(df[numeric_cols_test2])
-            rows_with_inf_test2 = inf_mask_test2.any(axis=1)
-            if rows_with_inf_test2.sum() > 0:
-                logging.warning(f"⚠️  Found {rows_with_inf_test2.sum()} rows with infinite values after sector calculation in test file")
-                df = df[~rows_with_inf_test2]
+            df_test_numeric_clean2, _ = DataProcessor.remove_infinite_values(df[numeric_cols_test2], None)
+
+            if len(df_test_numeric_clean2) < len(df):
+                removed_count = len(df) - len(df_test_numeric_clean2)
+                logging.warning(f"⚠️  Found {removed_count} rows with infinite values after sector calculation in test file")
+                df = df.loc[df_test_numeric_clean2.index]
                 logging.info(f"   After infinite removal: {len(df)} rows remaining")
 
             # 모든 테스트 데이터를 연결하고 기간별 리스트 유지
@@ -773,19 +776,27 @@ class Regressor:
         self.y_train = self.train_df[['price_dev_subavg']]  # 회귀 타겟 (가격 변동 - 평균)
         self.y_train_cls = self.train_df[['price_dev']]  # 분류 타겟 (이진: 상승/하락)
 
-        # y 레이블 infinite 체크
-        inf_in_y_train_check = np.isinf(self.y_train).any().any()
-        inf_in_y_train_cls_check = np.isinf(self.y_train_cls).any().any()
-        if inf_in_y_train_check or inf_in_y_train_cls_check:
-            logging.error(f"❌ CRITICAL: Infinite values found in y labels after train/test split!")
-            logging.error(f"   - y_train (price_dev_subavg): {np.isinf(self.y_train).sum().sum()} infinite values")
-            logging.error(f"   - y_train_cls (price_dev): {np.isinf(self.y_train_cls).sum().sum()} infinite values")
+        # ✅ REFACTORED: Use DataProcessor for infinite value handling in y labels
+        # Check both regression and classification targets
+        _, y_train_clean = DataProcessor.remove_infinite_values(self.x_train, self.y_train.iloc[:, 0])
+        _, y_train_cls_clean = DataProcessor.remove_infinite_values(self.x_train, self.y_train_cls.iloc[:, 0])
 
-            # y에 infinite가 있는 행 제거
-            rows_with_inf_y = np.isinf(self.y_train).any(axis=1) | np.isinf(self.y_train_cls).any(axis=1)
-            self.x_train = self.x_train[~rows_with_inf_y]
-            self.y_train = self.y_train[~rows_with_inf_y.values]
-            self.y_train_cls = self.y_train_cls[~rows_with_inf_y.values]
+        # Find rows with infinite in either target
+        inf_in_y_train = len(self.y_train) > len(y_train_clean) if y_train_clean is not None else False
+        inf_in_y_train_cls = len(self.y_train_cls) > len(y_train_cls_clean) if y_train_cls_clean is not None else False
+
+        if inf_in_y_train or inf_in_y_train_cls:
+            logging.error(f"❌ CRITICAL: Infinite values found in y labels after train/test split!")
+            if inf_in_y_train:
+                logging.error(f"   - y_train (price_dev_subavg): {len(self.y_train) - len(y_train_clean)} infinite values")
+            if inf_in_y_train_cls:
+                logging.error(f"   - y_train_cls (price_dev): {len(self.y_train_cls) - len(y_train_cls_clean)} infinite values")
+
+            # Combine the indices from both cleaned targets
+            valid_indices = y_train_clean.index.intersection(y_train_cls_clean.index)
+            self.x_train = self.x_train.loc[valid_indices]
+            self.y_train = self.y_train.loc[valid_indices]
+            self.y_train_cls = self.y_train_cls.loc[valid_indices]
             logging.info(f"   After removing rows with infinite y: {len(self.x_train)} rows remaining")
         else:
             logging.info(f"✅ No infinite values in y labels (y_train, y_train_cls)")
@@ -1078,8 +1089,8 @@ class Regressor:
             logging.info(f"  Trials: {n_trials}, CV folds: {cv_folds}")
             logging.info(f"  Search space: {search_space}")
 
-            # 이진 레이블 생성 (Optuna용)
-            y_train_binary_optuna = (self.y_train_cls > 0).astype(int)
+            # ✅ REFACTORED: Binary label generation using DataProcessor (for Optuna)
+            y_train_binary_optuna = DataProcessor.create_binary_target(self.y_train_cls, threshold=-0.02)
 
             # ========== Phase 1 & 2: 극단값 진단 및 클리핑 ==========
             # Optuna CV 실행 전에 데이터 품질 확인 및 처리
@@ -1176,34 +1187,39 @@ class Regressor:
         if not (use_optuna and OPTUNA_AVAILABLE):
             self.x_train = self.clean_feature_names(self.x_train)
 
-        # [최종 체크] XGBoost 학습 전 infinite 값 검증
-        numeric_cols_final = self.x_train.select_dtypes(include=[np.number]).columns
-        inf_mask_final = np.isinf(self.x_train[numeric_cols_final])
-        rows_with_inf_final = inf_mask_final.any(axis=1)
+        # ✅ REFACTORED: Final infinite value check before model training using DataProcessor
+        # Check X (features) for infinite values
+        x_train_clean, _ = DataProcessor.remove_infinite_values(self.x_train, None)
 
-        # y 레이블도 infinite 체크
-        inf_in_y_train = np.isinf(self.y_train).any(axis=1)
-        inf_in_y_train_cls = np.isinf(self.y_train_cls).any(axis=1)
+        # Check both y targets for infinite values
+        _, y_train_clean = DataProcessor.remove_infinite_values(self.x_train, self.y_train.iloc[:, 0])
+        _, y_train_cls_clean = DataProcessor.remove_infinite_values(self.x_train, self.y_train_cls.iloc[:, 0])
 
-        # x_train 또는 y에 infinite가 있는 행 찾기
-        rows_with_inf_combined = rows_with_inf_final | inf_in_y_train | inf_in_y_train_cls
+        # Calculate how many rows have infinite values
+        x_removed = len(self.x_train) - len(x_train_clean)
+        y_removed = len(self.y_train) - len(y_train_clean) if y_train_clean is not None else 0
+        y_cls_removed = len(self.y_train_cls) - len(y_train_cls_clean) if y_train_cls_clean is not None else 0
 
-        if rows_with_inf_combined.sum() > 0:
-            logging.error(f"❌ CRITICAL: Found {rows_with_inf_combined.sum()} rows with infinite values before model training!")
-            logging.error(f"   - Infinite in x_train: {rows_with_inf_final.sum()} rows")
-            logging.error(f"   - Infinite in y_train: {inf_in_y_train.sum()} rows")
-            logging.error(f"   - Infinite in y_train_cls: {inf_in_y_train_cls.sum()} rows")
+        if x_removed > 0 or y_removed > 0 or y_cls_removed > 0:
+            total_removed = x_removed + y_removed + y_cls_removed
+            logging.error(f"❌ CRITICAL: Found {total_removed} rows with infinite values before model training!")
+            logging.error(f"   - Infinite in x_train: {x_removed} rows")
+            logging.error(f"   - Infinite in y_train: {y_removed} rows")
+            logging.error(f"   - Infinite in y_train_cls: {y_cls_removed} rows")
             logging.error(f"   Removing these rows to prevent XGBoost error...")
 
-            self.x_train = self.x_train[~rows_with_inf_combined]
-            self.y_train = self.y_train[~rows_with_inf_combined.values]
-            self.y_train_cls = self.y_train_cls[~rows_with_inf_combined.values]
+            # Find valid indices (rows without infinite in any of X, y_train, y_train_cls)
+            valid_indices = x_train_clean.index.intersection(y_train_clean.index).intersection(y_train_cls_clean.index)
+            self.x_train = self.x_train.loc[valid_indices]
+            self.y_train = self.y_train.loc[valid_indices]
+            self.y_train_cls = self.y_train_cls.loc[valid_indices]
             logging.info(f"   After final infinite removal: {len(self.x_train)} rows remaining")
         else:
             logging.info(f"✅ No infinite values in x_train and y labels ({len(self.x_train)} rows)")
 
-        # 회귀 레이블을 이진 분류 레이블로 변환 (0/1)
-        y_train_binary = (self.y_train_cls > 0).astype(int)
+        # ✅ REFACTORED: Use DataProcessor for binary target creation
+        # Uses -0.02 threshold (2% loss tolerance) for consistency with ml_backtest.py
+        y_train_binary = DataProcessor.create_binary_target(self.y_train_cls, threshold=-0.02)
 
         # [CRITICAL DEBUG] 실제 데이터 상태 확인
         logging.info("=" * 80)
@@ -1295,8 +1311,8 @@ class Regressor:
             logging.info(f"   Keeping {remaining_nan_count} NaN values for XGBoost to handle (missing=np.nan)")
             logging.info(f"   XGBoost will treat NaN as a separate category in tree splits")
 
-        # y_train_binary 업데이트
-        y_train_binary = (self.y_train_cls > 0).astype(int)
+        # ✅ REFACTORED: Update y_train_binary using DataProcessor
+        y_train_binary = DataProcessor.create_binary_target(self.y_train_cls, threshold=-0.02)
 
         logging.info(f"✅ NaN handling complete: {original_rows} → {len(self.x_train)} rows ({len(self.x_train)/original_rows*100:.1f}% retained)")
         logging.info(f"   Final data: {len(self.x_train)} rows × {len(self.x_train.columns)} features")
@@ -1491,7 +1507,8 @@ class Regressor:
             x_test = df[df.columns.difference(y_col_list)]
             y_test = df[['price_dev_subavg']]
             y_test_cls = df[['price_dev']]
-            y_test_binary = (y_test_cls > 0).astype(int)
+            # ✅ REFACTORED: Use DataProcessor for binary target
+            y_test_binary = DataProcessor.create_binary_target(y_test_cls, threshold=-0.02)
 
             df['label'] = y_test  # 실제 가격 변동
             df['label_binary'] = y_test_binary  # 실제 이진 레이블
@@ -1968,10 +1985,9 @@ class Regressor:
         ldf = ldf.drop('sector', axis=1)
 
         # 과도한 누락 데이터가 있는 행 필터링 (>60% NaN)
+        # ✅ REFACTORED: Use DataProcessor for excessive NaN row removal
         print("before dtable len : ", len(ldf))
-        ldf['nan_count_per_row'] = ldf.isnull().sum(axis=1)
-        filtered_row = ldf['nan_count_per_row'] < int(len(ldf.columns)*0.6)
-        ldf = ldf.loc[filtered_row,:]
+        ldf = DataProcessor.drop_many_nan_row(ldf, threshold=0.6)
         print("after dtable len : ", len(ldf))
 
         # 입력 특성 준비

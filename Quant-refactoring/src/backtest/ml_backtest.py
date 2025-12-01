@@ -23,12 +23,13 @@ from dateutil.relativedelta import relativedelta
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
-from sklearn.preprocessing import StandardScaler, RobustScaler
 from xgboost import XGBClassifier, XGBRegressor
 import lightgbm as lgb
 
-# ✨ REFACTORED: Import unified data schema
+# ✨ REFACTORED: Import unified data schema and preprocessing
+# DataProcessor now handles all scaling (RobustScaler, StandardScaler)
 from src.constants.data_schema import DataSchema
+from src.training.data_processor import DataProcessor
 
 
 class MLBacktest:
@@ -266,16 +267,20 @@ class MLBacktest:
         X = train_data[feature_cols].copy()
         y = train_data[DataSchema.REGRESSION_TARGET].copy()  # ✨ Unified target (regressor.py와 일관성)
 
-        # NaN 처리
-        X = X.fillna(0)
-        y = y.fillna(0)
+        # ✅ REFACTORED: Use DataProcessor for infinite value handling
+        # This ensures regressor.py and ml_backtest.py use IDENTICAL preprocessing
+        X, y = DataProcessor.remove_infinite_values(X, y)
+        X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
-        # 스케일링
-        scaler = RobustScaler()
-        X_scaled = scaler.fit_transform(X)
+        # ✅ REFACTORED: Use DataProcessor for NaN handling
+        X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)
 
-        # 이진 분류용 타겟 (상승/하락)
-        y_binary = (y > 0).astype(int)
+        # ✅ REFACTORED: Use DataProcessor for feature scaling
+        X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
+
+        # ✅ REFACTORED: Use DataProcessor for binary target creation
+        # Uses same threshold as regressor.py (-0.02) for consistency
+        y_binary = DataProcessor.create_binary_target(y, threshold=-0.02)
 
         # ✨ Create models using ModelFactory (same as regressor.py!)
         use_gpu = self._is_gpu_available()
@@ -365,16 +370,18 @@ class MLBacktest:
             X = sector_data[feature_cols].copy()
             y = sector_data[DataSchema.REGRESSION_TARGET].copy()  # ✨ Unified target (regressor.py와 일관성)
 
-            # NaN 처리
-            X = X.fillna(0)
-            y = y.fillna(0)
+            # ✅ REFACTORED: Use DataProcessor for infinite value handling
+            X, y = DataProcessor.remove_infinite_values(X, y)
+            X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
-            # 스케일링
-            scaler = RobustScaler()
-            X_scaled = scaler.fit_transform(X)
+            # ✅ REFACTORED: Use DataProcessor for NaN handling
+            X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)
 
-            # 이진 분류용 타겟
-            y_binary = (y > 0).astype(int)
+            # ✅ REFACTORED: Use DataProcessor for feature scaling
+            X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
+
+            # ✅ REFACTORED: Use DataProcessor for binary target creation
+            y_binary = DataProcessor.create_binary_target(y, threshold=-0.02)
 
             try:
                 # ✨ Create models using ModelFactory (config-based, same as regressor.py!)

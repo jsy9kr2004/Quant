@@ -196,6 +196,143 @@ class DataProcessor:
         return df_clean, cols_to_drop
 
     # ========================================================================
+    # Infinite Value Handling
+    # ========================================================================
+
+    @staticmethod
+    def remove_infinite_values(
+        X: pd.DataFrame,
+        y: Optional[pd.Series] = None
+    ) -> Tuple[pd.DataFrame, Optional[pd.Series]]:
+        """
+        Remove rows with infinite values (XGBoost compatibility).
+
+        XGBoost cannot handle infinite values and will raise an error.
+        This method removes all rows containing inf or -inf.
+
+        Parameters:
+        -----------
+        X : pd.DataFrame
+            Feature dataframe
+        y : Optional[pd.Series]
+            Target series (will be aligned with X if provided)
+
+        Returns:
+        --------
+        X_clean : pd.DataFrame
+            Dataframe without infinite values
+        y_clean : Optional[pd.Series]
+            Target series without infinite values (if provided)
+
+        Example:
+        --------
+        X_clean, y_clean = DataProcessor.remove_infinite_values(X, y)
+        """
+        # Check for infinite values
+        inf_mask = np.isinf(X)
+        rows_with_inf = inf_mask.any(axis=1)
+
+        if rows_with_inf.sum() > 0:
+            logging.warning(f"⚠️  Found {rows_with_inf.sum()} rows with infinite values, removing...")
+            X_clean = X[~rows_with_inf].copy()
+
+            if y is not None:
+                y_clean = y[~rows_with_inf].copy()
+                logging.info(f"   After infinite removal: {len(X_clean)} rows remaining")
+                return X_clean, y_clean
+            else:
+                logging.info(f"   After infinite removal: {len(X_clean)} rows remaining")
+                return X_clean, None
+
+        return X, y
+
+    @staticmethod
+    def replace_infinite_with_nan(
+        X: pd.DataFrame,
+        y: Optional[pd.Series] = None
+    ) -> Tuple[pd.DataFrame, Optional[pd.Series]]:
+        """
+        Replace infinite values with NaN.
+
+        Sometimes it's better to replace inf with NaN rather than removing rows.
+        This allows fillna() to handle them.
+
+        Parameters:
+        -----------
+        X : pd.DataFrame
+            Feature dataframe
+        y : Optional[pd.Series]
+            Target series
+
+        Returns:
+        --------
+        X_clean : pd.DataFrame
+            Dataframe with inf replaced by NaN
+        y_clean : Optional[pd.Series]
+            Target with inf replaced by NaN (if provided)
+        """
+        X_clean = X.replace([np.inf, -np.inf], np.nan)
+
+        if y is not None:
+            y_clean = y.replace([np.inf, -np.inf], np.nan)
+            return X_clean, y_clean
+
+        return X_clean, None
+
+    # ========================================================================
+    # NaN Handling
+    # ========================================================================
+
+    @staticmethod
+    def handle_nan(
+        X: pd.DataFrame,
+        y: Optional[pd.Series] = None,
+        method: str = 'fillna',
+        fill_value: Any = 0
+    ) -> Tuple[pd.DataFrame, Optional[pd.Series]]:
+        """
+        Unified NaN handling.
+
+        Provides consistent NaN handling across regressor.py and ml_backtest.py.
+
+        Parameters:
+        -----------
+        X : pd.DataFrame
+            Feature dataframe
+        y : Optional[pd.Series]
+            Target series
+        method : str
+            'fillna' (default), 'drop', or 'forward_fill'
+        fill_value : Any
+            Value to fill NaN with (default: 0)
+
+        Returns:
+        --------
+        X_clean : pd.DataFrame
+            Dataframe with NaN handled
+        y_clean : Optional[pd.Series]
+            Target with NaN handled (if provided)
+
+        Example:
+        --------
+        X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)
+        """
+        if method == 'fillna':
+            X_clean = X.fillna(fill_value)
+            y_clean = y.fillna(fill_value) if y is not None else None
+        elif method == 'drop':
+            nan_mask = X.isna().any(axis=1)
+            X_clean = X[~nan_mask]
+            y_clean = y[~nan_mask] if y is not None else None
+        elif method == 'forward_fill':
+            X_clean = X.fillna(method='ffill')
+            y_clean = y.fillna(method='ffill') if y is not None else None
+        else:
+            raise ValueError(f"Unknown method: {method}. Use 'fillna', 'drop', or 'forward_fill'")
+
+        return X_clean, y_clean
+
+    # ========================================================================
     # Outlier Handling
     # ========================================================================
 
@@ -279,13 +416,16 @@ class DataProcessor:
     # Feature Scaling
     # ========================================================================
 
-    def fit_scaler(
-        self,
+    @staticmethod
+    def scale_features(
         X: pd.DataFrame,
-        scaler_type: str = 'robust'
-    ) -> np.ndarray:
+        scaler_type: str = 'robust',
+        fitted_scaler: Optional[Any] = None
+    ) -> Tuple[np.ndarray, Any]:
         """
-        Fit scaler and transform features.
+        Unified feature scaling.
+
+        Provides consistent scaling across regressor.py and ml_backtest.py.
 
         Parameters:
         -----------
@@ -293,63 +433,349 @@ class DataProcessor:
             Feature dataframe
         scaler_type : str
             'robust' (default) or 'standard'
+        fitted_scaler : Optional[Any]
+            Pre-fitted scaler for transform mode
+            If None, creates new scaler and fits (train mode)
 
         Returns:
         --------
-        np.ndarray
+        X_scaled : np.ndarray
             Scaled features
+        scaler : Any
+            Fitted scaler object (for use in transform mode)
 
         Example:
         --------
-        X_train_scaled = processor.fit_scaler(X_train, scaler_type='robust')
+        # Train mode (fit new scaler)
+        X_train_scaled, scaler = DataProcessor.scale_features(X_train, 'robust')
+
+        # Test mode (use fitted scaler)
+        X_test_scaled, _ = DataProcessor.scale_features(X_test, fitted_scaler=scaler)
         """
-        if scaler_type == 'robust':
-            self.scaler = RobustScaler()
-        elif scaler_type == 'standard':
-            self.scaler = StandardScaler()
+        if fitted_scaler is not None:
+            # Transform mode (use existing scaler)
+            X_scaled = fitted_scaler.transform(X)
+            return X_scaled, fitted_scaler
         else:
-            raise ValueError(f"Unknown scaler type: {scaler_type}. Use 'robust' or 'standard'")
+            # Fit mode (create and fit new scaler)
+            if scaler_type == 'robust':
+                scaler = RobustScaler()
+            elif scaler_type == 'standard':
+                scaler = StandardScaler()
+            else:
+                raise ValueError(f"Unknown scaler: {scaler_type}. Use 'robust' or 'standard'")
 
-        # Handle NaN before scaling
-        X_filled = X.fillna(0)
+            X_scaled = scaler.fit_transform(X)
+            logging.info(f"   Fitted {scaler_type.upper()} scaler on {X.shape[1]} features")
 
-        # Fit and transform
-        X_scaled = self.scaler.fit_transform(X_filled)
+            return X_scaled, scaler
 
-        self.logger.info(f"   Fitted {scaler_type.upper()} scaler on {X.shape[1]} features")
+    # Backward compatibility methods
+    def fit_scaler(
+        self,
+        X: pd.DataFrame,
+        scaler_type: str = 'robust'
+    ) -> np.ndarray:
+        """
+        Fit scaler and transform features (backward compatibility).
 
+        Use DataProcessor.scale_features() for new code.
+        """
+        X_scaled, scaler = self.scale_features(X, scaler_type)
+        self.scaler = scaler
         return X_scaled
 
     def transform_scaler(self, X: pd.DataFrame) -> np.ndarray:
         """
-        Transform features using fitted scaler.
+        Transform features using fitted scaler (backward compatibility).
 
-        Parameters:
-        -----------
-        X : pd.DataFrame
-            Feature dataframe
-
-        Returns:
-        --------
-        np.ndarray
-            Scaled features
-
-        Raises:
-        -------
-        ValueError
-            If scaler not fitted
-
-        Example:
-        --------
-        X_test_scaled = processor.transform_scaler(X_test)
+        Use DataProcessor.scale_features(X, fitted_scaler=scaler) for new code.
         """
         if self.scaler is None:
             raise ValueError("Scaler not fitted! Call fit_scaler() first.")
 
-        X_filled = X.fillna(0)
-        X_scaled = self.scaler.transform(X_filled)
-
+        X_scaled, _ = self.scale_features(X, fitted_scaler=self.scaler)
         return X_scaled
+
+    @staticmethod
+    def create_binary_target(
+        y: Union[pd.Series, pd.DataFrame],
+        threshold: float = -0.02
+    ) -> Union[pd.Series, pd.DataFrame]:
+        """
+        Convert regression target to binary classification target.
+
+        This method ensures consistent binary classification across both
+        regressor.py and ml_backtest.py. Previously, different thresholds
+        were used, causing models to be trained and tested with different
+        decision boundaries.
+
+        Args:
+            y: Regression target values (price_dev or price_dev_subavg)
+            threshold: Threshold for binary classification
+                      - Default: -0.02 (2% loss tolerance)
+                      - Values > threshold are classified as 1 (up)
+                      - Values <= threshold are classified as 0 (down)
+
+        Returns:
+            Binary target (1 for above threshold, 0 otherwise)
+
+        Example:
+            >>> y = pd.Series([0.05, -0.01, -0.03, 0.02])
+            >>> binary = DataProcessor.create_binary_target(y, threshold=-0.02)
+            >>> # Result: [1, 1, 0, 1]
+            >>> # -0.01 > -0.02, so it's classified as 1 (up)
+
+        Note:
+            The threshold of -0.02 means we're willing to tolerate up to 2% loss
+            and still classify it as "up". This is useful when transaction costs
+            or small fluctuations make strict 0 threshold too sensitive.
+        """
+        if isinstance(y, pd.DataFrame):
+            # If DataFrame, apply to first column (typically the target column)
+            return (y.iloc[:, 0] > threshold).astype(int).to_frame(name=y.columns[0])
+        else:
+            return (y > threshold).astype(int)
+
+    @staticmethod
+    def fit_outlier_clipper(
+        df: pd.DataFrame,
+        lower_percentile: float = 0.02,
+        upper_percentile: float = 0.98,
+        exclude_cols: Optional[List[str]] = None
+    ) -> Dict[str, Tuple[float, float]]:
+        """
+        Compute clipping bounds for outlier removal based on percentiles.
+
+        This method ensures consistent outlier handling across both
+        regressor.py and ml_backtest.py. Extreme values can negatively
+        impact model training and predictions.
+
+        Args:
+            df: Training data to compute bounds from
+            lower_percentile: Lower percentile (default 0.02 = 2nd percentile)
+            upper_percentile: Upper percentile (default 0.98 = 98th percentile)
+            exclude_cols: Columns to skip (e.g., ['sector'])
+
+        Returns:
+            Dictionary mapping column names to (lower, upper) bounds
+
+        Example:
+            >>> # Fit on training data
+            >>> clip_bounds = DataProcessor.fit_outlier_clipper(X_train)
+            >>> # Apply to both train and test
+            >>> X_train_clipped = DataProcessor.apply_outlier_clipper(X_train, clip_bounds)
+            >>> X_test_clipped = DataProcessor.apply_outlier_clipper(X_test, clip_bounds)
+
+        Note:
+            - Default 2-98 percentile removes top/bottom 2% extreme values
+            - For targets, use 1-97 percentile (more aggressive)
+            - Saves ~50 lines of duplicated clipping code
+        """
+        exclude_cols = exclude_cols or []
+        clip_bounds = {}
+
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+
+        for col in numeric_cols:
+            if col in exclude_cols:
+                continue
+
+            lower = df[col].quantile(lower_percentile)
+            upper = df[col].quantile(upper_percentile)
+            clip_bounds[col] = (float(lower), float(upper))
+
+        logging.info(f"Computed clip bounds for {len(clip_bounds)} features "
+                    f"(percentiles: {lower_percentile*100:.0f}-{upper_percentile*100:.0f})")
+
+        return clip_bounds
+
+    @staticmethod
+    def apply_outlier_clipper(
+        df: pd.DataFrame,
+        clip_bounds: Dict[str, Tuple[float, float]]
+    ) -> pd.DataFrame:
+        """
+        Apply pre-computed clipping bounds to remove outliers.
+
+        Args:
+            df: Data to clip (train, test, or new data)
+            clip_bounds: Dictionary from fit_outlier_clipper()
+
+        Returns:
+            Clipped DataFrame (copy, original unchanged)
+
+        Example:
+            >>> # First fit on training data
+            >>> clip_bounds = DataProcessor.fit_outlier_clipper(X_train)
+            >>> # Then apply to test data
+            >>> X_test_clipped = DataProcessor.apply_outlier_clipper(X_test, clip_bounds)
+
+        Note:
+            - Only clips columns present in both df and clip_bounds
+            - Silently skips columns not in df (for flexibility)
+        """
+        df = df.copy()
+
+        clipped_count = 0
+        for col, (lower, upper) in clip_bounds.items():
+            if col in df.columns:
+                original_values = df[col].copy()
+                df[col] = df[col].clip(lower, upper)
+
+                # Count how many values were clipped
+                clipped = ((original_values < lower) | (original_values > upper)).sum()
+                if clipped > 0:
+                    clipped_count += 1
+
+        if clipped_count > 0:
+            logging.info(f"Applied outlier clipping to {clipped_count} columns")
+
+        return df
+
+    @staticmethod
+    def filter_by_liquidity(
+        df: pd.DataFrame,
+        threshold: Optional[float] = None,
+        top_pct: float = 0.50
+    ) -> Tuple[pd.DataFrame, float]:
+        """
+        Filter stocks by volume*price liquidity metric to select liquid stocks.
+
+        This method ensures consistent liquidity filtering across both
+        regressor.py and ml_backtest.py. Trading illiquid stocks can lead
+        to poor execution and slippage.
+
+        Args:
+            df: DataFrame with 'symbol' and 'volume_mul_price' columns
+            threshold: Minimum liquidity threshold (if None, compute from top_pct)
+            top_pct: Top percentage to keep (default 0.50 for top 50%)
+
+        Returns:
+            (filtered_df, threshold_used)
+
+        Example:
+            >>> # Training: compute threshold and filter
+            >>> df_filtered, threshold = DataProcessor.filter_by_liquidity(train_df)
+            >>> # Save threshold for test data
+            >>> # Test: use saved threshold
+            >>> test_filtered, _ = DataProcessor.filter_by_liquidity(test_df, threshold=threshold)
+
+        Note:
+            - Default keeps top 50% most liquid stocks
+            - Prevents model from learning on illiquid stocks
+            - Eliminates 4 duplications in regressor.py (~40 lines)
+        """
+        if 'symbol' not in df.columns or 'volume_mul_price' not in df.columns:
+            logging.warning("Missing required columns for liquidity filtering, returning original df")
+            return df, 0.0
+
+        # Compute mean volume*price per symbol
+        symbol_means = df.groupby('symbol')['volume_mul_price'].mean().reset_index()
+
+        if threshold is None:
+            # Compute threshold from top_pct
+            threshold = symbol_means['volume_mul_price'].quantile(1.0 - top_pct)
+
+        # Filter symbols above threshold
+        top_symbols = symbol_means[symbol_means['volume_mul_price'] >= threshold]
+        filtered_df = df[df['symbol'].isin(top_symbols['symbol'])].copy()
+
+        logging.info(f"Liquidity filter: {len(symbol_means)} symbols → {len(top_symbols)} symbols "
+                    f"(top {top_pct*100:.0f}%, threshold={threshold:.2e})")
+
+        return filtered_df, float(threshold)
+
+    @staticmethod
+    def clip_large_values(
+        df: pd.DataFrame,
+        threshold: float = 1e9,
+        replacement: Optional[float] = None
+    ) -> pd.DataFrame:
+        """
+        Replace extremely large values to prevent numerical overflow.
+
+        This method ensures consistent large value handling. Very large
+        numbers can cause overflow in XGBoost and other models.
+
+        Args:
+            df: Input DataFrame
+            threshold: Values above this (absolute) are considered too large
+            replacement: Value to use (default: np.finfo(np.float32).max)
+
+        Returns:
+            DataFrame with large values clipped
+
+        Example:
+            >>> df_clean = DataProcessor.clip_large_values(df, threshold=1e9)
+
+        Note:
+            - Prevents XGBoost overflow errors
+            - Eliminates 3 duplicate implementations (~18 lines)
+        """
+        if replacement is None:
+            replacement = np.finfo(np.float32).max
+
+        df = df.copy()
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+
+        clipped_cols = 0
+        for col in numeric_cols:
+            mask = df[col].abs() > threshold
+            if mask.any():
+                df.loc[mask, col] = np.sign(df.loc[mask, col]) * replacement
+                clipped_cols += 1
+
+        if clipped_cols > 0:
+            logging.info(f"Clipped large values in {clipped_cols} columns (threshold={threshold:.0e})")
+
+        return df
+
+    @staticmethod
+    def drop_many_nan_row(
+        df: pd.DataFrame,
+        threshold: float = 0.6
+    ) -> pd.DataFrame:
+        """
+        Drop rows with excessive NaN values.
+
+        This method ensures consistent NaN row filtering. Rows with too
+        many missing values provide little training signal.
+
+        Args:
+            df: Input DataFrame
+            threshold: Drop rows with NaN ratio > threshold
+                      (0.6 = drop if >60% NaN, keep if <=60% NaN)
+
+        Returns:
+            DataFrame with excessive-NaN rows removed
+
+        Example:
+            >>> # Drop rows with >40% NaN (keep rows with <=40% NaN)
+            >>> df_clean = DataProcessor.drop_many_nan_row(df, threshold=0.6)
+            >>> # Drop rows with >5% NaN (stricter)
+            >>> df_clean = DataProcessor.drop_many_nan_row(df, threshold=0.95)
+
+        Note:
+            - threshold=0.6 means "drop if NaN% > 60%", keep if <=60%
+            - Eliminates duplicate in regressor.py (~15 lines)
+        """
+        if df.empty:
+            return df
+
+        # Calculate NaN ratio per row
+        nan_ratio = df.isna().sum(axis=1) / len(df.columns)
+
+        # Keep rows where NaN ratio <= threshold
+        mask = nan_ratio <= threshold
+        df_clean = df[mask].copy()
+
+        removed = len(df) - len(df_clean)
+        if removed > 0:
+            logging.info(f"Removed {removed} rows with >{threshold*100:.0f}% NaN "
+                        f"({len(df_clean)}/{len(df)} rows remaining)")
+
+        return df_clean
 
     # ========================================================================
     # Feature/Target Separation
