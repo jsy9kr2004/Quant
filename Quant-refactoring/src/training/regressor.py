@@ -655,11 +655,9 @@ class Regressor:
         print(f'Removed columns # : {len(columns_to_drop)}')
         print(f'Cleaned DataFrame shape: {self.train_df.shape}')
 
-        # 과도한 누락 데이터가 있는 행 제거 (>60% NaN)
+        # ✅ REFACTORED: Use DataProcessor for excessive NaN row removal
         print("in train set before dtable len : ", len(self.train_df))
-        self.train_df['nan_count_per_row'] = self.train_df.isnull().sum(axis=1)
-        filtered_row = self.train_df['nan_count_per_row'] < int(len(self.train_df.columns)*0.6)
-        self.train_df = self.train_df.loc[filtered_row,:]
+        self.train_df = DataProcessor.drop_many_nan_row(self.train_df, threshold=0.6)
         print("in train set after dtable len : ", len(self.train_df))
 
         # TODO: 이것은 여기가 아니라 make_mldata.py에서 처리되어야 합니다
@@ -718,11 +716,9 @@ class Regressor:
             # 학습과 동일한 특성 제거
             df = df.drop(columns=columns_to_drop, errors='ignore')
 
-            # 과도한 누락 데이터가 있는 행 제거
+            # ✅ REFACTORED: Use DataProcessor for excessive NaN row removal
             print("in test set before dtable len : ", len(df))
-            df['nan_count_per_row'] = df.isnull().sum(axis=1)
-            filtered_row = df['nan_count_per_row'] < int(len(df.columns)*0.6)
-            df = df.loc[filtered_row,:]
+            df = DataProcessor.drop_many_nan_row(df, threshold=0.6)
             print("in test set after dtable len : ", len(df))
 
             # TODO: 이것은 make_mldata.py에서 처리되어야 합니다
@@ -1989,10 +1985,9 @@ class Regressor:
         ldf = ldf.drop('sector', axis=1)
 
         # 과도한 누락 데이터가 있는 행 필터링 (>60% NaN)
+        # ✅ REFACTORED: Use DataProcessor for excessive NaN row removal
         print("before dtable len : ", len(ldf))
-        ldf['nan_count_per_row'] = ldf.isnull().sum(axis=1)
-        filtered_row = ldf['nan_count_per_row'] < int(len(ldf.columns)*0.6)
-        ldf = ldf.loc[filtered_row,:]
+        ldf = DataProcessor.drop_many_nan_row(ldf, threshold=0.6)
         print("after dtable len : ", len(ldf))
 
         # 입력 특성 준비
