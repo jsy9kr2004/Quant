@@ -306,23 +306,10 @@ class MLBacktest:
         else:
             self.selected_features_unified = None
 
-        # ✅ REFACTORED: Use DataProcessor for feature scaling
-        X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
-
-        # ✅ Check for infinite values AFTER scaling
-        # RobustScaler can produce inf when IQR=0 (all values identical)
-        if isinstance(X_scaled, pd.DataFrame):
-            inf_check = np.isinf(X_scaled.values).any()
-        else:
-            inf_check = np.isinf(X_scaled).any()
-
-        if inf_check:
-            self.logger.warning("⚠️  Found inf after scaling! Replacing inf with large values...")
-            if isinstance(X_scaled, pd.DataFrame):
-                X_scaled = X_scaled.replace([np.inf, -np.inf], [1e10, -1e10])
-            else:
-                X_scaled = np.nan_to_num(X_scaled, nan=np.nan, posinf=1e10, neginf=-1e10)
-            self.logger.info("   ✅ Replaced inf values with ±1e10")
+        # ✅ NO SCALING for tree-based models (XGBoost/LightGBM)
+        # Tree models are scale-invariant - they only care about split points
+        # Scaling is unnecessary and can introduce numerical issues (inf from IQR=0)
+        # This matches regressor.py behavior (no scaling)
 
         # ✅ REFACTORED: Use DataProcessor for binary target creation
         y_binary = DataProcessor.create_binary_target(y)
@@ -336,16 +323,16 @@ class MLBacktest:
 
         # 분류 모델 (상승/하락 예측)
         self.logger.info("   Training classifier...")
-        clf.fit(X_scaled, y_binary)
+        clf.fit(X, y_binary)
         models['classifier'] = clf
 
         # 회귀 모델 (수익률 크기 예측)
         self.logger.info("   Training regressor...")
-        reg.fit(X_scaled, y)
+        reg.fit(X, y)
         models['regressor'] = reg
 
         models['features'] = feature_cols
-        models['scaler'] = scaler
+        # No scaler needed for tree-based models
 
         # 모델 저장
         model_file = self.model_path / f'model_{cutoff_date.strftime("%Y%m%d")}.pkl'
@@ -456,23 +443,9 @@ class MLBacktest:
                     self.selected_features_sectors = {}
                 self.selected_features_sectors[sector] = None
 
-            # ✅ REFACTORED: Use DataProcessor for feature scaling
-            X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
-
-            # ✅ Check for infinite values AFTER scaling
-            # RobustScaler can produce inf when IQR=0 (all values identical)
-            if isinstance(X_scaled, pd.DataFrame):
-                inf_check = np.isinf(X_scaled.values).any()
-            else:
-                inf_check = np.isinf(X_scaled).any()
-
-            if inf_check:
-                self.logger.warning(f"⚠️  {sector}: Found inf after scaling! Replacing inf with large values...")
-                if isinstance(X_scaled, pd.DataFrame):
-                    X_scaled = X_scaled.replace([np.inf, -np.inf], [1e10, -1e10])
-                else:
-                    X_scaled = np.nan_to_num(X_scaled, nan=np.nan, posinf=1e10, neginf=-1e10)
-                self.logger.info(f"   ✅ {sector}: Replaced inf values with ±1e10")
+            # ✅ NO SCALING for tree-based models (XGBoost/LightGBM)
+            # Tree models are scale-invariant - they only care about split points
+            # This matches regressor.py behavior (no scaling)
 
             # ✅ REFACTORED: Use DataProcessor for binary target creation
             y_binary = DataProcessor.create_binary_target(y)
@@ -482,14 +455,14 @@ class MLBacktest:
                 clf, reg = create_models_for_backtest(self.config, use_gpu=use_gpu)
 
                 # 학습
-                clf.fit(X_scaled, y_binary)
-                reg.fit(X_scaled, y)
+                clf.fit(X, y_binary)
+                reg.fit(X, y)
 
                 sector_models[sector] = {
                     'classifier': clf,
                     'regressor': reg,
                     'features': feature_cols,
-                    'scaler': scaler,
+                    # No scaler needed for tree-based models
                     'train_samples': len(sector_data)
                 }
 
@@ -562,18 +535,17 @@ class MLBacktest:
             예측 결과 포함 데이터프레임
         """
         feature_cols = models['features']
-        scaler = models['scaler']
+        # No scaler needed - tree models don't require scaling
 
         X = test_data[feature_cols].copy()
         # ✅ NaN handling: Let XGBoost/LightGBM handle NaN during prediction
         # Don't fillna(0) - models trained with NaN can handle NaN in test data
-        X_scaled = scaler.transform(X)
 
         # 분류 예측 (상승 확률)
-        y_pred_proba = models['classifier'].predict_proba(X_scaled)[:, 1]
+        y_pred_proba = models['classifier'].predict_proba(X)[:, 1]
 
         # 회귀 예측 (예상 수익률)
-        y_pred_return = models['regressor'].predict(X_scaled)
+        y_pred_return = models['regressor'].predict(X)
 
         # 결과 추가
         result = test_data.copy()
@@ -623,15 +595,14 @@ class MLBacktest:
 
             try:
                 feature_cols = sector_model['features']
-                scaler = sector_model['scaler']
+                # No scaler needed - tree models don't require scaling
 
                 X = sector_data[feature_cols].copy()
                 # ✅ NaN handling: Let XGBoost/LightGBM handle NaN during prediction
-                X_scaled = scaler.transform(X)
 
                 # 예측
-                y_pred_proba = sector_model['classifier'].predict_proba(X_scaled)[:, 1]
-                y_pred_return = sector_model['regressor'].predict(X_scaled)
+                y_pred_proba = sector_model['classifier'].predict_proba(X)[:, 1]
+                y_pred_return = sector_model['regressor'].predict(X)
 
                 # 결과 저장
                 result.loc[sector_mask, 'pred_up_proba'] = y_pred_proba
