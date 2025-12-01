@@ -196,6 +196,90 @@ class DataProcessor:
         return df_clean, cols_to_drop
 
     # ========================================================================
+    # Infinite Value Handling
+    # ========================================================================
+
+    @staticmethod
+    def remove_infinite_values(
+        X: pd.DataFrame,
+        y: Optional[pd.Series] = None
+    ) -> Tuple[pd.DataFrame, Optional[pd.Series]]:
+        """
+        Remove rows with infinite values (XGBoost compatibility).
+
+        XGBoost cannot handle infinite values and will raise an error.
+        This method removes all rows containing inf or -inf.
+
+        Parameters:
+        -----------
+        X : pd.DataFrame
+            Feature dataframe
+        y : Optional[pd.Series]
+            Target series (will be aligned with X if provided)
+
+        Returns:
+        --------
+        X_clean : pd.DataFrame
+            Dataframe without infinite values
+        y_clean : Optional[pd.Series]
+            Target series without infinite values (if provided)
+
+        Example:
+        --------
+        X_clean, y_clean = DataProcessor.remove_infinite_values(X, y)
+        """
+        # Check for infinite values
+        inf_mask = np.isinf(X)
+        rows_with_inf = inf_mask.any(axis=1)
+
+        if rows_with_inf.sum() > 0:
+            logging.warning(f"⚠️  Found {rows_with_inf.sum()} rows with infinite values, removing...")
+            X_clean = X[~rows_with_inf].copy()
+
+            if y is not None:
+                y_clean = y[~rows_with_inf].copy()
+                logging.info(f"   After infinite removal: {len(X_clean)} rows remaining")
+                return X_clean, y_clean
+            else:
+                logging.info(f"   After infinite removal: {len(X_clean)} rows remaining")
+                return X_clean, None
+
+        return X, y
+
+    @staticmethod
+    def replace_infinite_with_nan(
+        X: pd.DataFrame,
+        y: Optional[pd.Series] = None
+    ) -> Tuple[pd.DataFrame, Optional[pd.Series]]:
+        """
+        Replace infinite values with NaN.
+
+        Sometimes it's better to replace inf with NaN rather than removing rows.
+        This allows fillna() to handle them.
+
+        Parameters:
+        -----------
+        X : pd.DataFrame
+            Feature dataframe
+        y : Optional[pd.Series]
+            Target series
+
+        Returns:
+        --------
+        X_clean : pd.DataFrame
+            Dataframe with inf replaced by NaN
+        y_clean : Optional[pd.Series]
+            Target with inf replaced by NaN (if provided)
+        """
+        X_clean = X.replace([np.inf, -np.inf], np.nan)
+
+        if y is not None:
+            y_clean = y.replace([np.inf, -np.inf], np.nan)
+            return X_clean, y_clean
+
+        return X_clean, None
+
+    # ========================================================================
     # Outlier Handling
     # ========================================================================
 

@@ -27,8 +27,9 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 from xgboost import XGBClassifier, XGBRegressor
 import lightgbm as lgb
 
-# ✨ REFACTORED: Import unified data schema
+# ✨ REFACTORED: Import unified data schema and preprocessing
 from src.constants.data_schema import DataSchema
+from src.training.data_processor import DataProcessor
 
 
 class MLBacktest:
@@ -266,19 +267,10 @@ class MLBacktest:
         X = train_data[feature_cols].copy()
         y = train_data[DataSchema.REGRESSION_TARGET].copy()  # ✨ Unified target (regressor.py와 일관성)
 
-        # ✅ FIX: Remove infinite values (critical for XGBoost!)
-        # XGBoost cannot handle inf values, must be removed before training
-        inf_mask = np.isinf(X)
-        rows_with_inf = inf_mask.any(axis=1)
-        if rows_with_inf.sum() > 0:
-            self.logger.warning(f"⚠️  Found {rows_with_inf.sum()} rows with infinite values, removing...")
-            X = X[~rows_with_inf]
-            y = y[~rows_with_inf]
-            self.logger.info(f"   After infinite removal: {len(X)} rows remaining")
-
-        # Also check for extremely large values that might cause issues
-        X = X.replace([np.inf, -np.inf], np.nan)  # Replace any remaining inf with NaN
-        y = y.replace([np.inf, -np.inf], np.nan)
+        # ✅ REFACTORED: Use DataProcessor for infinite value handling
+        # This ensures regressor.py and ml_backtest.py use IDENTICAL preprocessing
+        X, y = DataProcessor.remove_infinite_values(X, y)
+        X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
         # NaN 처리
         X = X.fillna(0)
@@ -379,17 +371,9 @@ class MLBacktest:
             X = sector_data[feature_cols].copy()
             y = sector_data[DataSchema.REGRESSION_TARGET].copy()  # ✨ Unified target (regressor.py와 일관성)
 
-            # ✅ FIX: Remove infinite values (critical for XGBoost!)
-            inf_mask = np.isinf(X)
-            rows_with_inf = inf_mask.any(axis=1)
-            if rows_with_inf.sum() > 0:
-                self.logger.warning(f"      ⚠️  {sector}: Found {rows_with_inf.sum()} rows with inf, removing...")
-                X = X[~rows_with_inf]
-                y = y[~rows_with_inf]
-
-            # Replace any remaining inf with NaN
-            X = X.replace([np.inf, -np.inf], np.nan)
-            y = y.replace([np.inf, -np.inf], np.nan)
+            # ✅ REFACTORED: Use DataProcessor for infinite value handling
+            X, y = DataProcessor.remove_infinite_values(X, y)
+            X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
             # NaN 처리
             X = X.fillna(0)
