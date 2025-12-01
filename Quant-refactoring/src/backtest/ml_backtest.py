@@ -272,14 +272,15 @@ class MLBacktest:
         X, y = DataProcessor.remove_infinite_values(X, y)
         X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
-        # ✅ REFACTORED: Use DataProcessor for NaN handling
-        X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)
+        # ✅ NaN handling: Let XGBoost/LightGBM handle NaN internally
+        # These models can use NaN for splits (missing value handling)
+        # fillna(0) was WRONG: NaN (missing) ≠ 0 (actual zero value)
+        # X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)  # REMOVED
 
         # ✅ REFACTORED: Use DataProcessor for feature scaling
         X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
 
         # ✅ REFACTORED: Use DataProcessor for binary target creation
-        # Uses same threshold as regressor.py (-0.02) for consistency
         y_binary = DataProcessor.create_binary_target(y)
 
         # ✨ Create models using ModelFactory (same as regressor.py!)
@@ -374,8 +375,8 @@ class MLBacktest:
             X, y = DataProcessor.remove_infinite_values(X, y)
             X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
-            # ✅ REFACTORED: Use DataProcessor for NaN handling
-            X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)
+            # ✅ NaN handling: Let XGBoost/LightGBM handle NaN internally
+            # X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)  # REMOVED
 
             # ✅ REFACTORED: Use DataProcessor for feature scaling
             X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
