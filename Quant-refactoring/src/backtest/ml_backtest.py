@@ -309,6 +309,21 @@ class MLBacktest:
         # ✅ REFACTORED: Use DataProcessor for feature scaling
         X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
 
+        # ✅ Check for infinite values AFTER scaling
+        # RobustScaler can produce inf when IQR=0 (all values identical)
+        if isinstance(X_scaled, pd.DataFrame):
+            inf_check = np.isinf(X_scaled.values).any()
+        else:
+            inf_check = np.isinf(X_scaled).any()
+
+        if inf_check:
+            self.logger.warning("⚠️  Found inf after scaling! Replacing inf with large values...")
+            if isinstance(X_scaled, pd.DataFrame):
+                X_scaled = X_scaled.replace([np.inf, -np.inf], [1e10, -1e10])
+            else:
+                X_scaled = np.nan_to_num(X_scaled, nan=np.nan, posinf=1e10, neginf=-1e10)
+            self.logger.info("   ✅ Replaced inf values with ±1e10")
+
         # ✅ REFACTORED: Use DataProcessor for binary target creation
         y_binary = DataProcessor.create_binary_target(y)
 
@@ -443,6 +458,21 @@ class MLBacktest:
 
             # ✅ REFACTORED: Use DataProcessor for feature scaling
             X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
+
+            # ✅ Check for infinite values AFTER scaling
+            # RobustScaler can produce inf when IQR=0 (all values identical)
+            if isinstance(X_scaled, pd.DataFrame):
+                inf_check = np.isinf(X_scaled.values).any()
+            else:
+                inf_check = np.isinf(X_scaled).any()
+
+            if inf_check:
+                self.logger.warning(f"⚠️  {sector}: Found inf after scaling! Replacing inf with large values...")
+                if isinstance(X_scaled, pd.DataFrame):
+                    X_scaled = X_scaled.replace([np.inf, -np.inf], [1e10, -1e10])
+                else:
+                    X_scaled = np.nan_to_num(X_scaled, nan=np.nan, posinf=1e10, neginf=-1e10)
+                self.logger.info(f"   ✅ {sector}: Replaced inf values with ±1e10")
 
             # ✅ REFACTORED: Use DataProcessor for binary target creation
             y_binary = DataProcessor.create_binary_target(y)
