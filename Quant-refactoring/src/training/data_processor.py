@@ -633,6 +633,150 @@ class DataProcessor:
 
         return df
 
+    @staticmethod
+    def filter_by_liquidity(
+        df: pd.DataFrame,
+        threshold: Optional[float] = None,
+        top_pct: float = 0.50
+    ) -> Tuple[pd.DataFrame, float]:
+        """
+        Filter stocks by volume*price liquidity metric to select liquid stocks.
+
+        This method ensures consistent liquidity filtering across both
+        regressor.py and ml_backtest.py. Trading illiquid stocks can lead
+        to poor execution and slippage.
+
+        Args:
+            df: DataFrame with 'symbol' and 'volume_mul_price' columns
+            threshold: Minimum liquidity threshold (if None, compute from top_pct)
+            top_pct: Top percentage to keep (default 0.50 for top 50%)
+
+        Returns:
+            (filtered_df, threshold_used)
+
+        Example:
+            >>> # Training: compute threshold and filter
+            >>> df_filtered, threshold = DataProcessor.filter_by_liquidity(train_df)
+            >>> # Save threshold for test data
+            >>> # Test: use saved threshold
+            >>> test_filtered, _ = DataProcessor.filter_by_liquidity(test_df, threshold=threshold)
+
+        Note:
+            - Default keeps top 50% most liquid stocks
+            - Prevents model from learning on illiquid stocks
+            - Eliminates 4 duplications in regressor.py (~40 lines)
+        """
+        if 'symbol' not in df.columns or 'volume_mul_price' not in df.columns:
+            logging.warning("Missing required columns for liquidity filtering, returning original df")
+            return df, 0.0
+
+        # Compute mean volume*price per symbol
+        symbol_means = df.groupby('symbol')['volume_mul_price'].mean().reset_index()
+
+        if threshold is None:
+            # Compute threshold from top_pct
+            threshold = symbol_means['volume_mul_price'].quantile(1.0 - top_pct)
+
+        # Filter symbols above threshold
+        top_symbols = symbol_means[symbol_means['volume_mul_price'] >= threshold]
+        filtered_df = df[df['symbol'].isin(top_symbols['symbol'])].copy()
+
+        logging.info(f"Liquidity filter: {len(symbol_means)} symbols → {len(top_symbols)} symbols "
+                    f"(top {top_pct*100:.0f}%, threshold={threshold:.2e})")
+
+        return filtered_df, float(threshold)
+
+    @staticmethod
+    def clip_large_values(
+        df: pd.DataFrame,
+        threshold: float = 1e9,
+        replacement: Optional[float] = None
+    ) -> pd.DataFrame:
+        """
+        Replace extremely large values to prevent numerical overflow.
+
+        This method ensures consistent large value handling. Very large
+        numbers can cause overflow in XGBoost and other models.
+
+        Args:
+            df: Input DataFrame
+            threshold: Values above this (absolute) are considered too large
+            replacement: Value to use (default: np.finfo(np.float32).max)
+
+        Returns:
+            DataFrame with large values clipped
+
+        Example:
+            >>> df_clean = DataProcessor.clip_large_values(df, threshold=1e9)
+
+        Note:
+            - Prevents XGBoost overflow errors
+            - Eliminates 3 duplicate implementations (~18 lines)
+        """
+        if replacement is None:
+            replacement = np.finfo(np.float32).max
+
+        df = df.copy()
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+
+        clipped_cols = 0
+        for col in numeric_cols:
+            mask = df[col].abs() > threshold
+            if mask.any():
+                df.loc[mask, col] = np.sign(df.loc[mask, col]) * replacement
+                clipped_cols += 1
+
+        if clipped_cols > 0:
+            logging.info(f"Clipped large values in {clipped_cols} columns (threshold={threshold:.0e})")
+
+        return df
+
+    @staticmethod
+    def drop_many_nan_row(
+        df: pd.DataFrame,
+        threshold: float = 0.6
+    ) -> pd.DataFrame:
+        """
+        Drop rows with excessive NaN values.
+
+        This method ensures consistent NaN row filtering. Rows with too
+        many missing values provide little training signal.
+
+        Args:
+            df: Input DataFrame
+            threshold: Drop rows with NaN ratio > threshold
+                      (0.6 = drop if >60% NaN, keep if <=60% NaN)
+
+        Returns:
+            DataFrame with excessive-NaN rows removed
+
+        Example:
+            >>> # Drop rows with >40% NaN (keep rows with <=40% NaN)
+            >>> df_clean = DataProcessor.drop_many_nan_row(df, threshold=0.6)
+            >>> # Drop rows with >5% NaN (stricter)
+            >>> df_clean = DataProcessor.drop_many_nan_row(df, threshold=0.95)
+
+        Note:
+            - threshold=0.6 means "drop if NaN% > 60%", keep if <=60%
+            - Eliminates duplicate in regressor.py (~15 lines)
+        """
+        if df.empty:
+            return df
+
+        # Calculate NaN ratio per row
+        nan_ratio = df.isna().sum(axis=1) / len(df.columns)
+
+        # Keep rows where NaN ratio <= threshold
+        mask = nan_ratio <= threshold
+        df_clean = df[mask].copy()
+
+        removed = len(df) - len(df_clean)
+        if removed > 0:
+            logging.info(f"Removed {removed} rows with >{threshold*100:.0f}% NaN "
+                        f"({len(df_clean)}/{len(df)} rows remaining)")
+
+        return df_clean
+
     # ========================================================================
     # Feature/Target Separation
     # ========================================================================

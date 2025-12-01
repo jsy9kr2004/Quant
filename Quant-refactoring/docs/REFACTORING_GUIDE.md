@@ -128,19 +128,36 @@ excluded = DataSchema.get_excluded_cols()  # Always 27 items, always identical
 - Outlier clipping (quantile-based)
 - Feature/target separation
 
-**Static Methods for ml_backtest.py:**
+**Static Methods (Available for Both Files):**
 ```python
 from src.training.data_processor import DataProcessor
 
-# Infinite value handling (prevents XGBoost errors)
+# 1. Infinite value handling (prevents XGBoost errors)
 X, y = DataProcessor.remove_infinite_values(X, y)
 X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
-# NaN handling
+# 2. NaN handling
 X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)
+df_clean = DataProcessor.drop_many_nan_row(df, threshold=0.6)
 
-# Feature scaling
+# 3. Feature scaling
 X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
+
+# 4. Outlier clipping
+clip_bounds = DataProcessor.fit_outlier_clipper(X_train, lower_percentile=0.02, upper_percentile=0.98)
+X_train_clipped = DataProcessor.apply_outlier_clipper(X_train, clip_bounds)
+X_test_clipped = DataProcessor.apply_outlier_clipper(X_test, clip_bounds)
+
+# 5. Large value clipping
+df_clean = DataProcessor.clip_large_values(df, threshold=1e9)
+
+# 6. Liquidity filtering
+df_filtered, threshold = DataProcessor.filter_by_liquidity(df, top_pct=0.50)
+# For test data: use saved threshold
+df_test_filtered, _ = DataProcessor.filter_by_liquidity(df_test, threshold=threshold)
+
+# 7. Binary target creation (CRITICAL - fixes bug)
+y_binary = DataProcessor.create_binary_target(y, threshold=-0.02)
 ```
 
 **Full Pipeline Example (for regressor.py):**
@@ -159,10 +176,15 @@ X_test = result['X_test']
 y_test = result['y_test']
 ```
 
-**Critical Fixes:**
-- **Infinite values**: Now handled uniformly via `remove_infinite_values()` and `replace_infinite_with_nan()`
-- **NaN handling**: Unified via `handle_nan()` (both files use identical logic)
-- **Scaling**: Unified via `scale_features()` (both files use identical scaler configuration)
+**Critical Fixes & New Methods:**
+- **🚨 Binary threshold bug**: Fixed! Now both files use -0.02 threshold via `create_binary_target()`
+- **Infinite values**: Unified via `remove_infinite_values()` and `replace_infinite_with_nan()`
+- **NaN handling**: Unified via `handle_nan()` and `drop_many_nan_row()`
+- **Scaling**: Unified via `scale_features()`
+- **Outlier clipping**: NEW methods `fit_outlier_clipper()` and `apply_outlier_clipper()`
+- **Large values**: NEW method `clip_large_values()` prevents XGBoost overflow
+- **Liquidity filtering**: NEW method `filter_by_liquidity()` selects liquid stocks
+- **~200+ lines of duplication eliminated** via these unified methods!
 
 ---
 
