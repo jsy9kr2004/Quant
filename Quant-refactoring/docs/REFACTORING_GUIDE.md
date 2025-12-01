@@ -372,16 +372,20 @@ When modifying the ML pipeline, follow this checklist:
     - Location 4: After sector calculation on test data (lines 738-746)
     - Location 5: Y label check after split (lines 783-806)
     - Location 6: Final check before training (lines 1194-1222)
-- [ ] NaN handling (regressor.py uses different approach, not needed)
-- [ ] Feature scaling (regressor.py uses DataProcessor.full_pipeline, already unified)
-- [ ] Extract sector calculation logic to DataProcessor
-- [ ] Add unit tests for DataSchema
-- [ ] Add unit tests for DataProcessor
+  - [x] **Binary threshold** (4 locations unified)
+    - All locations now use `DataProcessor.create_binary_target(y, threshold=-0.02)`
+    - **CRITICAL BUG FIXED:** Models now trained/tested with identical thresholds
+  - [x] **Excessive NaN row removal** (3 locations unified)
+    - Location 1: Train data filtering (line 660)
+    - Location 2: Test data filtering (line 721)
+    - Location 3: Latest prediction filtering (line 1990)
+    - All use `DataProcessor.drop_many_nan_row(df, threshold=0.6)`
 
-**Impact:** regressor.py now has **ZERO** duplicate infinite value handling!
+**Impact:** regressor.py now has **ZERO** preprocessing duplication! All preprocessing uses unified DataProcessor methods.
 
-### Phase 2.5 (Recommended)
-- [ ] Refactor remaining preprocessing in regressor.py to use DataProcessor
+### Phase 2.5 (Future Enhancements)
+- [ ] Add outlier clipping to ml_backtest.py (method available, not yet integrated)
+- [ ] Add liquidity filtering to ml_backtest.py (method available, not yet integrated)
 - [ ] Extract sector calculation logic to DataProcessor
 - [ ] Add unit tests for DataSchema
 - [ ] Add unit tests for DataProcessor
