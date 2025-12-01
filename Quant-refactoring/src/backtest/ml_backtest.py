@@ -23,11 +23,11 @@ from dateutil.relativedelta import relativedelta
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
-from sklearn.preprocessing import StandardScaler, RobustScaler
 from xgboost import XGBClassifier, XGBRegressor
 import lightgbm as lgb
 
 # ✨ REFACTORED: Import unified data schema and preprocessing
+# DataProcessor now handles all scaling (RobustScaler, StandardScaler)
 from src.constants.data_schema import DataSchema
 from src.training.data_processor import DataProcessor
 
@@ -272,13 +272,11 @@ class MLBacktest:
         X, y = DataProcessor.remove_infinite_values(X, y)
         X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
-        # NaN 처리
-        X = X.fillna(0)
-        y = y.fillna(0)
+        # ✅ REFACTORED: Use DataProcessor for NaN handling
+        X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)
 
-        # 스케일링
-        scaler = RobustScaler()
-        X_scaled = scaler.fit_transform(X)
+        # ✅ REFACTORED: Use DataProcessor for feature scaling
+        X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
 
         # 이진 분류용 타겟 (상승/하락)
         y_binary = (y > 0).astype(int)
@@ -375,13 +373,11 @@ class MLBacktest:
             X, y = DataProcessor.remove_infinite_values(X, y)
             X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
-            # NaN 처리
-            X = X.fillna(0)
-            y = y.fillna(0)
+            # ✅ REFACTORED: Use DataProcessor for NaN handling
+            X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)
 
-            # 스케일링
-            scaler = RobustScaler()
-            X_scaled = scaler.fit_transform(X)
+            # ✅ REFACTORED: Use DataProcessor for feature scaling
+            X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
 
             # 이진 분류용 타겟
             y_binary = (y > 0).astype(int)

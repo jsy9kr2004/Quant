@@ -121,16 +121,30 @@ excluded = DataSchema.get_excluded_cols()  # Always 27 items, always identical
 **Purpose:** Centralized preprocessing pipeline
 
 **Key Features:**
+- Infinite value handling (XGBoost compatibility)
+- NaN handling (fillna, drop methods)
+- Feature scaling (Robust/Standard)
 - Sparse row/column removal
 - Outlier clipping (quantile-based)
-- Feature scaling (Robust/Standard)
-- NaN handling
 - Feature/target separation
 
-**Usage Example:**
+**Static Methods for ml_backtest.py:**
 ```python
 from src.training.data_processor import DataProcessor
 
+# Infinite value handling (prevents XGBoost errors)
+X, y = DataProcessor.remove_infinite_values(X, y)
+X, y = DataProcessor.replace_infinite_with_nan(X, y)
+
+# NaN handling
+X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)
+
+# Feature scaling
+X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
+```
+
+**Full Pipeline Example (for regressor.py):**
+```python
 processor = DataProcessor()
 result = processor.full_pipeline(
     train_df,
@@ -145,9 +159,10 @@ X_test = result['X_test']
 y_test = result['y_test']
 ```
 
-**Critical Fix:**
-Outlier clipping was present in `regressor.py` but **MISSING** in `ml_backtest.py`!
-Now unified in `DataProcessor.clip_outliers()`.
+**Critical Fixes:**
+- **Infinite values**: Now handled uniformly via `remove_infinite_values()` and `replace_infinite_with_nan()`
+- **NaN handling**: Unified via `handle_nan()` (both files use identical logic)
+- **Scaling**: Unified via `scale_features()` (both files use identical scaler configuration)
 
 ---
 
@@ -187,6 +202,22 @@ classifier, regressor = create_models_for_backtest(
 | **Preprocessing implementations** | 2 (different) | 1 (DataProcessor) | **-50%** |
 | **Bug fix effort** | 2x (both files) | 1x (single source) | **-50%** |
 | **Model parameter sync** | Manual | Automatic | **✨ Automatic** |
+
+### Current Unification Status (ml_backtest.py)
+
+**As of 2025-12-01 - Phase 1.5 Complete:**
+
+| Component | Status | Method Used |
+|-----------|--------|-------------|
+| **Column definitions** | ✅ 100% unified | `DataSchema.get_excluded_cols()` |
+| **Model creation** | ✅ 100% unified | `create_models_for_backtest()` |
+| **Infinite value handling** | ✅ 100% unified | `DataProcessor.remove_infinite_values()` |
+| **NaN handling** | ✅ 100% unified | `DataProcessor.handle_nan()` |
+| **Feature scaling** | ✅ 100% unified | `DataProcessor.scale_features()` |
+
+**Overall ml_backtest.py unification: 100%** 🎉
+
+**regressor.py unification:** Column definitions (100%), Model creation (100%), Preprocessing (pending Phase 2)
 
 ### Lines of Code Reduction
 
@@ -280,16 +311,33 @@ When modifying the ML pipeline, follow this checklist:
 
 ---
 
-## 🚀 Future Enhancements
+## 🚀 Refactoring Progress
 
 ### Phase 1 (Completed) ✅
 - [x] DataSchema for column definitions
-- [x] DataProcessor for preprocessing
-- [x] Integration with regressor.py
-- [x] Integration with ml_backtest.py
+- [x] DataProcessor base implementation
+- [x] Integration with regressor.py (DataSchema only)
+- [x] Integration with ml_backtest.py (DataSchema only)
+- [x] ModelFactory integration (both files)
+
+### Phase 1.5 (Completed) ✅ **[2025-12-01]**
+- [x] Added `remove_infinite_values()` to DataProcessor
+- [x] Added `replace_infinite_with_nan()` to DataProcessor
+- [x] Added `handle_nan()` to DataProcessor (fillna/drop methods)
+- [x] Added `scale_features()` to DataProcessor (robust/standard scalers)
+- [x] **ml_backtest.py**: Fully migrated to DataProcessor for all preprocessing
+  - ✅ Infinite handling via DataProcessor
+  - ✅ NaN handling via DataProcessor
+  - ✅ Scaling via DataProcessor
+- [x] Removed sklearn.preprocessing imports from ml_backtest.py (no longer needed)
+
+**Impact:** ml_backtest.py now has **ZERO** preprocessing duplication!
 
 ### Phase 2 (Recommended)
-- [ ] Migrate `regressor.py` dataload() to use `DataProcessor.full_pipeline()`
+- [ ] Migrate `regressor.py` to use DataProcessor static methods for:
+  - [ ] Infinite value handling (6 locations currently duplicated)
+  - [ ] NaN handling
+  - [ ] Feature scaling
 - [ ] Extract sector calculation logic to DataProcessor
 - [ ] Add unit tests for DataSchema
 - [ ] Add unit tests for DataProcessor

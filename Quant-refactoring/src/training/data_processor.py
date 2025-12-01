@@ -280,6 +280,59 @@ class DataProcessor:
         return X_clean, None
 
     # ========================================================================
+    # NaN Handling
+    # ========================================================================
+
+    @staticmethod
+    def handle_nan(
+        X: pd.DataFrame,
+        y: Optional[pd.Series] = None,
+        method: str = 'fillna',
+        fill_value: Any = 0
+    ) -> Tuple[pd.DataFrame, Optional[pd.Series]]:
+        """
+        Unified NaN handling.
+
+        Provides consistent NaN handling across regressor.py and ml_backtest.py.
+
+        Parameters:
+        -----------
+        X : pd.DataFrame
+            Feature dataframe
+        y : Optional[pd.Series]
+            Target series
+        method : str
+            'fillna' (default), 'drop', or 'forward_fill'
+        fill_value : Any
+            Value to fill NaN with (default: 0)
+
+        Returns:
+        --------
+        X_clean : pd.DataFrame
+            Dataframe with NaN handled
+        y_clean : Optional[pd.Series]
+            Target with NaN handled (if provided)
+
+        Example:
+        --------
+        X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)
+        """
+        if method == 'fillna':
+            X_clean = X.fillna(fill_value)
+            y_clean = y.fillna(fill_value) if y is not None else None
+        elif method == 'drop':
+            nan_mask = X.isna().any(axis=1)
+            X_clean = X[~nan_mask]
+            y_clean = y[~nan_mask] if y is not None else None
+        elif method == 'forward_fill':
+            X_clean = X.fillna(method='ffill')
+            y_clean = y.fillna(method='ffill') if y is not None else None
+        else:
+            raise ValueError(f"Unknown method: {method}. Use 'fillna', 'drop', or 'forward_fill'")
+
+        return X_clean, y_clean
+
+    # ========================================================================
     # Outlier Handling
     # ========================================================================
 
@@ -363,13 +416,16 @@ class DataProcessor:
     # Feature Scaling
     # ========================================================================
 
-    def fit_scaler(
-        self,
+    @staticmethod
+    def scale_features(
         X: pd.DataFrame,
-        scaler_type: str = 'robust'
-    ) -> np.ndarray:
+        scaler_type: str = 'robust',
+        fitted_scaler: Optional[Any] = None
+    ) -> Tuple[np.ndarray, Any]:
         """
-        Fit scaler and transform features.
+        Unified feature scaling.
+
+        Provides consistent scaling across regressor.py and ml_backtest.py.
 
         Parameters:
         -----------
@@ -377,62 +433,68 @@ class DataProcessor:
             Feature dataframe
         scaler_type : str
             'robust' (default) or 'standard'
+        fitted_scaler : Optional[Any]
+            Pre-fitted scaler for transform mode
+            If None, creates new scaler and fits (train mode)
 
         Returns:
         --------
-        np.ndarray
+        X_scaled : np.ndarray
             Scaled features
+        scaler : Any
+            Fitted scaler object (for use in transform mode)
 
         Example:
         --------
-        X_train_scaled = processor.fit_scaler(X_train, scaler_type='robust')
+        # Train mode (fit new scaler)
+        X_train_scaled, scaler = DataProcessor.scale_features(X_train, 'robust')
+
+        # Test mode (use fitted scaler)
+        X_test_scaled, _ = DataProcessor.scale_features(X_test, fitted_scaler=scaler)
         """
-        if scaler_type == 'robust':
-            self.scaler = RobustScaler()
-        elif scaler_type == 'standard':
-            self.scaler = StandardScaler()
+        if fitted_scaler is not None:
+            # Transform mode (use existing scaler)
+            X_scaled = fitted_scaler.transform(X)
+            return X_scaled, fitted_scaler
         else:
-            raise ValueError(f"Unknown scaler type: {scaler_type}. Use 'robust' or 'standard'")
+            # Fit mode (create and fit new scaler)
+            if scaler_type == 'robust':
+                scaler = RobustScaler()
+            elif scaler_type == 'standard':
+                scaler = StandardScaler()
+            else:
+                raise ValueError(f"Unknown scaler: {scaler_type}. Use 'robust' or 'standard'")
 
-        # Handle NaN before scaling
-        X_filled = X.fillna(0)
+            X_scaled = scaler.fit_transform(X)
+            logging.info(f"   Fitted {scaler_type.upper()} scaler on {X.shape[1]} features")
 
-        # Fit and transform
-        X_scaled = self.scaler.fit_transform(X_filled)
+            return X_scaled, scaler
 
-        self.logger.info(f"   Fitted {scaler_type.upper()} scaler on {X.shape[1]} features")
+    # Backward compatibility methods
+    def fit_scaler(
+        self,
+        X: pd.DataFrame,
+        scaler_type: str = 'robust'
+    ) -> np.ndarray:
+        """
+        Fit scaler and transform features (backward compatibility).
 
+        Use DataProcessor.scale_features() for new code.
+        """
+        X_scaled, scaler = self.scale_features(X, scaler_type)
+        self.scaler = scaler
         return X_scaled
 
     def transform_scaler(self, X: pd.DataFrame) -> np.ndarray:
         """
-        Transform features using fitted scaler.
+        Transform features using fitted scaler (backward compatibility).
 
-        Parameters:
-        -----------
-        X : pd.DataFrame
-            Feature dataframe
-
-        Returns:
-        --------
-        np.ndarray
-            Scaled features
-
-        Raises:
-        -------
-        ValueError
-            If scaler not fitted
-
-        Example:
-        --------
-        X_test_scaled = processor.transform_scaler(X_test)
+        Use DataProcessor.scale_features(X, fitted_scaler=scaler) for new code.
         """
         if self.scaler is None:
             raise ValueError("Scaler not fitted! Call fit_scaler() first.")
 
-        X_filled = X.fillna(0)
-        X_scaled = self.scaler.transform(X_filled)
-
+        X_scaled, _ = self.scale_features(X, fitted_scaler=self.scaler)
         return X_scaled
 
     # ========================================================================
