@@ -1320,6 +1320,40 @@ class Regressor:
 
         logging.info("=" * 80)
 
+        # ✅ Winsorization: Outlier handling (OPTIONAL - disabled by default)
+        # Same as ml_backtest.py for consistency
+        USE_WINSORIZATION = False  # ← Set to True to enable
+        if USE_WINSORIZATION:
+            self.x_train = DataProcessor.winsorize_features(
+                self.x_train,
+                lower_percentile=0.01,  # 1%
+                upper_percentile=0.99,  # 99%
+                enabled=True
+            )
+            logging.info(f"✅ Winsorization applied")
+
+        # ✅ Feature Selection: Reduce dimension using model-based importance
+        # Same as ml_backtest.py for consistency
+        USE_FEATURE_SELECTION = False  # ← Set to True to enable
+        TARGET_FEATURES = 1000  # Target number of features
+        if USE_FEATURE_SELECTION:
+            # Need to align y_train with x_train indices
+            y_for_selection = self.y_train.iloc[:, 0] if isinstance(self.y_train, pd.DataFrame) else self.y_train
+            self.x_train, selected_features = DataProcessor.select_features_by_importance(
+                self.x_train,
+                y_for_selection,
+                n_features=TARGET_FEATURES,
+                task='regression',
+                enabled=True
+            )
+            # Save for test set application
+            self.selected_features = selected_features
+            logging.info(f"✅ Feature selection: {len(self.x_train.columns)} features selected")
+        else:
+            self.selected_features = None
+
+        logging.info("=" * 80)
+
         # 모든 분류 모델 학습
         for i, model in self.clsmodels.items():
             logging.info("start fitting classifier")
@@ -1544,6 +1578,17 @@ class Regressor:
             except FileNotFoundError:
                 logging.warning(f"⚠️  Feature columns file not found: {feature_columns_file}")
                 logging.warning("   Proceeding without feature alignment (may cause errors)")
+
+            # ✅ Winsorization: Apply if enabled during training
+            # Must match training preprocessing for consistency
+            if USE_WINSORIZATION:
+                x_test = DataProcessor.winsorize_features(
+                    x_test,
+                    lower_percentile=0.01,
+                    upper_percentile=0.99,
+                    enabled=True
+                )
+                logging.info(f"   ✅ Winsorization applied to test data")
 
             # ===== NaN 값 처리 (Evaluation 단계 - 개선된 전략) =====
             logging.info(f"🔬 Checking for NaN values in test data ({tdate})...")
@@ -2038,6 +2083,17 @@ class Regressor:
             logging.error("   Cannot proceed with prediction - feature alignment required")
             logging.error("   Please run training first to generate feature_columns.pkl")
             return
+
+        # ✅ Winsorization: Apply if enabled during training
+        # Must match training preprocessing for consistency
+        if USE_WINSORIZATION:
+            input = DataProcessor.winsorize_features(
+                input,
+                lower_percentile=0.01,
+                upper_percentile=0.99,
+                enabled=True
+            )
+            logging.info(f"   ✅ Winsorization applied to latest prediction data")
 
         preds = np.empty((0, input.shape[0]))
 
