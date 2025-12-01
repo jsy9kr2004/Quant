@@ -497,6 +497,142 @@ class DataProcessor:
         X_scaled, _ = self.scale_features(X, fitted_scaler=self.scaler)
         return X_scaled
 
+    @staticmethod
+    def create_binary_target(
+        y: Union[pd.Series, pd.DataFrame],
+        threshold: float = -0.02
+    ) -> Union[pd.Series, pd.DataFrame]:
+        """
+        Convert regression target to binary classification target.
+
+        This method ensures consistent binary classification across both
+        regressor.py and ml_backtest.py. Previously, different thresholds
+        were used, causing models to be trained and tested with different
+        decision boundaries.
+
+        Args:
+            y: Regression target values (price_dev or price_dev_subavg)
+            threshold: Threshold for binary classification
+                      - Default: -0.02 (2% loss tolerance)
+                      - Values > threshold are classified as 1 (up)
+                      - Values <= threshold are classified as 0 (down)
+
+        Returns:
+            Binary target (1 for above threshold, 0 otherwise)
+
+        Example:
+            >>> y = pd.Series([0.05, -0.01, -0.03, 0.02])
+            >>> binary = DataProcessor.create_binary_target(y, threshold=-0.02)
+            >>> # Result: [1, 1, 0, 1]
+            >>> # -0.01 > -0.02, so it's classified as 1 (up)
+
+        Note:
+            The threshold of -0.02 means we're willing to tolerate up to 2% loss
+            and still classify it as "up". This is useful when transaction costs
+            or small fluctuations make strict 0 threshold too sensitive.
+        """
+        if isinstance(y, pd.DataFrame):
+            # If DataFrame, apply to first column (typically the target column)
+            return (y.iloc[:, 0] > threshold).astype(int).to_frame(name=y.columns[0])
+        else:
+            return (y > threshold).astype(int)
+
+    @staticmethod
+    def fit_outlier_clipper(
+        df: pd.DataFrame,
+        lower_percentile: float = 0.02,
+        upper_percentile: float = 0.98,
+        exclude_cols: Optional[List[str]] = None
+    ) -> Dict[str, Tuple[float, float]]:
+        """
+        Compute clipping bounds for outlier removal based on percentiles.
+
+        This method ensures consistent outlier handling across both
+        regressor.py and ml_backtest.py. Extreme values can negatively
+        impact model training and predictions.
+
+        Args:
+            df: Training data to compute bounds from
+            lower_percentile: Lower percentile (default 0.02 = 2nd percentile)
+            upper_percentile: Upper percentile (default 0.98 = 98th percentile)
+            exclude_cols: Columns to skip (e.g., ['sector'])
+
+        Returns:
+            Dictionary mapping column names to (lower, upper) bounds
+
+        Example:
+            >>> # Fit on training data
+            >>> clip_bounds = DataProcessor.fit_outlier_clipper(X_train)
+            >>> # Apply to both train and test
+            >>> X_train_clipped = DataProcessor.apply_outlier_clipper(X_train, clip_bounds)
+            >>> X_test_clipped = DataProcessor.apply_outlier_clipper(X_test, clip_bounds)
+
+        Note:
+            - Default 2-98 percentile removes top/bottom 2% extreme values
+            - For targets, use 1-97 percentile (more aggressive)
+            - Saves ~50 lines of duplicated clipping code
+        """
+        exclude_cols = exclude_cols or []
+        clip_bounds = {}
+
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+
+        for col in numeric_cols:
+            if col in exclude_cols:
+                continue
+
+            lower = df[col].quantile(lower_percentile)
+            upper = df[col].quantile(upper_percentile)
+            clip_bounds[col] = (float(lower), float(upper))
+
+        logging.info(f"Computed clip bounds for {len(clip_bounds)} features "
+                    f"(percentiles: {lower_percentile*100:.0f}-{upper_percentile*100:.0f})")
+
+        return clip_bounds
+
+    @staticmethod
+    def apply_outlier_clipper(
+        df: pd.DataFrame,
+        clip_bounds: Dict[str, Tuple[float, float]]
+    ) -> pd.DataFrame:
+        """
+        Apply pre-computed clipping bounds to remove outliers.
+
+        Args:
+            df: Data to clip (train, test, or new data)
+            clip_bounds: Dictionary from fit_outlier_clipper()
+
+        Returns:
+            Clipped DataFrame (copy, original unchanged)
+
+        Example:
+            >>> # First fit on training data
+            >>> clip_bounds = DataProcessor.fit_outlier_clipper(X_train)
+            >>> # Then apply to test data
+            >>> X_test_clipped = DataProcessor.apply_outlier_clipper(X_test, clip_bounds)
+
+        Note:
+            - Only clips columns present in both df and clip_bounds
+            - Silently skips columns not in df (for flexibility)
+        """
+        df = df.copy()
+
+        clipped_count = 0
+        for col, (lower, upper) in clip_bounds.items():
+            if col in df.columns:
+                original_values = df[col].copy()
+                df[col] = df[col].clip(lower, upper)
+
+                # Count how many values were clipped
+                clipped = ((original_values < lower) | (original_values > upper)).sum()
+                if clipped > 0:
+                    clipped_count += 1
+
+        if clipped_count > 0:
+            logging.info(f"Applied outlier clipping to {clipped_count} columns")
+
+        return df
+
     # ========================================================================
     # Feature/Target Separation
     # ========================================================================

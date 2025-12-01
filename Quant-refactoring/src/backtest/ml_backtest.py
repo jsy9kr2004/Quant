@@ -278,8 +278,9 @@ class MLBacktest:
         # ✅ REFACTORED: Use DataProcessor for feature scaling
         X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
 
-        # 이진 분류용 타겟 (상승/하락)
-        y_binary = (y > 0).astype(int)
+        # ✅ REFACTORED: Use DataProcessor for binary target creation
+        # Uses same threshold as regressor.py (-0.02) for consistency
+        y_binary = DataProcessor.create_binary_target(y, threshold=-0.02)
 
         # ✨ Create models using ModelFactory (same as regressor.py!)
         use_gpu = self._is_gpu_available()
@@ -379,8 +380,8 @@ class MLBacktest:
             # ✅ REFACTORED: Use DataProcessor for feature scaling
             X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
 
-            # 이진 분류용 타겟
-            y_binary = (y > 0).astype(int)
+            # ✅ REFACTORED: Use DataProcessor for binary target creation
+            y_binary = DataProcessor.create_binary_target(y, threshold=-0.02)
 
             try:
                 # ✨ Create models using ModelFactory (config-based, same as regressor.py!)
