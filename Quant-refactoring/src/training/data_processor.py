@@ -500,36 +500,38 @@ class DataProcessor:
     @staticmethod
     def create_binary_target(
         y: Union[pd.Series, pd.DataFrame],
-        threshold: float = -0.02
+        threshold: float = 0.0
     ) -> Union[pd.Series, pd.DataFrame]:
         """
         Convert regression target to binary classification target.
 
         This method ensures consistent binary classification across both
-        regressor.py and ml_backtest.py. Previously, different thresholds
-        were used, causing models to be trained and tested with different
-        decision boundaries.
+        regressor.py and ml_backtest.py.
 
         Args:
             y: Regression target values (price_dev or price_dev_subavg)
             threshold: Threshold for binary classification
-                      - Default: -0.02 (2% loss tolerance)
+                      - Default: 0.0 (strict profit/loss boundary)
                       - Values > threshold are classified as 1 (up)
                       - Values <= threshold are classified as 0 (down)
+                      - Alternative: -0.02 for 2% loss tolerance
 
         Returns:
             Binary target (1 for above threshold, 0 otherwise)
 
         Example:
             >>> y = pd.Series([0.05, -0.01, -0.03, 0.02])
+            >>> binary = DataProcessor.create_binary_target(y)  # threshold=0
+            >>> # Result: [1, 0, 0, 1]
+            >>>
+            >>> # With tolerance
             >>> binary = DataProcessor.create_binary_target(y, threshold=-0.02)
-            >>> # Result: [1, 1, 0, 1]
-            >>> # -0.01 > -0.02, so it's classified as 1 (up)
+            >>> # Result: [1, 1, 0, 1] (-0.01 > -0.02, so it's 1)
 
         Note:
-            The threshold of -0.02 means we're willing to tolerate up to 2% loss
-            and still classify it as "up". This is useful when transaction costs
-            or small fluctuations make strict 0 threshold too sensitive.
+            - threshold=0.0: Strict boundary (default, refactored version)
+            - threshold=-0.02: 2% loss tolerance (old version)
+            - Use threshold parameter to experiment with different strategies
         """
         if isinstance(y, pd.DataFrame):
             # If DataFrame, apply to first column (typically the target column)

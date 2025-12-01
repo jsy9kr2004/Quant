@@ -1090,7 +1090,7 @@ class Regressor:
             logging.info(f"  Search space: {search_space}")
 
             # ✅ REFACTORED: Binary label generation using DataProcessor (for Optuna)
-            y_train_binary_optuna = DataProcessor.create_binary_target(self.y_train_cls, threshold=-0.02)
+            y_train_binary_optuna = DataProcessor.create_binary_target(self.y_train_cls)
 
             # ========== Phase 1 & 2: 극단값 진단 및 클리핑 ==========
             # Optuna CV 실행 전에 데이터 품질 확인 및 처리
@@ -1219,7 +1219,7 @@ class Regressor:
 
         # ✅ REFACTORED: Use DataProcessor for binary target creation
         # Uses -0.02 threshold (2% loss tolerance) for consistency with ml_backtest.py
-        y_train_binary = DataProcessor.create_binary_target(self.y_train_cls, threshold=-0.02)
+        y_train_binary = DataProcessor.create_binary_target(self.y_train_cls)
 
         # [CRITICAL DEBUG] 실제 데이터 상태 확인
         logging.info("=" * 80)
@@ -1312,7 +1312,7 @@ class Regressor:
             logging.info(f"   XGBoost will treat NaN as a separate category in tree splits")
 
         # ✅ REFACTORED: Update y_train_binary using DataProcessor
-        y_train_binary = DataProcessor.create_binary_target(self.y_train_cls, threshold=-0.02)
+        y_train_binary = DataProcessor.create_binary_target(self.y_train_cls)
 
         logging.info(f"✅ NaN handling complete: {original_rows} → {len(self.x_train)} rows ({len(self.x_train)/original_rows*100:.1f}% retained)")
         logging.info(f"   Final data: {len(self.x_train)} rows × {len(self.x_train.columns)} features")
@@ -1508,7 +1508,7 @@ class Regressor:
             y_test = df[['price_dev_subavg']]
             y_test_cls = df[['price_dev']]
             # ✅ REFACTORED: Use DataProcessor for binary target
-            y_test_binary = DataProcessor.create_binary_target(y_test_cls, threshold=-0.02)
+            y_test_binary = DataProcessor.create_binary_target(y_test_cls)
 
             df['label'] = y_test  # 실제 가격 변동
             df['label_binary'] = y_test_binary  # 실제 이진 레이블

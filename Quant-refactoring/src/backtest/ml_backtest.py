@@ -280,7 +280,7 @@ class MLBacktest:
 
         # ✅ REFACTORED: Use DataProcessor for binary target creation
         # Uses same threshold as regressor.py (-0.02) for consistency
-        y_binary = DataProcessor.create_binary_target(y, threshold=-0.02)
+        y_binary = DataProcessor.create_binary_target(y)
 
         # ✨ Create models using ModelFactory (same as regressor.py!)
         use_gpu = self._is_gpu_available()
@@ -381,7 +381,7 @@ class MLBacktest:
             X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
 
             # ✅ REFACTORED: Use DataProcessor for binary target creation
-            y_binary = DataProcessor.create_binary_target(y, threshold=-0.02)
+            y_binary = DataProcessor.create_binary_target(y)
 
             try:
                 # ✨ Create models using ModelFactory (config-based, same as regressor.py!)
