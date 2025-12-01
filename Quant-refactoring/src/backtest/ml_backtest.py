@@ -272,15 +272,47 @@ class MLBacktest:
         X, y = DataProcessor.remove_infinite_values(X, y)
         X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
-        # ✅ REFACTORED: Use DataProcessor for NaN handling
-        X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)
+        # ✅ NaN handling: Let XGBoost/LightGBM handle NaN internally
+        # These models can use NaN for splits (missing value handling)
+        # fillna(0) was WRONG: NaN (missing) ≠ 0 (actual zero value)
+        # X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)  # REMOVED
 
-        # ✅ REFACTORED: Use DataProcessor for feature scaling
-        X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
+        # ✅ Winsorization: Outlier handling (OPTIONAL - disabled by default)
+        # Try enabled=True if models struggle with extreme values
+        # Disabled for tree-based models (XGBoost/LightGBM are outlier-robust)
+        USE_WINSORIZATION = False  # ← Set to True to enable
+        X = DataProcessor.winsorize_features(
+            X,
+            lower_percentile=0.01,  # 1%
+            upper_percentile=0.99,  # 99%
+            enabled=USE_WINSORIZATION
+        )
+
+        # ✅ Feature Selection: Reduce dimension using model-based importance
+        # Target: 4,279 → ~1,000 features (improve sample/feature ratio)
+        # Disabled by default - enable to test if dimensionality is an issue
+        USE_FEATURE_SELECTION = False  # ← Set to True to enable
+        TARGET_FEATURES = 1000  # Target number of features
+        if USE_FEATURE_SELECTION:
+            X, selected_features = DataProcessor.select_features_by_importance(
+                X, y,
+                n_features=TARGET_FEATURES,
+                task='regression',
+                enabled=True
+            )
+            # Update feature_cols to selected features for model saving
+            feature_cols = selected_features
+            self.selected_features_unified = selected_features
+        else:
+            self.selected_features_unified = None
+
+        # ✅ NO SCALING for tree-based models (XGBoost/LightGBM)
+        # Tree models are scale-invariant - they only care about split points
+        # Scaling is unnecessary and can introduce numerical issues (inf from IQR=0)
+        # This matches regressor.py behavior (no scaling)
 
         # ✅ REFACTORED: Use DataProcessor for binary target creation
-        # Uses same threshold as regressor.py (-0.02) for consistency
-        y_binary = DataProcessor.create_binary_target(y, threshold=-0.02)
+        y_binary = DataProcessor.create_binary_target(y)
 
         # ✨ Create models using ModelFactory (same as regressor.py!)
         use_gpu = self._is_gpu_available()
@@ -291,16 +323,16 @@ class MLBacktest:
 
         # 분류 모델 (상승/하락 예측)
         self.logger.info("   Training classifier...")
-        clf.fit(X_scaled, y_binary)
+        clf.fit(X, y_binary)
         models['classifier'] = clf
 
         # 회귀 모델 (수익률 크기 예측)
         self.logger.info("   Training regressor...")
-        reg.fit(X_scaled, y)
+        reg.fit(X, y)
         models['regressor'] = reg
 
         models['features'] = feature_cols
-        models['scaler'] = scaler
+        # No scaler needed for tree-based models
 
         # 모델 저장
         model_file = self.model_path / f'model_{cutoff_date.strftime("%Y%m%d")}.pkl'
@@ -374,28 +406,63 @@ class MLBacktest:
             X, y = DataProcessor.remove_infinite_values(X, y)
             X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
-            # ✅ REFACTORED: Use DataProcessor for NaN handling
-            X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)
+            # ✅ NaN handling: Let XGBoost/LightGBM handle NaN internally
+            # X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)  # REMOVED
 
-            # ✅ REFACTORED: Use DataProcessor for feature scaling
-            X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
+            # ✅ Winsorization: Outlier handling (OPTIONAL - disabled by default)
+            # Try enabled=True if models struggle with extreme values
+            # Disabled for tree-based models (XGBoost/LightGBM are outlier-robust)
+            USE_WINSORIZATION = False  # ← Set to True to enable
+            X = DataProcessor.winsorize_features(
+                X,
+                lower_percentile=0.01,  # 1%
+                upper_percentile=0.99,  # 99%
+                enabled=USE_WINSORIZATION
+            )
+
+            # ✅ Feature Selection: Reduce dimension using model-based importance
+            # Target: 4,279 → ~1,000 features (improve sample/feature ratio)
+            # Disabled by default - enable to test if dimensionality is an issue
+            USE_FEATURE_SELECTION = False  # ← Set to True to enable
+            TARGET_FEATURES = 1000  # Target number of features
+            if USE_FEATURE_SELECTION:
+                X, selected_features = DataProcessor.select_features_by_importance(
+                    X, y,
+                    n_features=TARGET_FEATURES,
+                    task='regression',
+                    enabled=True
+                )
+                # Update feature_cols to selected features for model saving
+                feature_cols = selected_features
+                # Save selected features for this sector
+                if not hasattr(self, 'selected_features_sectors'):
+                    self.selected_features_sectors = {}
+                self.selected_features_sectors[sector] = selected_features
+            else:
+                if not hasattr(self, 'selected_features_sectors'):
+                    self.selected_features_sectors = {}
+                self.selected_features_sectors[sector] = None
+
+            # ✅ NO SCALING for tree-based models (XGBoost/LightGBM)
+            # Tree models are scale-invariant - they only care about split points
+            # This matches regressor.py behavior (no scaling)
 
             # ✅ REFACTORED: Use DataProcessor for binary target creation
-            y_binary = DataProcessor.create_binary_target(y, threshold=-0.02)
+            y_binary = DataProcessor.create_binary_target(y)
 
             try:
                 # ✨ Create models using ModelFactory (config-based, same as regressor.py!)
                 clf, reg = create_models_for_backtest(self.config, use_gpu=use_gpu)
 
                 # 학습
-                clf.fit(X_scaled, y_binary)
-                reg.fit(X_scaled, y)
+                clf.fit(X, y_binary)
+                reg.fit(X, y)
 
                 sector_models[sector] = {
                     'classifier': clf,
                     'regressor': reg,
                     'features': feature_cols,
-                    'scaler': scaler,
+                    # No scaler needed for tree-based models
                     'train_samples': len(sector_data)
                 }
 
@@ -468,17 +535,17 @@ class MLBacktest:
             예측 결과 포함 데이터프레임
         """
         feature_cols = models['features']
-        scaler = models['scaler']
+        # No scaler needed - tree models don't require scaling
 
         X = test_data[feature_cols].copy()
-        X = X.fillna(0)
-        X_scaled = scaler.transform(X)
+        # ✅ NaN handling: Let XGBoost/LightGBM handle NaN during prediction
+        # Don't fillna(0) - models trained with NaN can handle NaN in test data
 
         # 분류 예측 (상승 확률)
-        y_pred_proba = models['classifier'].predict_proba(X_scaled)[:, 1]
+        y_pred_proba = models['classifier'].predict_proba(X)[:, 1]
 
         # 회귀 예측 (예상 수익률)
-        y_pred_return = models['regressor'].predict(X_scaled)
+        y_pred_return = models['regressor'].predict(X)
 
         # 결과 추가
         result = test_data.copy()
@@ -528,15 +595,14 @@ class MLBacktest:
 
             try:
                 feature_cols = sector_model['features']
-                scaler = sector_model['scaler']
+                # No scaler needed - tree models don't require scaling
 
                 X = sector_data[feature_cols].copy()
-                X = X.fillna(0)
-                X_scaled = scaler.transform(X)
+                # ✅ NaN handling: Let XGBoost/LightGBM handle NaN during prediction
 
                 # 예측
-                y_pred_proba = sector_model['classifier'].predict_proba(X_scaled)[:, 1]
-                y_pred_return = sector_model['regressor'].predict(X_scaled)
+                y_pred_proba = sector_model['classifier'].predict_proba(X)[:, 1]
+                y_pred_return = sector_model['regressor'].predict(X)
 
                 # 결과 저장
                 result.loc[sector_mask, 'pred_up_proba'] = y_pred_proba

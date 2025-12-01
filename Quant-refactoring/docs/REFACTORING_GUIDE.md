@@ -122,10 +122,11 @@ excluded = DataSchema.get_excluded_cols()  # Always 27 items, always identical
 
 **Key Features:**
 - Infinite value handling (XGBoost compatibility)
-- NaN handling (fillna, drop methods)
+- NaN handling (native tree-based model support)
 - Feature scaling (Robust/Standard)
 - Sparse row/column removal
-- Outlier clipping (quantile-based)
+- Outlier handling (clipping/winsorization)
+- Feature selection (model-based importance)
 - Feature/target separation
 
 **Static Methods (Available for Both Files):**
@@ -136,28 +137,48 @@ from src.training.data_processor import DataProcessor
 X, y = DataProcessor.remove_infinite_values(X, y)
 X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
-# 2. NaN handling
-X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)
+# 2. NaN handling (let tree models handle natively)
 df_clean = DataProcessor.drop_many_nan_row(df, threshold=0.6)
+# Note: fillna(0) removed - XGBoost/LightGBM handle NaN internally
 
 # 3. Feature scaling
 X_scaled, scaler = DataProcessor.scale_features(X, scaler_type='robust')
 
-# 4. Outlier clipping
+# 4. Outlier handling
+# 4a. Clipping (hard boundaries)
 clip_bounds = DataProcessor.fit_outlier_clipper(X_train, lower_percentile=0.02, upper_percentile=0.98)
 X_train_clipped = DataProcessor.apply_outlier_clipper(X_train, clip_bounds)
 X_test_clipped = DataProcessor.apply_outlier_clipper(X_test, clip_bounds)
 
-# 5. Large value clipping
+# 4b. Winsorization (soft caps - NEW!)
+X_winsorized = DataProcessor.winsorize_features(
+    X,
+    lower_percentile=0.01,
+    upper_percentile=0.99,
+    enabled=True  # Toggle for experiments
+)
+
+# 5. Feature selection (NEW!)
+X_selected, selected_features = DataProcessor.select_features_by_importance(
+    X, y,
+    n_features=1000,  # or use top_pct=0.3 for top 30%
+    task='regression',
+    enabled=True  # Toggle for experiments
+)
+# Apply same selection to test set
+X_test_selected = X_test[selected_features]
+
+# 6. Large value clipping
 df_clean = DataProcessor.clip_large_values(df, threshold=1e9)
 
-# 6. Liquidity filtering
+# 7. Liquidity filtering
 df_filtered, threshold = DataProcessor.filter_by_liquidity(df, top_pct=0.50)
 # For test data: use saved threshold
 df_test_filtered, _ = DataProcessor.filter_by_liquidity(df_test, threshold=threshold)
 
-# 7. Binary target creation (CRITICAL - fixes bug)
-y_binary = DataProcessor.create_binary_target(y, threshold=-0.02)
+# 8. Binary target creation
+y_binary = DataProcessor.create_binary_target(y)  # default threshold=0.0
+# or specify custom threshold: create_binary_target(y, threshold=-0.02)
 ```
 
 **Full Pipeline Example (for regressor.py):**
@@ -177,14 +198,17 @@ y_test = result['y_test']
 ```
 
 **Critical Fixes & New Methods:**
-- **🚨 Binary threshold bug**: Fixed! Now both files use -0.02 threshold via `create_binary_target()`
+- **🚨 Binary threshold bug**: Fixed! Reverted to 0.0 (refactoring must not change behavior)
 - **Infinite values**: Unified via `remove_infinite_values()` and `replace_infinite_with_nan()`
-- **NaN handling**: Unified via `handle_nan()` and `drop_many_nan_row()`
+- **NaN handling**: Removed fillna(0) - tree models handle NaN natively via `drop_many_nan_row()`
 - **Scaling**: Unified via `scale_features()`
-- **Outlier clipping**: NEW methods `fit_outlier_clipper()` and `apply_outlier_clipper()`
-- **Large values**: NEW method `clip_large_values()` prevents XGBoost overflow
-- **Liquidity filtering**: NEW method `filter_by_liquidity()` selects liquid stocks
-- **~200+ lines of duplication eliminated** via these unified methods!
+- **Outlier handling**:
+  - Clipping methods: `fit_outlier_clipper()` and `apply_outlier_clipper()`
+  - **NEW**: `winsorize_features()` - gentler outlier handling (toggleable)
+- **Feature selection**: **NEW** `select_features_by_importance()` - model-based dimension reduction (toggleable)
+- **Large values**: `clip_large_values()` prevents XGBoost overflow
+- **Liquidity filtering**: `filter_by_liquidity()` selects liquid stocks
+- **~370+ lines of duplication eliminated** via these unified methods!
 
 ---
 
@@ -227,7 +251,7 @@ classifier, regressor = create_models_for_backtest(
 
 ### Current Unification Status
 
-**As of 2025-12-01 - Phase 2 Complete:**
+**As of 2025-12-01 - Phase 2 + Enhancements Complete:**
 
 #### ml_backtest.py (100% ✅)
 
@@ -236,8 +260,11 @@ classifier, regressor = create_models_for_backtest(
 | **Column definitions** | ✅ 100% unified | `DataSchema.get_excluded_cols()` |
 | **Model creation** | ✅ 100% unified | `create_models_for_backtest()` |
 | **Infinite value handling** | ✅ 100% unified | `DataProcessor.remove_infinite_values()` |
-| **NaN handling** | ✅ 100% unified | `DataProcessor.handle_nan()` |
+| **NaN handling** | ✅ 100% unified | XGBoost/LightGBM native (fillna removed) |
 | **Feature scaling** | ✅ 100% unified | `DataProcessor.scale_features()` |
+| **Binary threshold** | ✅ 100% unified | `DataProcessor.create_binary_target(y)` (default 0.0) |
+| **Winsorization** | ✅ 100% unified | `DataProcessor.winsorize_features()` (toggleable) |
+| **Feature selection** | ✅ 100% unified | `DataProcessor.select_features_by_importance()` (toggleable) |
 
 #### regressor.py (100% ✅)
 
@@ -373,8 +400,8 @@ When modifying the ML pipeline, follow this checklist:
     - Location 5: Y label check after split (lines 783-806)
     - Location 6: Final check before training (lines 1194-1222)
   - [x] **Binary threshold** (4 locations unified)
-    - All locations now use `DataProcessor.create_binary_target(y, threshold=-0.02)`
-    - **CRITICAL BUG FIXED:** Models now trained/tested with identical thresholds
+    - All locations now use `DataProcessor.create_binary_target(y)` (default 0.0)
+    - **CRITICAL BUG FIXED:** Reverted to 0.0 (refactoring must not change behavior)
   - [x] **Excessive NaN row removal** (3 locations unified)
     - Location 1: Train data filtering (line 660)
     - Location 2: Test data filtering (line 721)
@@ -383,8 +410,52 @@ When modifying the ML pipeline, follow this checklist:
 
 **Impact:** regressor.py now has **ZERO** preprocessing duplication! All preprocessing uses unified DataProcessor methods.
 
-### Phase 2.5 (Future Enhancements)
-- [ ] Add outlier clipping to ml_backtest.py (method available, not yet integrated)
+### Phase 2.5 (Completed) ✅ **[2025-12-01]**
+
+#### Task 1: Binary Threshold Fix ✅
+- **Issue:** Refactoring accidentally changed threshold from 0.0 to -0.02
+- **Fix:** Reverted `DataProcessor.create_binary_target()` default to 0.0
+- **Principle:** Refactoring must NOT change behavior
+- **Impact:** 6 locations updated (regressor.py × 4, ml_backtest.py × 2)
+
+#### Task 2: NaN Handling Removal ✅
+- **Issue:** `fillna(0)` incorrectly treats NaN (missing) as 0 (actual zero)
+  - Example: ROE=NaN (not reported) ≠ ROE=0 (losing money)
+- **Fix:** Removed all `fillna(0)` calls
+  - Training: 2 locations in ml_backtest.py
+  - Prediction: 2 locations (_predict_unified, _predict_sector)
+- **Strategy:** Let XGBoost/LightGBM handle NaN natively (built-in missing value support)
+- **Impact:** Better model performance, correct treatment of missing data
+
+#### Task 3: Winsorization ✅
+- **Method Added:** `DataProcessor.winsorize_features()`
+- **Purpose:** Gentler outlier handling than clipping
+  - Clipping: Hard cut at percentiles
+  - Winsorization: Replaces extremes with percentile values
+- **Features:**
+  - `enabled` parameter for easy on/off toggle (default: False)
+  - Percentile parameters (default: 1-99%, gentler than clipping's 2-98%)
+  - Applied to both unified and sector model training
+- **Impact:** Users can experiment with results-based decision making
+
+#### Task 4: Feature Selection ✅
+- **Method Added:** `DataProcessor.select_features_by_importance()`
+- **Issue:** High feature dimension (4,279 features, 27,751 samples)
+  - Current ratio: 6.5:1 (samples:features)
+  - Recommended: ≥10:1
+- **Strategy:** Model-based selection using LightGBM importance
+  - More robust than correlation-based methods
+  - Handles multicollinearity automatically
+  - No feature scaling required
+- **Features:**
+  - `n_features` or `top_pct` parameters (e.g., 1,000 features or top 30%)
+  - `enabled` parameter for easy on/off toggle (default: False)
+  - Automatic feature_cols update for test set application
+  - Applied to both unified and sector models
+- **Target:** 4,279 → 1,000 features (27.8:1 ratio, 76.6% reduction)
+- **Impact:** Improved sample/feature ratio for better generalization
+
+### Phase 3 (Future Enhancements)
 - [ ] Add liquidity filtering to ml_backtest.py (method available, not yet integrated)
 - [ ] Extract sector calculation logic to DataProcessor
 - [ ] Add unit tests for DataSchema

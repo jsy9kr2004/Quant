@@ -1090,7 +1090,7 @@ class Regressor:
             logging.info(f"  Search space: {search_space}")
 
             # ✅ REFACTORED: Binary label generation using DataProcessor (for Optuna)
-            y_train_binary_optuna = DataProcessor.create_binary_target(self.y_train_cls, threshold=-0.02)
+            y_train_binary_optuna = DataProcessor.create_binary_target(self.y_train_cls)
 
             # ========== Phase 1 & 2: 극단값 진단 및 클리핑 ==========
             # Optuna CV 실행 전에 데이터 품질 확인 및 처리
@@ -1219,7 +1219,7 @@ class Regressor:
 
         # ✅ REFACTORED: Use DataProcessor for binary target creation
         # Uses -0.02 threshold (2% loss tolerance) for consistency with ml_backtest.py
-        y_train_binary = DataProcessor.create_binary_target(self.y_train_cls, threshold=-0.02)
+        y_train_binary = DataProcessor.create_binary_target(self.y_train_cls)
 
         # [CRITICAL DEBUG] 실제 데이터 상태 확인
         logging.info("=" * 80)
@@ -1312,11 +1312,45 @@ class Regressor:
             logging.info(f"   XGBoost will treat NaN as a separate category in tree splits")
 
         # ✅ REFACTORED: Update y_train_binary using DataProcessor
-        y_train_binary = DataProcessor.create_binary_target(self.y_train_cls, threshold=-0.02)
+        y_train_binary = DataProcessor.create_binary_target(self.y_train_cls)
 
         logging.info(f"✅ NaN handling complete: {original_rows} → {len(self.x_train)} rows ({len(self.x_train)/original_rows*100:.1f}% retained)")
         logging.info(f"   Final data: {len(self.x_train)} rows × {len(self.x_train.columns)} features")
         logging.info(f"   Remaining NaN values: {remaining_nan_count} (will be handled by XGBoost)")
+
+        logging.info("=" * 80)
+
+        # ✅ Winsorization: Outlier handling (OPTIONAL - disabled by default)
+        # Same as ml_backtest.py for consistency
+        USE_WINSORIZATION = False  # ← Set to True to enable
+        if USE_WINSORIZATION:
+            self.x_train = DataProcessor.winsorize_features(
+                self.x_train,
+                lower_percentile=0.01,  # 1%
+                upper_percentile=0.99,  # 99%
+                enabled=True
+            )
+            logging.info(f"✅ Winsorization applied")
+
+        # ✅ Feature Selection: Reduce dimension using model-based importance
+        # Same as ml_backtest.py for consistency
+        USE_FEATURE_SELECTION = False  # ← Set to True to enable
+        TARGET_FEATURES = 1000  # Target number of features
+        if USE_FEATURE_SELECTION:
+            # Need to align y_train with x_train indices
+            y_for_selection = self.y_train.iloc[:, 0] if isinstance(self.y_train, pd.DataFrame) else self.y_train
+            self.x_train, selected_features = DataProcessor.select_features_by_importance(
+                self.x_train,
+                y_for_selection,
+                n_features=TARGET_FEATURES,
+                task='regression',
+                enabled=True
+            )
+            # Save for test set application
+            self.selected_features = selected_features
+            logging.info(f"✅ Feature selection: {len(self.x_train.columns)} features selected")
+        else:
+            self.selected_features = None
 
         logging.info("=" * 80)
 
@@ -1508,7 +1542,7 @@ class Regressor:
             y_test = df[['price_dev_subavg']]
             y_test_cls = df[['price_dev']]
             # ✅ REFACTORED: Use DataProcessor for binary target
-            y_test_binary = DataProcessor.create_binary_target(y_test_cls, threshold=-0.02)
+            y_test_binary = DataProcessor.create_binary_target(y_test_cls)
 
             df['label'] = y_test  # 실제 가격 변동
             df['label_binary'] = y_test_binary  # 실제 이진 레이블
@@ -1544,6 +1578,17 @@ class Regressor:
             except FileNotFoundError:
                 logging.warning(f"⚠️  Feature columns file not found: {feature_columns_file}")
                 logging.warning("   Proceeding without feature alignment (may cause errors)")
+
+            # ✅ Winsorization: Apply if enabled during training
+            # Must match training preprocessing for consistency
+            if USE_WINSORIZATION:
+                x_test = DataProcessor.winsorize_features(
+                    x_test,
+                    lower_percentile=0.01,
+                    upper_percentile=0.99,
+                    enabled=True
+                )
+                logging.info(f"   ✅ Winsorization applied to test data")
 
             # ===== NaN 값 처리 (Evaluation 단계 - 개선된 전략) =====
             logging.info(f"🔬 Checking for NaN values in test data ({tdate})...")
@@ -2038,6 +2083,17 @@ class Regressor:
             logging.error("   Cannot proceed with prediction - feature alignment required")
             logging.error("   Please run training first to generate feature_columns.pkl")
             return
+
+        # ✅ Winsorization: Apply if enabled during training
+        # Must match training preprocessing for consistency
+        if USE_WINSORIZATION:
+            input = DataProcessor.winsorize_features(
+                input,
+                lower_percentile=0.01,
+                upper_percentile=0.99,
+                enabled=True
+            )
+            logging.info(f"   ✅ Winsorization applied to latest prediction data")
 
         preds = np.empty((0, input.shape[0]))
 
