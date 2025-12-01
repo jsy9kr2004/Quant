@@ -27,6 +27,9 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 from xgboost import XGBClassifier, XGBRegressor
 import lightgbm as lgb
 
+# ✨ REFACTORED: Import unified data schema
+from src.constants.data_schema import DataSchema
+
 
 class MLBacktest:
     """
@@ -254,26 +257,14 @@ class MLBacktest:
         self.logger.info(f"   Training samples: {len(train_data)}")
         self.logger.info("   🔧 Using ModelFactory (same models as regressor.py)")
 
-        # 특성과 타겟 분리
-        # 제외할 컬럼 (메타데이터 및 타겟 변수) - regressor.py의 y_col_list와 일치
-        exclude_cols = [
-            # Metadata columns
-            'symbol', 'exchangeShortName', 'type', 'delistedDate',
-            'industry', 'ipoDate', 'sector',
-            # Date columns
-            'rebalance_date', 'report_date', 'fillingDate', 'fillingDate_x',
-            'acceptedDate', 'start_date', 'year_period',
-            # Price/volume columns (not features)
-            'price', 'volume', 'marketCap', 'price_diff', 'volume_mul_price',
-            # Target variables
-            'price_dev', 'price_dev_subavg', 'sec_price_dev_subavg',
-            'price_dev_prediction'
-        ]
-
-        feature_cols = [col for col in train_data.columns if col not in exclude_cols]
+        # ✨ REFACTORED: Use DataSchema for column definitions
+        # This ensures ml_backtest.py and regressor.py use IDENTICAL column exclusions
+        # Prevents bugs from column name mismatches
+        exclude_cols = DataSchema.get_excluded_cols()
+        feature_cols = DataSchema.get_feature_cols(train_data)
 
         X = train_data[feature_cols].copy()
-        y = train_data['price_dev_subavg'].copy()  # 회귀 타겟 (regressor.py와 일관성)
+        y = train_data[DataSchema.REGRESSION_TARGET].copy()  # ✨ Unified target (regressor.py와 일관성)
 
         # NaN 처리
         X = X.fillna(0)
@@ -351,20 +342,8 @@ class MLBacktest:
         # 섹터별 모델 저장
         sector_models = {}
 
-        # 제외할 컬럼 (메타데이터 및 타겟 변수) - regressor.py의 y_col_list와 일치
-        exclude_cols = [
-            # Metadata columns
-            'symbol', 'exchangeShortName', 'type', 'delistedDate',
-            'industry', 'ipoDate', 'sector',
-            # Date columns
-            'rebalance_date', 'report_date', 'fillingDate', 'fillingDate_x',
-            'acceptedDate', 'start_date', 'year_period',
-            # Price/volume columns (not features)
-            'price', 'volume', 'marketCap', 'price_diff', 'volume_mul_price',
-            # Target variables
-            'price_dev', 'price_dev_subavg', 'sec_price_dev_subavg',
-            'price_dev_prediction'
-        ]
+        # ✨ REFACTORED: Use DataSchema for column definitions (unified with regressor.py)
+        exclude_cols = DataSchema.get_excluded_cols()
 
         # 각 섹터별로 학습
         sectors = train_data['sector'].unique()
@@ -382,9 +361,9 @@ class MLBacktest:
             self.logger.info(f"   Training {sector} sector ({len(sector_data)} samples)")
 
             # 특성과 타겟 분리
-            feature_cols = [col for col in sector_data.columns if col not in exclude_cols]
+            feature_cols = DataSchema.get_feature_cols(sector_data)
             X = sector_data[feature_cols].copy()
-            y = sector_data['price_dev_subavg'].copy()  # 회귀 타겟 (regressor.py와 일관성)
+            y = sector_data[DataSchema.REGRESSION_TARGET].copy()  # ✨ Unified target (regressor.py와 일관성)
 
             # NaN 처리
             X = X.fillna(0)
