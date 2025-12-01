@@ -27,6 +27,11 @@
 2. **[docs/ADVANCED_FEATURES_GUIDE.md](docs/ADVANCED_FEATURES_GUIDE.md)** ⭐ 리밸런싱 최적화, 모델 비교, 섹터별 모델
 3. **[docs/ROBUST_VALIDATION_GUIDE.md](docs/ROBUST_VALIDATION_GUIDE.md)** - 성능 검증 방법
 
+### 🔄 리팩토링 관련 문서 (2025-12-01 추가)
+**코드 이중화 제거 및 통합 아키텍처:**
+1. **[docs/REFACTORING_GUIDE.md](docs/REFACTORING_GUIDE.md)** ⭐ 리팩토링 전체 가이드
+2. **[docs/DATA_SCHEMA_REFERENCE.md](docs/DATA_SCHEMA_REFERENCE.md)** - DataSchema API 레퍼런스
+
 ### 📁 기타 문서
 - **[docs/archive/](docs/archive/)** - 과거 분석 리포트 및 참고 자료
 
@@ -70,6 +75,15 @@
 - ✅ 루트 디렉토리 정리 (7개 → 2개 파일)
 - ✅ 일관된 패키지 구조
 
+### 8. 코드 이중화 제거 리팩토링 (2025-12-01) ✨ NEW
+- ✅ **DataSchema**: 컬럼 정의 단일화 (regressor ↔ ml_backtest 동기화)
+- ✅ **DataProcessor**: 전처리 파이프라인 통일
+- ✅ **ModelFactory**: 모델 생성 일관성 보장
+- ✅ **825줄의 중복 코드 제거** (-100% 중복)
+- ✅ **예측도 ↔ 백테스트 수익률 동일선상 비교 가능**
+
+> 📖 **상세 가이드:** [docs/REFACTORING_GUIDE.md](docs/REFACTORING_GUIDE.md)
+
 ## 프로젝트 구조
 
 ### 📂 로컬 프로젝트 (Quant-refactoring/)
@@ -93,9 +107,14 @@ Quant-refactoring/
 │   │   ├── parquet_converter.py       # 변환기
 │   │   └── data_validator.py          # 검증
 │   │
+│   ├── 📁 constants/                   # ✨ NEW: 통합 상수 정의
+│   │   ├── __init__.py
+│   │   └── data_schema.py             # 컬럼 정의 단일화
+│   │
 │   ├── 📁 training/                    # 🎓 ML 학습
+│   │   ├── data_processor.py          # ✨ NEW: 통합 전처리
 │   │   ├── make_mldata.py             # 데이터 전처리
-│   │   ├── regressor.py               # 학습 모델
+│   │   ├── regressor.py               # 학습 모델 (DataSchema 사용)
 │   │   ├── optimizer.py               # Optuna 튜닝
 │   │   └── mlflow_tracker.py          # MLflow 추적
 │   │

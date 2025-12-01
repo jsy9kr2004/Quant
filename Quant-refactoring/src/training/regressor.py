@@ -79,6 +79,7 @@ from typing import Dict, List, Tuple, Optional, Any
 # datasets 라이브러리는 사용되지 않으므로 import 제거됨
 # from datasets import Dataset
 from config.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, sparse_col_list
+from src.constants.data_schema import DataSchema  # ✨ Unified column definitions
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.neural_network import MLPRegressor
@@ -248,27 +249,16 @@ def predict_proba_with_gpu_support(model, X, use_gpu: bool):
     else:
         return model.predict_proba(X)
 
-# 모델 입력에서 제외할 컬럼 (메타데이터 및 타겟 변수)
-y_col_list = [
-    "symbol",
-    "exchangeShortName",
-    "type",
-    "delistedDate",
-    "industry",
-    "ipoDate",
-    "rebalance_date",
-    "price",
-    "volume",
-    "marketCap",
-    "price_diff",
-    "volume_mul_price",
-    "price_dev",
-    "report_date",
-    "fillingDate_x",
-    "sector",
-    "price_dev_subavg",
-    "sec_price_dev_subavg"
-]
+# ==============================================================================
+# Column Definitions (Unified with ml_backtest.py via DataSchema)
+# ==============================================================================
+# ✨ REFACTORED: Now using DataSchema for single source of truth
+# This ensures regressor.py and ml_backtest.py use identical column definitions
+# Prevents bugs from column name mismatches
+y_col_list = DataSchema.get_excluded_cols()
+
+# Backward compatibility: Keep old variable name for existing code
+# TODO: Gradually replace all `y_col_list` references with `DataSchema.get_excluded_cols()`
 
 
 class Regressor:
