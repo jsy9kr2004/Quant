@@ -109,6 +109,11 @@ PER_SECTOR = False  # 섹터별로 개별 모델을 학습할지 여부
 MODEL_SAVE_PATH = ""  # 학습된 모델 저장 경로 (메서드에서 설정됨)
 THRESHOLD = 92  # 분류를 위한 백분위수 임계값 (92 = 상위 8%가 양성으로 예측됨)
 
+# Preprocessing 설정 (ml_backtest.py와 동일하게 유지)
+USE_WINSORIZATION = False  # Winsorization 사용 여부 (outlier handling)
+USE_FEATURE_SELECTION = False  # Feature selection 사용 여부
+TARGET_FEATURES = 1000  # Feature selection 시 목표 feature 수
+
 # ==============================================================================
 # GPU/CPU Device Detection
 # ==============================================================================
@@ -1322,7 +1327,7 @@ class Regressor:
 
         # ✅ Winsorization: Outlier handling (OPTIONAL - disabled by default)
         # Same as ml_backtest.py for consistency
-        USE_WINSORIZATION = False  # ← Set to True to enable
+        # Global setting: USE_WINSORIZATION (defined at top of file)
         if USE_WINSORIZATION:
             self.x_train = DataProcessor.winsorize_features(
                 self.x_train,
@@ -1334,8 +1339,7 @@ class Regressor:
 
         # ✅ Feature Selection: Reduce dimension using model-based importance
         # Same as ml_backtest.py for consistency
-        USE_FEATURE_SELECTION = False  # ← Set to True to enable
-        TARGET_FEATURES = 1000  # Target number of features
+        # Global settings: USE_FEATURE_SELECTION, TARGET_FEATURES (defined at top of file)
         if USE_FEATURE_SELECTION:
             # Need to align y_train with x_train indices
             y_for_selection = self.y_train.iloc[:, 0] if isinstance(self.y_train, pd.DataFrame) else self.y_train
