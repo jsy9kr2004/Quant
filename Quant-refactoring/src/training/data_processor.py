@@ -19,7 +19,7 @@ Author: Quant Trading Team
 Date: 2025-12-01
 """
 
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Tuple, Optional, Dict, Any, List, Union
 import pandas as pd
 import numpy as np
 import logging
