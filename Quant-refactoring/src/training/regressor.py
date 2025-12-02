@@ -359,6 +359,7 @@ class Regressor:
         data_config = conf.get('DATA', {})
         ml_config = conf.get('ML', {})
         features_config = conf.get('FEATURES', {})
+        backtest_config = conf.get('BACKTEST', {})
         self.root_path: str = data_config.get('ROOT_PATH', '/home/user/Quant/data')
 
         # 섹터별 모델 사용 여부 (ml_backtest.py와 동일한 방식)
@@ -368,6 +369,9 @@ class Regressor:
         # Preprocessing 설정 (ml_backtest.py와 동일한 방식)
         self.use_winsorization = features_config.get('USE_WINSORIZATION', 'Y') == 'Y'
         self.use_feature_selection = features_config.get('USE_FEATURE_SELECTION', 'Y') == 'Y'
+
+        # Top K 설정 (ml_backtest.py와 동일한 방식)
+        self.top_k_num = int(backtest_config.get('TOP_K_NUM', 20))
 
         aidata_dir = self.root_path + '/processed/ml_data/per_year/'
         print("aidata path : " + aidata_dir)
@@ -2172,8 +2176,8 @@ class Regressor:
         ldf['ai_pred_avg'] = np.average(preds, axis=0)
         ldf.to_csv(MODEL_SAVE_PATH+"latest_prediction.csv")
 
-        # 상위 K개 주식 추천 생성
-        topk_list = [(0,3), (0,7), (0, 15)]
+        # 상위 K개 주식 추천 생성 (config의 TOP_K_NUM 사용, ml_backtest.py와 동일)
+        topk_list = [(0, self.top_k_num - 1)]
         for s, e in topk_list:
             logging.info("top" + str(s) + " ~ " + str(e))
             for col in pred_col_list:
@@ -2216,8 +2220,8 @@ class Regressor:
                 sec_df['ai_pred_avg'] = np.average(preds, axis=0)
                 sec_df.to_csv(MODEL_SAVE_PATH+"sec_{}_latest_prediction.csv".format(sec))
 
-                # 섹터별 상위 K개
-                topk_list = [(0,3), (0,7), (0, 15)]
+                # 섹터별 상위 K개 (config의 TOP_K_NUM 사용, ml_backtest.py와 동일)
+                topk_list = [(0, self.top_k_num - 1)]
                 for s, e in topk_list:
                     logging.info("top" + str(s) + " ~ " + str(e))
                     for col in pred_col_list:
