@@ -226,6 +226,8 @@ class MLBacktest:
         **Logic Unification**: Loads the same parameters that regressor.py saved,
         ensuring both systems use identical model hyperparameters.
 
+        **Storage Location**: {ROOT_PATH}/models/optuna/ (portable, backup-friendly)
+
         Returns:
         -------
         Optional[Dict[str, Any]]
@@ -234,18 +236,18 @@ class MLBacktest:
         if not self.use_optuna:
             return None
 
-        # Look for Optuna parameter files in reports directory
-        reports_dir = Path('reports')
-        if not reports_dir.exists():
-            self.logger.warning("⚠️  USE_OPTUNA=Y but reports/ directory not found. Using default params.")
+        # ✅ REFACTORED: Use ROOT_PATH/models/optuna/ for portability
+        optuna_dir = Path(self.main_ctx.root_path) / 'models' / 'optuna'
+        if not optuna_dir.exists():
+            self.logger.warning(f"⚠️  USE_OPTUNA=Y but {optuna_dir}/ directory not found. Using default params.")
             return None
 
         # Find latest optuna_best_params_clsmodel_0_*.json
-        pattern = str(reports_dir / 'optuna_best_params_clsmodel_0_*.json')
+        pattern = str(optuna_dir / 'optuna_best_params_clsmodel_0_*.json')
         json_files = glob.glob(pattern)
 
         if not json_files:
-            self.logger.warning(f"⚠️  USE_OPTUNA=Y but no Optuna results found in {reports_dir}/")
+            self.logger.warning(f"⚠️  USE_OPTUNA=Y but no Optuna results found in {optuna_dir}/")
             self.logger.warning("   Run regressor.py with USE_OPTUNA=Y first to generate parameters.")
             return None
 
@@ -279,6 +281,8 @@ class MLBacktest:
         **Logic Unification**: Loads the same sector-specific parameters that regressor.py saved,
         ensuring both systems use identical model hyperparameters for each sector.
 
+        **Storage Location**: {ROOT_PATH}/models/optuna/ (portable, backup-friendly)
+
         Parameters:
         ----------
         sectors : List[str]
@@ -298,16 +302,16 @@ class MLBacktest:
         if not self.use_optuna or not optuna_optimize_sectors:
             return sector_params
 
-        # Look for sector Optuna parameter files in reports directory
-        reports_dir = Path('reports')
-        if not reports_dir.exists():
-            self.logger.warning("⚠️  OPTUNA_OPTIMIZE_SECTORS=Y but reports/ directory not found")
+        # ✅ REFACTORED: Use ROOT_PATH/models/optuna/ for portability
+        optuna_dir = Path(self.main_ctx.root_path) / 'models' / 'optuna'
+        if not optuna_dir.exists():
+            self.logger.warning(f"⚠️  OPTUNA_OPTIMIZE_SECTORS=Y but {optuna_dir}/ directory not found")
             return sector_params
 
         loaded_count = 0
         for sector in sectors:
             # Find latest optuna_best_params_sector_{sector}_*.json
-            pattern = str(reports_dir / f'optuna_best_params_sector_{sector}_*.json')
+            pattern = str(optuna_dir / f'optuna_best_params_sector_{sector}_*.json')
             json_files = glob.glob(pattern)
 
             if not json_files:

@@ -211,7 +211,8 @@ def save_optuna_report(
     baseline_params: Dict[str, Any],
     baseline_score: float,
     model_name: str,
-    output_dir: str = 'reports'
+    output_dir: str = 'reports',
+    root_path: Optional[str] = None
 ) -> str:
     """
     Optuna 최적화 결과를 상세 리포트로 저장
@@ -221,12 +222,17 @@ def save_optuna_report(
         baseline_params: 기존 파라미터
         baseline_score: 기존 성능
         model_name: 모델 이름 (예: 'clsmodel_0')
-        output_dir: 출력 디렉토리
+        output_dir: 출력 디렉토리 (레거시, root_path 있으면 무시)
+        root_path: ROOT_PATH (지정 시 {ROOT_PATH}/models/optuna/ 사용)
 
     Returns:
         리포트 파일 경로
     """
-    Path(output_dir).mkdir(exist_ok=True)
+    # ROOT_PATH가 지정된 경우 models/optuna/ 사용 (포터블, 백업 용이)
+    if root_path:
+        output_dir = os.path.join(root_path, 'models', 'optuna')
+
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
     # TXT 상세 리포트
@@ -317,7 +323,8 @@ def save_optuna_report(
 def save_optuna_plots(
     study: optuna.Study,
     model_name: str,
-    output_dir: str = 'reports'
+    output_dir: str = 'reports',
+    root_path: Optional[str] = None
 ) -> None:
     """
     Optuna 최적화 결과를 PNG 차트로 저장
@@ -325,13 +332,18 @@ def save_optuna_plots(
     Args:
         study: Optuna study 객체
         model_name: 모델 이름
-        output_dir: 출력 디렉토리
+        output_dir: 출력 디렉토리 (레거시, root_path 있으면 무시)
+        root_path: ROOT_PATH (지정 시 {ROOT_PATH}/models/optuna/ 사용)
     """
     if not PLOT_AVAILABLE:
         logging.warning("⚠️  plotly/kaleido not installed. Skipping plot generation.")
         return
 
-    Path(output_dir).mkdir(exist_ok=True)
+    # ROOT_PATH가 지정된 경우 models/optuna/ 사용 (포터블, 백업 용이)
+    if root_path:
+        output_dir = os.path.join(root_path, 'models', 'optuna')
+
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
     try:

@@ -94,7 +94,7 @@ ML:
   # ===== Optuna Result Reuse (결과 재사용) =====
   OPTUNA_REUSE_EXISTING: Y  # Y = Reuse existing results if available, N = Always re-optimize
   OPTUNA_REUSE_MAX_AGE_DAYS: 7  # Maximum age in days for reusing results (0 = always reuse)
-  OPTUNA_OUTPUT_DIR: outputs/reports  # Directory for Optuna results (default: outputs/reports)
+  # Note: Results saved to {ROOT_PATH}/models/optuna/ for portability
 
   # MLflow experiment tracking
   USE_MLFLOW: N  # Y = Track experiments with MLflow

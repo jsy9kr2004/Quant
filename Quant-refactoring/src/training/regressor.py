@@ -988,18 +988,15 @@ class Regressor:
 
     def _load_existing_optuna_params(
         self,
-        model_name: str,
-        output_dir: str = 'outputs/reports'
+        model_name: str
     ) -> Optional[Dict[str, Any]]:
         """
-        Load existing Optuna optimization results.
+        Load existing Optuna optimization results from {ROOT_PATH}/models/optuna/.
 
         Parameters:
         ----------
         model_name : str
             Model identifier (e.g., 'clsmodel_0', 'sector_Technology')
-        output_dir : str
-            Directory containing Optuna results
 
         Returns:
         -------
@@ -1010,7 +1007,10 @@ class Regressor:
         import json
         from pathlib import Path
 
+        # Use ROOT_PATH/models/optuna/ for portability
+        output_dir = os.path.join(self.root_path, 'models', 'optuna')
         output_path = Path(output_dir)
+
         if not output_path.exists():
             return None
 
@@ -1045,8 +1045,7 @@ class Regressor:
     def _is_optuna_result_fresh(
         self,
         model_name: str,
-        max_age_days: int,
-        output_dir: str = 'outputs/reports'
+        max_age_days: int
     ) -> bool:
         """
         Check if Optuna result is fresh enough to reuse.
@@ -1057,8 +1056,6 @@ class Regressor:
             Model identifier
         max_age_days : int
             Maximum age in days (0 = always fresh)
-        output_dir : str
-            Directory containing Optuna results
 
         Returns:
         -------
@@ -1072,7 +1069,10 @@ class Regressor:
         if max_age_days == 0:
             return True  # Always reuse if max_age is 0
 
+        # Use ROOT_PATH/models/optuna/ for portability
+        output_dir = os.path.join(self.root_path, 'models', 'optuna')
         output_path = Path(output_dir)
+
         if not output_path.exists():
             return False
 
@@ -1269,17 +1269,60 @@ class Regressor:
             baseline_score = baseline_scores.mean()
             logging.info(f"📊 Baseline accuracy: {baseline_score:.4f} (±{baseline_scores.std():.4f})")
 
-            # Optuna 최적화 실행
-            study, best_params = optimize_xgboost_params(
-                self.x_train,
-                y_train_binary_optuna,
-                search_space,
-                n_trials=n_trials,
-                cv_folds=cv_folds,
-                timeout=timeout,
-                task='classification'
-            )
+            # ========== Optuna Reuse Logic (Classification) ==========
+            reuse_existing = ml_config.get('OPTUNA_REUSE_EXISTING', 'N') == 'Y'
+            max_age_days = int(ml_config.get('OPTUNA_REUSE_MAX_AGE_DAYS', 7))
 
+            study = None
+            best_params = None
+
+            if reuse_existing:
+                logging.info("")
+                logging.info("🔍 Checking for existing Optuna results...")
+                existing_params = self._load_existing_optuna_params('clsmodel_0')
+
+                if existing_params and self._is_optuna_result_fresh('clsmodel_0', max_age_days):
+                    logging.info("✅ Reusing existing Optuna results (saved time!)")
+                    optuna_best_params = existing_params
+
+                    # Skip optimization, but still show results
+                    logging.info("="*80)
+                    logging.info("✅ USING CACHED OPTUNA RESULTS")
+                    logging.info("="*80)
+                    logging.info(f"Best params: {existing_params}")
+                    logging.info("="*80)
+                else:
+                    if not existing_params:
+                        logging.info("⏩ No existing results found, running optimization...")
+                    else:
+                        logging.info("⏩ Existing results are stale, running optimization...")
+
+                    # Run optimization
+                    study, best_params = optimize_xgboost_params(
+                        self.x_train,
+                        y_train_binary_optuna,
+                        search_space,
+                        n_trials=n_trials,
+                        cv_folds=cv_folds,
+                        timeout=timeout,
+                        task='classification'
+                    )
+            else:
+                logging.info("")
+                logging.info("⏩ OPTUNA_REUSE_EXISTING=N, running optimization...")
+
+                # Run optimization
+                study, best_params = optimize_xgboost_params(
+                    self.x_train,
+                    y_train_binary_optuna,
+                    search_space,
+                    n_trials=n_trials,
+                    cv_folds=cv_folds,
+                    timeout=timeout,
+                    task='classification'
+                )
+
+            # Process optimization results (only if we ran optimization)
             if study and best_params:
                 optuna_best_params = best_params
                 improvement = study.best_value - baseline_score
@@ -1289,19 +1332,20 @@ class Regressor:
                 logging.info(f"Best accuracy: {study.best_value:.4f} ({improvement:+.4f}, {improvement/baseline_score*100:+.2f}%)")
                 logging.info(f"Best params: {best_params}")
 
-                # 리포트 저장
+                # 리포트 저장 (ROOT_PATH/models/optuna/)
                 if save_report:
                     save_optuna_report(
                         study, baseline_params, baseline_score,
-                        'clsmodel_0', 'reports'
+                        'clsmodel_0', 'reports', root_path=self.root_path
                     )
 
-                # 차트 저장
+                # 차트 저장 (ROOT_PATH/models/optuna/)
                 if save_plots and PLOT_AVAILABLE:
-                    save_optuna_plots(study, 'clsmodel_0', 'reports')
+                    save_optuna_plots(study, 'clsmodel_0', 'reports', root_path=self.root_path)
 
                 logging.info("="*80)
-            else:
+            elif not reuse_existing or (reuse_existing and not existing_params):
+                # Only show warning if we tried to optimize and failed
                 logging.warning("⚠️  Optuna optimization failed, using baseline params")
 
         elif use_optuna and not OPTUNA_AVAILABLE:
@@ -1387,7 +1431,31 @@ class Regressor:
                 baseline_score = -baseline_scores.mean()  # MSE (양수)
                 logging.info(f"  📊 Baseline MSE: {baseline_score:.6f} (±{baseline_scores.std():.6f})")
 
-                # Optuna 최적화 실행
+                # ========== Optuna Reuse Logic (Sector) ==========
+                reuse_existing = ml_config.get('OPTUNA_REUSE_EXISTING', 'N') == 'Y'
+                max_age_days = int(ml_config.get('OPTUNA_REUSE_MAX_AGE_DAYS', 7))
+
+                study = None
+                best_params = None
+
+                if reuse_existing:
+                    logging.info(f"  🔍 Checking for existing Optuna results for sector '{sec}'...")
+                    existing_params = self._load_existing_optuna_params(f'sector_{sec}')
+
+                    if existing_params and self._is_optuna_result_fresh(f'sector_{sec}', max_age_days):
+                        logging.info(f"  ✅ Reusing existing Optuna results for '{sec}' (saved time!)")
+                        sector_optuna_params[sec] = existing_params
+                        logging.info(f"  Best params: {existing_params}")
+                        continue  # Skip to next sector
+                    else:
+                        if not existing_params:
+                            logging.info(f"  ⏩ No existing results found for '{sec}', running optimization...")
+                        else:
+                            logging.info(f"  ⏩ Existing results are stale for '{sec}', running optimization...")
+                else:
+                    logging.info(f"  ⏩ OPTUNA_REUSE_EXISTING=N, running optimization for '{sec}'...")
+
+                # Optuna 최적화 실행 (reuse가 안 되는 경우에만)
                 try:
                     study, best_params = optimize_xgboost_params(
                         X_sector,
@@ -1406,16 +1474,16 @@ class Regressor:
                         logging.info(f"  ✅ Best MSE: {study.best_value:.6f} ({-improvement:+.6f}, {improvement_pct:+.2f}% improvement)")
                         logging.info(f"  Best params: {best_params}")
 
-                        # 리포트 저장
+                        # 리포트 저장 (ROOT_PATH/models/optuna/)
                         if save_report:
                             save_optuna_report(
                                 study, baseline_params, baseline_score,
-                                f'sector_{sec}', 'reports'
+                                f'sector_{sec}', 'reports', root_path=self.root_path
                             )
 
-                        # 차트 저장
+                        # 차트 저장 (ROOT_PATH/models/optuna/)
                         if save_plots and PLOT_AVAILABLE:
-                            save_optuna_plots(study, f'sector_{sec}', 'reports')
+                            save_optuna_plots(study, f'sector_{sec}', 'reports', root_path=self.root_path)
                     else:
                         logging.warning(f"  ⚠️  Optimization failed for sector {sec}, using baseline params")
                         sector_optuna_params[sec] = baseline_params
