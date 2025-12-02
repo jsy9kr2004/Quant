@@ -986,6 +986,111 @@ class Regressor:
             logging.info(f"✅ No extreme values found (max: {original_max:.2e})")
             return X, y
 
+    def _load_existing_optuna_params(
+        self,
+        model_name: str,
+        output_dir: str = 'outputs/reports'
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Load existing Optuna optimization results.
+
+        Parameters:
+        ----------
+        model_name : str
+            Model identifier (e.g., 'clsmodel_0', 'sector_Technology')
+        output_dir : str
+            Directory containing Optuna results
+
+        Returns:
+        -------
+        Optional[Dict[str, Any]]
+            Best parameters if found and valid, None otherwise
+        """
+        import glob
+        import json
+        from pathlib import Path
+
+        output_path = Path(output_dir)
+        if not output_path.exists():
+            return None
+
+        # Find latest optuna_best_params_{model_name}_*.json
+        pattern = str(output_path / f'optuna_best_params_{model_name}_*.json')
+        json_files = glob.glob(pattern)
+
+        if not json_files:
+            return None
+
+        # Get the latest file
+        latest_file = max(json_files, key=os.path.getmtime)
+
+        try:
+            with open(latest_file, 'r') as f:
+                json_data = json.load(f)
+
+            best_params = json_data.get('best_params', {})
+            if not best_params:
+                return None
+
+            logging.info(f"   📂 Found existing Optuna result: {Path(latest_file).name}")
+            logging.info(f"      Date: {json_data.get('optimization_date', 'unknown')}")
+            logging.info(f"      Score: {json_data.get('best_score', 'unknown')}")
+
+            return best_params
+
+        except Exception as e:
+            logging.warning(f"   ⚠️  Failed to load {latest_file}: {e}")
+            return None
+
+    def _is_optuna_result_fresh(
+        self,
+        model_name: str,
+        max_age_days: int,
+        output_dir: str = 'outputs/reports'
+    ) -> bool:
+        """
+        Check if Optuna result is fresh enough to reuse.
+
+        Parameters:
+        ----------
+        model_name : str
+            Model identifier
+        max_age_days : int
+            Maximum age in days (0 = always fresh)
+        output_dir : str
+            Directory containing Optuna results
+
+        Returns:
+        -------
+        bool
+            True if result is fresh, False otherwise
+        """
+        import glob
+        from pathlib import Path
+        from datetime import datetime, timedelta
+
+        if max_age_days == 0:
+            return True  # Always reuse if max_age is 0
+
+        output_path = Path(output_dir)
+        if not output_path.exists():
+            return False
+
+        pattern = str(output_path / f'optuna_best_params_{model_name}_*.json')
+        json_files = glob.glob(pattern)
+
+        if not json_files:
+            return False
+
+        latest_file = max(json_files, key=os.path.getmtime)
+        file_time = datetime.fromtimestamp(os.path.getmtime(latest_file))
+        age = datetime.now() - file_time
+
+        is_fresh = age.days <= max_age_days
+        logging.info(f"      Age: {age.days} days (max: {max_age_days} days) → {'✅ Fresh' if is_fresh else '❌ Stale'}")
+
+        return is_fresh
+
     def train(self) -> None:
         """모든 분류 및 회귀 모델을 학습하고 디스크에 저장합니다.
 
