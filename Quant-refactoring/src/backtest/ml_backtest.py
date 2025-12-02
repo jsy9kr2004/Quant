@@ -272,6 +272,74 @@ class MLBacktest:
             self.logger.error(f"❌ Failed to load Optuna params from {latest_file}: {e}")
             return None
 
+    def _load_sector_optuna_params(self, sectors: List[str]) -> Dict[str, Dict[str, Any]]:
+        """
+        Load sector-specific Optuna-optimized parameters from regressor.py results.
+
+        **Logic Unification**: Loads the same sector-specific parameters that regressor.py saved,
+        ensuring both systems use identical model hyperparameters for each sector.
+
+        Parameters:
+        ----------
+        sectors : List[str]
+            List of sector names to load parameters for
+
+        Returns:
+        -------
+        Dict[str, Dict[str, Any]]
+            Dictionary mapping sector name to best parameters
+            Format: {'Technology': {...}, 'Financial': {...}, ...}
+        """
+        sector_params = {}
+
+        ml_config = self.config.get('ML', {})
+        optuna_optimize_sectors = ml_config.get('OPTUNA_OPTIMIZE_SECTORS', 'N') == 'Y'
+
+        if not self.use_optuna or not optuna_optimize_sectors:
+            return sector_params
+
+        # Look for sector Optuna parameter files in reports directory
+        reports_dir = Path('reports')
+        if not reports_dir.exists():
+            self.logger.warning("⚠️  OPTUNA_OPTIMIZE_SECTORS=Y but reports/ directory not found")
+            return sector_params
+
+        loaded_count = 0
+        for sector in sectors:
+            # Find latest optuna_best_params_sector_{sector}_*.json
+            pattern = str(reports_dir / f'optuna_best_params_sector_{sector}_*.json')
+            json_files = glob.glob(pattern)
+
+            if not json_files:
+                self.logger.debug(f"   No Optuna results for sector: {sector}")
+                continue
+
+            # Get the latest file
+            latest_file = max(json_files, key=os.path.getmtime)
+
+            try:
+                with open(latest_file, 'r') as f:
+                    json_data = json.load(f)
+
+                best_params = json_data.get('best_params', {})
+                if best_params:
+                    sector_params[sector] = best_params
+                    loaded_count += 1
+                    self.logger.debug(f"   ✅ Loaded Optuna params for {sector}: {best_params}")
+                else:
+                    self.logger.warning(f"   ⚠️  Found {latest_file} but 'best_params' is empty")
+
+            except Exception as e:
+                self.logger.error(f"   ❌ Failed to load sector Optuna params from {latest_file}: {e}")
+
+        if loaded_count > 0:
+            self.logger.info(f"✅ Loaded sector Optuna params: {loaded_count}/{len(sectors)} sectors")
+        else:
+            self.logger.warning(f"⚠️  OPTUNA_OPTIMIZE_SECTORS=Y but no sector Optuna results found")
+            self.logger.warning("   Run regressor.py with OPTUNA_OPTIMIZE_SECTORS=Y first")
+
+        return sector_params
+
     def _train_model(self, train_data: pd.DataFrame, cutoff_date: datetime) -> Dict[str, Any]:
         """
         모델 학습 (섹터별 또는 통합)
@@ -464,6 +532,7 @@ class MLBacktest:
 
         # ✨ Load Optuna parameters (if USE_OPTUNA=Y)
         optuna_params = self._load_optuna_params()
+        sector_optuna_params = self._load_sector_optuna_params(list(sectors))
 
         # ✨ Create unified classifier (same as regressor.py - no sector-specific classifiers)
         use_gpu = self._is_gpu_available()
@@ -472,7 +541,11 @@ class MLBacktest:
 
         # ✨ Create sector-specific regressors using ModelFactory (SAME as regressor.py!)
         factory = ModelFactory(self.config, optuna_params=optuna_params, use_ensemble=False)
-        sector_regressors = factory.create_sector_models(sector_list=list(sectors), num_variants=2)
+        sector_regressors = factory.create_sector_models(
+            sector_list=list(sectors),
+            num_variants=2,
+            sector_optuna_params=sector_optuna_params
+        )
         self.logger.info(f"   Created sector regressors: {len(sectors)} sectors x 2 variants = {len(sector_regressors)} models")
 
         # 섹터별 데이터로 모델 학습

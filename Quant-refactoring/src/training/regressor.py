@@ -839,7 +839,11 @@ class Regressor:
             self.y_test = self.test_df[['price_dev_subavg']]
             self.y_test_cls = self.test_df[['price_dev']]
 
-    def def_model(self, optuna_params: Optional[Dict[str, Any]] = None) -> None:
+    def def_model(
+        self,
+        optuna_params: Optional[Dict[str, Any]] = None,
+        sector_optuna_params: Optional[Dict[str, Dict[str, Any]]] = None
+    ) -> None:
         """분류 및 회귀 모델을 정의하고 초기화합니다.
 
         ✨ REFACTORED: Now uses ModelFactory for consistent model creation!
@@ -858,6 +862,8 @@ class Regressor:
 
         Args:
             optuna_params: Optuna로 찾은 최적 파라미터 (clsmodel_0에 적용)
+            sector_optuna_params: 섹터별 Optuna 최적 파라미터 (sector models에 적용)
+                                  Format: {'Technology': {...}, 'Financial': {...}, ...}
 
         부작용:
             - 4개의 분류 모델로 self.clsmodels 채우기
@@ -873,7 +879,8 @@ class Regressor:
             config=self.conf,
             optuna_params=optuna_params,
             sector_list=self.sector_list if self.use_sector_model else None,
-            use_sector_model=self.use_sector_model
+            use_sector_model=self.use_sector_model,
+            sector_optuna_params=sector_optuna_params
         )
 
         # Assign to instance variables
@@ -1196,8 +1203,133 @@ class Regressor:
             logging.warning("⚠️  USE_OPTUNA=Y but Optuna not installed. Using default params.")
             logging.warning("   Install with: pip install optuna plotly kaleido")
 
+        # ========== Sector-specific Optuna Optimization ==========
+        sector_optuna_params = {}
+        optuna_optimize_sectors = ml_config.get('OPTUNA_OPTIMIZE_SECTORS', 'N') == 'Y'
+
+        if self.use_sector_model and optuna_optimize_sectors and use_optuna and OPTUNA_AVAILABLE:
+            from src.training.optuna_utils import (
+                optimize_xgboost_params,
+                save_optuna_report,
+                save_optuna_plots,
+                PLOT_AVAILABLE
+            )
+
+            logging.info("="*80)
+            logging.info("🔧 SECTOR-SPECIFIC OPTUNA OPTIMIZATION")
+            logging.info("="*80)
+
+            # Sector Optuna 설정
+            sector_trials = int(ml_config.get('OPTUNA_SECTOR_TRIALS', 30))
+            sector_cv_folds = int(ml_config.get('OPTUNA_SECTOR_CV_FOLDS', 2))
+            sector_timeout = ml_config.get('OPTUNA_SECTOR_TIMEOUT', 180)
+
+            # 탐색 공간 (classifier와 동일)
+            search_space_config = ml_config.get('OPTUNA_SEARCH_SPACE', {})
+            search_space = {
+                'n_estimators': search_space_config.get('n_estimators', [100, 500]),
+                'learning_rate': search_space_config.get('learning_rate', [0.01, 0.3]),
+                'max_depth': search_space_config.get('max_depth', [3, 8]),
+                'subsample': search_space_config.get('subsample', [0.5, 1.0]),
+                'colsample_bytree': search_space_config.get('colsample_bytree', [0.5, 1.0]),
+                'gamma': search_space_config.get('gamma', [0, 10])
+            }
+
+            # self.x_train에 sector 정보 임시 추가 (인덱스 기반으로)
+            x_train_with_sector = self.x_train.copy()
+            x_train_with_sector['sector'] = self.train_df.loc[self.x_train.index, 'sector']
+
+            logging.info(f"Optimizing {len(self.sector_list)} sectors individually...")
+            logging.info(f"  Trials per sector: {sector_trials}, CV folds: {sector_cv_folds}")
+
+            for sec_idx, sec in enumerate(self.sector_list):
+                logging.info("")
+                logging.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                logging.info(f"🔧 Sector {sec_idx+1}/{len(self.sector_list)}: {sec}")
+                logging.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                # 섹터별 데이터 필터링
+                sector_mask = x_train_with_sector['sector'] == sec
+                X_sector = x_train_with_sector[sector_mask].drop('sector', axis=1)
+                y_sector_reg = self.y_train[sector_mask].iloc[:, 0]  # 회귀 타겟
+
+                logging.info(f"  Sector data: {len(X_sector)} samples, {len(X_sector.columns)} features")
+
+                # Baseline 파라미터
+                baseline_params = {
+                    'n_estimators': 1000,
+                    'learning_rate': 0.05,
+                    'max_depth': 7,
+                    'subsample': 0.8,
+                    'colsample_bytree': 0.7,
+                    'gamma': 0.01
+                }
+
+                # Baseline 성능 측정
+                from sklearn.model_selection import cross_val_score
+                baseline_model = xgboost.XGBRegressor(
+                    **baseline_params,
+                    tree_method='hist',
+                    device='cpu',
+                    objective='reg:squarederror',
+                    eval_metric='rmse',
+                    missing=np.nan
+                )
+                baseline_scores = cross_val_score(
+                    baseline_model, X_sector, y_sector_reg,
+                    cv=sector_cv_folds, scoring='neg_mean_squared_error', n_jobs=-1
+                )
+                baseline_score = -baseline_scores.mean()  # MSE (양수)
+                logging.info(f"  📊 Baseline MSE: {baseline_score:.6f} (±{baseline_scores.std():.6f})")
+
+                # Optuna 최적화 실행
+                try:
+                    study, best_params = optimize_xgboost_params(
+                        X_sector,
+                        y_sector_reg,
+                        search_space,
+                        n_trials=sector_trials,
+                        cv_folds=sector_cv_folds,
+                        timeout=sector_timeout,
+                        task='regression'
+                    )
+
+                    if study and best_params:
+                        sector_optuna_params[sec] = best_params
+                        improvement = baseline_score - study.best_value  # MSE는 낮을수록 좋음
+                        improvement_pct = improvement / baseline_score * 100
+                        logging.info(f"  ✅ Best MSE: {study.best_value:.6f} ({-improvement:+.6f}, {improvement_pct:+.2f}% improvement)")
+                        logging.info(f"  Best params: {best_params}")
+
+                        # 리포트 저장
+                        if save_report:
+                            save_optuna_report(
+                                study, baseline_params, baseline_score,
+                                f'sector_{sec}', 'reports'
+                            )
+
+                        # 차트 저장
+                        if save_plots and PLOT_AVAILABLE:
+                            save_optuna_plots(study, f'sector_{sec}', 'reports')
+                    else:
+                        logging.warning(f"  ⚠️  Optimization failed for sector {sec}, using baseline params")
+                        sector_optuna_params[sec] = baseline_params
+
+                except Exception as e:
+                    logging.error(f"  ❌ Error optimizing sector {sec}: {e}")
+                    logging.warning(f"  Using baseline params for {sec}")
+                    sector_optuna_params[sec] = baseline_params
+
+            logging.info("="*80)
+            logging.info(f"✅ Sector optimization complete: {len(sector_optuna_params)}/{len(self.sector_list)} sectors optimized")
+            logging.info("="*80)
+            logging.info("")
+
+        elif self.use_sector_model and optuna_optimize_sectors and not (use_optuna and OPTUNA_AVAILABLE):
+            logging.warning("⚠️  OPTUNA_OPTIMIZE_SECTORS=Y but Optuna not available. Using SECTOR_CONFIG only.")
+
         # ========== 모델 정의 (Optuna 결과 반영) ==========
-        self.def_model(optuna_params=optuna_best_params)
+        self.def_model(optuna_params=optuna_best_params, sector_optuna_params=sector_optuna_params)
 
         # LightGBM 호환성을 위해 특성 이름 정리 (Optuna를 사용하지 않은 경우에만)
         if not (use_optuna and OPTUNA_AVAILABLE):

@@ -61,6 +61,7 @@ ML:
   # Hyperparameter optimization (recommended for production)
   USE_OPTUNA: Y  # Y = Auto-tune hyperparameters for optimal performance
 
+  # ===== Classifier Optuna (전체 데이터로 최적화) =====
   # ===== Test Mode (빠른 동작 확인용 - 모델 성능보다 실행 가능 여부 테스트) =====
   OPTUNA_TRIALS: 3  # Minimal trials for quick test
   OPTUNA_CV_FOLDS: 2  # Minimal CV folds
@@ -83,6 +84,12 @@ ML:
     subsample: [0.5, 1.0]  # Row sampling ratio
     colsample_bytree: [0.5, 1.0]  # Column sampling ratio
     gamma: [0, 10]  # Minimum loss reduction for split
+
+  # ===== Sector-specific Optuna (섹터별 개별 최적화) =====
+  OPTUNA_OPTIMIZE_SECTORS: Y  # Y = Optimize each sector separately, N = Use SECTOR_CONFIG only
+  OPTUNA_SECTOR_TRIALS: 30  # Trials per sector (less than classifier for efficiency)
+  OPTUNA_SECTOR_CV_FOLDS: 2  # CV folds for sector optimization
+  OPTUNA_SECTOR_TIMEOUT: 180  # Timeout per sector (3 minutes in test mode)
 
   # MLflow experiment tracking
   USE_MLFLOW: N  # Y = Track experiments with MLflow
