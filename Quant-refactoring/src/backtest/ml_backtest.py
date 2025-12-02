@@ -16,6 +16,8 @@ ML 예측 기반 Walk-Forward 백테스트 시스템
 import logging
 import os
 import joblib
+import json
+import glob
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -112,6 +114,11 @@ class MLBacktest:
             self.use_sector_model = use_sector_model
 
         self.sector_config = ml_config.get('SECTOR_CONFIG', {}) if self.use_sector_model else {}
+
+        # Optuna 사용 여부 (regressor.py와 동일한 방식)
+        self.use_optuna = ml_config.get('USE_OPTUNA', 'N') == 'Y'
+        if self.use_optuna:
+            self.logger.info("🔧 USE_OPTUNA=Y: Will load Optuna-optimized parameters from regressor.py")
 
         # 결과 저장용
         self.backtest_results = []
@@ -211,6 +218,59 @@ class MLBacktest:
             return False  # 한 번만 학습
 
         return True
+
+    def _load_optuna_params(self) -> Optional[Dict[str, Any]]:
+        """
+        Load Optuna-optimized parameters from regressor.py results.
+
+        **Logic Unification**: Loads the same parameters that regressor.py saved,
+        ensuring both systems use identical model hyperparameters.
+
+        Returns:
+        -------
+        Optional[Dict[str, Any]]
+            Best parameters dictionary, or None if not found
+        """
+        if not self.use_optuna:
+            return None
+
+        # Look for Optuna parameter files in reports directory
+        reports_dir = Path('reports')
+        if not reports_dir.exists():
+            self.logger.warning("⚠️  USE_OPTUNA=Y but reports/ directory not found. Using default params.")
+            return None
+
+        # Find latest optuna_best_params_clsmodel_0_*.json
+        pattern = str(reports_dir / 'optuna_best_params_clsmodel_0_*.json')
+        json_files = glob.glob(pattern)
+
+        if not json_files:
+            self.logger.warning(f"⚠️  USE_OPTUNA=Y but no Optuna results found in {reports_dir}/")
+            self.logger.warning("   Run regressor.py with USE_OPTUNA=Y first to generate parameters.")
+            return None
+
+        # Get the latest file (by filename timestamp or modification time)
+        latest_file = max(json_files, key=os.path.getmtime)
+
+        try:
+            with open(latest_file, 'r') as f:
+                json_data = json.load(f)
+
+            best_params = json_data.get('best_params', {})
+            if not best_params:
+                self.logger.warning(f"⚠️  Found {latest_file} but 'best_params' is empty")
+                return None
+
+            self.logger.info(f"✅ Loaded Optuna params from: {Path(latest_file).name}")
+            self.logger.info(f"   Optimization date: {json_data.get('optimization_date', 'unknown')}")
+            self.logger.info(f"   Best score: {json_data.get('best_score', 'unknown')}")
+            self.logger.info(f"   Params: {best_params}")
+
+            return best_params
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to load Optuna params from {latest_file}: {e}")
+            return None
 
     def _train_model(self, train_data: pd.DataFrame, cutoff_date: datetime) -> Dict[str, Any]:
         """
@@ -322,9 +382,13 @@ class MLBacktest:
         # ✅ REFACTORED: Use DataProcessor for binary target creation
         y_binary = DataProcessor.create_binary_target(y)
 
+        # ✨ Load Optuna parameters (if USE_OPTUNA=Y)
+        # This ensures ml_backtest.py uses SAME parameters as regressor.py!
+        optuna_params = self._load_optuna_params()
+
         # ✨ Create models using ModelFactory (same as regressor.py!)
         use_gpu = self._is_gpu_available()
-        clf, reg = create_models_for_backtest(self.config, use_gpu=use_gpu)
+        clf, reg = create_models_for_backtest(self.config, optuna_params=optuna_params, use_gpu=use_gpu)
 
         # 모델 학습
         models = {}
@@ -395,6 +459,10 @@ class MLBacktest:
         self.logger.info(f"   Sectors found: {list(sectors)}")
 
         use_gpu = self._is_gpu_available()
+
+        # ✨ Load Optuna parameters (if USE_OPTUNA=Y)
+        # This ensures ml_backtest.py uses SAME parameters as regressor.py!
+        optuna_params = self._load_optuna_params()
 
         for sector in sectors:
             sector_data = train_data[train_data['sector'] == sector]
@@ -468,7 +536,7 @@ class MLBacktest:
 
             try:
                 # ✨ Create models using ModelFactory (config-based, same as regressor.py!)
-                clf, reg = create_models_for_backtest(self.config, use_gpu=use_gpu)
+                clf, reg = create_models_for_backtest(self.config, optuna_params=optuna_params, use_gpu=use_gpu)
 
                 # 학습
                 clf.fit(X, y_binary)

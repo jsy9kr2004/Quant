@@ -344,15 +344,20 @@ def create_models_for_regressor(
 
 def create_models_for_backtest(
     config: Dict[str, Any],
+    optuna_params: Optional[Dict[str, Any]] = None,
     use_gpu: bool = False
 ) -> Tuple[Any, Any]:
     """
     Create models for ml_backtest.py (single models).
 
+    **Logic Unification**: Uses same Optuna-optimized parameters as regressor.py
+
     Parameters:
     ----------
     config : Dict[str, Any]
         Configuration from conf.yaml
+    optuna_params : Optional[Dict[str, Any]]
+        Optuna-optimized parameters (loaded from regressor.py results)
     use_gpu : bool
         Whether to use GPU acceleration
 
@@ -363,5 +368,5 @@ def create_models_for_backtest(
     regressor : Any
         Single regression model
     """
-    factory = ModelFactory(config, use_ensemble=False)
+    factory = ModelFactory(config, optuna_params=optuna_params, use_ensemble=False)
     return factory.create_single_models(use_gpu=use_gpu)
