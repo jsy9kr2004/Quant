@@ -272,6 +272,22 @@ class MLBacktest:
         X, y = DataProcessor.remove_infinite_values(X, y)
         X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
+        # ✅ Check for extreme values (too large for XGBoost)
+        # XGBoost errors on values > ~1e10 even if not strictly inf
+        # This check was removed during scaling refactor but is still needed!
+        XGBOOST_MAX_VALUE = 1e10
+        if isinstance(X, pd.DataFrame):
+            extreme_mask = (X.abs() > XGBOOST_MAX_VALUE)
+            n_extreme = extreme_mask.sum().sum()
+        else:
+            extreme_mask = (np.abs(X) > XGBOOST_MAX_VALUE)
+            n_extreme = extreme_mask.sum()
+
+        if n_extreme > 0:
+            self.logger.warning(f"⚠️  Found {n_extreme} extreme values (>{XGBOOST_MAX_VALUE}), clipping...")
+            X = X.clip(-XGBOOST_MAX_VALUE, XGBOOST_MAX_VALUE)
+            self.logger.info(f"   ✅ Clipped extreme values to ±{XGBOOST_MAX_VALUE}")
+
         # ✅ NaN handling: Let XGBoost/LightGBM handle NaN internally
         # These models can use NaN for splits (missing value handling)
         # fillna(0) was WRONG: NaN (missing) ≠ 0 (actual zero value)
@@ -405,6 +421,22 @@ class MLBacktest:
             # ✅ REFACTORED: Use DataProcessor for infinite value handling
             X, y = DataProcessor.remove_infinite_values(X, y)
             X, y = DataProcessor.replace_infinite_with_nan(X, y)
+
+            # ✅ Check for extreme values (too large for XGBoost)
+            # XGBoost errors on values > ~1e10 even if not strictly inf
+            # This check was removed during scaling refactor but is still needed!
+            XGBOOST_MAX_VALUE = 1e10
+            if isinstance(X, pd.DataFrame):
+                extreme_mask = (X.abs() > XGBOOST_MAX_VALUE)
+                n_extreme = extreme_mask.sum().sum()
+            else:
+                extreme_mask = (np.abs(X) > XGBOOST_MAX_VALUE)
+                n_extreme = extreme_mask.sum()
+
+            if n_extreme > 0:
+                self.logger.warning(f"⚠️  {sector}: Found {n_extreme} extreme values (>{XGBOOST_MAX_VALUE}), clipping...")
+                X = X.clip(-XGBOOST_MAX_VALUE, XGBOOST_MAX_VALUE)
+                self.logger.info(f"   ✅ {sector}: Clipped extreme values to ±{XGBOOST_MAX_VALUE}")
 
             # ✅ NaN handling: Let XGBoost/LightGBM handle NaN internally
             # X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)  # REMOVED
