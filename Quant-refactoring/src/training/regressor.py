@@ -104,14 +104,10 @@ except ImportError:
     logging.warning("⚠️  Optuna not installed. Hyperparameter tuning will be disabled.")
 
 # 전역 설정
-# TODO: 섹터 기반 예측을 위한 PER_SECTOR=True 기능 구현
-PER_SECTOR = False  # 섹터별로 개별 모델을 학습할지 여부
 MODEL_SAVE_PATH = ""  # 학습된 모델 저장 경로 (메서드에서 설정됨)
 THRESHOLD = 92  # 분류를 위한 백분위수 임계값 (92 = 상위 8%가 양성으로 예측됨)
 
-# Preprocessing 설정 (ml_backtest.py와 동일하게 유지)
-USE_WINSORIZATION = False  # Winsorization 사용 여부 (outlier handling)
-USE_FEATURE_SELECTION = False  # Feature selection 사용 여부
+# Preprocessing 설정은 config에서 읽음 (ml_backtest.py와 동일한 방식)
 TARGET_FEATURES = 1000  # Feature selection 시 목표 feature 수
 
 # ==============================================================================
@@ -362,7 +358,16 @@ class Regressor:
         # 중첩된 구조에서 설정 값 추출
         data_config = conf.get('DATA', {})
         ml_config = conf.get('ML', {})
+        features_config = conf.get('FEATURES', {})
         self.root_path: str = data_config.get('ROOT_PATH', '/home/user/Quant/data')
+
+        # 섹터별 모델 사용 여부 (ml_backtest.py와 동일한 방식)
+        self.use_sector_model = ml_config.get('USE_SECTOR_MODEL', 'N') == 'Y'
+        self.sector_config = ml_config.get('SECTOR_CONFIG', {}) if self.use_sector_model else {}
+
+        # Preprocessing 설정 (ml_backtest.py와 동일한 방식)
+        self.use_winsorization = features_config.get('USE_WINSORIZATION', 'Y') == 'Y'
+        self.use_feature_selection = features_config.get('USE_FEATURE_SELECTION', 'Y') == 'Y'
 
         aidata_dir = self.root_path + '/processed/ml_data/per_year/'
         print("aidata path : " + aidata_dir)
@@ -687,7 +692,7 @@ class Regressor:
             logging.info(f"   After infinite removal: {len(self.train_df)} rows remaining")
 
         # PER_SECTOR 모드: 섹터별로 학습 데이터 분리
-        if PER_SECTOR == True:
+        if self.use_sector_model:
             print(self.train_df['sector'].value_counts())
             self.sector_list = list(self.train_df['sector'].unique())
             self.sector_list = [x for x in self.sector_list if str(x) != 'nan']
@@ -751,7 +756,7 @@ class Regressor:
             self.test_df_list.append([fpath, df])
 
             # PER_SECTOR 모드: 섹터별로 테스트 데이터 분리
-            if PER_SECTOR == True:
+            if self.use_sector_model:
                 for sec in self.sector_list:
                     self.sector_test_df_lists.append([fpath, df[df['sector']==sec].copy(), sec])
 
@@ -863,8 +868,8 @@ class Regressor:
         classifiers, regressors, sector_models = create_models_for_regressor(
             config=self.conf,
             optuna_params=optuna_params,
-            sector_list=self.sector_list if PER_SECTOR else None,
-            use_sector_model=PER_SECTOR
+            sector_list=self.sector_list if self.use_sector_model else None,
+            use_sector_model=self.use_sector_model
         )
 
         # Assign to instance variables
@@ -874,11 +879,11 @@ class Regressor:
         for i, reg in enumerate(regressors):
             self.models[i] = reg
 
-        if PER_SECTOR:
+        if self.use_sector_model:
             self.sector_models = sector_models
 
         logging.info(f"✅ Models created: {len(classifiers)} classifiers, {len(regressors)} regressors" +
-                    (f", {len(sector_models)} sector models" if PER_SECTOR else ""))
+                    (f", {len(sector_models)} sector models" if self.use_sector_model else ""))
 
     def _diagnose_extreme_values(self, X: np.ndarray, y: np.ndarray, name: str = "data") -> bool:
         """
@@ -1325,8 +1330,8 @@ class Regressor:
 
         # ✅ Winsorization: Outlier handling (OPTIONAL - disabled by default)
         # Same as ml_backtest.py for consistency
-        # Global setting: USE_WINSORIZATION (defined at top of file)
-        if USE_WINSORIZATION:
+        # Config setting: USE_WINSORIZATION (from FEATURES config)
+        if self.use_winsorization:
             self.x_train = DataProcessor.winsorize_features(
                 self.x_train,
                 lower_percentile=0.01,  # 1%
@@ -1337,8 +1342,8 @@ class Regressor:
 
         # ✅ Feature Selection: Reduce dimension using model-based importance
         # Same as ml_backtest.py for consistency
-        # Global settings: USE_FEATURE_SELECTION, TARGET_FEATURES (defined at top of file)
-        if USE_FEATURE_SELECTION:
+        # Config setting: USE_FEATURE_SELECTION (from FEATURES config)
+        if self.use_feature_selection:
             # Need to align y_train with x_train indices
             y_for_selection = self.y_train.iloc[:, 0] if isinstance(self.y_train, pd.DataFrame) else self.y_train
             self.x_train, selected_features = DataProcessor.select_features_by_importance(
@@ -1389,7 +1394,7 @@ class Regressor:
             # logging.info(ftr_top20)
 
         # 섹터별 모델 학습 (PER_SECTOR=True인 경우)
-        if PER_SECTOR == True:
+        if self.use_sector_model:
             for sec_idx, sec in enumerate(self.sector_list):
                 for i in range(2):
                     k = (sec, i)
@@ -1583,7 +1588,7 @@ class Regressor:
 
             # ✅ Winsorization: Apply if enabled during training
             # Must match training preprocessing for consistency
-            if USE_WINSORIZATION:
+            if self.use_winsorization:
                 x_test = DataProcessor.winsorize_features(
                     x_test,
                     lower_percentile=0.01,
@@ -1808,7 +1813,7 @@ class Regressor:
         full_df.to_csv(MODEL_SAVE_PATH+'prediction_ai.csv', index=False)
 
         # === 섹터 기반 평가 (PER_SECTOR=True인 경우) ===
-        if PER_SECTOR == True:
+        if self.use_sector_model:
             testdates = set()
             allsector_topk_df = pd.DataFrame()
             self.sector_models = dict()
@@ -2088,7 +2093,7 @@ class Regressor:
 
         # ✅ Winsorization: Apply if enabled during training
         # Must match training preprocessing for consistency
-        if USE_WINSORIZATION:
+        if self.use_winsorization:
             input = DataProcessor.winsorize_features(
                 input,
                 lower_percentile=0.01,
@@ -2176,7 +2181,7 @@ class Regressor:
                 top_k_df.to_csv(MODEL_SAVE_PATH+'latest_prediction_{}_top{}-{}.csv'.format(col, s, e))
 
         # === 섹터별 예측 (PER_SECTOR=True인 경우) ===
-        if PER_SECTOR == True:
+        if self.use_sector_model:
             self.sector_models = dict()
             ldf = pd.read_csv(latest_data_path)
 
