@@ -607,10 +607,17 @@ class AIDataMaker:
             cur_price_table = self.price_table.copy()
             cur_price_table = self.filter_dates(cur_price_table, 'date', cur_year-4, cur_year)
 
-            # 고유동성 주식으로 필터링 (평균 거래 금액 기준 상위 50%)
+            # 고유동성 주식으로 필터링 (평균 거래 금액 기준)
+            # Config-driven: FEATURES.MIN_VOLUME_PERCENTILE (default: 50%)
+            min_volume_pct = self.conf.get('FEATURES', {}).get('MIN_VOLUME_PERCENTILE', 50)
             symbol_means = cur_price_table.groupby('symbol')['volume_mul_price'].mean().reset_index()
-            top_symbols = symbol_means.nlargest(int(len(symbol_means) * 0.50), 'volume_mul_price')
+            top_symbols = symbol_means.nlargest(int(len(symbol_means) * (min_volume_pct / 100)), 'volume_mul_price')
             cur_price_table = cur_price_table[cur_price_table['symbol'].isin(top_symbols['symbol'])]
+
+            filtered_count = len(symbol_means) - len(top_symbols)
+            self.logger.info(f"   📊 Volume filter (>= {min_volume_pct}th percentile): "
+                           f"{len(symbol_means)} → {len(top_symbols)} stocks "
+                           f"({filtered_count} low-liquidity stocks removed)")
 
             # 종목 테이블과 병합
             table_for_ai = pd.merge(table_for_ai, cur_price_table, how='inner', on='symbol')
