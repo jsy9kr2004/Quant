@@ -123,11 +123,11 @@ class DataProcessor:
 
         return df[mask].copy()
 
-    @staticmethod
     def drop_sparse_cols(
+        self,
         df: pd.DataFrame,
-        missing_threshold: float = 0.8,
-        same_value_threshold: float = 0.98,
+        missing_threshold: Optional[float] = None,
+        same_value_threshold: Optional[float] = None,
         protect_cols: Optional[List[str]] = None
     ) -> Tuple[pd.DataFrame, List[str]]:
         """
@@ -137,14 +137,16 @@ class DataProcessor:
         1. Columns with >80% missing values
         2. Columns where >98% of values are identical
 
+        **Config-driven**: Reads thresholds from FEATURES config (single source of truth)
+
         Parameters:
         -----------
         df : pd.DataFrame
             Input dataframe
-        missing_threshold : float
-            Maximum allowed missing ratio (default: 0.8)
-        same_value_threshold : float
-            Maximum allowed same-value ratio (default: 0.98)
+        missing_threshold : Optional[float]
+            Maximum allowed missing ratio (default: read from FEATURES.MISSING_THRESHOLD or 0.8)
+        same_value_threshold : Optional[float]
+            Maximum allowed same-value ratio (default: read from FEATURES.SAME_VALUE_THRESHOLD or 0.95)
         protect_cols : Optional[List[str]]
             Columns to never drop (e.g., metadata)
 
@@ -157,9 +159,19 @@ class DataProcessor:
 
         Example:
         --------
-        df_clean, dropped = DataProcessor.drop_sparse_cols(df)
+        processor = DataProcessor(config)
+        df_clean, dropped = processor.drop_sparse_cols(df)  # Uses config values
         print(f"Dropped {len(dropped)} uninformative columns")
         """
+        # Read from config if not provided (same logic for regressor and ml_backtest)
+        if missing_threshold is None:
+            features_config = self.config.get('FEATURES', {})
+            missing_threshold = float(features_config.get('MISSING_THRESHOLD', 0.8))
+
+        if same_value_threshold is None:
+            features_config = self.config.get('FEATURES', {})
+            same_value_threshold = float(features_config.get('SAME_VALUE_THRESHOLD', 0.95))
+
         if protect_cols is None:
             protect_cols = DataSchema.get_excluded_cols()
 
@@ -278,6 +290,72 @@ class DataProcessor:
             return X_clean, y_clean
 
         return X_clean, None
+
+    @staticmethod
+    def clip_extreme_values(
+        X: pd.DataFrame,
+        y: Optional[pd.Series] = None,
+        threshold: float = 1e10,
+        enabled: bool = True
+    ) -> Tuple[pd.DataFrame, Optional[pd.Series], int]:
+        """
+        Clip extreme values for XGBoost/LightGBM compatibility.
+
+        XGBoost errors with "Input data contains inf or a value too large"
+        when values exceed ~1e10, even if not strictly infinite.
+
+        This method provides unified extreme value handling across
+        regressor.py and ml_backtest.py.
+
+        Parameters:
+        -----------
+        X : pd.DataFrame
+            Feature dataframe
+        y : Optional[pd.Series]
+            Target series (unchanged, only X is clipped)
+        threshold : float
+            Maximum absolute value allowed (default: 1e10)
+        enabled : bool
+            Whether to apply clipping (default: True)
+
+        Returns:
+        --------
+        X_clipped : pd.DataFrame
+            Dataframe with extreme values clipped to [-threshold, threshold]
+        y : Optional[pd.Series]
+            Target series (unchanged)
+        n_clipped : int
+            Number of values that were clipped
+
+        Example:
+        --------
+        >>> X_safe, y, n = DataProcessor.clip_extreme_values(X, y, threshold=1e10)
+        >>> if n > 0:
+        >>>     logging.warning(f"Clipped {n} extreme values")
+
+        Note:
+        -----
+        - Tree-based models (XGBoost/LightGBM) are robust to outliers
+        - BUT they cannot handle values > 1e10 (XGBoost internal limit)
+        - Clipping preserves information (direction + relative magnitude)
+        - Removing rows would lose valuable data
+        """
+        if not enabled:
+            return X, y, 0
+
+        # Count extreme values before clipping
+        if isinstance(X, pd.DataFrame):
+            extreme_mask = (X.abs() > threshold)
+            n_extreme = extreme_mask.sum().sum()
+        else:
+            extreme_mask = (np.abs(X) > threshold)
+            n_extreme = int(extreme_mask.sum())
+
+        if n_extreme > 0:
+            X_clipped = X.clip(-threshold, threshold)
+            return X_clipped, y, n_extreme
+        else:
+            return X, y, 0
 
     # ========================================================================
     # NaN Handling
@@ -1058,8 +1136,8 @@ class DataProcessor:
         test_df: Optional[pd.DataFrame] = None,
         sparse_row_threshold: float = 0.6,
         final_sparse_row_threshold: float = 0.95,
-        missing_col_threshold: float = 0.8,
-        same_value_col_threshold: float = 0.98,
+        missing_col_threshold: Optional[float] = None,
+        same_value_col_threshold: Optional[float] = None,
         clip_outliers: bool = True,
         clip_percentiles: Tuple[float, float] = (0.02, 0.98),
         scaler_type: str = 'robust',
@@ -1078,6 +1156,8 @@ class DataProcessor:
         5. Drop sparse rows (final pass)
         6. Scale features
 
+        **Config-driven**: Reads missing/same-value thresholds from FEATURES config
+
         Parameters:
         -----------
         train_df : pd.DataFrame
@@ -1088,10 +1168,10 @@ class DataProcessor:
             Initial sparse row threshold (default: 0.6)
         final_sparse_row_threshold : float
             Final sparse row threshold (default: 0.95)
-        missing_col_threshold : float
-            Column missing value threshold (default: 0.8)
-        same_value_col_threshold : float
-            Column same-value threshold (default: 0.98)
+        missing_col_threshold : Optional[float]
+            Column missing value threshold (default: read from FEATURES.MISSING_THRESHOLD or 0.8)
+        same_value_col_threshold : Optional[float]
+            Column same-value threshold (default: read from FEATURES.SAME_VALUE_THRESHOLD or 0.95)
         clip_outliers : bool
             Whether to clip outliers (default: True)
         clip_percentiles : Tuple[float, float]
@@ -1131,6 +1211,15 @@ class DataProcessor:
         self.logger.info(f"Train shape: {train_df.shape}")
         if test_df is not None:
             self.logger.info(f"Test shape: {test_df.shape}")
+
+        # Read thresholds from config if not provided (same logic for regressor and ml_backtest)
+        if missing_col_threshold is None:
+            features_config = self.config.get('FEATURES', {})
+            missing_col_threshold = float(features_config.get('MISSING_THRESHOLD', 0.8))
+
+        if same_value_col_threshold is None:
+            features_config = self.config.get('FEATURES', {})
+            same_value_col_threshold = float(features_config.get('SAME_VALUE_THRESHOLD', 0.95))
 
         # Step 1: Drop sparse rows (first pass - aggressive)
         self.logger.info("\n[1/7] Dropping sparse rows (first pass)...")

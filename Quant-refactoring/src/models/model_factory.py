@@ -227,7 +227,8 @@ class ModelFactory:
     def create_sector_models(
         self,
         sector_list: List[str],
-        num_variants: int = 2
+        num_variants: int = 2,
+        sector_optuna_params: Optional[Dict[str, Dict[str, Any]]] = None
     ) -> Dict[Tuple[str, int], Any]:
         """
         Create sector-specific models.
@@ -235,12 +236,17 @@ class ModelFactory:
         Creates separate regression models for each sector with slightly different
         hyperparameters to capture sector-specific patterns.
 
+        **Parameter Priority**: Optuna > SECTOR_CONFIG > Default
+
         Parameters:
         ----------
         sector_list : List[str]
             List of sector names (e.g., ['Technology', 'Financial', ...])
         num_variants : int
             Number of model variants per sector (default: 2)
+        sector_optuna_params : Optional[Dict[str, Dict[str, Any]]]
+            Optuna-optimized parameters per sector
+            Format: {'Technology': {...}, 'Financial': {...}, ...}
 
         Returns:
         -------
@@ -254,15 +260,19 @@ class ModelFactory:
             # Get sector-specific config if available
             sector_cfg = self.sector_config.get(sector, {})
 
+            # Get Optuna-optimized params if available
+            optuna_cfg = sector_optuna_params.get(sector, {}) if sector_optuna_params else {}
+
             # Default parameters (matching regressor.py sector models)
+            # Priority: Optuna > SECTOR_CONFIG > Default
             default_params = {
                 'tree_method': 'hist',
                 'device': 'cpu',
-                'n_estimators': sector_cfg.get('n_estimators', 1000),
-                'learning_rate': sector_cfg.get('learning_rate', 0.05),
-                'gamma': 0.01,
-                'subsample': 0.8,
-                'colsample_bytree': 0.7,
+                'n_estimators': optuna_cfg.get('n_estimators') or sector_cfg.get('n_estimators', 1000),
+                'learning_rate': optuna_cfg.get('learning_rate') or sector_cfg.get('learning_rate', 0.05),
+                'gamma': optuna_cfg.get('gamma', 0.01),
+                'subsample': optuna_cfg.get('subsample', 0.8),
+                'colsample_bytree': optuna_cfg.get('colsample_bytree', 0.7),
                 'objective': 'reg:squarederror',
                 'eval_metric': 'rmse',
                 'missing': None
@@ -271,14 +281,20 @@ class ModelFactory:
             # Create variants with different max_depth
             for variant_idx in range(num_variants):
                 params = default_params.copy()
-                params['max_depth'] = 7 + variant_idx  # variant 0: depth=7, variant 1: depth=8
+                # max_depth: Use Optuna if available, else increment from base
+                base_depth = optuna_cfg.get('max_depth', 7)
+                params['max_depth'] = base_depth + variant_idx  # variant 0: depth, variant 1: depth+1
 
                 model = xgboost.XGBRegressor(**params)
                 sector_models[(sector, variant_idx)] = model
 
-                self.logger.debug(f"Created sector model: {sector} variant {variant_idx}, max_depth={params['max_depth']}")
+                param_source = "Optuna" if sector in (sector_optuna_params or {}) else "SECTOR_CONFIG"
+                self.logger.debug(f"Created sector model: {sector} variant {variant_idx}, max_depth={params['max_depth']} ({param_source})")
 
+        optuna_count = len([s for s in sector_list if s in (sector_optuna_params or {})])
         self.logger.info(f"✅ Created sector models: {len(sector_list)} sectors x {num_variants} variants = {len(sector_models)} models")
+        if optuna_count > 0:
+            self.logger.info(f"   {optuna_count}/{len(sector_list)} sectors using Optuna-optimized params")
 
         return sector_models
 
@@ -306,7 +322,8 @@ def create_models_for_regressor(
     config: Dict[str, Any],
     optuna_params: Optional[Dict[str, Any]] = None,
     sector_list: Optional[List[str]] = None,
-    use_sector_model: bool = False
+    use_sector_model: bool = False,
+    sector_optuna_params: Optional[Dict[str, Dict[str, Any]]] = None
 ) -> Tuple[List[Any], List[Any], Dict[Tuple[str, int], Any]]:
     """
     Create all models for regressor.py (ensemble + sectors).
@@ -316,11 +333,14 @@ def create_models_for_regressor(
     config : Dict[str, Any]
         Configuration from conf.yaml
     optuna_params : Optional[Dict[str, Any]]
-        Optuna-optimized parameters
+        Optuna-optimized parameters for classifier
     sector_list : Optional[List[str]]
         List of sectors for sector models
     use_sector_model : bool
         Whether to create sector models
+    sector_optuna_params : Optional[Dict[str, Dict[str, Any]]]
+        Optuna-optimized parameters per sector
+        Format: {'Technology': {...}, 'Financial': {...}, ...}
 
     Returns:
     -------
@@ -337,22 +357,27 @@ def create_models_for_regressor(
 
     sector_models = {}
     if use_sector_model and sector_list:
-        sector_models = factory.create_sector_models(sector_list)
+        sector_models = factory.create_sector_models(sector_list, sector_optuna_params=sector_optuna_params)
 
     return classifiers, regressors, sector_models
 
 
 def create_models_for_backtest(
     config: Dict[str, Any],
+    optuna_params: Optional[Dict[str, Any]] = None,
     use_gpu: bool = False
 ) -> Tuple[Any, Any]:
     """
     Create models for ml_backtest.py (single models).
 
+    **Logic Unification**: Uses same Optuna-optimized parameters as regressor.py
+
     Parameters:
     ----------
     config : Dict[str, Any]
         Configuration from conf.yaml
+    optuna_params : Optional[Dict[str, Any]]
+        Optuna-optimized parameters (loaded from regressor.py results)
     use_gpu : bool
         Whether to use GPU acceleration
 
@@ -363,5 +388,5 @@ def create_models_for_backtest(
     regressor : Any
         Single regression model
     """
-    factory = ModelFactory(config, use_ensemble=False)
+    factory = ModelFactory(config, optuna_params=optuna_params, use_ensemble=False)
     return factory.create_single_models(use_gpu=use_gpu)

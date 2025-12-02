@@ -1,0 +1,657 @@
+{
+  "USE_NEW_MODELS": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 5,
+      "lines": [
+        "161",
+        "244",
+        "284"
+      ]
+    }
+  },
+  "USE_SECTOR_MODEL": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": true,
+      "count": 1,
+      "lines": [
+        "110"
+      ]
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "USE_OPTUNA": {
+    "regressor": {
+      "used": true,
+      "count": 2,
+      "lines": [
+        "1047",
+        "1187"
+      ]
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "USE_ENSEMBLE": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "USE_MLFLOW": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 5,
+      "lines": [
+        "164",
+        "197",
+        "247"
+      ]
+    }
+  },
+  "TRAIN_START_YEAR": {
+    "regressor": {
+      "used": true,
+      "count": 2,
+      "lines": [
+        "345",
+        "375"
+      ]
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 1,
+      "lines": [
+        "437"
+      ]
+    }
+  },
+  "TRAIN_END_YEAR": {
+    "regressor": {
+      "used": true,
+      "count": 2,
+      "lines": [
+        "346",
+        "376"
+      ]
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 1,
+      "lines": [
+        "438"
+      ]
+    }
+  },
+  "TEST_START_YEAR": {
+    "regressor": {
+      "used": true,
+      "count": 2,
+      "lines": [
+        "347",
+        "385"
+      ]
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 2,
+      "lines": [
+        "220",
+        "439"
+      ]
+    }
+  },
+  "TEST_END_YEAR": {
+    "regressor": {
+      "used": true,
+      "count": 2,
+      "lines": [
+        "348",
+        "386"
+      ]
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 2,
+      "lines": [
+        "220",
+        "440"
+      ]
+    }
+  },
+  "USE_WINSORIZATION": {
+    "regressor": {
+      "used": true,
+      "count": 5,
+      "lines": [
+        "113",
+        "1328",
+        "1329"
+      ]
+    },
+    "ml_backtest": {
+      "used": true,
+      "count": 4,
+      "lines": [
+        "291",
+        "296",
+        "431"
+      ]
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "USE_FEATURE_SELECTION": {
+    "regressor": {
+      "used": true,
+      "count": 3,
+      "lines": [
+        "114",
+        "1340",
+        "1341"
+      ]
+    },
+    "ml_backtest": {
+      "used": true,
+      "count": 4,
+      "lines": [
+        "302",
+        "304",
+        "442"
+      ]
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "MIN_VOLUME_PERCENTILE": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "SCALER": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "MISSING_THRESHOLD": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "ROW_MISSING_THRESHOLD": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "REBALANCE_PERIOD": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 3,
+      "lines": [
+        "445",
+        "623",
+        "632"
+      ]
+    }
+  },
+  "TOP_K_NUM": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 3,
+      "lines": [
+        "446",
+        "624",
+        "633"
+      ]
+    }
+  },
+  "MEMBER_CNT": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "ABSOLUTE_SCORE": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 1,
+      "lines": [
+        "447"
+      ]
+    }
+  },
+  "TOTAL_ASSET": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "OPTUNA_TRIALS": {
+    "regressor": {
+      "used": true,
+      "count": 1,
+      "lines": [
+        "1063"
+      ]
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "OPTUNA_CV_FOLDS": {
+    "regressor": {
+      "used": true,
+      "count": 1,
+      "lines": [
+        "1064"
+      ]
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "OPTUNA_TIMEOUT": {
+    "regressor": {
+      "used": true,
+      "count": 1,
+      "lines": [
+        "1065"
+      ]
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "OPTUNA_SEARCH_SPACE": {
+    "regressor": {
+      "used": true,
+      "count": 1,
+      "lines": [
+        "1071"
+      ]
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "STORAGE_TYPE": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 2,
+      "lines": [
+        "431",
+        "497"
+      ]
+    }
+  },
+  "GET_FMP": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 4,
+      "lines": [
+        "23",
+        "389",
+        "427"
+      ]
+    }
+  },
+  "MAKE_VIEW": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 1,
+      "lines": [
+        "540"
+      ]
+    }
+  },
+  "SAVE_DEBUG_CSV": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "PER_SECTOR": {
+    "regressor": {
+      "used": true,
+      "count": 27,
+      "lines": [
+        "56",
+        "107",
+        "108"
+      ]
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "THRESHOLD_PERCENTILE": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    }
+  },
+  "EXIT_AFTER_ML": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 3,
+      "lines": [
+        "441",
+        "605",
+        "607"
+      ]
+    }
+  },
+  "RUN_BACKTEST": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 4,
+      "lines": [
+        "25",
+        "416",
+        "444"
+      ]
+    }
+  },
+  "RUN_REGRESSION": {
+    "regressor": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "ml_backtest": {
+      "used": false,
+      "count": 0,
+      "lines": []
+    },
+    "main": {
+      "used": true,
+      "count": 4,
+      "lines": [
+        "24",
+        "395",
+        "434"
+      ]
+    }
+  }
+}

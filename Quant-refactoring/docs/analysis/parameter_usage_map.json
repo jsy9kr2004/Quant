@@ -1,0 +1,211 @@
+{
+  "ML.OPTUNA_SEARCH_SPACE.n_estimators": {
+    "key": "n_estimators",
+    "regressor": true,
+    "ml_backtest": false,
+    "main": false,
+    "occurrences": {
+      "regressor": 4,
+      "ml_backtest": 0,
+      "main": 0
+    }
+  },
+  "ML.OPTUNA_SEARCH_SPACE.learning_rate": {
+    "key": "learning_rate",
+    "regressor": true,
+    "ml_backtest": false,
+    "main": false,
+    "occurrences": {
+      "regressor": 4,
+      "ml_backtest": 0,
+      "main": 0
+    }
+  },
+  "ML.OPTUNA_SEARCH_SPACE.max_depth": {
+    "key": "max_depth",
+    "regressor": true,
+    "ml_backtest": false,
+    "main": false,
+    "occurrences": {
+      "regressor": 14,
+      "ml_backtest": 0,
+      "main": 0
+    }
+  },
+  "ML.OPTUNA_SEARCH_SPACE.subsample": {
+    "key": "subsample",
+    "regressor": true,
+    "ml_backtest": false,
+    "main": false,
+    "occurrences": {
+      "regressor": 3,
+      "ml_backtest": 0,
+      "main": 0
+    }
+  },
+  "ML.OPTUNA_SEARCH_SPACE.colsample_bytree": {
+    "key": "colsample_bytree",
+    "regressor": true,
+    "ml_backtest": false,
+    "main": false,
+    "occurrences": {
+      "regressor": 3,
+      "ml_backtest": 0,
+      "main": 0
+    }
+  },
+  "ML.OPTUNA_SEARCH_SPACE.gamma": {
+    "key": "gamma",
+    "regressor": true,
+    "ml_backtest": false,
+    "main": false,
+    "occurrences": {
+      "regressor": 3,
+      "ml_backtest": 0,
+      "main": 0
+    }
+  },
+  "ML.SECTOR_CONFIG.Technology": {
+    "key": "Technology",
+    "regressor": false,
+    "ml_backtest": true,
+    "main": false,
+    "occurrences": {
+      "regressor": 0,
+      "ml_backtest": 1,
+      "main": 0
+    }
+  },
+  "ML.SECTOR_CONFIG.Financial": {
+    "key": "Financial",
+    "regressor": false,
+    "ml_backtest": true,
+    "main": false,
+    "occurrences": {
+      "regressor": 0,
+      "ml_backtest": 1,
+      "main": 0
+    }
+  },
+  "ML.SECTOR_CONFIG.Healthcare": {
+    "key": "Healthcare",
+    "regressor": false,
+    "ml_backtest": false,
+    "main": false,
+    "occurrences": {
+      "regressor": 0,
+      "ml_backtest": 0,
+      "main": 0
+    }
+  },
+  "ML.SECTOR_CONFIG.Consumer": {
+    "key": "Consumer",
+    "regressor": false,
+    "ml_backtest": false,
+    "main": false,
+    "occurrences": {
+      "regressor": 0,
+      "ml_backtest": 0,
+      "main": 0
+    }
+  },
+  "ML.SECTOR_CONFIG.Industrial": {
+    "key": "Industrial",
+    "regressor": false,
+    "ml_backtest": false,
+    "main": false,
+    "occurrences": {
+      "regressor": 0,
+      "ml_backtest": 0,
+      "main": 0
+    }
+  },
+  "BACKTEST.PERIODS[0].START_YEAR": {
+    "key": "START_YEAR",
+    "regressor": true,
+    "ml_backtest": true,
+    "main": true,
+    "occurrences": {
+      "regressor": 4,
+      "ml_backtest": 5,
+      "main": 4
+    }
+  },
+  "BACKTEST.PERIODS[0].END_YEAR": {
+    "key": "END_YEAR",
+    "regressor": true,
+    "ml_backtest": true,
+    "main": true,
+    "occurrences": {
+      "regressor": 4,
+      "ml_backtest": 5,
+      "main": 4
+    }
+  },
+  "BACKTEST.PERIODS[0].START_MONTH": {
+    "key": "START_MONTH",
+    "regressor": false,
+    "ml_backtest": true,
+    "main": false,
+    "occurrences": {
+      "regressor": 0,
+      "ml_backtest": 2,
+      "main": 0
+    }
+  },
+  "BACKTEST.PERIODS[0].START_DATE": {
+    "key": "START_DATE",
+    "regressor": false,
+    "ml_backtest": true,
+    "main": false,
+    "occurrences": {
+      "regressor": 0,
+      "ml_backtest": 2,
+      "main": 0
+    }
+  },
+  "BACKTEST.PERIODS[1].START_YEAR": {
+    "key": "START_YEAR",
+    "regressor": true,
+    "ml_backtest": true,
+    "main": true,
+    "occurrences": {
+      "regressor": 4,
+      "ml_backtest": 5,
+      "main": 4
+    }
+  },
+  "BACKTEST.PERIODS[1].END_YEAR": {
+    "key": "END_YEAR",
+    "regressor": true,
+    "ml_backtest": true,
+    "main": true,
+    "occurrences": {
+      "regressor": 4,
+      "ml_backtest": 5,
+      "main": 4
+    }
+  },
+  "BACKTEST.PERIODS[1].START_MONTH": {
+    "key": "START_MONTH",
+    "regressor": false,
+    "ml_backtest": true,
+    "main": false,
+    "occurrences": {
+      "regressor": 0,
+      "ml_backtest": 2,
+      "main": 0
+    }
+  },
+  "BACKTEST.PERIODS[1].START_DATE": {
+    "key": "START_DATE",
+    "regressor": false,
+    "ml_backtest": true,
+    "main": false,
+    "occurrences": {
+      "regressor": 0,
+      "ml_backtest": 2,
+      "main": 0
+    }
+  }
+}

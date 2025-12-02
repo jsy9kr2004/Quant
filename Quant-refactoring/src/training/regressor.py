@@ -104,14 +104,10 @@ except ImportError:
     logging.warning("⚠️  Optuna not installed. Hyperparameter tuning will be disabled.")
 
 # 전역 설정
-# TODO: 섹터 기반 예측을 위한 PER_SECTOR=True 기능 구현
-PER_SECTOR = False  # 섹터별로 개별 모델을 학습할지 여부
 MODEL_SAVE_PATH = ""  # 학습된 모델 저장 경로 (메서드에서 설정됨)
 THRESHOLD = 92  # 분류를 위한 백분위수 임계값 (92 = 상위 8%가 양성으로 예측됨)
 
-# Preprocessing 설정 (ml_backtest.py와 동일하게 유지)
-USE_WINSORIZATION = False  # Winsorization 사용 여부 (outlier handling)
-USE_FEATURE_SELECTION = False  # Feature selection 사용 여부
+# Preprocessing 설정은 config에서 읽음 (ml_backtest.py와 동일한 방식)
 TARGET_FEATURES = 1000  # Feature selection 시 목표 feature 수
 
 # ==============================================================================
@@ -362,7 +358,20 @@ class Regressor:
         # 중첩된 구조에서 설정 값 추출
         data_config = conf.get('DATA', {})
         ml_config = conf.get('ML', {})
+        features_config = conf.get('FEATURES', {})
+        backtest_config = conf.get('BACKTEST', {})
         self.root_path: str = data_config.get('ROOT_PATH', '/home/user/Quant/data')
+
+        # 섹터별 모델 사용 여부 (ml_backtest.py와 동일한 방식)
+        self.use_sector_model = ml_config.get('USE_SECTOR_MODEL', 'N') == 'Y'
+        self.sector_config = ml_config.get('SECTOR_CONFIG', {}) if self.use_sector_model else {}
+
+        # Preprocessing 설정 (ml_backtest.py와 동일한 방식)
+        self.use_winsorization = features_config.get('USE_WINSORIZATION', 'Y') == 'Y'
+        self.use_feature_selection = features_config.get('USE_FEATURE_SELECTION', 'Y') == 'Y'
+
+        # Top K 설정 (ml_backtest.py와 동일한 방식)
+        self.top_k_num = int(backtest_config.get('TOP_K_NUM', 20))
 
         aidata_dir = self.root_path + '/processed/ml_data/per_year/'
         print("aidata path : " + aidata_dir)
@@ -687,7 +696,7 @@ class Regressor:
             logging.info(f"   After infinite removal: {len(self.train_df)} rows remaining")
 
         # PER_SECTOR 모드: 섹터별로 학습 데이터 분리
-        if PER_SECTOR == True:
+        if self.use_sector_model:
             print(self.train_df['sector'].value_counts())
             self.sector_list = list(self.train_df['sector'].unique())
             self.sector_list = [x for x in self.sector_list if str(x) != 'nan']
@@ -751,7 +760,7 @@ class Regressor:
             self.test_df_list.append([fpath, df])
 
             # PER_SECTOR 모드: 섹터별로 테스트 데이터 분리
-            if PER_SECTOR == True:
+            if self.use_sector_model:
                 for sec in self.sector_list:
                     self.sector_test_df_lists.append([fpath, df[df['sector']==sec].copy(), sec])
 
@@ -830,7 +839,11 @@ class Regressor:
             self.y_test = self.test_df[['price_dev_subavg']]
             self.y_test_cls = self.test_df[['price_dev']]
 
-    def def_model(self, optuna_params: Optional[Dict[str, Any]] = None) -> None:
+    def def_model(
+        self,
+        optuna_params: Optional[Dict[str, Any]] = None,
+        sector_optuna_params: Optional[Dict[str, Dict[str, Any]]] = None
+    ) -> None:
         """분류 및 회귀 모델을 정의하고 초기화합니다.
 
         ✨ REFACTORED: Now uses ModelFactory for consistent model creation!
@@ -849,6 +862,8 @@ class Regressor:
 
         Args:
             optuna_params: Optuna로 찾은 최적 파라미터 (clsmodel_0에 적용)
+            sector_optuna_params: 섹터별 Optuna 최적 파라미터 (sector models에 적용)
+                                  Format: {'Technology': {...}, 'Financial': {...}, ...}
 
         부작용:
             - 4개의 분류 모델로 self.clsmodels 채우기
@@ -863,8 +878,9 @@ class Regressor:
         classifiers, regressors, sector_models = create_models_for_regressor(
             config=self.conf,
             optuna_params=optuna_params,
-            sector_list=self.sector_list if PER_SECTOR else None,
-            use_sector_model=PER_SECTOR
+            sector_list=self.sector_list if self.use_sector_model else None,
+            use_sector_model=self.use_sector_model,
+            sector_optuna_params=sector_optuna_params
         )
 
         # Assign to instance variables
@@ -874,11 +890,11 @@ class Regressor:
         for i, reg in enumerate(regressors):
             self.models[i] = reg
 
-        if PER_SECTOR:
+        if self.use_sector_model:
             self.sector_models = sector_models
 
         logging.info(f"✅ Models created: {len(classifiers)} classifiers, {len(regressors)} regressors" +
-                    (f", {len(sector_models)} sector models" if PER_SECTOR else ""))
+                    (f", {len(sector_models)} sector models" if self.use_sector_model else ""))
 
     def _diagnose_extreme_values(self, X: np.ndarray, y: np.ndarray, name: str = "data") -> bool:
         """
@@ -926,6 +942,8 @@ class Regressor:
         """
         Phase 2: XGBoost를 위한 안전한 clipping (정보 손실 최소화)
 
+        ✅ REFACTORED: Now uses DataProcessor.clip_extreme_values()
+
         철학:
         - Infinite: 제거 (계산 에러)
         - 극단값: Clipping (실제 데이터, 보존)
@@ -946,27 +964,132 @@ class Regressor:
         X_values = X.values
         original_max = np.nanmax(np.abs(X_values[np.isfinite(X_values)])) if np.isfinite(X_values).any() else 0
 
-        if original_max > max_abs_value:
+        # ✅ REFACTORED: Use DataProcessor for clipping
+        X_clipped, _, n_extreme = DataProcessor.clip_extreme_values(
+            X,
+            y=None,
+            threshold=max_abs_value,
+            enabled=True
+        )
+
+        if n_extreme > 0:
             logging.warning(f"⚠️  Found extreme values (max: {original_max:.2e})")
             logging.warning(f"   These are REAL data, not errors")
             logging.warning(f"   Applying CLIPPING to [{-max_abs_value:.2e}, {max_abs_value:.2e}]")
 
-            # Clipping (정보 보존 - 방향성과 상대적 크기 유지)
-            X_clipped = np.clip(X_values, -max_abs_value, max_abs_value)
+            pct = n_extreme / X.size * 100
+            logging.info(f"   Clipped {n_extreme} values ({pct:.3f}%)")
+            logging.info(f"   New max: {np.nanmax(np.abs(X_clipped.values)):.2e}")
 
-            affected = (np.abs(X_values) > max_abs_value).sum()
-            pct = affected / X_values.size * 100
-            logging.info(f"   Clipped {affected} values ({pct:.3f}%)")
-            logging.info(f"   New max: {np.nanmax(np.abs(X_clipped)):.2e}")
-
-            # DataFrame 업데이트
-            X_result = X.copy()
-            X_result.iloc[:, :] = X_clipped
-
-            return X_result, y
+            return X_clipped, y
         else:
             logging.info(f"✅ No extreme values found (max: {original_max:.2e})")
             return X, y
+
+    def _load_existing_optuna_params(
+        self,
+        model_name: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Load existing Optuna optimization results from {ROOT_PATH}/models/optuna/.
+
+        Parameters:
+        ----------
+        model_name : str
+            Model identifier (e.g., 'clsmodel_0', 'sector_Technology')
+
+        Returns:
+        -------
+        Optional[Dict[str, Any]]
+            Best parameters if found and valid, None otherwise
+        """
+        import glob
+        import json
+        from pathlib import Path
+
+        # Use ROOT_PATH/models/optuna/ for portability
+        output_dir = os.path.join(self.root_path, 'models', 'optuna')
+        output_path = Path(output_dir)
+
+        if not output_path.exists():
+            return None
+
+        # Find latest optuna_best_params_{model_name}_*.json
+        pattern = str(output_path / f'optuna_best_params_{model_name}_*.json')
+        json_files = glob.glob(pattern)
+
+        if not json_files:
+            return None
+
+        # Get the latest file
+        latest_file = max(json_files, key=os.path.getmtime)
+
+        try:
+            with open(latest_file, 'r') as f:
+                json_data = json.load(f)
+
+            best_params = json_data.get('best_params', {})
+            if not best_params:
+                return None
+
+            logging.info(f"   📂 Found existing Optuna result: {Path(latest_file).name}")
+            logging.info(f"      Date: {json_data.get('optimization_date', 'unknown')}")
+            logging.info(f"      Score: {json_data.get('best_score', 'unknown')}")
+
+            return best_params
+
+        except Exception as e:
+            logging.warning(f"   ⚠️  Failed to load {latest_file}: {e}")
+            return None
+
+    def _is_optuna_result_fresh(
+        self,
+        model_name: str,
+        max_age_days: int
+    ) -> bool:
+        """
+        Check if Optuna result is fresh enough to reuse.
+
+        Parameters:
+        ----------
+        model_name : str
+            Model identifier
+        max_age_days : int
+            Maximum age in days (0 = always fresh)
+
+        Returns:
+        -------
+        bool
+            True if result is fresh, False otherwise
+        """
+        import glob
+        from pathlib import Path
+        from datetime import datetime, timedelta
+
+        if max_age_days == 0:
+            return True  # Always reuse if max_age is 0
+
+        # Use ROOT_PATH/models/optuna/ for portability
+        output_dir = os.path.join(self.root_path, 'models', 'optuna')
+        output_path = Path(output_dir)
+
+        if not output_path.exists():
+            return False
+
+        pattern = str(output_path / f'optuna_best_params_{model_name}_*.json')
+        json_files = glob.glob(pattern)
+
+        if not json_files:
+            return False
+
+        latest_file = max(json_files, key=os.path.getmtime)
+        file_time = datetime.fromtimestamp(os.path.getmtime(latest_file))
+        age = datetime.now() - file_time
+
+        is_fresh = age.days <= max_age_days
+        logging.info(f"      Age: {age.days} days (max: {max_age_days} days) → {'✅ Fresh' if is_fresh else '❌ Stale'}")
+
+        return is_fresh
 
     def train(self) -> None:
         """모든 분류 및 회귀 모델을 학습하고 디스크에 저장합니다.
@@ -1146,17 +1269,60 @@ class Regressor:
             baseline_score = baseline_scores.mean()
             logging.info(f"📊 Baseline accuracy: {baseline_score:.4f} (±{baseline_scores.std():.4f})")
 
-            # Optuna 최적화 실행
-            study, best_params = optimize_xgboost_params(
-                self.x_train,
-                y_train_binary_optuna,
-                search_space,
-                n_trials=n_trials,
-                cv_folds=cv_folds,
-                timeout=timeout,
-                task='classification'
-            )
+            # ========== Optuna Reuse Logic (Classification) ==========
+            reuse_existing = ml_config.get('OPTUNA_REUSE_EXISTING', 'N') == 'Y'
+            max_age_days = int(ml_config.get('OPTUNA_REUSE_MAX_AGE_DAYS', 7))
 
+            study = None
+            best_params = None
+
+            if reuse_existing:
+                logging.info("")
+                logging.info("🔍 Checking for existing Optuna results...")
+                existing_params = self._load_existing_optuna_params('clsmodel_0')
+
+                if existing_params and self._is_optuna_result_fresh('clsmodel_0', max_age_days):
+                    logging.info("✅ Reusing existing Optuna results (saved time!)")
+                    optuna_best_params = existing_params
+
+                    # Skip optimization, but still show results
+                    logging.info("="*80)
+                    logging.info("✅ USING CACHED OPTUNA RESULTS")
+                    logging.info("="*80)
+                    logging.info(f"Best params: {existing_params}")
+                    logging.info("="*80)
+                else:
+                    if not existing_params:
+                        logging.info("⏩ No existing results found, running optimization...")
+                    else:
+                        logging.info("⏩ Existing results are stale, running optimization...")
+
+                    # Run optimization
+                    study, best_params = optimize_xgboost_params(
+                        self.x_train,
+                        y_train_binary_optuna,
+                        search_space,
+                        n_trials=n_trials,
+                        cv_folds=cv_folds,
+                        timeout=timeout,
+                        task='classification'
+                    )
+            else:
+                logging.info("")
+                logging.info("⏩ OPTUNA_REUSE_EXISTING=N, running optimization...")
+
+                # Run optimization
+                study, best_params = optimize_xgboost_params(
+                    self.x_train,
+                    y_train_binary_optuna,
+                    search_space,
+                    n_trials=n_trials,
+                    cv_folds=cv_folds,
+                    timeout=timeout,
+                    task='classification'
+                )
+
+            # Process optimization results (only if we ran optimization)
             if study and best_params:
                 optuna_best_params = best_params
                 improvement = study.best_value - baseline_score
@@ -1166,27 +1332,177 @@ class Regressor:
                 logging.info(f"Best accuracy: {study.best_value:.4f} ({improvement:+.4f}, {improvement/baseline_score*100:+.2f}%)")
                 logging.info(f"Best params: {best_params}")
 
-                # 리포트 저장
+                # 리포트 저장 (ROOT_PATH/models/optuna/)
                 if save_report:
                     save_optuna_report(
                         study, baseline_params, baseline_score,
-                        'clsmodel_0', 'reports'
+                        'clsmodel_0', 'reports', root_path=self.root_path
                     )
 
-                # 차트 저장
+                # 차트 저장 (ROOT_PATH/models/optuna/)
                 if save_plots and PLOT_AVAILABLE:
-                    save_optuna_plots(study, 'clsmodel_0', 'reports')
+                    save_optuna_plots(study, 'clsmodel_0', 'reports', root_path=self.root_path)
 
                 logging.info("="*80)
-            else:
+            elif not reuse_existing or (reuse_existing and not existing_params):
+                # Only show warning if we tried to optimize and failed
                 logging.warning("⚠️  Optuna optimization failed, using baseline params")
 
         elif use_optuna and not OPTUNA_AVAILABLE:
             logging.warning("⚠️  USE_OPTUNA=Y but Optuna not installed. Using default params.")
             logging.warning("   Install with: pip install optuna plotly kaleido")
 
+        # ========== Sector-specific Optuna Optimization ==========
+        sector_optuna_params = {}
+        optuna_optimize_sectors = ml_config.get('OPTUNA_OPTIMIZE_SECTORS', 'N') == 'Y'
+
+        if self.use_sector_model and optuna_optimize_sectors and use_optuna and OPTUNA_AVAILABLE:
+            from src.training.optuna_utils import (
+                optimize_xgboost_params,
+                save_optuna_report,
+                save_optuna_plots,
+                PLOT_AVAILABLE
+            )
+
+            logging.info("="*80)
+            logging.info("🔧 SECTOR-SPECIFIC OPTUNA OPTIMIZATION")
+            logging.info("="*80)
+
+            # Sector Optuna 설정
+            sector_trials = int(ml_config.get('OPTUNA_SECTOR_TRIALS', 30))
+            sector_cv_folds = int(ml_config.get('OPTUNA_SECTOR_CV_FOLDS', 2))
+            sector_timeout = ml_config.get('OPTUNA_SECTOR_TIMEOUT', 180)
+
+            # 탐색 공간 (classifier와 동일)
+            search_space_config = ml_config.get('OPTUNA_SEARCH_SPACE', {})
+            search_space = {
+                'n_estimators': search_space_config.get('n_estimators', [100, 500]),
+                'learning_rate': search_space_config.get('learning_rate', [0.01, 0.3]),
+                'max_depth': search_space_config.get('max_depth', [3, 8]),
+                'subsample': search_space_config.get('subsample', [0.5, 1.0]),
+                'colsample_bytree': search_space_config.get('colsample_bytree', [0.5, 1.0]),
+                'gamma': search_space_config.get('gamma', [0, 10])
+            }
+
+            # self.x_train에 sector 정보 임시 추가 (인덱스 기반으로)
+            x_train_with_sector = self.x_train.copy()
+            x_train_with_sector['sector'] = self.train_df.loc[self.x_train.index, 'sector']
+
+            logging.info(f"Optimizing {len(self.sector_list)} sectors individually...")
+            logging.info(f"  Trials per sector: {sector_trials}, CV folds: {sector_cv_folds}")
+
+            for sec_idx, sec in enumerate(self.sector_list):
+                logging.info("")
+                logging.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                logging.info(f"🔧 Sector {sec_idx+1}/{len(self.sector_list)}: {sec}")
+                logging.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                # 섹터별 데이터 필터링
+                sector_mask = x_train_with_sector['sector'] == sec
+                X_sector = x_train_with_sector[sector_mask].drop('sector', axis=1)
+                y_sector_reg = self.y_train[sector_mask].iloc[:, 0]  # 회귀 타겟
+
+                logging.info(f"  Sector data: {len(X_sector)} samples, {len(X_sector.columns)} features")
+
+                # Baseline 파라미터
+                baseline_params = {
+                    'n_estimators': 1000,
+                    'learning_rate': 0.05,
+                    'max_depth': 7,
+                    'subsample': 0.8,
+                    'colsample_bytree': 0.7,
+                    'gamma': 0.01
+                }
+
+                # Baseline 성능 측정
+                from sklearn.model_selection import cross_val_score
+                baseline_model = xgboost.XGBRegressor(
+                    **baseline_params,
+                    tree_method='hist',
+                    device='cpu',
+                    objective='reg:squarederror',
+                    eval_metric='rmse',
+                    missing=np.nan
+                )
+                baseline_scores = cross_val_score(
+                    baseline_model, X_sector, y_sector_reg,
+                    cv=sector_cv_folds, scoring='neg_mean_squared_error', n_jobs=-1
+                )
+                baseline_score = -baseline_scores.mean()  # MSE (양수)
+                logging.info(f"  📊 Baseline MSE: {baseline_score:.6f} (±{baseline_scores.std():.6f})")
+
+                # ========== Optuna Reuse Logic (Sector) ==========
+                reuse_existing = ml_config.get('OPTUNA_REUSE_EXISTING', 'N') == 'Y'
+                max_age_days = int(ml_config.get('OPTUNA_REUSE_MAX_AGE_DAYS', 7))
+
+                study = None
+                best_params = None
+
+                if reuse_existing:
+                    logging.info(f"  🔍 Checking for existing Optuna results for sector '{sec}'...")
+                    existing_params = self._load_existing_optuna_params(f'sector_{sec}')
+
+                    if existing_params and self._is_optuna_result_fresh(f'sector_{sec}', max_age_days):
+                        logging.info(f"  ✅ Reusing existing Optuna results for '{sec}' (saved time!)")
+                        sector_optuna_params[sec] = existing_params
+                        logging.info(f"  Best params: {existing_params}")
+                        continue  # Skip to next sector
+                    else:
+                        if not existing_params:
+                            logging.info(f"  ⏩ No existing results found for '{sec}', running optimization...")
+                        else:
+                            logging.info(f"  ⏩ Existing results are stale for '{sec}', running optimization...")
+                else:
+                    logging.info(f"  ⏩ OPTUNA_REUSE_EXISTING=N, running optimization for '{sec}'...")
+
+                # Optuna 최적화 실행 (reuse가 안 되는 경우에만)
+                try:
+                    study, best_params = optimize_xgboost_params(
+                        X_sector,
+                        y_sector_reg,
+                        search_space,
+                        n_trials=sector_trials,
+                        cv_folds=sector_cv_folds,
+                        timeout=sector_timeout,
+                        task='regression'
+                    )
+
+                    if study and best_params:
+                        sector_optuna_params[sec] = best_params
+                        improvement = baseline_score - study.best_value  # MSE는 낮을수록 좋음
+                        improvement_pct = improvement / baseline_score * 100
+                        logging.info(f"  ✅ Best MSE: {study.best_value:.6f} ({-improvement:+.6f}, {improvement_pct:+.2f}% improvement)")
+                        logging.info(f"  Best params: {best_params}")
+
+                        # 리포트 저장 (ROOT_PATH/models/optuna/)
+                        if save_report:
+                            save_optuna_report(
+                                study, baseline_params, baseline_score,
+                                f'sector_{sec}', 'reports', root_path=self.root_path
+                            )
+
+                        # 차트 저장 (ROOT_PATH/models/optuna/)
+                        if save_plots and PLOT_AVAILABLE:
+                            save_optuna_plots(study, f'sector_{sec}', 'reports', root_path=self.root_path)
+                    else:
+                        logging.warning(f"  ⚠️  Optimization failed for sector {sec}, using baseline params")
+                        sector_optuna_params[sec] = baseline_params
+
+                except Exception as e:
+                    logging.error(f"  ❌ Error optimizing sector {sec}: {e}")
+                    logging.warning(f"  Using baseline params for {sec}")
+                    sector_optuna_params[sec] = baseline_params
+
+            logging.info("="*80)
+            logging.info(f"✅ Sector optimization complete: {len(sector_optuna_params)}/{len(self.sector_list)} sectors optimized")
+            logging.info("="*80)
+            logging.info("")
+
+        elif self.use_sector_model and optuna_optimize_sectors and not (use_optuna and OPTUNA_AVAILABLE):
+            logging.warning("⚠️  OPTUNA_OPTIMIZE_SECTORS=Y but Optuna not available. Using SECTOR_CONFIG only.")
+
         # ========== 모델 정의 (Optuna 결과 반영) ==========
-        self.def_model(optuna_params=optuna_best_params)
+        self.def_model(optuna_params=optuna_best_params, sector_optuna_params=sector_optuna_params)
 
         # LightGBM 호환성을 위해 특성 이름 정리 (Optuna를 사용하지 않은 경우에만)
         if not (use_optuna and OPTUNA_AVAILABLE):
@@ -1253,24 +1569,20 @@ class Regressor:
         logging.info(f"y_train_binary shape: {y_values.shape}")
         logging.info(f"y_train_binary unique values: {np.unique(y_values)}")
 
+        # ✅ REFACTORED: Use DataProcessor for extreme value clipping
         # Too large 값 처리: 제거가 아닌 Clipping으로 정보 보존
         # Infinite는 의미 없는 값이지만, too large는 실제 extreme 값!
-        LARGE_THRESHOLD = 1e10  # 100억
-        large_mask_per_row = (np.abs(x_values) > LARGE_THRESHOLD).any(axis=1)
+        self.x_train, _, n_extreme = DataProcessor.clip_extreme_values(
+            self.x_train,
+            y=None,
+            threshold=1e10,
+            enabled=True
+        )
 
-        if large_mask_per_row.sum() > 0:
-            logging.warning(f"⚠️  Found {large_mask_per_row.sum()} rows with values > {LARGE_THRESHOLD}")
+        if n_extreme > 0:
+            logging.warning(f"⚠️  Found {n_extreme} extreme values (>1e10)")
             logging.warning(f"   These are REAL extreme values, not errors!")
-            logging.warning(f"   Using CLIPPING instead of removal to preserve information")
-
-            # Clipping: 값을 범위 내로 제한 (정보 보존)
-            x_values_clipped = np.clip(x_values, -LARGE_THRESHOLD, LARGE_THRESHOLD)
-            rows_clipped = (x_values != x_values_clipped).any(axis=1).sum()
-
-            if rows_clipped > 0:
-                logging.info(f"   Clipped {rows_clipped} rows to range [{-LARGE_THRESHOLD}, {LARGE_THRESHOLD}]")
-                # DataFrame 업데이트
-                self.x_train.iloc[:, :] = x_values_clipped
+            logging.warning(f"   Clipped to range [-1e10, 1e10] to preserve information")
 
             # 재확인
             x_values = self.x_train.values
@@ -1327,8 +1639,8 @@ class Regressor:
 
         # ✅ Winsorization: Outlier handling (OPTIONAL - disabled by default)
         # Same as ml_backtest.py for consistency
-        # Global setting: USE_WINSORIZATION (defined at top of file)
-        if USE_WINSORIZATION:
+        # Config setting: USE_WINSORIZATION (from FEATURES config)
+        if self.use_winsorization:
             self.x_train = DataProcessor.winsorize_features(
                 self.x_train,
                 lower_percentile=0.01,  # 1%
@@ -1339,8 +1651,8 @@ class Regressor:
 
         # ✅ Feature Selection: Reduce dimension using model-based importance
         # Same as ml_backtest.py for consistency
-        # Global settings: USE_FEATURE_SELECTION, TARGET_FEATURES (defined at top of file)
-        if USE_FEATURE_SELECTION:
+        # Config setting: USE_FEATURE_SELECTION (from FEATURES config)
+        if self.use_feature_selection:
             # Need to align y_train with x_train indices
             y_for_selection = self.y_train.iloc[:, 0] if isinstance(self.y_train, pd.DataFrame) else self.y_train
             self.x_train, selected_features = DataProcessor.select_features_by_importance(
@@ -1391,7 +1703,7 @@ class Regressor:
             # logging.info(ftr_top20)
 
         # 섹터별 모델 학습 (PER_SECTOR=True인 경우)
-        if PER_SECTOR == True:
+        if self.use_sector_model:
             for sec_idx, sec in enumerate(self.sector_list):
                 for i in range(2):
                     k = (sec, i)
@@ -1585,7 +1897,7 @@ class Regressor:
 
             # ✅ Winsorization: Apply if enabled during training
             # Must match training preprocessing for consistency
-            if USE_WINSORIZATION:
+            if self.use_winsorization:
                 x_test = DataProcessor.winsorize_features(
                     x_test,
                     lower_percentile=0.01,
@@ -1810,7 +2122,7 @@ class Regressor:
         full_df.to_csv(MODEL_SAVE_PATH+'prediction_ai.csv', index=False)
 
         # === 섹터 기반 평가 (PER_SECTOR=True인 경우) ===
-        if PER_SECTOR == True:
+        if self.use_sector_model:
             testdates = set()
             allsector_topk_df = pd.DataFrame()
             self.sector_models = dict()
@@ -2090,7 +2402,7 @@ class Regressor:
 
         # ✅ Winsorization: Apply if enabled during training
         # Must match training preprocessing for consistency
-        if USE_WINSORIZATION:
+        if self.use_winsorization:
             input = DataProcessor.winsorize_features(
                 input,
                 lower_percentile=0.01,
@@ -2169,8 +2481,8 @@ class Regressor:
         ldf['ai_pred_avg'] = np.average(preds, axis=0)
         ldf.to_csv(MODEL_SAVE_PATH+"latest_prediction.csv")
 
-        # 상위 K개 주식 추천 생성
-        topk_list = [(0,3), (0,7), (0, 15)]
+        # 상위 K개 주식 추천 생성 (config의 TOP_K_NUM 사용, ml_backtest.py와 동일)
+        topk_list = [(0, self.top_k_num - 1)]
         for s, e in topk_list:
             logging.info("top" + str(s) + " ~ " + str(e))
             for col in pred_col_list:
@@ -2178,7 +2490,7 @@ class Regressor:
                 top_k_df.to_csv(MODEL_SAVE_PATH+'latest_prediction_{}_top{}-{}.csv'.format(col, s, e))
 
         # === 섹터별 예측 (PER_SECTOR=True인 경우) ===
-        if PER_SECTOR == True:
+        if self.use_sector_model:
             self.sector_models = dict()
             ldf = pd.read_csv(latest_data_path)
 
@@ -2213,8 +2525,8 @@ class Regressor:
                 sec_df['ai_pred_avg'] = np.average(preds, axis=0)
                 sec_df.to_csv(MODEL_SAVE_PATH+"sec_{}_latest_prediction.csv".format(sec))
 
-                # 섹터별 상위 K개
-                topk_list = [(0,3), (0,7), (0, 15)]
+                # 섹터별 상위 K개 (config의 TOP_K_NUM 사용, ml_backtest.py와 동일)
+                topk_list = [(0, self.top_k_num - 1)]
                 for s, e in topk_list:
                     logging.info("top" + str(s) + " ~ " + str(e))
                     for col in pred_col_list:

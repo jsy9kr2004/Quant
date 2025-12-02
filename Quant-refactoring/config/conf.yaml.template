@@ -24,8 +24,7 @@ DATA:
   MAKE_VIEW: N  # Y = Rebuild VIEW CSVs from existing data (works even when GET_FMP=N), N = Skip
   STORAGE_TYPE: PARQUET  # PARQUET (recommended) or DB
 
-  # Debug mode: Save CSV files alongside Parquet for inspection
-  SAVE_DEBUG_CSV: N  # Y = Save both Parquet and CSV, N = Parquet only (recommended for performance)
+  # Debug mode removed: SAVE_DEBUG_CSV not used in codebase
 
 # ============================================================================
 # ML Configuration
@@ -57,13 +56,12 @@ ML:
     - catboost_default
     - catboost_deep
 
-  # Ensemble
-  USE_ENSEMBLE: N  # Y = Use stacking ensemble
-  ENSEMBLE_TYPE: stacking  # stacking or voting
+  # Ensemble removed: Not implemented
 
   # Hyperparameter optimization (recommended for production)
   USE_OPTUNA: Y  # Y = Auto-tune hyperparameters for optimal performance
 
+  # ===== Classifier Optuna (전체 데이터로 최적화) =====
   # ===== Test Mode (빠른 동작 확인용 - 모델 성능보다 실행 가능 여부 테스트) =====
   OPTUNA_TRIALS: 3  # Minimal trials for quick test
   OPTUNA_CV_FOLDS: 2  # Minimal CV folds
@@ -86,6 +84,17 @@ ML:
     subsample: [0.5, 1.0]  # Row sampling ratio
     colsample_bytree: [0.5, 1.0]  # Column sampling ratio
     gamma: [0, 10]  # Minimum loss reduction for split
+
+  # ===== Sector-specific Optuna (섹터별 개별 최적화) =====
+  OPTUNA_OPTIMIZE_SECTORS: Y  # Y = Optimize each sector separately, N = Use SECTOR_CONFIG only
+  OPTUNA_SECTOR_TRIALS: 30  # Trials per sector (less than classifier for efficiency)
+  OPTUNA_SECTOR_CV_FOLDS: 2  # CV folds for sector optimization
+  OPTUNA_SECTOR_TIMEOUT: 180  # Timeout per sector (3 minutes in test mode)
+
+  # ===== Optuna Result Reuse (결과 재사용) =====
+  OPTUNA_REUSE_EXISTING: Y  # Y = Reuse existing results if available, N = Always re-optimize
+  OPTUNA_REUSE_MAX_AGE_DAYS: 7  # Maximum age in days for reusing results (0 = always reuse)
+  # Note: Results saved to {ROOT_PATH}/models/optuna/ for portability
 
   # MLflow experiment tracking
   USE_MLFLOW: N  # Y = Track experiments with MLflow
@@ -189,10 +198,7 @@ BACKTEST:
 
   # 공통 설정
   REBALANCE_PERIOD: 3  # 리밸런싱 주기 (개월)
-  TOP_K_NUM: 20        # 선택할 종목 수
-  MEMBER_CNT: 20       # 실제 매수 종목 수
-  ABSOLUTE_SCORE: 500
-  TOTAL_ASSET: 100000
+  TOP_K_NUM: 20        # 선택할 종목 수 (포트폴리오 크기)
 
   # Reports to generate
   REPORT_LIST:
@@ -204,19 +210,16 @@ BACKTEST:
 # FEATURE ENGINEERING Configuration
 # ============================================================================
 FEATURES:
-  # Minimum trading volume (percentile)
+  # Minimum trading volume (percentile) - filters out illiquid stocks
   MIN_VOLUME_PERCENTILE: 50
-
-  # Time series window
-  TS_WINDOW: 12  # quarters
 
   # Feature selection thresholds
   MISSING_THRESHOLD: 0.8  # Remove columns with > 80% missing
   SAME_VALUE_THRESHOLD: 0.95  # Remove columns with > 95% same value
-  ROW_MISSING_THRESHOLD: 0.6  # Remove rows with > 60% missing
 
-  # Normalization
-  SCALER: RobustScaler  # RobustScaler or StandardScaler
+  # Preprocessing flags (applied consistently in both regressor and ml_backtest)
+  USE_WINSORIZATION: Y  # Y = Apply winsorization to handle outliers
+  USE_FEATURE_SELECTION: Y  # Y = Apply feature selection to remove low-quality features
 
 # ============================================================================
 # GENERAL Configuration
