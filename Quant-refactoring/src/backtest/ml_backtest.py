@@ -272,21 +272,13 @@ class MLBacktest:
         X, y = DataProcessor.remove_infinite_values(X, y)
         X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
-        # ✅ Check for extreme values (too large for XGBoost)
+        # ✅ REFACTORED: Use DataProcessor for extreme value clipping
         # XGBoost errors on values > ~1e10 even if not strictly inf
-        # This check was removed during scaling refactor but is still needed!
-        XGBOOST_MAX_VALUE = 1e10
-        if isinstance(X, pd.DataFrame):
-            extreme_mask = (X.abs() > XGBOOST_MAX_VALUE)
-            n_extreme = extreme_mask.sum().sum()
-        else:
-            extreme_mask = (np.abs(X) > XGBOOST_MAX_VALUE)
-            n_extreme = extreme_mask.sum()
-
+        # Unified implementation across regressor.py and ml_backtest.py
+        X, y, n_extreme = DataProcessor.clip_extreme_values(X, y, threshold=1e10, enabled=True)
         if n_extreme > 0:
-            self.logger.warning(f"⚠️  Found {n_extreme} extreme values (>{XGBOOST_MAX_VALUE}), clipping...")
-            X = X.clip(-XGBOOST_MAX_VALUE, XGBOOST_MAX_VALUE)
-            self.logger.info(f"   ✅ Clipped extreme values to ±{XGBOOST_MAX_VALUE}")
+            self.logger.warning(f"⚠️  Found {n_extreme} extreme values (>1e10), clipping...")
+            self.logger.info(f"   ✅ Clipped extreme values to ±1e10")
 
         # ✅ NaN handling: Let XGBoost/LightGBM handle NaN internally
         # These models can use NaN for splits (missing value handling)
@@ -422,21 +414,13 @@ class MLBacktest:
             X, y = DataProcessor.remove_infinite_values(X, y)
             X, y = DataProcessor.replace_infinite_with_nan(X, y)
 
-            # ✅ Check for extreme values (too large for XGBoost)
+            # ✅ REFACTORED: Use DataProcessor for extreme value clipping
             # XGBoost errors on values > ~1e10 even if not strictly inf
-            # This check was removed during scaling refactor but is still needed!
-            XGBOOST_MAX_VALUE = 1e10
-            if isinstance(X, pd.DataFrame):
-                extreme_mask = (X.abs() > XGBOOST_MAX_VALUE)
-                n_extreme = extreme_mask.sum().sum()
-            else:
-                extreme_mask = (np.abs(X) > XGBOOST_MAX_VALUE)
-                n_extreme = extreme_mask.sum()
-
+            # Unified implementation across regressor.py and ml_backtest.py
+            X, y, n_extreme = DataProcessor.clip_extreme_values(X, y, threshold=1e10, enabled=True)
             if n_extreme > 0:
-                self.logger.warning(f"⚠️  {sector}: Found {n_extreme} extreme values (>{XGBOOST_MAX_VALUE}), clipping...")
-                X = X.clip(-XGBOOST_MAX_VALUE, XGBOOST_MAX_VALUE)
-                self.logger.info(f"   ✅ {sector}: Clipped extreme values to ±{XGBOOST_MAX_VALUE}")
+                self.logger.warning(f"⚠️  {sector}: Found {n_extreme} extreme values (>1e10), clipping...")
+                self.logger.info(f"   ✅ {sector}: Clipped extreme values to ±1e10")
 
             # ✅ NaN handling: Let XGBoost/LightGBM handle NaN internally
             # X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)  # REMOVED

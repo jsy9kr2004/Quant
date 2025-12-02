@@ -279,6 +279,72 @@ class DataProcessor:
 
         return X_clean, None
 
+    @staticmethod
+    def clip_extreme_values(
+        X: pd.DataFrame,
+        y: Optional[pd.Series] = None,
+        threshold: float = 1e10,
+        enabled: bool = True
+    ) -> Tuple[pd.DataFrame, Optional[pd.Series], int]:
+        """
+        Clip extreme values for XGBoost/LightGBM compatibility.
+
+        XGBoost errors with "Input data contains inf or a value too large"
+        when values exceed ~1e10, even if not strictly infinite.
+
+        This method provides unified extreme value handling across
+        regressor.py and ml_backtest.py.
+
+        Parameters:
+        -----------
+        X : pd.DataFrame
+            Feature dataframe
+        y : Optional[pd.Series]
+            Target series (unchanged, only X is clipped)
+        threshold : float
+            Maximum absolute value allowed (default: 1e10)
+        enabled : bool
+            Whether to apply clipping (default: True)
+
+        Returns:
+        --------
+        X_clipped : pd.DataFrame
+            Dataframe with extreme values clipped to [-threshold, threshold]
+        y : Optional[pd.Series]
+            Target series (unchanged)
+        n_clipped : int
+            Number of values that were clipped
+
+        Example:
+        --------
+        >>> X_safe, y, n = DataProcessor.clip_extreme_values(X, y, threshold=1e10)
+        >>> if n > 0:
+        >>>     logging.warning(f"Clipped {n} extreme values")
+
+        Note:
+        -----
+        - Tree-based models (XGBoost/LightGBM) are robust to outliers
+        - BUT they cannot handle values > 1e10 (XGBoost internal limit)
+        - Clipping preserves information (direction + relative magnitude)
+        - Removing rows would lose valuable data
+        """
+        if not enabled:
+            return X, y, 0
+
+        # Count extreme values before clipping
+        if isinstance(X, pd.DataFrame):
+            extreme_mask = (X.abs() > threshold)
+            n_extreme = extreme_mask.sum().sum()
+        else:
+            extreme_mask = (np.abs(X) > threshold)
+            n_extreme = int(extreme_mask.sum())
+
+        if n_extreme > 0:
+            X_clipped = X.clip(-threshold, threshold)
+            return X_clipped, y, n_extreme
+        else:
+            return X, y, 0
+
     # ========================================================================
     # NaN Handling
     # ========================================================================

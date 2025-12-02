@@ -926,6 +926,8 @@ class Regressor:
         """
         Phase 2: XGBoost를 위한 안전한 clipping (정보 손실 최소화)
 
+        ✅ REFACTORED: Now uses DataProcessor.clip_extreme_values()
+
         철학:
         - Infinite: 제거 (계산 에러)
         - 극단값: Clipping (실제 데이터, 보존)
@@ -946,24 +948,24 @@ class Regressor:
         X_values = X.values
         original_max = np.nanmax(np.abs(X_values[np.isfinite(X_values)])) if np.isfinite(X_values).any() else 0
 
-        if original_max > max_abs_value:
+        # ✅ REFACTORED: Use DataProcessor for clipping
+        X_clipped, _, n_extreme = DataProcessor.clip_extreme_values(
+            X,
+            y=None,
+            threshold=max_abs_value,
+            enabled=True
+        )
+
+        if n_extreme > 0:
             logging.warning(f"⚠️  Found extreme values (max: {original_max:.2e})")
             logging.warning(f"   These are REAL data, not errors")
             logging.warning(f"   Applying CLIPPING to [{-max_abs_value:.2e}, {max_abs_value:.2e}]")
 
-            # Clipping (정보 보존 - 방향성과 상대적 크기 유지)
-            X_clipped = np.clip(X_values, -max_abs_value, max_abs_value)
+            pct = n_extreme / X.size * 100
+            logging.info(f"   Clipped {n_extreme} values ({pct:.3f}%)")
+            logging.info(f"   New max: {np.nanmax(np.abs(X_clipped.values)):.2e}")
 
-            affected = (np.abs(X_values) > max_abs_value).sum()
-            pct = affected / X_values.size * 100
-            logging.info(f"   Clipped {affected} values ({pct:.3f}%)")
-            logging.info(f"   New max: {np.nanmax(np.abs(X_clipped)):.2e}")
-
-            # DataFrame 업데이트
-            X_result = X.copy()
-            X_result.iloc[:, :] = X_clipped
-
-            return X_result, y
+            return X_clipped, y
         else:
             logging.info(f"✅ No extreme values found (max: {original_max:.2e})")
             return X, y
@@ -1253,24 +1255,20 @@ class Regressor:
         logging.info(f"y_train_binary shape: {y_values.shape}")
         logging.info(f"y_train_binary unique values: {np.unique(y_values)}")
 
+        # ✅ REFACTORED: Use DataProcessor for extreme value clipping
         # Too large 값 처리: 제거가 아닌 Clipping으로 정보 보존
         # Infinite는 의미 없는 값이지만, too large는 실제 extreme 값!
-        LARGE_THRESHOLD = 1e10  # 100억
-        large_mask_per_row = (np.abs(x_values) > LARGE_THRESHOLD).any(axis=1)
+        self.x_train, _, n_extreme = DataProcessor.clip_extreme_values(
+            self.x_train,
+            y=None,
+            threshold=1e10,
+            enabled=True
+        )
 
-        if large_mask_per_row.sum() > 0:
-            logging.warning(f"⚠️  Found {large_mask_per_row.sum()} rows with values > {LARGE_THRESHOLD}")
+        if n_extreme > 0:
+            logging.warning(f"⚠️  Found {n_extreme} extreme values (>1e10)")
             logging.warning(f"   These are REAL extreme values, not errors!")
-            logging.warning(f"   Using CLIPPING instead of removal to preserve information")
-
-            # Clipping: 값을 범위 내로 제한 (정보 보존)
-            x_values_clipped = np.clip(x_values, -LARGE_THRESHOLD, LARGE_THRESHOLD)
-            rows_clipped = (x_values != x_values_clipped).any(axis=1).sum()
-
-            if rows_clipped > 0:
-                logging.info(f"   Clipped {rows_clipped} rows to range [{-LARGE_THRESHOLD}, {LARGE_THRESHOLD}]")
-                # DataFrame 업데이트
-                self.x_train.iloc[:, :] = x_values_clipped
+            logging.warning(f"   Clipped to range [-1e10, 1e10] to preserve information")
 
             # 재확인
             x_values = self.x_train.values
