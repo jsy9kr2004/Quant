@@ -1,0 +1,660 @@
+[
+  {
+    "full_path": "DATA",
+    "key": "DATA",
+    "type": "dict",
+    "value": "{'START_YEAR': 1996, 'END_YEAR': 2025, 'ROOT_PATH': '/home/user/Quant/data', 'FMP_URL': 'https://fin",
+    "level": 1
+  },
+  {
+    "full_path": "DATA.START_YEAR",
+    "key": "START_YEAR",
+    "type": "int",
+    "value": "1996",
+    "level": 1
+  },
+  {
+    "full_path": "DATA.END_YEAR",
+    "key": "END_YEAR",
+    "type": "int",
+    "value": "2025",
+    "level": 1
+  },
+  {
+    "full_path": "DATA.ROOT_PATH",
+    "key": "ROOT_PATH",
+    "type": "str",
+    "value": "/home/user/Quant/data",
+    "level": 1
+  },
+  {
+    "full_path": "DATA.FMP_URL",
+    "key": "FMP_URL",
+    "type": "str",
+    "value": "https://financialmodelingprep.com",
+    "level": 1
+  },
+  {
+    "full_path": "DATA.API_KEY",
+    "key": "API_KEY",
+    "type": "str",
+    "value": "YOUR_FMP_API_KEY_HERE",
+    "level": 1
+  },
+  {
+    "full_path": "DATA.EX_SYMBOL",
+    "key": "EX_SYMBOL",
+    "type": "str",
+    "value": "AAPL",
+    "level": 1
+  },
+  {
+    "full_path": "DATA.TARGET_STOCK_LIST",
+    "key": "TARGET_STOCK_LIST",
+    "type": "str",
+    "value": "/home/user/Quant/stocks.csv",
+    "level": 1
+  },
+  {
+    "full_path": "DATA.TARGET_API_LIST",
+    "key": "TARGET_API_LIST",
+    "type": "str",
+    "value": "data_collector/target_api_list.csv",
+    "level": 1
+  },
+  {
+    "full_path": "DATA.GET_FMP",
+    "key": "GET_FMP",
+    "type": "str",
+    "value": "N",
+    "level": 1
+  },
+  {
+    "full_path": "DATA.MAKE_VIEW",
+    "key": "MAKE_VIEW",
+    "type": "str",
+    "value": "N",
+    "level": 1
+  },
+  {
+    "full_path": "DATA.STORAGE_TYPE",
+    "key": "STORAGE_TYPE",
+    "type": "str",
+    "value": "PARQUET",
+    "level": 1
+  },
+  {
+    "full_path": "DATA.SAVE_DEBUG_CSV",
+    "key": "SAVE_DEBUG_CSV",
+    "type": "str",
+    "value": "N",
+    "level": 1
+  },
+  {
+    "full_path": "ML",
+    "key": "ML",
+    "type": "dict",
+    "value": "{'RUN_REGRESSION': 'Y', 'TRAIN_START_YEAR': 1996, 'TRAIN_END_YEAR': 2022, 'TEST_START_YEAR': 2023, '",
+    "level": 1
+  },
+  {
+    "full_path": "ML.RUN_REGRESSION",
+    "key": "RUN_REGRESSION",
+    "type": "str",
+    "value": "Y",
+    "level": 1
+  },
+  {
+    "full_path": "ML.TRAIN_START_YEAR",
+    "key": "TRAIN_START_YEAR",
+    "type": "int",
+    "value": "1996",
+    "level": 1
+  },
+  {
+    "full_path": "ML.TRAIN_END_YEAR",
+    "key": "TRAIN_END_YEAR",
+    "type": "int",
+    "value": "2022",
+    "level": 1
+  },
+  {
+    "full_path": "ML.TEST_START_YEAR",
+    "key": "TEST_START_YEAR",
+    "type": "int",
+    "value": "2023",
+    "level": 1
+  },
+  {
+    "full_path": "ML.TEST_END_YEAR",
+    "key": "TEST_END_YEAR",
+    "type": "int",
+    "value": "2025",
+    "level": 1
+  },
+  {
+    "full_path": "ML.EXPORT_NAN_REMOVAL_DETAILS",
+    "key": "EXPORT_NAN_REMOVAL_DETAILS",
+    "type": "str",
+    "value": "Y",
+    "level": 1
+  },
+  {
+    "full_path": "ML.USE_NEW_MODELS",
+    "key": "USE_NEW_MODELS",
+    "type": "str",
+    "value": "N",
+    "level": 1
+  },
+  {
+    "full_path": "ML.MODELS",
+    "key": "MODELS",
+    "type": "list",
+    "value": "['xgboost_default', 'xgboost_depth_9', 'xgboost_depth_10', 'lightgbm_default', 'catboost_default', '",
+    "level": 1
+  },
+  {
+    "full_path": "ML.USE_ENSEMBLE",
+    "key": "USE_ENSEMBLE",
+    "type": "str",
+    "value": "N",
+    "level": 1
+  },
+  {
+    "full_path": "ML.ENSEMBLE_TYPE",
+    "key": "ENSEMBLE_TYPE",
+    "type": "str",
+    "value": "stacking",
+    "level": 1
+  },
+  {
+    "full_path": "ML.USE_OPTUNA",
+    "key": "USE_OPTUNA",
+    "type": "str",
+    "value": "Y",
+    "level": 1
+  },
+  {
+    "full_path": "ML.OPTUNA_TRIALS",
+    "key": "OPTUNA_TRIALS",
+    "type": "int",
+    "value": "3",
+    "level": 1
+  },
+  {
+    "full_path": "ML.OPTUNA_CV_FOLDS",
+    "key": "OPTUNA_CV_FOLDS",
+    "type": "int",
+    "value": "2",
+    "level": 1
+  },
+  {
+    "full_path": "ML.OPTUNA_TIMEOUT",
+    "key": "OPTUNA_TIMEOUT",
+    "type": "int",
+    "value": "300",
+    "level": 1
+  },
+  {
+    "full_path": "ML.OPTUNA_SAVE_REPORT",
+    "key": "OPTUNA_SAVE_REPORT",
+    "type": "str",
+    "value": "Y",
+    "level": 1
+  },
+  {
+    "full_path": "ML.OPTUNA_SAVE_PLOTS",
+    "key": "OPTUNA_SAVE_PLOTS",
+    "type": "str",
+    "value": "Y",
+    "level": 1
+  },
+  {
+    "full_path": "ML.OPTUNA_SEARCH_SPACE",
+    "key": "OPTUNA_SEARCH_SPACE",
+    "type": "dict",
+    "value": "{'n_estimators': [100, 500], 'learning_rate': [0.01, 0.3], 'max_depth': [3, 8], 'subsample': [0.5, 1",
+    "level": 1
+  },
+  {
+    "full_path": "ML.OPTUNA_SEARCH_SPACE.n_estimators",
+    "key": "n_estimators",
+    "type": "list",
+    "value": "[100, 500]",
+    "level": 2
+  },
+  {
+    "full_path": "ML.OPTUNA_SEARCH_SPACE.learning_rate",
+    "key": "learning_rate",
+    "type": "list",
+    "value": "[0.01, 0.3]",
+    "level": 2
+  },
+  {
+    "full_path": "ML.OPTUNA_SEARCH_SPACE.max_depth",
+    "key": "max_depth",
+    "type": "list",
+    "value": "[3, 8]",
+    "level": 2
+  },
+  {
+    "full_path": "ML.OPTUNA_SEARCH_SPACE.subsample",
+    "key": "subsample",
+    "type": "list",
+    "value": "[0.5, 1.0]",
+    "level": 2
+  },
+  {
+    "full_path": "ML.OPTUNA_SEARCH_SPACE.colsample_bytree",
+    "key": "colsample_bytree",
+    "type": "list",
+    "value": "[0.5, 1.0]",
+    "level": 2
+  },
+  {
+    "full_path": "ML.OPTUNA_SEARCH_SPACE.gamma",
+    "key": "gamma",
+    "type": "list",
+    "value": "[0, 10]",
+    "level": 2
+  },
+  {
+    "full_path": "ML.USE_MLFLOW",
+    "key": "USE_MLFLOW",
+    "type": "str",
+    "value": "N",
+    "level": 1
+  },
+  {
+    "full_path": "ML.MLFLOW_EXPERIMENT",
+    "key": "MLFLOW_EXPERIMENT",
+    "type": "str",
+    "value": "quant_trading_v2",
+    "level": 1
+  },
+  {
+    "full_path": "ML.MLFLOW_TRACKING_URI",
+    "key": "MLFLOW_TRACKING_URI",
+    "type": "NoneType",
+    "value": "null",
+    "level": 1
+  },
+  {
+    "full_path": "ML.EXIT_AFTER_ML",
+    "key": "EXIT_AFTER_ML",
+    "type": "str",
+    "value": "Y",
+    "level": 1
+  },
+  {
+    "full_path": "ML.USE_SECTOR_MODEL",
+    "key": "USE_SECTOR_MODEL",
+    "type": "str",
+    "value": "Y",
+    "level": 1
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG",
+    "key": "SECTOR_CONFIG",
+    "type": "dict",
+    "value": "{'Technology': {'model': 'xgboost', 'n_estimators': 200, 'max_depth': 8, 'learning_rate': 0.05}, 'Fi",
+    "level": 1
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Technology",
+    "key": "Technology",
+    "type": "dict",
+    "value": "{'model': 'xgboost', 'n_estimators': 200, 'max_depth': 8, 'learning_rate': 0.05}",
+    "level": 2
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Technology.model",
+    "key": "model",
+    "type": "str",
+    "value": "xgboost",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Technology.n_estimators",
+    "key": "n_estimators",
+    "type": "int",
+    "value": "200",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Technology.max_depth",
+    "key": "max_depth",
+    "type": "int",
+    "value": "8",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Technology.learning_rate",
+    "key": "learning_rate",
+    "type": "float",
+    "value": "0.05",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Financial",
+    "key": "Financial",
+    "type": "dict",
+    "value": "{'model': 'xgboost', 'n_estimators': 150, 'max_depth': 6, 'learning_rate': 0.1}",
+    "level": 2
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Financial.model",
+    "key": "model",
+    "type": "str",
+    "value": "xgboost",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Financial.n_estimators",
+    "key": "n_estimators",
+    "type": "int",
+    "value": "150",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Financial.max_depth",
+    "key": "max_depth",
+    "type": "int",
+    "value": "6",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Financial.learning_rate",
+    "key": "learning_rate",
+    "type": "float",
+    "value": "0.1",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Healthcare",
+    "key": "Healthcare",
+    "type": "dict",
+    "value": "{'model': 'xgboost', 'n_estimators': 200, 'max_depth': 7, 'learning_rate': 0.05}",
+    "level": 2
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Healthcare.model",
+    "key": "model",
+    "type": "str",
+    "value": "xgboost",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Healthcare.n_estimators",
+    "key": "n_estimators",
+    "type": "int",
+    "value": "200",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Healthcare.max_depth",
+    "key": "max_depth",
+    "type": "int",
+    "value": "7",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Healthcare.learning_rate",
+    "key": "learning_rate",
+    "type": "float",
+    "value": "0.05",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Consumer",
+    "key": "Consumer",
+    "type": "dict",
+    "value": "{'model': 'xgboost', 'n_estimators': 150, 'max_depth': 6, 'learning_rate': 0.1}",
+    "level": 2
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Consumer.model",
+    "key": "model",
+    "type": "str",
+    "value": "xgboost",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Consumer.n_estimators",
+    "key": "n_estimators",
+    "type": "int",
+    "value": "150",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Consumer.max_depth",
+    "key": "max_depth",
+    "type": "int",
+    "value": "6",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Consumer.learning_rate",
+    "key": "learning_rate",
+    "type": "float",
+    "value": "0.1",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Industrial",
+    "key": "Industrial",
+    "type": "dict",
+    "value": "{'model': 'xgboost', 'n_estimators': 150, 'max_depth': 6, 'learning_rate': 0.1}",
+    "level": 2
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Industrial.model",
+    "key": "model",
+    "type": "str",
+    "value": "xgboost",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Industrial.n_estimators",
+    "key": "n_estimators",
+    "type": "int",
+    "value": "150",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Industrial.max_depth",
+    "key": "max_depth",
+    "type": "int",
+    "value": "6",
+    "level": 3
+  },
+  {
+    "full_path": "ML.SECTOR_CONFIG.Industrial.learning_rate",
+    "key": "learning_rate",
+    "type": "float",
+    "value": "0.1",
+    "level": 3
+  },
+  {
+    "full_path": "BACKTEST",
+    "key": "BACKTEST",
+    "type": "dict",
+    "value": "{'RUN_BACKTEST': 'Y', 'PERIODS': [{'START_YEAR': 2020, 'END_YEAR': 2021, 'START_MONTH': 1, 'START_DA",
+    "level": 1
+  },
+  {
+    "full_path": "BACKTEST.RUN_BACKTEST",
+    "key": "RUN_BACKTEST",
+    "type": "str",
+    "value": "Y",
+    "level": 1
+  },
+  {
+    "full_path": "BACKTEST.PERIODS",
+    "key": "PERIODS",
+    "type": "list",
+    "value": "[{'START_YEAR': 2020, 'END_YEAR': 2021, 'START_MONTH': 1, 'START_DATE': 1}, {'START_YEAR': 2022, 'EN",
+    "level": 1
+  },
+  {
+    "full_path": "BACKTEST.PERIODS[0].START_YEAR",
+    "key": "START_YEAR",
+    "type": "int",
+    "value": "2020",
+    "level": 2
+  },
+  {
+    "full_path": "BACKTEST.PERIODS[0].END_YEAR",
+    "key": "END_YEAR",
+    "type": "int",
+    "value": "2021",
+    "level": 2
+  },
+  {
+    "full_path": "BACKTEST.PERIODS[0].START_MONTH",
+    "key": "START_MONTH",
+    "type": "int",
+    "value": "1",
+    "level": 2
+  },
+  {
+    "full_path": "BACKTEST.PERIODS[0].START_DATE",
+    "key": "START_DATE",
+    "type": "int",
+    "value": "1",
+    "level": 2
+  },
+  {
+    "full_path": "BACKTEST.PERIODS[1].START_YEAR",
+    "key": "START_YEAR",
+    "type": "int",
+    "value": "2022",
+    "level": 2
+  },
+  {
+    "full_path": "BACKTEST.PERIODS[1].END_YEAR",
+    "key": "END_YEAR",
+    "type": "int",
+    "value": "2023",
+    "level": 2
+  },
+  {
+    "full_path": "BACKTEST.PERIODS[1].START_MONTH",
+    "key": "START_MONTH",
+    "type": "int",
+    "value": "1",
+    "level": 2
+  },
+  {
+    "full_path": "BACKTEST.PERIODS[1].START_DATE",
+    "key": "START_DATE",
+    "type": "int",
+    "value": "1",
+    "level": 2
+  },
+  {
+    "full_path": "BACKTEST.REBALANCE_PERIOD",
+    "key": "REBALANCE_PERIOD",
+    "type": "int",
+    "value": "3",
+    "level": 1
+  },
+  {
+    "full_path": "BACKTEST.TOP_K_NUM",
+    "key": "TOP_K_NUM",
+    "type": "int",
+    "value": "20",
+    "level": 1
+  },
+  {
+    "full_path": "BACKTEST.MEMBER_CNT",
+    "key": "MEMBER_CNT",
+    "type": "int",
+    "value": "20",
+    "level": 1
+  },
+  {
+    "full_path": "BACKTEST.ABSOLUTE_SCORE",
+    "key": "ABSOLUTE_SCORE",
+    "type": "int",
+    "value": "500",
+    "level": 1
+  },
+  {
+    "full_path": "BACKTEST.TOTAL_ASSET",
+    "key": "TOTAL_ASSET",
+    "type": "int",
+    "value": "100000",
+    "level": 1
+  },
+  {
+    "full_path": "BACKTEST.REPORT_LIST",
+    "key": "REPORT_LIST",
+    "type": "list",
+    "value": "['EVAL', 'RANK', 'AI']",
+    "level": 1
+  },
+  {
+    "full_path": "FEATURES",
+    "key": "FEATURES",
+    "type": "dict",
+    "value": "{'MIN_VOLUME_PERCENTILE': 50, 'TS_WINDOW': 12, 'MISSING_THRESHOLD': 0.8, 'SAME_VALUE_THRESHOLD': 0.9",
+    "level": 1
+  },
+  {
+    "full_path": "FEATURES.MIN_VOLUME_PERCENTILE",
+    "key": "MIN_VOLUME_PERCENTILE",
+    "type": "int",
+    "value": "50",
+    "level": 1
+  },
+  {
+    "full_path": "FEATURES.TS_WINDOW",
+    "key": "TS_WINDOW",
+    "type": "int",
+    "value": "12",
+    "level": 1
+  },
+  {
+    "full_path": "FEATURES.MISSING_THRESHOLD",
+    "key": "MISSING_THRESHOLD",
+    "type": "float",
+    "value": "0.8",
+    "level": 1
+  },
+  {
+    "full_path": "FEATURES.SAME_VALUE_THRESHOLD",
+    "key": "SAME_VALUE_THRESHOLD",
+    "type": "float",
+    "value": "0.95",
+    "level": 1
+  },
+  {
+    "full_path": "FEATURES.ROW_MISSING_THRESHOLD",
+    "key": "ROW_MISSING_THRESHOLD",
+    "type": "float",
+    "value": "0.6",
+    "level": 1
+  },
+  {
+    "full_path": "FEATURES.SCALER",
+    "key": "SCALER",
+    "type": "str",
+    "value": "RobustScaler",
+    "level": 1
+  },
+  {
+    "full_path": "LOG_LVL",
+    "key": "LOG_LVL",
+    "type": "int",
+    "value": "20",
+    "level": 1
+  },
+  {
+    "full_path": "THRESHOLD_PERCENTILE",
+    "key": "THRESHOLD_PERCENTILE",
+    "type": "int",
+    "value": "92",
+    "level": 1
+  }
+]

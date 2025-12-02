@@ -1,0 +1,37 @@
+{
+  "summary": {
+    "both": 4,
+    "regressor_only": 6,
+    "mlbacktest_only": 6,
+    "main_only": 0,
+    "neither": 3
+  },
+  "both": [
+    "BACKTEST.PERIODS[0].START_YEAR",
+    "BACKTEST.PERIODS[0].END_YEAR",
+    "BACKTEST.PERIODS[1].START_YEAR",
+    "BACKTEST.PERIODS[1].END_YEAR"
+  ],
+  "regressor_only": [
+    "ML.OPTUNA_SEARCH_SPACE.n_estimators",
+    "ML.OPTUNA_SEARCH_SPACE.learning_rate",
+    "ML.OPTUNA_SEARCH_SPACE.max_depth",
+    "ML.OPTUNA_SEARCH_SPACE.subsample",
+    "ML.OPTUNA_SEARCH_SPACE.colsample_bytree",
+    "ML.OPTUNA_SEARCH_SPACE.gamma"
+  ],
+  "mlbacktest_only": [
+    "ML.SECTOR_CONFIG.Technology",
+    "ML.SECTOR_CONFIG.Financial",
+    "BACKTEST.PERIODS[0].START_MONTH",
+    "BACKTEST.PERIODS[0].START_DATE",
+    "BACKTEST.PERIODS[1].START_MONTH",
+    "BACKTEST.PERIODS[1].START_DATE"
+  ],
+  "main_only": [],
+  "neither": [
+    "ML.SECTOR_CONFIG.Healthcare",
+    "ML.SECTOR_CONFIG.Consumer",
+    "ML.SECTOR_CONFIG.Industrial"
+  ]
+}
