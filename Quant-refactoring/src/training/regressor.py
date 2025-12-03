@@ -1509,31 +1509,30 @@ class Regressor:
             self.x_train = self.clean_feature_names(self.x_train)
 
         # ✅ REFACTORED: Final infinite value check before model training using DataProcessor
-        # Check X (features) for infinite values
-        x_train_clean, _ = DataProcessor.remove_infinite_values(self.x_train, None)
+        logging.info("🔬 FINAL INFINITE VALUE CHECK (before model training)")
 
-        # Check both y targets for infinite values
-        _, y_train_clean = DataProcessor.remove_infinite_values(self.x_train, self.y_train.iloc[:, 0])
-        _, y_train_cls_clean = DataProcessor.remove_infinite_values(self.x_train, self.y_train_cls.iloc[:, 0])
+        # Check for infinite values in X, y_train, y_train_cls using numpy directly
+        x_inf_mask = np.isinf(self.x_train).any(axis=1)
+        y_inf_mask = np.isinf(self.y_train.iloc[:, 0])
+        y_cls_inf_mask = np.isinf(self.y_train_cls.iloc[:, 0])
 
-        # Calculate how many rows have infinite values
-        x_removed = len(self.x_train) - len(x_train_clean)
-        y_removed = len(self.y_train) - len(y_train_clean) if y_train_clean is not None else 0
-        y_cls_removed = len(self.y_train_cls) - len(y_train_cls_clean) if y_train_cls_clean is not None else 0
+        # Combine masks: remove any row with infinite in X, y, or y_cls
+        any_inf_mask = x_inf_mask | y_inf_mask | y_cls_inf_mask
 
-        if x_removed > 0 or y_removed > 0 or y_cls_removed > 0:
-            total_removed = x_removed + y_removed + y_cls_removed
-            logging.error(f"❌ CRITICAL: Found {total_removed} rows with infinite values before model training!")
-            logging.error(f"   - Infinite in x_train: {x_removed} rows")
-            logging.error(f"   - Infinite in y_train: {y_removed} rows")
-            logging.error(f"   - Infinite in y_train_cls: {y_cls_removed} rows")
+        if any_inf_mask.any():
+            rows_with_inf = any_inf_mask.sum()
+            logging.error(f"❌ CRITICAL: Found {rows_with_inf} rows with infinite values before model training!")
+            logging.error(f"   - Infinite in x_train: {x_inf_mask.sum()} rows")
+            logging.error(f"   - Infinite in y_train: {y_inf_mask.sum()} rows")
+            logging.error(f"   - Infinite in y_train_cls: {y_cls_inf_mask.sum()} rows")
             logging.error(f"   Removing these rows to prevent XGBoost error...")
 
-            # Find valid indices (rows without infinite in any of X, y_train, y_train_cls)
-            valid_indices = x_train_clean.index.intersection(y_train_clean.index).intersection(y_train_cls_clean.index)
-            self.x_train = self.x_train.loc[valid_indices]
-            self.y_train = self.y_train.loc[valid_indices]
-            self.y_train_cls = self.y_train_cls.loc[valid_indices]
+            # Remove rows with infinite values
+            valid_mask = ~any_inf_mask
+            self.x_train = self.x_train[valid_mask]
+            self.y_train = self.y_train[valid_mask]
+            self.y_train_cls = self.y_train_cls[valid_mask]
+
             logging.info(f"   After final infinite removal: {len(self.x_train)} rows remaining")
         else:
             logging.info(f"✅ No infinite values in x_train and y labels ({len(self.x_train)} rows)")
