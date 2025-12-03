@@ -790,27 +790,48 @@ class Regressor:
         self.y_train = self.train_df[['price_dev_subavg']]  # 회귀 타겟 (가격 변동 - 평균)
         self.y_train_cls = self.train_df[['price_dev']]  # 분류 타겟 (이진: 상승/하락)
 
-        # ✅ REFACTORED: Use DataProcessor for infinite value handling in y labels
-        # Check both regression and classification targets
-        _, y_train_clean = DataProcessor.remove_infinite_values(self.x_train, self.y_train.iloc[:, 0])
-        _, y_train_cls_clean = DataProcessor.remove_infinite_values(self.x_train, self.y_train_cls.iloc[:, 0])
+        # ✅ UNIFIED: Use DataProcessor for infinite value handling in y labels
+        logging.info("🔬 Checking y labels (y_train, y_train_cls) for infinite values...")
 
-        # Find rows with infinite in either target
-        inf_in_y_train = len(self.y_train) > len(y_train_clean) if y_train_clean is not None else False
-        inf_in_y_train_cls = len(self.y_train_cls) > len(y_train_cls_clean) if y_train_cls_clean is not None else False
+        rows_before = len(self.x_train)
 
-        if inf_in_y_train or inf_in_y_train_cls:
-            logging.error(f"❌ CRITICAL: Infinite values found in y labels after train/test split!")
-            if inf_in_y_train:
-                logging.error(f"   - y_train (price_dev_subavg): {len(self.y_train) - len(y_train_clean)} infinite values")
-            if inf_in_y_train_cls:
-                logging.error(f"   - y_train_cls (price_dev): {len(self.y_train_cls) - len(y_train_cls_clean)} infinite values")
+        # Step 1: Remove infinite from X and y_train together
+        x_train_clean, y_train_clean = DataProcessor.remove_infinite_values(
+            self.x_train,
+            self.y_train.iloc[:, 0]
+        )
 
-            # Combine the indices from both cleaned targets
-            valid_indices = y_train_clean.index.intersection(y_train_cls_clean.index)
-            self.x_train = self.x_train.loc[valid_indices]
-            self.y_train = self.y_train.loc[valid_indices]
-            self.y_train_cls = self.y_train_cls.loc[valid_indices]
+        x_y_removed = rows_before - len(x_train_clean)
+        if x_y_removed > 0:
+            logging.warning(f"⚠️  Removed {x_y_removed} rows with infinite in X or y_train")
+
+        # Step 2: Align y_train_cls with cleaned indices
+        y_train_cls_aligned = self.y_train_cls.loc[x_train_clean.index]
+
+        # Step 3: Remove infinite from y_train_cls
+        x_train_final, y_cls_clean = DataProcessor.remove_infinite_values(
+            x_train_clean,
+            y_train_cls_aligned.iloc[:, 0]
+        )
+
+        y_cls_removed = len(x_train_clean) - len(x_train_final)
+        if y_cls_removed > 0:
+            logging.warning(f"⚠️  Removed {y_cls_removed} rows with infinite in y_train_cls")
+
+        # Step 4: Align y_train with final indices
+        y_train_final = y_train_clean.loc[x_train_final.index]
+
+        # Step 5: Update training data
+        total_removed = rows_before - len(x_train_final)
+        if total_removed > 0:
+            logging.error(f"❌ CRITICAL: Removed {total_removed} rows total with infinite in y labels!")
+            logging.error(f"   - From X/y_train: {x_y_removed} rows")
+            logging.error(f"   - From y_train_cls: {y_cls_removed} rows")
+
+            self.x_train = x_train_final
+            self.y_train = pd.DataFrame({self.y_train.columns[0]: y_train_final}, index=x_train_final.index)
+            self.y_train_cls = y_train_cls_aligned.loc[x_train_final.index]
+
             logging.info(f"   After removing rows with infinite y: {len(self.x_train)} rows remaining")
         else:
             logging.info(f"✅ No infinite values in y labels (y_train, y_train_cls)")
