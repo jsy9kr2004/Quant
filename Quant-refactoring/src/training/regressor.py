@@ -1704,6 +1704,36 @@ class Regressor:
 
         # 섹터별 모델 학습 (PER_SECTOR=True인 경우)
         if self.use_sector_model:
+            # ✅ CRITICAL FIX: Check sector data for infinite values BEFORE training
+            logging.info("="*80)
+            logging.info("🔬 SECTOR DATA INFINITE VALUE CHECK")
+            logging.info("="*80)
+
+            for sec in self.sector_list:
+                # Check sector X for infinite values
+                x_sector_clean, _ = DataProcessor.remove_infinite_values(self.sector_x_train[sec], None)
+                y_sector_clean, _ = DataProcessor.remove_infinite_values(None, self.sector_y_train[sec].iloc[:, 0])
+
+                x_sector_removed = len(self.sector_x_train[sec]) - len(x_sector_clean)
+                y_sector_removed = len(self.sector_y_train[sec]) - (len(y_sector_clean) if y_sector_clean is not None else len(self.sector_y_train[sec]))
+
+                if x_sector_removed > 0 or y_sector_removed > 0:
+                    logging.warning(f"⚠️  Sector '{sec}': Found infinite values!")
+                    logging.warning(f"   - Infinite in sector_x_train[{sec}]: {x_sector_removed} rows")
+                    logging.warning(f"   - Infinite in sector_y_train[{sec}]: {y_sector_removed} rows")
+
+                    # Find valid indices
+                    valid_indices = x_sector_clean.index.intersection(y_sector_clean.index if y_sector_clean is not None else self.sector_y_train[sec].index)
+                    self.sector_x_train[sec] = self.sector_x_train[sec].loc[valid_indices]
+                    self.sector_y_train[sec] = self.sector_y_train[sec].loc[valid_indices]
+                    logging.info(f"   After infinite removal: {len(self.sector_x_train[sec])} rows remaining for '{sec}'")
+                else:
+                    logging.info(f"✅ Sector '{sec}': No infinite values ({len(self.sector_x_train[sec])} rows)")
+
+            logging.info("="*80)
+            logging.info("")
+
+            # Train sector models
             for sec_idx, sec in enumerate(self.sector_list):
                 for i in range(2):
                     k = (sec, i)
