@@ -1508,32 +1508,48 @@ class Regressor:
         if not (use_optuna and OPTUNA_AVAILABLE):
             self.x_train = self.clean_feature_names(self.x_train)
 
-        # ✅ REFACTORED: Final infinite value check before model training using DataProcessor
-        # Check X (features) for infinite values
-        x_train_clean, _ = DataProcessor.remove_infinite_values(self.x_train, None)
+        # ✅ UNIFIED: Final infinite value check using DataProcessor (SAME as ml_backtest.py)
+        logging.info("🔬 FINAL INFINITE VALUE CHECK (before model training)")
 
-        # Check both y targets for infinite values
-        _, y_train_clean = DataProcessor.remove_infinite_values(self.x_train, self.y_train.iloc[:, 0])
-        _, y_train_cls_clean = DataProcessor.remove_infinite_values(self.x_train, self.y_train_cls.iloc[:, 0])
+        rows_before = len(self.x_train)
 
-        # Calculate how many rows have infinite values
-        x_removed = len(self.x_train) - len(x_train_clean)
-        y_removed = len(self.y_train) - len(y_train_clean) if y_train_clean is not None else 0
-        y_cls_removed = len(self.y_train_cls) - len(y_train_cls_clean) if y_train_cls_clean is not None else 0
+        # Step 1: Remove infinite from X and y_train together (DataProcessor)
+        x_train_clean, y_train_clean = DataProcessor.remove_infinite_values(
+            self.x_train,
+            self.y_train.iloc[:, 0]
+        )
 
-        if x_removed > 0 or y_removed > 0 or y_cls_removed > 0:
-            total_removed = x_removed + y_removed + y_cls_removed
-            logging.error(f"❌ CRITICAL: Found {total_removed} rows with infinite values before model training!")
-            logging.error(f"   - Infinite in x_train: {x_removed} rows")
-            logging.error(f"   - Infinite in y_train: {y_removed} rows")
-            logging.error(f"   - Infinite in y_train_cls: {y_cls_removed} rows")
-            logging.error(f"   Removing these rows to prevent XGBoost error...")
+        x_y_removed = rows_before - len(x_train_clean)
+        if x_y_removed > 0:
+            logging.warning(f"⚠️  Removed {x_y_removed} rows with infinite in X or y_train")
 
-            # Find valid indices (rows without infinite in any of X, y_train, y_train_cls)
-            valid_indices = x_train_clean.index.intersection(y_train_clean.index).intersection(y_train_cls_clean.index)
-            self.x_train = self.x_train.loc[valid_indices]
-            self.y_train = self.y_train.loc[valid_indices]
-            self.y_train_cls = self.y_train_cls.loc[valid_indices]
+        # Step 2: Align y_train_cls with cleaned indices
+        y_train_cls_aligned = self.y_train_cls.loc[x_train_clean.index]
+
+        # Step 3: Remove infinite from y_train_cls (using cleaned X as reference)
+        x_train_final, y_cls_clean = DataProcessor.remove_infinite_values(
+            x_train_clean,
+            y_train_cls_aligned.iloc[:, 0]
+        )
+
+        y_cls_removed = len(x_train_clean) - len(x_train_final)
+        if y_cls_removed > 0:
+            logging.warning(f"⚠️  Removed {y_cls_removed} rows with infinite in y_train_cls")
+
+        # Step 4: Align y_train with final indices
+        y_train_final = y_train_clean.loc[x_train_final.index]
+
+        # Step 5: Update all training data
+        total_removed = rows_before - len(x_train_final)
+        if total_removed > 0:
+            logging.error(f"❌ CRITICAL: Removed {total_removed} rows total with infinite values before model training!")
+            logging.error(f"   - From X/y_train: {x_y_removed} rows")
+            logging.error(f"   - From y_train_cls: {y_cls_removed} rows")
+
+            self.x_train = x_train_final
+            self.y_train = pd.DataFrame({self.y_train.columns[0]: y_train_final}, index=x_train_final.index)
+            self.y_train_cls = y_train_cls_aligned.loc[x_train_final.index]
+
             logging.info(f"   After final infinite removal: {len(self.x_train)} rows remaining")
         else:
             logging.info(f"✅ No infinite values in x_train and y labels ({len(self.x_train)} rows)")
