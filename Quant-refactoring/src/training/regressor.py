@@ -1710,16 +1710,11 @@ class Regressor:
             logging.info("="*80)
 
             for sec in self.sector_list:
-                # Check sector X for infinite values
-                x_sector_clean, _ = DataProcessor.remove_infinite_values(self.sector_x_train[sec], None)
-
-                # Check sector y for infinite values (use numpy directly for Series)
-                y_series = self.sector_y_train[sec].iloc[:, 0]
-                y_inf_mask = np.isinf(y_series)
-                if y_inf_mask.any():
-                    y_sector_clean = y_series[~y_inf_mask]
-                else:
-                    y_sector_clean = y_series
+                # ✅ UNIFIED: Use DataProcessor (SAME LOGIC as ml_backtest.py)
+                x_sector_clean, y_sector_clean = DataProcessor.remove_infinite_values(
+                    self.sector_x_train[sec],
+                    self.sector_y_train[sec].iloc[:, 0]
+                )
 
                 x_sector_removed = len(self.sector_x_train[sec]) - len(x_sector_clean)
                 y_sector_removed = len(self.sector_y_train[sec]) - len(y_sector_clean)
