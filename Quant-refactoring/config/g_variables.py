@@ -443,8 +443,21 @@ meaning_col_list = [
 # ==============================================================================
 # 이 컬럼들은 이동평균, 추세, 모멘텀 지표, 기타 시간적 패턴 같은
 # 시간 기반 feature를 계산하기 위해 선택되었습니다.
+#
+# IMPORTANT: Price momentum features added (2025-12-03)
+# Philosophy: Combine Value (fundamentals) + Momentum (price trends)
+# - 80% Value: Fundamental metrics (PBR, ROE, etc.) - existing
+# - 20% Momentum: Price/volume trends - NEW
+# Empirical research shows Value + Momentum outperforms either alone
 
 cal_timefeature_col_list = [
+    # ===== Price Momentum Features (NEW) =====
+    # These extract price-based momentum (3m/6m returns, trends, etc.)
+    "price",                            # Stock price (tsfresh will extract: trends, moving averages, volatility)
+    "volume",                           # Trading volume (tsfresh will extract: volume trends, surges)
+    "volume_mul_price",                 # Trading value (combines price × volume momentum)
+
+    # ===== Fundamental Features (EXISTING) =====
     "bookValuePerShare",
     "capexPerShare",
     "cashPerShare",

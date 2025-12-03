@@ -217,6 +217,18 @@ FEATURES:
   # 50 = bottom 50% (too aggressive, not recommended)
   MIN_VOLUME_PERCENTILE: 10
 
+  # Extreme mover filtering - removes stocks with extreme returns (likely news/event-driven)
+  # Philosophy: Extreme movers are driven by news/sentiment, not fundamentals, so exclude from training
+  # NOTE: Only applied during TRAINING data generation, NOT during prediction/backtesting
+  FILTER_EXTREME_MOVERS: Y  # Y = filter extremes during training, N = keep all
+  EXTREME_FILTER_METHOD: robust_zscore  # 'robust_zscore' (recommended), 'zscore', 'percentile'
+  EXTREME_FILTER_THRESHOLD: 3.0  # For z-score: ±3.0σ (±3σ ≈ 99.7%), For percentile: 0.025 (2.5%)
+
+  # Explanation of methods:
+  # - robust_zscore: Uses median/MAD (robust to outliers, adapts to volatility regimes) - RECOMMENDED
+  # - zscore: Uses mean/std (sensitive to outliers, but simpler)
+  # - percentile: Hard cut at specified percentile (simple but doesn't adapt to volatility)
+
   # Feature selection thresholds
   MISSING_THRESHOLD: 0.8  # Remove columns with > 80% missing
   SAME_VALUE_THRESHOLD: 0.95  # Remove columns with > 95% same value
