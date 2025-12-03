@@ -1508,30 +1508,47 @@ class Regressor:
         if not (use_optuna and OPTUNA_AVAILABLE):
             self.x_train = self.clean_feature_names(self.x_train)
 
-        # ✅ REFACTORED: Final infinite value check before model training using DataProcessor
+        # ✅ UNIFIED: Final infinite value check using DataProcessor (SAME as ml_backtest.py)
         logging.info("🔬 FINAL INFINITE VALUE CHECK (before model training)")
 
-        # Check for infinite values in X, y_train, y_train_cls using numpy directly
-        x_inf_mask = np.isinf(self.x_train).any(axis=1)
-        y_inf_mask = np.isinf(self.y_train.iloc[:, 0])
-        y_cls_inf_mask = np.isinf(self.y_train_cls.iloc[:, 0])
+        rows_before = len(self.x_train)
 
-        # Combine masks: remove any row with infinite in X, y, or y_cls
-        any_inf_mask = x_inf_mask | y_inf_mask | y_cls_inf_mask
+        # Step 1: Remove infinite from X and y_train together (DataProcessor)
+        x_train_clean, y_train_clean = DataProcessor.remove_infinite_values(
+            self.x_train,
+            self.y_train.iloc[:, 0]
+        )
 
-        if any_inf_mask.any():
-            rows_with_inf = any_inf_mask.sum()
-            logging.error(f"❌ CRITICAL: Found {rows_with_inf} rows with infinite values before model training!")
-            logging.error(f"   - Infinite in x_train: {x_inf_mask.sum()} rows")
-            logging.error(f"   - Infinite in y_train: {y_inf_mask.sum()} rows")
-            logging.error(f"   - Infinite in y_train_cls: {y_cls_inf_mask.sum()} rows")
-            logging.error(f"   Removing these rows to prevent XGBoost error...")
+        x_y_removed = rows_before - len(x_train_clean)
+        if x_y_removed > 0:
+            logging.warning(f"⚠️  Removed {x_y_removed} rows with infinite in X or y_train")
 
-            # Remove rows with infinite values
-            valid_mask = ~any_inf_mask
-            self.x_train = self.x_train[valid_mask]
-            self.y_train = self.y_train[valid_mask]
-            self.y_train_cls = self.y_train_cls[valid_mask]
+        # Step 2: Align y_train_cls with cleaned indices
+        y_train_cls_aligned = self.y_train_cls.loc[x_train_clean.index]
+
+        # Step 3: Remove infinite from y_train_cls (using cleaned X as reference)
+        x_train_final, y_cls_clean = DataProcessor.remove_infinite_values(
+            x_train_clean,
+            y_train_cls_aligned.iloc[:, 0]
+        )
+
+        y_cls_removed = len(x_train_clean) - len(x_train_final)
+        if y_cls_removed > 0:
+            logging.warning(f"⚠️  Removed {y_cls_removed} rows with infinite in y_train_cls")
+
+        # Step 4: Align y_train with final indices
+        y_train_final = y_train_clean.loc[x_train_final.index]
+
+        # Step 5: Update all training data
+        total_removed = rows_before - len(x_train_final)
+        if total_removed > 0:
+            logging.error(f"❌ CRITICAL: Removed {total_removed} rows total with infinite values before model training!")
+            logging.error(f"   - From X/y_train: {x_y_removed} rows")
+            logging.error(f"   - From y_train_cls: {y_cls_removed} rows")
+
+            self.x_train = x_train_final
+            self.y_train = pd.DataFrame({self.y_train.columns[0]: y_train_final}, index=x_train_final.index)
+            self.y_train_cls = y_train_cls_aligned.loc[x_train_final.index]
 
             logging.info(f"   After final infinite removal: {len(self.x_train)} rows remaining")
         else:
