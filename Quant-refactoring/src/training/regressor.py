@@ -1710,20 +1710,22 @@ class Regressor:
             logging.info("="*80)
 
             for sec in self.sector_list:
-                # Check sector X for infinite values
-                x_sector_clean, _ = DataProcessor.remove_infinite_values(self.sector_x_train[sec], None)
-                y_sector_clean, _ = DataProcessor.remove_infinite_values(None, self.sector_y_train[sec].iloc[:, 0])
+                # ✅ UNIFIED: Use DataProcessor (SAME LOGIC as ml_backtest.py)
+                x_sector_clean, y_sector_clean = DataProcessor.remove_infinite_values(
+                    self.sector_x_train[sec],
+                    self.sector_y_train[sec].iloc[:, 0]
+                )
 
                 x_sector_removed = len(self.sector_x_train[sec]) - len(x_sector_clean)
-                y_sector_removed = len(self.sector_y_train[sec]) - (len(y_sector_clean) if y_sector_clean is not None else len(self.sector_y_train[sec]))
+                y_sector_removed = len(self.sector_y_train[sec]) - len(y_sector_clean)
 
                 if x_sector_removed > 0 or y_sector_removed > 0:
                     logging.warning(f"⚠️  Sector '{sec}': Found infinite values!")
                     logging.warning(f"   - Infinite in sector_x_train[{sec}]: {x_sector_removed} rows")
                     logging.warning(f"   - Infinite in sector_y_train[{sec}]: {y_sector_removed} rows")
 
-                    # Find valid indices
-                    valid_indices = x_sector_clean.index.intersection(y_sector_clean.index if y_sector_clean is not None else self.sector_y_train[sec].index)
+                    # Find valid indices (rows without infinite values in both X and y)
+                    valid_indices = x_sector_clean.index.intersection(y_sector_clean.index)
                     self.sector_x_train[sec] = self.sector_x_train[sec].loc[valid_indices]
                     self.sector_y_train[sec] = self.sector_y_train[sec].loc[valid_indices]
                     logging.info(f"   After infinite removal: {len(self.sector_x_train[sec])} rows remaining for '{sec}'")
