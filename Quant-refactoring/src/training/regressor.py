@@ -790,6 +790,20 @@ class Regressor:
         self.y_train = self.train_df[['price_dev_subavg']]  # 회귀 타겟 (가격 변동 - 평균)
         self.y_train_cls = self.train_df[['price_dev']]  # 분류 타겟 (이진: 상승/하락)
 
+        # 🔍 DEBUG: Check for duplicate indices after train/test split
+        logging.info("=" * 80)
+        logging.info("🔍 DUPLICATE INDEX CHECK #1: After train/test split")
+        if self.x_train.index.duplicated().any():
+            dup_count = self.x_train.index.duplicated().sum()
+            logging.error(f"❌ FOUND {dup_count} DUPLICATE INDICES in x_train!")
+            dup_indices = self.x_train.index[self.x_train.index.duplicated()].unique()[:10]
+            logging.error(f"   First 10 duplicate indices: {list(dup_indices)}")
+            logging.error(f"   train_df has duplicates: {self.train_df.index.duplicated().any()}")
+            logging.error(f"   This is the SOURCE of the problem!")
+        else:
+            logging.info(f"✅ No duplicates in x_train ({len(self.x_train)} rows)")
+        logging.info("=" * 80)
+
         # ✅ UNIFIED: Use DataProcessor for infinite value handling in y labels
         logging.info("🔬 Checking y labels (y_train, y_train_cls) for infinite values...")
 
@@ -840,6 +854,19 @@ class Regressor:
             logging.info(f"   After removing rows with infinite y: {len(self.x_train)} rows remaining")
         else:
             logging.info(f"✅ No infinite values in y labels (y_train, y_train_cls)")
+
+        # 🔍 DEBUG: Check for duplicate indices after y label infinite check
+        logging.info("=" * 80)
+        logging.info("🔍 DUPLICATE INDEX CHECK #2: After y label infinite check")
+        if self.x_train.index.duplicated().any():
+            dup_count = self.x_train.index.duplicated().sum()
+            logging.error(f"❌ FOUND {dup_count} DUPLICATE INDICES in x_train!")
+            dup_indices = self.x_train.index[self.x_train.index.duplicated()].unique()[:10]
+            logging.error(f"   First 10 duplicate indices: {list(dup_indices)}")
+            logging.error(f"   Duplicates created during y label processing!")
+        else:
+            logging.info(f"✅ No duplicates in x_train ({len(self.x_train)} rows)")
+        logging.info("=" * 80)
 
         # 섹터별 학습 데이터 준비
         for sec in self.sector_list:
@@ -1393,6 +1420,27 @@ class Regressor:
             logging.info("="*80)
             logging.info("🔧 SECTOR-SPECIFIC OPTUNA OPTIMIZATION")
             logging.info("="*80)
+
+            # 🔍 DEBUG: Final check before sector Optuna (where error occurs)
+            logging.info("=" * 80)
+            logging.info("🔍 DUPLICATE INDEX CHECK #3: Before sector Optuna (CRITICAL)")
+            if self.x_train.index.duplicated().any():
+                dup_count = self.x_train.index.duplicated().sum()
+                logging.error(f"❌ FOUND {dup_count} DUPLICATE INDICES in x_train!")
+                dup_indices = self.x_train.index[self.x_train.index.duplicated()].unique()[:10]
+                logging.error(f"   First 10 duplicate indices: {list(dup_indices)}")
+                logging.error(f"   x_train shape: {self.x_train.shape}")
+                logging.error(f"   This will cause the error at x_train_with_sector['sector'] = ...")
+
+                # Show where duplicates are in the index
+                dup_mask = self.x_train.index.duplicated(keep=False)
+                dup_values = self.x_train.index[dup_mask].value_counts().head(5)
+                logging.error(f"   Top 5 most common duplicate values:")
+                for idx, count in dup_values.items():
+                    logging.error(f"      Index {idx} appears {count} times")
+            else:
+                logging.info(f"✅ No duplicates in x_train ({len(self.x_train)} rows)")
+            logging.info("=" * 80)
 
             # Sector Optuna 설정
             sector_trials = int(ml_config.get('OPTUNA_SECTOR_TRIALS', 30))
