@@ -832,11 +832,11 @@ class Regressor:
             logging.error(f"   - From y_train_cls: {y_cls_removed} rows")
 
             self.x_train = x_train_final
-            # ✅ FIX: Use .values to avoid index conflict when creating DataFrame from Series
-            self.y_train = pd.DataFrame(
-                y_train_final.values,
-                columns=self.y_train.columns,
-                index=x_train_final.index
+            # ✅ UNIFIED: Use DataProcessor to create clean DataFrame
+            self.y_train = DataProcessor.create_clean_dataframe(
+                y_train_final,
+                self.y_train.columns,
+                x_train_final.index
             )
             self.y_train_cls = y_train_cls_aligned.loc[x_train_final.index]
 
@@ -1586,11 +1586,11 @@ class Regressor:
             logging.error(f"   - From y_train_cls: {y_cls_removed} rows")
 
             self.x_train = x_train_final
-            # ✅ FIX: Use .values to avoid index conflict when creating DataFrame from Series
-            self.y_train = pd.DataFrame(
-                y_train_final.values,
-                columns=self.y_train.columns,
-                index=x_train_final.index
+            # ✅ UNIFIED: Use DataProcessor to create clean DataFrame
+            self.y_train = DataProcessor.create_clean_dataframe(
+                y_train_final,
+                self.y_train.columns,
+                x_train_final.index
             )
             self.y_train_cls = y_train_cls_aligned.loc[x_train_final.index]
 
@@ -1787,12 +1787,12 @@ class Regressor:
                 else:
                     logging.info(f"✅ Sector '{sec}': No infinite values ({len(x_sector_clean)} rows)")
 
-                # ✅ CRITICAL: Always use cleaned data (even if no infinites removed)
+                # ✅ UNIFIED: Always use cleaned data (even if no infinites removed)
                 self.sector_x_train[sec] = x_sector_clean
-                self.sector_y_train[sec] = pd.DataFrame(
-                    y_sector_clean.values,
-                    columns=self.sector_y_train[sec].columns,
-                    index=x_sector_clean.index
+                self.sector_y_train[sec] = DataProcessor.create_clean_dataframe(
+                    y_sector_clean,
+                    self.sector_y_train[sec].columns,
+                    x_sector_clean.index
                 )
 
             logging.info("="*80)

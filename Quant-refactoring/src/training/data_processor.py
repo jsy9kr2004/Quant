@@ -361,6 +361,56 @@ class DataProcessor:
             return False
 
     @staticmethod
+    def create_clean_dataframe(
+        series: pd.Series,
+        columns: pd.Index,
+        index: pd.Index
+    ) -> pd.DataFrame:
+        """
+        Create DataFrame from Series with clean index (avoiding index conflicts).
+
+        ✨ UNIFIED: Used by regressor.py in multiple places to avoid
+        "cannot reindex on an axis with duplicate labels" errors.
+
+        When creating a DataFrame from a Series that already has an index,
+        pandas may try to align the Series' original index with the new index,
+        causing conflicts. This method uses .values to strip the original index
+        and assign a clean new index.
+
+        Parameters:
+        -----------
+        series : pd.Series
+            Series with data (index will be stripped)
+        columns : pd.Index
+            Column names for the DataFrame
+        index : pd.Index
+            New clean index to assign
+
+        Returns:
+        --------
+        pd.DataFrame
+            DataFrame with clean index, no conflicts
+
+        Example:
+        --------
+        >>> y_clean = pd.Series([1, 2, 3], index=[10, 20, 30])
+        >>> new_index = pd.Index([0, 1, 2])
+        >>> df = DataProcessor.create_clean_dataframe(y_clean, ['target'], new_index)
+        >>> df.index  # [0, 1, 2] not [10, 20, 30]
+
+        Why this matters:
+        -----------------
+        ❌ WRONG:
+        pd.DataFrame({col: series}, index=new_index)
+        → pandas tries to align series.index with new_index → conflicts!
+
+        ✅ CORRECT:
+        pd.DataFrame(series.values, columns=[col], index=new_index)
+        → No alignment, clean assignment
+        """
+        return pd.DataFrame(series.values, columns=columns, index=index)
+
+    @staticmethod
     def clip_extreme_values(
         X: pd.DataFrame,
         y: Optional[pd.Series] = None,
