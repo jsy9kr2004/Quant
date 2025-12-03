@@ -829,7 +829,12 @@ class Regressor:
             logging.error(f"   - From y_train_cls: {y_cls_removed} rows")
 
             self.x_train = x_train_final
-            self.y_train = pd.DataFrame({self.y_train.columns[0]: y_train_final}, index=x_train_final.index)
+            # ✅ FIX: Use .values to avoid index conflict when creating DataFrame from Series
+            self.y_train = pd.DataFrame(
+                y_train_final.values,
+                columns=self.y_train.columns,
+                index=x_train_final.index
+            )
             self.y_train_cls = y_train_cls_aligned.loc[x_train_final.index]
 
             logging.info(f"   After removing rows with infinite y: {len(self.x_train)} rows remaining")
@@ -1568,7 +1573,12 @@ class Regressor:
             logging.error(f"   - From y_train_cls: {y_cls_removed} rows")
 
             self.x_train = x_train_final
-            self.y_train = pd.DataFrame({self.y_train.columns[0]: y_train_final}, index=x_train_final.index)
+            # ✅ FIX: Use .values to avoid index conflict when creating DataFrame from Series
+            self.y_train = pd.DataFrame(
+                y_train_final.values,
+                columns=self.y_train.columns,
+                index=x_train_final.index
+            )
             self.y_train_cls = y_train_cls_aligned.loc[x_train_final.index]
 
             logging.info(f"   After final infinite removal: {len(self.x_train)} rows remaining")
