@@ -832,11 +832,11 @@ class Regressor:
             logging.error(f"   - From y_train_cls: {y_cls_removed} rows")
 
             self.x_train = x_train_final
-            # ✅ FIX: Use .values to avoid index conflict when creating DataFrame from Series
-            self.y_train = pd.DataFrame(
-                y_train_final.values,
-                columns=self.y_train.columns,
-                index=x_train_final.index
+            # ✅ UNIFIED: Use DataProcessor to create clean DataFrame
+            self.y_train = DataProcessor.create_clean_dataframe(
+                y_train_final,
+                self.y_train.columns,
+                x_train_final.index
             )
             self.y_train_cls = y_train_cls_aligned.loc[x_train_final.index]
 
@@ -1586,11 +1586,11 @@ class Regressor:
             logging.error(f"   - From y_train_cls: {y_cls_removed} rows")
 
             self.x_train = x_train_final
-            # ✅ FIX: Use .values to avoid index conflict when creating DataFrame from Series
-            self.y_train = pd.DataFrame(
-                y_train_final.values,
-                columns=self.y_train.columns,
-                index=x_train_final.index
+            # ✅ UNIFIED: Use DataProcessor to create clean DataFrame
+            self.y_train = DataProcessor.create_clean_dataframe(
+                y_train_final,
+                self.y_train.columns,
+                x_train_final.index
             )
             self.y_train_cls = y_train_cls_aligned.loc[x_train_final.index]
 
@@ -1783,14 +1783,17 @@ class Regressor:
                     logging.warning(f"⚠️  Sector '{sec}': Found infinite values!")
                     logging.warning(f"   - Infinite in sector_x_train[{sec}]: {x_sector_removed} rows")
                     logging.warning(f"   - Infinite in sector_y_train[{sec}]: {y_sector_removed} rows")
-
-                    # Find valid indices (rows without infinite values in both X and y)
-                    valid_indices = x_sector_clean.index.intersection(y_sector_clean.index)
-                    self.sector_x_train[sec] = self.sector_x_train[sec].loc[valid_indices]
-                    self.sector_y_train[sec] = self.sector_y_train[sec].loc[valid_indices]
-                    logging.info(f"   After infinite removal: {len(self.sector_x_train[sec])} rows remaining for '{sec}'")
+                    logging.info(f"   After infinite removal: {len(x_sector_clean)} rows remaining for '{sec}'")
                 else:
-                    logging.info(f"✅ Sector '{sec}': No infinite values ({len(self.sector_x_train[sec])} rows)")
+                    logging.info(f"✅ Sector '{sec}': No infinite values ({len(x_sector_clean)} rows)")
+
+                # ✅ UNIFIED: Always use cleaned data (even if no infinites removed)
+                self.sector_x_train[sec] = x_sector_clean
+                self.sector_y_train[sec] = DataProcessor.create_clean_dataframe(
+                    y_sector_clean,
+                    self.sector_y_train[sec].columns,
+                    x_sector_clean.index
+                )
 
             logging.info("="*80)
             logging.info("")

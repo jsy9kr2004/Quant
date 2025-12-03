@@ -397,20 +397,26 @@ class MLBacktest:
         feature_cols = DataSchema.get_feature_cols(train_data)
 
         X = train_data[feature_cols].copy()
-        y = train_data[DataSchema.REGRESSION_TARGET].copy()  # ✨ Unified target (regressor.py와 일관성)
+        # ✅ UNIFIED: Use DataFrame for y (same structure as regressor.py)
+        y = train_data[[DataSchema.REGRESSION_TARGET]].copy()  # DataFrame with column name preserved
 
         # ✅ REFACTORED: Use DataProcessor for infinite value handling
         # This ensures regressor.py and ml_backtest.py use IDENTICAL preprocessing
-        X, y = DataProcessor.remove_infinite_values(X, y)
-        X, y = DataProcessor.replace_infinite_with_nan(X, y)
+        # Extract Series for DataProcessor (requires Series input)
+        X_clean, y_clean = DataProcessor.remove_infinite_values(X, y.iloc[:, 0])
+        X_clean, y_clean = DataProcessor.replace_infinite_with_nan(X_clean, y_clean)
 
         # ✅ REFACTORED: Use DataProcessor for extreme value clipping
         # XGBoost errors on values > ~1e10 even if not strictly inf
         # Unified implementation across regressor.py and ml_backtest.py
-        X, y, n_extreme = DataProcessor.clip_extreme_values(X, y, threshold=1e10, enabled=True)
+        X_clean, y_clean, n_extreme = DataProcessor.clip_extreme_values(X_clean, y_clean, threshold=1e10, enabled=True)
         if n_extreme > 0:
             self.logger.warning(f"⚠️  Found {n_extreme} extreme values (>1e10), clipping...")
             self.logger.info(f"   ✅ Clipped extreme values to ±1e10")
+
+        # ✅ UNIFIED: Convert y back to DataFrame (same as regressor.py)
+        X = X_clean
+        y = DataProcessor.create_clean_dataframe(y_clean, [DataSchema.REGRESSION_TARGET], X_clean.index)
 
         # ✅ NaN handling: Let XGBoost/LightGBM handle NaN internally
         # These models can use NaN for splits (missing value handling)
@@ -567,14 +573,20 @@ class MLBacktest:
             # 특성과 타겟 분리
             feature_cols = DataSchema.get_feature_cols(sector_data)
             X = sector_data[feature_cols].copy()
-            y = sector_data[DataSchema.REGRESSION_TARGET].copy()
+            # ✅ UNIFIED: Use DataFrame for y (same structure as regressor.py)
+            y = sector_data[[DataSchema.REGRESSION_TARGET]].copy()  # DataFrame with column name preserved
 
             # ✅ REFACTORED: Use DataProcessor for preprocessing (unified with regressor.py)
-            X, y = DataProcessor.remove_infinite_values(X, y)
-            X, y = DataProcessor.replace_infinite_with_nan(X, y)
-            X, y, n_extreme = DataProcessor.clip_extreme_values(X, y, threshold=1e10, enabled=True)
+            # Extract Series for DataProcessor (requires Series input)
+            X_clean, y_clean = DataProcessor.remove_infinite_values(X, y.iloc[:, 0])
+            X_clean, y_clean = DataProcessor.replace_infinite_with_nan(X_clean, y_clean)
+            X_clean, y_clean, n_extreme = DataProcessor.clip_extreme_values(X_clean, y_clean, threshold=1e10, enabled=True)
             if n_extreme > 0:
                 self.logger.warning(f"⚠️  {sector}: Found {n_extreme} extreme values (>1e10), clipping...")
+
+            # ✅ UNIFIED: Convert y back to DataFrame (same as regressor.py)
+            X = X_clean
+            y = DataProcessor.create_clean_dataframe(y_clean, [DataSchema.REGRESSION_TARGET], X_clean.index)
 
             # ✅ Binary target for classifier
             y_binary = DataProcessor.create_binary_target(y)
@@ -609,12 +621,18 @@ class MLBacktest:
         self.logger.info("   Training unified classifier on all data...")
         all_features = DataSchema.get_feature_cols(train_data)
         X_all = train_data[all_features].copy()
-        y_all = train_data[DataSchema.REGRESSION_TARGET].copy()
+        # ✅ UNIFIED: Use DataFrame for y_all (same structure as regressor.py)
+        y_all = train_data[[DataSchema.REGRESSION_TARGET]].copy()  # DataFrame with column name preserved
 
         # Preprocessing
-        X_all, y_all = DataProcessor.remove_infinite_values(X_all, y_all)
-        X_all, y_all = DataProcessor.replace_infinite_with_nan(X_all, y_all)
-        X_all, y_all, _ = DataProcessor.clip_extreme_values(X_all, y_all, threshold=1e10, enabled=True)
+        X_all_clean, y_all_clean = DataProcessor.remove_infinite_values(X_all, y_all.iloc[:, 0])
+        X_all_clean, y_all_clean = DataProcessor.replace_infinite_with_nan(X_all_clean, y_all_clean)
+        X_all_clean, y_all_clean, _ = DataProcessor.clip_extreme_values(X_all_clean, y_all_clean, threshold=1e10, enabled=True)
+
+        # ✅ UNIFIED: Convert y_all back to DataFrame (same as regressor.py)
+        X_all = X_all_clean
+        y_all = DataProcessor.create_clean_dataframe(y_all_clean, [DataSchema.REGRESSION_TARGET], X_all_clean.index)
+
         y_all_binary = DataProcessor.create_binary_target(y_all)
 
         unified_clf.fit(X_all, y_all_binary)
