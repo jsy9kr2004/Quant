@@ -236,12 +236,14 @@ class AIDataMaker:
             self.fs_table['fillingDate'] = pd.to_datetime(self.fs_table['fillingDate'])
             self.fs_table['acceptedDate'] = pd.to_datetime(self.fs_table['acceptedDate'])
 
-            # 무한대 값을 NaN으로 변환 (division by zero로 생성된 infinite 값 처리)
+            # ✅ UNIFIED: Use DataProcessor to replace infinite with NaN (same as regressor.py/ml_backtest.py)
             numeric_cols = self.fs_table.select_dtypes(include=[np.number]).columns
             inf_before = np.isinf(self.fs_table[numeric_cols]).sum().sum()
             if inf_before > 0:
                 self.logger.info(f"📊 Replacing {inf_before} infinite values with NaN in fs_table")
-                self.fs_table[numeric_cols] = self.fs_table[numeric_cols].replace([np.inf, -np.inf], np.nan)
+                self.fs_table[numeric_cols], _ = DataProcessor.replace_infinite_with_nan(
+                    self.fs_table[numeric_cols], None
+                )
 
         # 재무 메트릭 로드 (3년 과거)
         self.metrics_table = pd.DataFrame()
@@ -258,12 +260,14 @@ class AIDataMaker:
         if not self.metrics_table.empty:
             self.metrics_table['date'] = pd.to_datetime(self.metrics_table['date'])
 
-            # 무한대 값을 NaN으로 변환 (division by zero로 생성된 infinite 값 처리)
+            # ✅ UNIFIED: Use DataProcessor to replace infinite with NaN (same as regressor.py/ml_backtest.py)
             numeric_cols = self.metrics_table.select_dtypes(include=[np.number]).columns
             inf_before = np.isinf(self.metrics_table[numeric_cols]).sum().sum()
             if inf_before > 0:
                 self.logger.info(f"📊 Replacing {inf_before} infinite values with NaN in metrics_table")
-                self.metrics_table[numeric_cols] = self.metrics_table[numeric_cols].replace([np.inf, -np.inf], np.nan)
+                self.metrics_table[numeric_cols], _ = DataProcessor.replace_infinite_with_nan(
+                    self.metrics_table[numeric_cols], None
+                )
 
     def get_trade_date(self, pdate: pd.Timestamp) -> Optional[pd.Timestamp]:
         """
@@ -714,12 +718,14 @@ class AIDataMaker:
                 fs_metrics[new_col_name] = np.where(valid_mask,
                                                     fs_metrics['adaptiveMC_ev']/fs_metrics[col], np.nan)
 
-            # 무한대 값을 NaN으로 변환 (혹시 남아있는 inf 값 정리)
+            # ✅ UNIFIED: Use DataProcessor to replace infinite with NaN (same as regressor.py/ml_backtest.py)
             numeric_cols = fs_metrics.select_dtypes(include=[np.number]).columns
             inf_count = np.isinf(fs_metrics[numeric_cols]).sum().sum()
             if inf_count > 0:
                 self.logger.info(f"📊 [{cur_year}] Replacing {inf_count} infinite values with NaN in fs_metrics")
-                fs_metrics[numeric_cols] = fs_metrics[numeric_cols].replace([np.inf, -np.inf], np.nan)
+                fs_metrics[numeric_cols], _ = DataProcessor.replace_infinite_with_nan(
+                    fs_metrics[numeric_cols], None
+                )
 
             # 디버깅을 위한 스냅샷 저장
             print("*** fs_metrics w/ rebalance_date")
@@ -1018,17 +1024,19 @@ class AIDataMaker:
                     # Phase 3: Winsorization 적용 (선택적, config 플래그 확인)
                     filtered_df = self._apply_winsorization(filtered_df, base_year_period)
 
-                    # 무한대 제거 (RobustScaler는 infinite 값을 처리할 수 없음)
-                    inf_mask = np.isinf(filtered_df)
-                    has_inf = inf_mask.any().any()
+                    # ✅ UNIFIED: Use DataProcessor to remove infinite (same as regressor.py/ml_backtest.py)
+                    rows_before = len(filtered_df)
+                    filtered_df_before = filtered_df.copy()  # Save for export if needed
 
-                    if has_inf:
-                        rows_before = len(filtered_df)
-                        rows_with_inf_mask = inf_mask.any(axis=1)
-                        rows_with_inf_count = rows_with_inf_mask.sum()
-                        inf_removal_ratio = rows_with_inf_count / rows_before * 100
+                    # Remove infinite values using DataProcessor
+                    filtered_df_clean, _ = DataProcessor.remove_infinite_values(filtered_df, None)
 
-                        self.logger.warning(f"⚠️  [{base_year_period}] Removing {rows_with_inf_count} rows with infinite values ({inf_removal_ratio:.2f}%)")
+                    # Check if any rows were removed and log details
+                    if len(filtered_df_clean) < rows_before:
+                        rows_removed = rows_before - len(filtered_df_clean)
+                        inf_removal_ratio = rows_removed / rows_before * 100
+
+                        self.logger.warning(f"⚠️  [{base_year_period}] Removing {rows_removed} rows with infinite values ({inf_removal_ratio:.2f}%)")
 
                         # 너무 많은 row가 제거되면 경고
                         if inf_removal_ratio > 10.0:
@@ -1038,9 +1046,13 @@ class AIDataMaker:
                             self.logger.warning(f"⚠️  [{base_year_period}] CAUTION: Removing >5% of data due to infinite values")
 
                         # 제거될 row 상세 정보 저장 (config 플래그로 제어)
-                        if self.export_nan_removal_details:  # NaN과 동일한 플래그 사용
+                        if self.export_nan_removal_details:
+                            # Calculate masks from the before-removal DataFrame
+                            inf_mask = np.isinf(filtered_df_before)
+                            rows_with_inf_mask = inf_mask.any(axis=1)
+
                             # excluded_df와 filtered_df를 결합하여 전체 정보 포함
-                            full_df_before_removal = pd.concat([excluded_df.reset_index(drop=True), filtered_df.reset_index(drop=True)], axis=1)
+                            full_df_before_removal = pd.concat([excluded_df.reset_index(drop=True), filtered_df_before.reset_index(drop=True)], axis=1)
                             self._export_infinite_removal_details(
                                 base_year_period,
                                 full_df_before_removal,
@@ -1048,11 +1060,11 @@ class AIDataMaker:
                                 inf_mask
                             )
 
-                        # 무한대가 있는 row 제거
-                        filtered_df = filtered_df[~rows_with_inf_mask]
-                        excluded_df = excluded_df[~rows_with_inf_mask.values]  # excluded_df도 동일하게 제거
+                        # Update DataFrames (align excluded_df with cleaned filtered_df)
+                        filtered_df = filtered_df_clean
+                        excluded_df = excluded_df.loc[filtered_df.index]
 
-                        self.logger.info(f"   After infinite removal: {len(filtered_df)} rows remaining ({rows_before - len(filtered_df)} removed)")
+                        self.logger.info(f"   After infinite removal: {len(filtered_df)} rows remaining ({rows_removed} removed)")
 
                     # RobustScaler로 정규화 (아웃라이어에 강함)
                     self.logger.info(f"✅ [{base_year_period}] Scaling {filtered_df.shape[1]} columns for {filtered_df.shape[0]} symbols")
@@ -1060,24 +1072,27 @@ class AIDataMaker:
                     scaled_data = scaler.fit_transform(filtered_df)
                     scaled_df = pd.DataFrame(scaled_data, columns=filtered_df.columns)
 
-                    # [무한대 체크 #6] 스케일링 직후 (RobustScaler가 infinite 생성 가능성)
-                    inf_mask_after_scaling = np.isinf(scaled_df)
-                    has_inf_after_scaling = inf_mask_after_scaling.any().any()
+                    # ✅ UNIFIED: [무한대 체크 #6] 스케일링 직후 (RobustScaler가 infinite 생성 가능성)
+                    rows_before_scaling = len(scaled_df)
+                    scaled_df_before = scaled_df.copy()  # Save for export if needed
 
-                    if has_inf_after_scaling:
-                        rows_before_scaling_removal = len(scaled_df)
-                        rows_with_inf_mask = inf_mask_after_scaling.any(axis=1)
-                        rows_with_inf_count = rows_with_inf_mask.sum()
-                        inf_removal_ratio = rows_with_inf_count / rows_before_scaling_removal * 100
+                    # Remove infinite values using DataProcessor
+                    scaled_df_clean, _ = DataProcessor.remove_infinite_values(scaled_df, None)
 
-                        self.logger.warning(f"⚠️  [{base_year_period}] RobustScaler produced {rows_with_inf_count} rows with infinite values ({inf_removal_ratio:.2f}%)")
+                    # Check if any rows were removed and log details
+                    if len(scaled_df_clean) < rows_before_scaling:
+                        rows_removed = rows_before_scaling - len(scaled_df_clean)
+                        inf_removal_ratio = rows_removed / rows_before_scaling * 100
+
+                        self.logger.warning(f"⚠️  [{base_year_period}] RobustScaler produced {rows_removed} rows with infinite values ({inf_removal_ratio:.2f}%)")
 
                         # 심각한 경우 에러 로그
                         if inf_removal_ratio > 5.0:
                             self.logger.error(f"❌ [{base_year_period}] WARNING: Scaler produced >5% infinite values!")
                             self.logger.error(f"   This indicates potential data quality or scaling issues")
 
-                        # 무한대가 있는 컬럼 분석
+                        # 무한대가 있는 컬럼 분석 (from before-removal DataFrame)
+                        inf_mask_after_scaling = np.isinf(scaled_df_before)
                         inf_cols = inf_mask_after_scaling.any(axis=0)
                         cols_with_inf = inf_cols[inf_cols].index.tolist()
                         self.logger.warning(f"   Columns with infinite values after scaling ({len(cols_with_inf)}):")
@@ -1087,9 +1102,12 @@ class AIDataMaker:
 
                         # 제거될 row 상세 정보 저장
                         if self.export_nan_removal_details:
+                            # Calculate masks from the before-removal DataFrame
+                            rows_with_inf_mask = inf_mask_after_scaling.any(axis=1)
+
                             # excluded_df와 scaled_df를 결합하여 전체 정보 포함
                             full_df_with_excluded = pd.concat([excluded_df.reset_index(drop=True),
-                                                               scaled_df.reset_index(drop=True)], axis=1)
+                                                               scaled_df_before.reset_index(drop=True)], axis=1)
                             self._export_infinite_removal_details(
                                 base_year_period,
                                 full_df_with_excluded,
@@ -1098,11 +1116,11 @@ class AIDataMaker:
                                 suffix="_after_scaling"
                             )
 
-                        # 무한대가 있는 row 제거
-                        scaled_df = scaled_df[~rows_with_inf_mask]
-                        excluded_df = excluded_df[~rows_with_inf_mask.values]
+                        # Update DataFrames (align excluded_df with cleaned scaled_df)
+                        scaled_df = scaled_df_clean
+                        excluded_df = excluded_df.loc[scaled_df.index]
 
-                        self.logger.info(f"   After post-scaling infinite removal: {len(scaled_df)} rows remaining ({rows_before_scaling_removal - len(scaled_df)} removed)")
+                        self.logger.info(f"   After post-scaling infinite removal: {len(scaled_df)} rows remaining ({rows_removed} removed)")
                     else:
                         self.logger.info(f"   ✅ [{base_year_period}] No infinite values after scaling")
 
