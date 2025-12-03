@@ -790,6 +790,9 @@ class Regressor:
         self.y_train = self.train_df[['price_dev_subavg']]  # 회귀 타겟 (가격 변동 - 평균)
         self.y_train_cls = self.train_df[['price_dev']]  # 분류 타겟 (이진: 상승/하락)
 
+        # ✅ UNIFIED: Check for duplicate indices using DataProcessor
+        DataProcessor.check_duplicate_index(self.x_train, "After train/test split", logging.getLogger())
+
         # ✅ UNIFIED: Use DataProcessor for infinite value handling in y labels
         logging.info("🔬 Checking y labels (y_train, y_train_cls) for infinite values...")
 
@@ -840,6 +843,9 @@ class Regressor:
             logging.info(f"   After removing rows with infinite y: {len(self.x_train)} rows remaining")
         else:
             logging.info(f"✅ No infinite values in y labels (y_train, y_train_cls)")
+
+        # ✅ UNIFIED: Check for duplicate indices using DataProcessor
+        DataProcessor.check_duplicate_index(self.x_train, "After y label infinite check", logging.getLogger())
 
         # 섹터별 학습 데이터 준비
         for sec in self.sector_list:
@@ -1393,6 +1399,13 @@ class Regressor:
             logging.info("="*80)
             logging.info("🔧 SECTOR-SPECIFIC OPTUNA OPTIMIZATION")
             logging.info("="*80)
+
+            # ✅ UNIFIED: Final check before sector Optuna using DataProcessor
+            DataProcessor.check_duplicate_index(
+                self.x_train,
+                "Before sector Optuna (CRITICAL - where error occurs)",
+                logging.getLogger()
+            )
 
             # Sector Optuna 설정
             sector_trials = int(ml_config.get('OPTUNA_SECTOR_TRIALS', 30))
