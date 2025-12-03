@@ -292,6 +292,75 @@ class DataProcessor:
         return X_clean, None
 
     @staticmethod
+    def check_duplicate_index(
+        df: pd.DataFrame,
+        stage_name: str,
+        logger: Optional[logging.Logger] = None
+    ) -> bool:
+        """
+        Check for duplicate indices in DataFrame and log detailed information.
+
+        ✨ UNIFIED: Used by both regressor.py and ml_backtest.py for debugging.
+
+        This function helps track down the source of duplicate index errors by:
+        - Detecting if duplicates exist
+        - Logging which indices are duplicated
+        - Showing how many times each duplicate appears
+        - Providing actionable debugging information
+
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            DataFrame to check for duplicate indices
+        stage_name : str
+            Description of current processing stage (e.g., "after train/test split")
+        logger : Optional[logging.Logger]
+            Logger instance to use. If None, uses root logger.
+
+        Returns:
+        --------
+        bool
+            True if duplicates found, False otherwise
+
+        Example:
+        --------
+        >>> if DataProcessor.check_duplicate_index(x_train, "after split", logger):
+        >>>     # Handle duplicates
+        >>>     x_train = x_train[~x_train.index.duplicated(keep='first')]
+        """
+        if logger is None:
+            logger = logging.getLogger()
+
+        logger.info("=" * 80)
+        logger.info(f"🔍 DUPLICATE INDEX CHECK: {stage_name}")
+
+        if df.index.duplicated().any():
+            dup_count = df.index.duplicated().sum()
+            logger.error(f"❌ FOUND {dup_count} DUPLICATE INDICES!")
+
+            # Show first 10 duplicate indices
+            dup_indices = df.index[df.index.duplicated()].unique()[:10]
+            logger.error(f"   First 10 duplicate indices: {list(dup_indices)}")
+
+            # Show shape
+            logger.error(f"   DataFrame shape: {df.shape}")
+
+            # Show most common duplicates
+            dup_mask = df.index.duplicated(keep=False)
+            dup_values = df.index[dup_mask].value_counts().head(5)
+            logger.error(f"   Top 5 most common duplicate values:")
+            for idx, count in dup_values.items():
+                logger.error(f"      Index {idx} appears {count} times")
+
+            logger.error(f"   ⚠️  This may cause 'cannot reindex on an axis with duplicate labels' error!")
+            logger.info("=" * 80)
+            return True
+        else:
+            logger.info(f"✅ No duplicates ({len(df)} rows)")
+            logger.info("=" * 80)
+            return False
+
+    @staticmethod
     def clip_extreme_values(
         X: pd.DataFrame,
         y: Optional[pd.Series] = None,
