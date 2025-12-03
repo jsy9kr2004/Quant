@@ -641,7 +641,7 @@ class Regressor:
                 df = df.loc[df_numeric_clean.index]
                 logging.info(f"   After infinite removal: {len(df)} rows remaining")
 
-            self.train_df = pd.concat([self.train_df, df], axis=0)
+            self.train_df = pd.concat([self.train_df, df], axis=0, ignore_index=True)
 
         # 의미 없는 컬럼 제거 (높은 누락률 또는 낮은 분산)
         # 임계값: >80% 누락 OR >95% 동일한 값
@@ -756,7 +756,7 @@ class Regressor:
                 logging.info(f"   After infinite removal: {len(df)} rows remaining")
 
             # 모든 테스트 데이터를 연결하고 기간별 리스트 유지
-            self.test_df = pd.concat([self.test_df, df], axis=0)
+            self.test_df = pd.concat([self.test_df, df], axis=0, ignore_index=True)
             self.test_df_list.append([fpath, df])
 
             # PER_SECTOR 모드: 섹터별로 테스트 데이터 분리
