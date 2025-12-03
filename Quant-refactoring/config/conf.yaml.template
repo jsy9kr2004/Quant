@@ -211,7 +211,11 @@ BACKTEST:
 # ============================================================================
 FEATURES:
   # Minimum trading volume (percentile) - filters out illiquid stocks
-  MIN_VOLUME_PERCENTILE: 50
+  # Note: Calculated per year, so automatically adjusts for market conditions (M2, inflation)
+  # 10 = bottom 10% (very conservative, removes only extreme illiquidity)
+  # 20 = bottom 20% (conservative)
+  # 50 = bottom 50% (too aggressive, not recommended)
+  MIN_VOLUME_PERCENTILE: 10
 
   # Feature selection thresholds
   MISSING_THRESHOLD: 0.8  # Remove columns with > 80% missing
