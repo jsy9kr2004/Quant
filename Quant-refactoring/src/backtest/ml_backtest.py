@@ -406,13 +406,11 @@ class MLBacktest:
         X_clean, y_clean = DataProcessor.remove_infinite_values(X, y.iloc[:, 0])
         X_clean, y_clean = DataProcessor.replace_infinite_with_nan(X_clean, y_clean)
 
-        # ✅ REFACTORED: Use DataProcessor for extreme value clipping
-        # XGBoost errors on values > ~1e10 even if not strictly inf
-        # Unified implementation across regressor.py and ml_backtest.py
-        X_clean, y_clean, n_extreme = DataProcessor.clip_extreme_values(X_clean, y_clean, threshold=1e10, enabled=True)
-        if n_extreme > 0:
-            self.logger.warning(f"⚠️  Found {n_extreme} extreme values (>1e10), clipping...")
-            self.logger.info(f"   ✅ Clipped extreme values to ±1e10")
+        # ✅ UNIFIED: Use log transformation for extreme value handling
+        # Better than hard clipping: preserves value ordering, adapts to any scale
+        # SAME logic as regressor.py (unified and sector models)
+        X_clean = DataProcessor.log_transform_features(X_clean)
+        self.logger.info(f"   ✅ Log transformation applied to features")
 
         # ✅ UNIFIED: Convert y back to DataFrame (same as regressor.py)
         X = X_clean
@@ -580,9 +578,10 @@ class MLBacktest:
             # Extract Series for DataProcessor (requires Series input)
             X_clean, y_clean = DataProcessor.remove_infinite_values(X, y.iloc[:, 0])
             X_clean, y_clean = DataProcessor.replace_infinite_with_nan(X_clean, y_clean)
-            X_clean, y_clean, n_extreme = DataProcessor.clip_extreme_values(X_clean, y_clean, threshold=1e10, enabled=True)
-            if n_extreme > 0:
-                self.logger.warning(f"⚠️  {sector}: Found {n_extreme} extreme values (>1e10), clipping...")
+
+            # ✅ UNIFIED: Use log transformation (SAME as regressor.py sector models)
+            X_clean = DataProcessor.log_transform_features(X_clean)
+            self.logger.info(f"      ✅ {sector}: Log transformation applied")
 
             # ✅ UNIFIED: Convert y back to DataFrame (same as regressor.py)
             X = X_clean
@@ -627,7 +626,10 @@ class MLBacktest:
         # Preprocessing
         X_all_clean, y_all_clean = DataProcessor.remove_infinite_values(X_all, y_all.iloc[:, 0])
         X_all_clean, y_all_clean = DataProcessor.replace_infinite_with_nan(X_all_clean, y_all_clean)
-        X_all_clean, y_all_clean, _ = DataProcessor.clip_extreme_values(X_all_clean, y_all_clean, threshold=1e10, enabled=True)
+
+        # ✅ UNIFIED: Use log transformation (SAME as regressor.py)
+        X_all_clean = DataProcessor.log_transform_features(X_all_clean)
+        self.logger.info(f"   ✅ Log transformation applied to unified classifier data")
 
         # ✅ UNIFIED: Convert y_all back to DataFrame (same as regressor.py)
         X_all = X_all_clean
