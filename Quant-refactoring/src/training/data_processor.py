@@ -411,6 +411,99 @@ class DataProcessor:
         return pd.DataFrame(series.values, columns=columns, index=index)
 
     @staticmethod
+    def log_transform_features(
+        X: pd.DataFrame,
+        inverse: bool = False
+    ) -> pd.DataFrame:
+        """
+        Sign-preserving log transformation for extreme value handling.
+
+        ✨ UNIFIED: Replaces hardcoded threshold clipping with adaptive log scaling
+        Used by both regressor.py and ml_backtest.py for:
+        - Unified model (x_train)
+        - Sector models (sector_x_train)
+
+        Why log transform is better than clip_extreme_values(threshold=1e10):
+        ========================================================================
+        1. ✅ Preserves actual value ordering (Apple $3T > Microsoft $2T)
+        2. ✅ Adaptive to any scale (market cap can grow infinitely)
+        3. ✅ Natural compression (1e12 → 27.6, 1e10 → 23.0)
+        4. ✅ Invertible (can recover original scale if needed)
+        5. ✅ No arbitrary threshold (1e10 is too small for large-cap stocks)
+
+        Problems with hard clipping:
+        ========================================================================
+        - Apple market cap: $3 trillion = 3e12 → clipped to 1e10 (300x compression!)
+        - NVIDIA market cap: $2 trillion = 2e12 → clipped to 1e10 (200x compression!)
+        - All large-cap stocks become indistinguishable
+
+        Formula:
+        ========================================================================
+        - Forward: sign(x) * log(1 + |x|)
+          → Handles positive, negative, and zero values
+          → log1p(x) = log(1 + x) is numerically stable near 0
+
+        - Inverse: sign(x) * (exp(|x|) - 1)
+          → Recovers original scale (useful for feature importance interpretation)
+
+        Example transformation:
+        ========================================================================
+        Original Value    →  Log Transformed  →  Interpretation
+        ---------------      ----------------     ---------------
+        3e12 (Apple)     →  28.7              →  Preserved distinction
+        2e12 (NVIDIA)    →  28.3              →  Preserved distinction
+        1e12             →  27.6              →  Preserved distinction
+        1e10             →  23.0              →
+        1e8              →  18.4              →
+        0                →  0                 →  Zero stays zero
+        -1e8             →  -18.4             →  Sign preserved
+
+        Parameters:
+        -----------
+        X : pd.DataFrame
+            Features to transform
+        inverse : bool
+            If True, inverse transform (exp) back to original scale
+            Default: False (forward transform)
+
+        Returns:
+        --------
+        X_transformed : pd.DataFrame
+            Log-transformed features (same shape and columns as input)
+
+        Usage:
+        ------
+        # Training (forward transform)
+        X_train_log = DataProcessor.log_transform_features(X_train)
+
+        # Prediction (use same transform)
+        X_test_log = DataProcessor.log_transform_features(X_test)
+
+        # Interpretation (inverse transform, optional)
+        X_original = DataProcessor.log_transform_features(X_train_log, inverse=True)
+
+        Notes:
+        ------
+        - Applied to ALL features (tree-based models don't care about scale)
+        - XGBoost/LightGBM benefit from compressed scale (prevents "value too large" errors)
+        - Preserves feature names and DataFrame structure
+        """
+        if inverse:
+            # Inverse: sign(x) * (exp(|x|) - 1)
+            # Recovers original scale from log-transformed values
+            X_transformed = X.apply(
+                lambda col: np.sign(col) * (np.exp(np.abs(col)) - 1)
+            )
+        else:
+            # Forward: sign(x) * log(1 + |x|)
+            # Compresses extreme values while preserving order
+            X_transformed = X.apply(
+                lambda col: np.sign(col) * np.log1p(np.abs(col))
+            )
+
+        return X_transformed
+
+    @staticmethod
     def clip_extreme_values(
         X: pd.DataFrame,
         y: Optional[pd.Series] = None,

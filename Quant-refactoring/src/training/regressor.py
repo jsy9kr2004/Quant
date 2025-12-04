@@ -1629,25 +1629,24 @@ class Regressor:
         logging.info(f"y_train_binary shape: {y_values.shape}")
         logging.info(f"y_train_binary unique values: {np.unique(y_values)}")
 
-        # ✅ REFACTORED: Use DataProcessor for extreme value clipping
-        # Too large 값 처리: 제거가 아닌 Clipping으로 정보 보존
-        # Infinite는 의미 없는 값이지만, too large는 실제 extreme 값!
-        self.x_train, _, n_extreme = DataProcessor.clip_extreme_values(
-            self.x_train,
-            y=None,
-            threshold=1e10,
-            enabled=True
-        )
+        # ✅ UNIFIED: Use log transformation for extreme value handling
+        # Better than hard clipping: preserves value ordering, adapts to any scale
+        # Example: Apple $3T → log(3e12) = 28.7 (preserved!), not clipped to 1e10
+        logging.info("🔧 Applying log transformation to handle extreme values...")
 
-        if n_extreme > 0:
-            logging.warning(f"⚠️  Found {n_extreme} extreme values (>1e10)")
-            logging.warning(f"   These are REAL extreme values, not errors!")
-            logging.warning(f"   Clipped to range [-1e10, 1e10] to preserve information")
+        # Check max value before transform
+        x_values_before = self.x_train.values
+        max_before = np.abs(x_values_before).max()
+        logging.info(f"   Before log transform: max abs value = {max_before:.2e}")
 
-            # 재확인
-            x_values = self.x_train.values
-            max_after_clip = np.abs(x_values).max()
-            logging.info(f"   After clipping, max abs value: {max_after_clip}")
+        # Apply log transformation
+        self.x_train = DataProcessor.log_transform_features(self.x_train)
+
+        # Check max value after transform
+        x_values_after = self.x_train.values
+        max_after = np.abs(x_values_after).max()
+        logging.info(f"   After log transform: max abs value = {max_after:.2f}")
+        logging.info(f"   ✅ Log transformation applied (extreme values naturally compressed)")
 
         logging.info("=" * 80)
 
@@ -1786,6 +1785,11 @@ class Regressor:
                     logging.info(f"   After infinite removal: {len(x_sector_clean)} rows remaining for '{sec}'")
                 else:
                     logging.info(f"✅ Sector '{sec}': No infinite values ({len(x_sector_clean)} rows)")
+
+                # ✅ UNIFIED: Apply log transformation (SAME as unified model)
+                # Prevents "value too large" errors in XGBoost
+                x_sector_clean = DataProcessor.log_transform_features(x_sector_clean)
+                logging.info(f"   ✅ Sector '{sec}': Log transformation applied")
 
                 # ✅ UNIFIED: Always use cleaned data (even if no infinites removed)
                 self.sector_x_train[sec] = x_sector_clean
