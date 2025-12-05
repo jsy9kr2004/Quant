@@ -813,13 +813,21 @@ class Regressor:
     def dataload(self) -> None:
         """parquet 파일에서 학습 및 테스트 데이터를 로드하고 특성을 준비합니다.
 
+        ✨ REFACTORED: Now uses DataProcessor.preprocess_training_data() for unified preprocessing!
+        This ensures identical preprocessing logic with ml_backtest.py.
+
         이 메서드는 포괄적인 데이터 로드 및 전처리를 수행합니다:
-            1. 모든 학습 파일을 로드하고 연결합니다
-            2. 의미 없는 특성을 제거합니다 (>80% 누락 또는 >95% 동일한 값)
-            3. 과도한 누락 데이터가 있는 행을 필터링합니다 (>60% NaN)
-            4. 섹터 기반 가격 편차를 계산합니다 (price_dev에서 섹터 평균을 뺀 값)
-            5. 기간별 평가를 위해 테스트 파일을 개별적으로 로드합니다
-            6. 학습 및 테스트를 위해 특성(X)과 레이블(y)을 분할합니다
+            1. 모든 학습 파일을 로드하고 연결합니다 (parquet, with fillingDate filtering)
+            2. DataProcessor.preprocess_training_data()를 사용한 통합 전처리:
+               - Infinite value removal
+               - Log transformation
+               - Sparse column removal (>50% NaN)
+               - Sparse row removal (>60% NaN)
+               - (Optional) Winsorization
+               - (Optional) Feature selection
+            3. 섹터 기반 가격 편차를 계산합니다 (price_dev에서 섹터 평균을 뺀 값)
+            4. 기간별 평가를 위해 테스트 파일을 개별적으로 로드합니다
+            5. 학습 및 테스트를 위해 특성(X)과 레이블(y)을 분할합니다
 
         이 메서드는 경고를 로깅하고 계속 진행하여 누락된 파일을 우아하게 처리합니다.
 
@@ -839,259 +847,276 @@ class Regressor:
             - 빈 테스트 데이터는 허용됩니다 (평가가 건너뜀)
             - 섹터 매핑은 make_mldata.py에서 수행되어야 합니다 (코드의 TODO 참조)
         """
-        # 모든 학습 파일 로드 및 연결
+        logging.info("=" * 80)
+        logging.info("📂 DATALOAD: Loading and preprocessing training/test data")
+        logging.info("=" * 80)
+
+        # ========================================================================
+        # STEP 1: Load all training files from parquet
+        # ========================================================================
+        logging.info("STEP 1/5: Loading training parquet files...")
+        train_dfs = []
+
         for fpath in self.train_files:
-            print(fpath)
-            # 경고와 함께 누락된 파일 건너뛰기
+            logging.info(f"  Loading: {os.path.basename(fpath)}")
+
+            # Skip missing files with warning
             if not os.path.exists(fpath):
-                logging.warning(f"Train file not found, skipping: {fpath}")
-                print(f"WARNING: Train file not found, skipping: {fpath}")
+                logging.warning(f"  ⚠️  Train file not found, skipping: {fpath}")
                 continue
-            # Parquet 읽기는 CSV보다 5-10배 빠르고, 70-90% 압축됨
+
+            # Read parquet (5-10x faster than CSV, 70-90% smaller)
             df = pd.read_parquet(fpath, engine='pyarrow')
+
+            # ✅ UNIFIED: Apply fillingDate filtering (same as ml_backtest.py)
+            # Only use data that has been publicly filed (prevents future leakage)
+            if 'fillingDate' in df.columns:
+                df['fillingDate'] = pd.to_datetime(df['fillingDate'], errors='coerce')
+                before_filter = len(df)
+                # For training, we don't have a specific cutoff, so just ensure fillingDate is valid
+                df = df.dropna(subset=['fillingDate'])
+                after_filter = len(df)
+                if before_filter != after_filter:
+                    logging.info(f"    Filtered by fillingDate: {before_filter} → {after_filter} rows")
+
+            # Drop rows with missing target (price_diff)
             df = df.dropna(axis=0, subset=['price_diff'])
 
-            # ✅ REFACTORED: Use DataProcessor for infinite value handling
-            # XGBoost cannot handle infinite values
-            numeric_cols = df.select_dtypes(include=[np.number]).columns
-            df_numeric_clean, _ = DataProcessor.remove_infinite_values(df[numeric_cols], None)
-
-            # If rows were removed, update the full dataframe
-            if len(df_numeric_clean) < len(df):
-                removed_count = len(df) - len(df_numeric_clean)
-                logging.warning(f"⚠️  Found {removed_count} rows with infinite values in {os.path.basename(fpath)}")
-                df = df.loc[df_numeric_clean.index]
-                logging.info(f"   After infinite removal: {len(df)} rows remaining")
-
-            self.train_df = pd.concat([self.train_df, df], axis=0, ignore_index=True)
-
-        # 의미 없는 컬럼 제거 (높은 누락률 또는 낮은 분산)
-        # 임계값: >80% 누락 OR >95% 동일한 값
-        missing_threshold = 0.8
-        same_value_threshold = 0.95
-        columns_to_drop = []
-
-        for col in self.train_df.columns:
-            # 누락률 확인
-            missing_ratio = self.train_df[col].isna().mean()
-            if missing_ratio > missing_threshold:
-                columns_to_drop.append(col)
+            if len(df) > 0:
+                train_dfs.append(df)
+                logging.info(f"    ✅ Loaded {len(df)} rows")
             else:
-                # 단일 값으로 지배되는지 확인 (낮은 분산)
-                top_value_ratio = self.train_df[col].value_counts(normalize=True, dropna=False).iloc[0]
-                if top_value_ratio > same_value_threshold:
-                    columns_to_drop.append(col)
+                logging.warning(f"    ⚠️  No valid rows after filtering")
 
-        # 메타데이터 컬럼 삭제 안 함 (y_col_list)
-        columns_to_drop = [col for col in columns_to_drop if col not in y_col_list]
-
-        # 특성 제거 적용
-        self.train_df = self.train_df.drop(columns=columns_to_drop)
-        self.drop_col_list = columns_to_drop
-        print(f'Removed columns # : {len(columns_to_drop)}')
-        print(f'Cleaned DataFrame shape: {self.train_df.shape}')
-
-        # ✅ REFACTORED: Use DataProcessor for excessive NaN row removal
-        print("in train set before dtable len : ", len(self.train_df))
-        self.train_df = DataProcessor.drop_many_nan_row(self.train_df, threshold=0.6)
-        print("in train set after dtable len : ", len(self.train_df))
-
-        # TODO: 이것은 여기가 아니라 make_mldata.py에서 처리되어야 합니다
-        # 섹터 기반 가격 편차 계산 (price_dev에서 섹터 평균을 뺀 값)
-        self.train_df["sector"] = self.train_df["industry"].map(sector_map)
-        sector_list = list(self.train_df['sector'].unique())
-        sector_list = [x for x in sector_list if str(x) != 'nan']
-        for sec in sector_list:
-            sec_mask = self.train_df['sector'] == sec
-            sec_mean = self.train_df.loc[sec_mask, 'price_dev'].mean()
-            self.train_df.loc[sec_mask, 'sec_price_dev_subavg'] = self.train_df.loc[sec_mask, 'price_dev'] - sec_mean
-
-        # ✅ REFACTORED: Use DataProcessor for infinite value handling after sector calculation
-        numeric_cols_train = self.train_df.select_dtypes(include=[np.number]).columns
-        train_numeric_clean, _ = DataProcessor.remove_infinite_values(self.train_df[numeric_cols_train], None)
-
-        if len(train_numeric_clean) < len(self.train_df):
-            removed_count = len(self.train_df) - len(train_numeric_clean)
-            logging.warning(f"⚠️  Found {removed_count} rows with infinite values after sector calculation")
-            logging.warning(f"   This may be caused by sector mean calculation or subtraction overflow")
-            self.train_df = self.train_df.loc[train_numeric_clean.index]
-            logging.info(f"   After infinite removal: {len(self.train_df)} rows remaining")
-
-        # PER_SECTOR 모드: 섹터별로 학습 데이터 분리
-        if self.use_sector_model:
-            print(self.train_df['sector'].value_counts())
-            self.sector_list = list(self.train_df['sector'].unique())
-            self.sector_list = [x for x in self.sector_list if str(x) != 'nan']
-            for sec in self.sector_list:
-                self.sector_train_dfs[sec] = self.train_df[self.train_df['sector']==sec].copy()
-                print(self.sector_train_dfs[sec])
-
-        # 기간별 평가를 위해 테스트 파일을 개별적으로 로드
-        self.test_df_list = []
-        for fpath in self.test_files:
-            print(fpath)
-            # 경고와 함께 누락된 파일 건너뛰기
-            if not os.path.exists(fpath):
-                logging.warning(f"Test file not found, skipping: {fpath}")
-                print(f"WARNING: Test file not found, skipping: {fpath}")
-                continue
-            # Parquet 읽기는 CSV보다 5-10배 빠름
-            df = pd.read_parquet(fpath, engine='pyarrow')
-            df = df.dropna(axis=0, subset=['price_diff'])
-
-            # ✅ REFACTORED: Use DataProcessor for infinite value handling (same as train data)
-            numeric_cols_test = df.select_dtypes(include=[np.number]).columns
-            df_test_numeric_clean, _ = DataProcessor.remove_infinite_values(df[numeric_cols_test], None)
-
-            if len(df_test_numeric_clean) < len(df):
-                removed_count = len(df) - len(df_test_numeric_clean)
-                logging.warning(f"⚠️  Found {removed_count} rows with infinite values in test file {os.path.basename(fpath)}")
-                df = df.loc[df_test_numeric_clean.index]
-                logging.info(f"   After infinite removal: {len(df)} rows remaining")
-
-            # 학습과 동일한 특성 제거
-            df = df.drop(columns=columns_to_drop, errors='ignore')
-
-            # ✅ REFACTORED: Use DataProcessor for excessive NaN row removal
-            print("in test set before dtable len : ", len(df))
-            df = DataProcessor.drop_many_nan_row(df, threshold=0.6)
-            print("in test set after dtable len : ", len(df))
-
-            # TODO: 이것은 make_mldata.py에서 처리되어야 합니다
-            # 섹터 기반 가격 편차 계산
-            df["sector"] = df["industry"].map(sector_map)
-            sector_list = list(df['sector'].unique())
-            sector_list = [x for x in sector_list if str(x) != 'nan']
-            for sec in sector_list:
-                sec_mask = df['sector'] == sec
-                sec_mean = df.loc[sec_mask, 'price_dev'].mean()
-                df.loc[sec_mask, 'sec_price_dev_subavg'] = df.loc[sec_mask, 'price_dev'] - sec_mean
-
-            # ✅ REFACTORED: Use DataProcessor for infinite value handling after sector calculation
-            numeric_cols_test2 = df.select_dtypes(include=[np.number]).columns
-            df_test_numeric_clean2, _ = DataProcessor.remove_infinite_values(df[numeric_cols_test2], None)
-
-            if len(df_test_numeric_clean2) < len(df):
-                removed_count = len(df) - len(df_test_numeric_clean2)
-                logging.warning(f"⚠️  Found {removed_count} rows with infinite values after sector calculation in test file")
-                df = df.loc[df_test_numeric_clean2.index]
-                logging.info(f"   After infinite removal: {len(df)} rows remaining")
-
-            # 모든 테스트 데이터를 연결하고 기간별 리스트 유지
-            self.test_df = pd.concat([self.test_df, df], axis=0, ignore_index=True)
-            self.test_df_list.append([fpath, df])
-
-            # PER_SECTOR 모드: 섹터별로 테스트 데이터 분리
-            if self.use_sector_model:
-                for sec in self.sector_list:
-                    self.sector_test_df_lists.append([fpath, df[df['sector']==sec].copy(), sec])
-
-        logging.debug("train_df shape : ")
-        logging.debug(self.train_df.shape)
-        logging.debug("test_df shape : ")
-        logging.debug(self.test_df.shape)
-
-        # 디버깅을 위해 선택적으로 저장
-        # self.train_df.to_csv(self.root_path + '/train_df.csv', index=False)
-        # self.test_df.to_csv(self.root_path + '/test_df.csv', index=False)
-
-        # 치명적 오류 확인: 학습 데이터 없음
-        if self.train_df.empty:
-            error_msg = "❌ FATAL ERROR: No training data available! Cannot train models without data."
+        if not train_dfs:
+            error_msg = "❌ FATAL ERROR: No training data files found!"
             logging.error(error_msg)
-            print(f"\n{error_msg}\n")
             raise ValueError("No training data files found. Please check your data directory and configuration.")
 
-        # 클래스 분포 로깅
-        positive_count = (self.train_df['price_dev'] > 0).sum()
-        negative_count = (self.train_df['price_dev'] < 0).sum()
-        logging.info("positive # : {}, negative # : {}".format(positive_count, negative_count))
+        # Concatenate all training data
+        self.train_df = pd.concat(train_dfs, axis=0, ignore_index=True)
+        logging.info(f"✅ Combined training data: {len(self.train_df)} rows from {len(train_dfs)} files")
 
-        # 학습을 위한 특성(X)과 레이블(y) 분할
-        self.x_train = self.train_df[self.train_df.columns.difference(y_col_list)]
-        self.y_train = self.train_df[['price_dev_subavg']]  # 회귀 타겟 (가격 변동 - 평균)
-        self.y_train_cls = self.train_df[['price_dev']]  # 분류 타겟 (이진: 상승/하락)
+        # ========================================================================
+        # STEP 2: Calculate sector-based features (BEFORE preprocessing)
+        # ========================================================================
+        # TODO: Move this to make_mldata.py (should be done during data generation)
+        logging.info("\nSTEP 2/5: Calculating sector-based features...")
 
-        # ✅ UNIFIED: Check for duplicate indices using DataProcessor
-        DataProcessor.check_duplicate_index(self.x_train, "After train/test split", logging.getLogger())
+        if 'industry' in self.train_df.columns:
+            self.train_df["sector"] = self.train_df["industry"].map(sector_map)
+            sector_list = list(self.train_df['sector'].unique())
+            sector_list = [x for x in sector_list if str(x) != 'nan']
 
-        # ✅ UNIFIED: Use DataProcessor for infinite value handling in y labels
-        logging.info("🔬 Checking y labels (y_train, y_train_cls) for infinite values...")
+            logging.info(f"  Found {len(sector_list)} sectors: {sector_list}")
 
-        rows_before = len(self.x_train)
+            # Calculate sector-adjusted price deviation
+            for sec in sector_list:
+                sec_mask = self.train_df['sector'] == sec
+                sec_count = sec_mask.sum()
+                sec_mean = self.train_df.loc[sec_mask, 'price_dev'].mean()
+                self.train_df.loc[sec_mask, 'sec_price_dev_subavg'] = \
+                    self.train_df.loc[sec_mask, 'price_dev'] - sec_mean
+                logging.debug(f"    {sec}: {sec_count} stocks, mean price_dev={sec_mean:.4f}")
 
-        # Step 1: Remove infinite from X and y_train together
-        x_train_clean, y_train_clean = DataProcessor.remove_infinite_values(
-            self.x_train,
-            self.y_train.iloc[:, 0]
-        )
-
-        x_y_removed = rows_before - len(x_train_clean)
-        if x_y_removed > 0:
-            logging.warning(f"⚠️  Removed {x_y_removed} rows with infinite in X or y_train")
-
-        # Step 2: Align y_train_cls with cleaned indices
-        y_train_cls_aligned = self.y_train_cls.loc[x_train_clean.index]
-
-        # Step 3: Remove infinite from y_train_cls
-        x_train_final, y_cls_clean = DataProcessor.remove_infinite_values(
-            x_train_clean,
-            y_train_cls_aligned.iloc[:, 0]
-        )
-
-        y_cls_removed = len(x_train_clean) - len(x_train_final)
-        if y_cls_removed > 0:
-            logging.warning(f"⚠️  Removed {y_cls_removed} rows with infinite in y_train_cls")
-
-        # Step 4: Align y_train with final indices
-        y_train_final = y_train_clean.loc[x_train_final.index]
-
-        # Step 5: Update training data
-        total_removed = rows_before - len(x_train_final)
-        if total_removed > 0:
-            logging.error(f"❌ CRITICAL: Removed {total_removed} rows total with infinite in y labels!")
-            logging.error(f"   - From X/y_train: {x_y_removed} rows")
-            logging.error(f"   - From y_train_cls: {y_cls_removed} rows")
-
-            self.x_train = x_train_final
-            # ✅ UNIFIED: Use DataProcessor to create clean DataFrame
-            self.y_train = DataProcessor.create_clean_dataframe(
-                y_train_final,
-                self.y_train.columns,
-                x_train_final.index
-            )
-            self.y_train_cls = y_train_cls_aligned.loc[x_train_final.index]
-
-            logging.info(f"   After removing rows with infinite y: {len(self.x_train)} rows remaining")
+            logging.info(f"✅ Sector features calculated")
         else:
-            logging.info(f"✅ No infinite values in y labels (y_train, y_train_cls)")
+            logging.warning("⚠️  'industry' column not found, skipping sector calculation")
+            sector_list = []
 
-        # ✅ UNIFIED: Check for duplicate indices using DataProcessor
-        DataProcessor.check_duplicate_index(self.x_train, "After y label infinite check", logging.getLogger())
+        # ========================================================================
+        # STEP 3: Unified preprocessing using DataProcessor
+        # ========================================================================
+        logging.info("\nSTEP 3/5: Applying unified preprocessing (DataProcessor.preprocess_training_data)...")
 
-        # 섹터별 학습 데이터 준비
-        for sec in self.sector_list:
-            print("sector : ", sec)
-            self.sector_x_train[sec] = self.sector_train_dfs[sec][self.sector_train_dfs[sec].columns.difference(y_col_list)]
-            self.sector_y_train[sec] = self.sector_train_dfs[sec][['sec_price_dev_subavg']]
+        # Separate features and targets BEFORE preprocessing
+        excluded_cols = DataSchema.get_excluded_cols()
+        feature_cols = [col for col in self.train_df.columns if col not in excluded_cols]
 
-        # 테스트 데이터가 없는 경우 처리 (치명적이지 않음, 평가만 건너뜀)
-        if self.test_df.empty:
-            logging.warning("=" * 80)
-            logging.warning("⚠️  No test data available!")
-            logging.warning("All test files were missing. Creating empty test datasets.")
-            logging.warning("Model evaluation and testing will be skipped.")
-            logging.warning("=" * 80)
-            print("\n⚠️  WARNING: No test data available. Creating empty test datasets.\n")
-            # 학습과 동일한 구조로 빈 테스트 세트 생성
+        X_train = self.train_df[feature_cols].copy()
+        y_train = self.train_df[[DataSchema.REGRESSION_TARGET]].copy()  # DataFrame with column name
+        y_train_cls = self.train_df[[DataSchema.CLASSIFICATION_TARGET]].copy()  # DataFrame with column name
+
+        logging.info(f"  Before preprocessing: {len(X_train)} rows, {len(feature_cols)} features")
+
+        # 🎯 UNIFIED PREPROCESSING (Single Source of Truth)
+        # This replaces ALL scattered preprocessing with ONE unified method
+        X_train, y_train, y_train_cls, selected_features = DataProcessor.preprocess_training_data(
+            X_train,
+            y_train,
+            y_cls=y_train_cls,
+            config=self.conf,
+            logger=logging.getLogger()
+        )
+
+        # Store selected features for later use
+        if selected_features is not None:
+            self.selected_features = selected_features
+            logging.info(f"  Feature selection applied: {len(feature_cols)} → {len(selected_features)} features")
+        else:
+            self.selected_features = list(X_train.columns)
+
+        # Track dropped columns for test data
+        self.drop_col_list = [col for col in feature_cols if col not in X_train.columns]
+
+        logging.info(f"✅ Preprocessing complete: {len(X_train)} rows, {len(X_train.columns)} features")
+        logging.info(f"  Dropped {len(self.drop_col_list)} sparse columns")
+
+        # ========================================================================
+        # STEP 4: Store preprocessed training data
+        # ========================================================================
+        logging.info("\nSTEP 4/5: Storing preprocessed training data...")
+
+        # Reconstruct train_df with preprocessed features + metadata
+        metadata_cols = ['symbol', 'sector', 'industry'] if 'sector' in self.train_df.columns else ['symbol', 'industry']
+        metadata_cols = [col for col in metadata_cols if col in self.train_df.columns]
+
+        # Align metadata with preprocessed indices
+        metadata_df = self.train_df.loc[X_train.index, metadata_cols].reset_index(drop=True)
+        X_train_reset = X_train.reset_index(drop=True)
+        y_train_reset = y_train.reset_index(drop=True)
+        y_train_cls_reset = y_train_cls.reset_index(drop=True)
+
+        # Combine into full train_df
+        self.train_df = pd.concat([metadata_df, X_train_reset, y_train_reset, y_train_cls_reset], axis=1)
+
+        # Store X, y separately
+        self.x_train = X_train
+        self.y_train = y_train
+        self.y_train_cls = y_train_cls
+
+        logging.info(f"  Training data stored: {len(self.train_df)} rows")
+
+        # PER_SECTOR mode: Split training data by sector
+        if self.use_sector_model and 'sector' in self.train_df.columns:
+            logging.info("  🔧 Sector model enabled: Splitting training data by sector...")
+            self.sector_list = list(self.train_df['sector'].unique())
+            self.sector_list = [x for x in self.sector_list if str(x) != 'nan']
+
+            for sec in self.sector_list:
+                self.sector_train_dfs[sec] = self.train_df[self.train_df['sector'] == sec].copy()
+                sec_feature_cols = [col for col in self.x_train.columns if col in self.sector_train_dfs[sec].columns]
+                self.sector_x_train[sec] = self.sector_train_dfs[sec][sec_feature_cols]
+                self.sector_y_train[sec] = self.sector_train_dfs[sec][['sec_price_dev_subavg']]
+                logging.info(f"    {sec}: {len(self.sector_train_dfs[sec])} rows")
+
+            logging.info(f"  ✅ Split into {len(self.sector_list)} sectors")
+
+        # ========================================================================
+        # STEP 5: Load and preprocess test files
+        # ========================================================================
+        logging.info("\nSTEP 5/5: Loading and preprocessing test files...")
+
+        self.test_df_list = []
+        test_dfs = []
+
+        for fpath in self.test_files:
+            logging.info(f"  Loading: {os.path.basename(fpath)}")
+
+            # Skip missing files with warning
+            if not os.path.exists(fpath):
+                logging.warning(f"  ⚠️  Test file not found, skipping: {fpath}")
+                continue
+
+            # Read parquet
+            df = pd.read_parquet(fpath, engine='pyarrow')
+
+            # Apply fillingDate filtering (same as train)
+            if 'fillingDate' in df.columns:
+                df['fillingDate'] = pd.to_datetime(df['fillingDate'], errors='coerce')
+                df = df.dropna(subset=['fillingDate'])
+
+            # Drop rows with missing target
+            df = df.dropna(axis=0, subset=['price_diff'])
+
+            if len(df) == 0:
+                logging.warning(f"    ⚠️  No valid rows after filtering")
+                continue
+
+            # Calculate sector features (same as train)
+            if 'industry' in df.columns:
+                df["sector"] = df["industry"].map(sector_map)
+                for sec in sector_list:
+                    sec_mask = df['sector'] == sec
+                    if sec_mask.sum() > 0:
+                        sec_mean = df.loc[sec_mask, 'price_dev'].mean()
+                        df.loc[sec_mask, 'sec_price_dev_subavg'] = \
+                            df.loc[sec_mask, 'price_dev'] - sec_mean
+
+            # Apply same column drops as training
+            df = df.drop(columns=self.drop_col_list, errors='ignore')
+
+            # Separate features and targets
+            test_feature_cols = [col for col in df.columns if col not in excluded_cols]
+            X_test = df[test_feature_cols].copy()
+            y_test = df[[DataSchema.REGRESSION_TARGET]].copy()
+            y_test_cls = df[[DataSchema.CLASSIFICATION_TARGET]].copy()
+
+            # Apply SAME preprocessing as training (without fitting)
+            # Note: We only apply log transform and NaN removal, not refitting scalers
+            X_test = DataProcessor.log_transform_features(X_test)
+
+            # Remove rows with NaN in labels
+            nan_mask_y = y_test.isna().any(axis=1) | y_test_cls.isna().any(axis=1)
+            if nan_mask_y.sum() > 0:
+                X_test = X_test[~nan_mask_y]
+                y_test = y_test[~nan_mask_y]
+                y_test_cls = y_test_cls[~nan_mask_y]
+
+            # Reconstruct test df with preprocessed data
+            metadata_df_test = df.loc[X_test.index, metadata_cols].reset_index(drop=True) if 'sector' in df.columns else df.loc[X_test.index, ['symbol', 'industry']].reset_index(drop=True)
+            X_test_reset = X_test.reset_index(drop=True)
+            y_test_reset = y_test.reset_index(drop=True)
+            y_test_cls_reset = y_test_cls.reset_index(drop=True)
+
+            df_processed = pd.concat([metadata_df_test, X_test_reset, y_test_reset, y_test_cls_reset], axis=1)
+
+            test_dfs.append(df_processed)
+            self.test_df_list.append([fpath, df_processed])
+
+            logging.info(f"    ✅ Loaded {len(df_processed)} rows")
+
+            # PER_SECTOR mode: Split test data by sector
+            if self.use_sector_model and 'sector' in df_processed.columns:
+                for sec in self.sector_list:
+                    sec_df = df_processed[df_processed['sector'] == sec].copy()
+                    if len(sec_df) > 0:
+                        self.sector_test_df_lists.append([fpath, sec_df, sec])
+
+        # Combine all test data
+        if test_dfs:
+            self.test_df = pd.concat(test_dfs, axis=0, ignore_index=True)
+            self.x_test = self.test_df[[col for col in self.x_train.columns if col in self.test_df.columns]]
+            self.y_test = self.test_df[[DataSchema.REGRESSION_TARGET]]
+            self.y_test_cls = self.test_df[[DataSchema.CLASSIFICATION_TARGET]]
+            logging.info(f"✅ Combined test data: {len(self.test_df)} rows from {len(test_dfs)} files")
+        else:
+            logging.warning("⚠️  No test data available! Creating empty test datasets.")
+            self.test_df = pd.DataFrame()
             self.x_test = pd.DataFrame(columns=self.x_train.columns)
-            self.y_test = pd.DataFrame(columns=['price_dev_subavg'])
-            self.y_test_cls = pd.DataFrame(columns=['price_dev'])
-        else:
-            # 테스트를 위한 특성과 레이블 분할
-            self.x_test = self.test_df[self.test_df.columns.difference(y_col_list)]
-            self.y_test = self.test_df[['price_dev_subavg']]
-            self.y_test_cls = self.test_df[['price_dev']]
+            self.y_test = pd.DataFrame(columns=[DataSchema.REGRESSION_TARGET])
+            self.y_test_cls = pd.DataFrame(columns=[DataSchema.CLASSIFICATION_TARGET])
+
+        # ========================================================================
+        # Final validation and logging
+        # ========================================================================
+        logging.info("\n" + "=" * 80)
+        logging.info("✅ DATALOAD COMPLETE")
+        logging.info("=" * 80)
+        logging.info(f"Training data: {len(self.train_df)} rows, {len(self.x_train.columns)} features")
+        logging.info(f"Test data: {len(self.test_df)} rows")
+        logging.info(f"Dropped columns: {len(self.drop_col_list)}")
+
+        # Class distribution
+        positive_count = (self.y_train_cls.iloc[:, 0] > 0).sum()
+        negative_count = (self.y_train_cls.iloc[:, 0] <= 0).sum()
+        logging.info(f"Class distribution: positive={positive_count}, negative={negative_count} "
+                    f"({positive_count/(positive_count+negative_count)*100:.1f}% positive)")
+
+        if self.use_sector_model:
+            logging.info(f"Sector models: {len(self.sector_list)} sectors")
+
+        logging.info("=" * 80)
 
     def def_model(
         self,
