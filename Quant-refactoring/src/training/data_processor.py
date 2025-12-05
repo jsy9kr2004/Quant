@@ -514,6 +514,255 @@ class DataProcessor:
         return X_transformed
 
     @staticmethod
+    def preprocess_training_data(
+        X: pd.DataFrame,
+        y: pd.DataFrame,
+        y_cls: Optional[pd.DataFrame] = None,
+        config: Optional[Dict] = None,
+        logger=None
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, Optional[pd.DataFrame], List[str]]:
+        """
+        🎯 SINGLE SOURCE OF TRUTH for ALL training data preprocessing.
+
+        Used by BOTH regressor.py and ml_backtest.py to ensure IDENTICAL preprocessing.
+
+        This method replaces ALL scattered preprocessing code with ONE unified flow.
+
+        Preprocessing Steps (in order):
+        ================================
+        1. Remove infinite values from X and y
+        2. Replace remaining infinite with NaN (safety)
+        3. Remove rows with infinite in y labels (CRITICAL)
+        4. Log transformation (extreme value compression)
+        5. Remove columns with >50% NaN
+        6. Remove rows with NaN in y labels
+        7. (Optional) Winsorization
+        8. (Optional) Feature selection
+
+        Parameters:
+        -----------
+        X : pd.DataFrame
+            Feature matrix
+        y : pd.DataFrame
+            Regression target (must be DataFrame with column)
+        y_cls : Optional[pd.DataFrame]
+            Classification target (optional, for regressor.py)
+        config : Optional[Dict]
+            Configuration dictionary (for winsorization, feature selection)
+        logger : Optional
+            Logger for progress messages
+
+        Returns:
+        --------
+        X_clean : pd.DataFrame
+            Preprocessed features
+        y_clean : pd.DataFrame
+            Preprocessed regression target
+        y_cls_clean : Optional[pd.DataFrame]
+            Preprocessed classification target (if provided)
+        dropped_cols : List[str]
+            List of dropped column names
+
+        Example:
+        --------
+        >>> X, y, y_cls, dropped = DataProcessor.preprocess_training_data(
+        >>>     X_train, y_train, y_train_cls, config, logger
+        >>> )
+
+        Why This Matters:
+        -----------------
+        Before unification:
+        - regressor.py: 10 preprocessing steps scattered across 200 lines
+        - ml_backtest.py: 7 preprocessing steps scattered across 150 lines
+        - Different orders, different logic, different bugs
+
+        After unification:
+        - ONE method, ONE logic, ONE source of truth
+        - Identical preprocessing guaranteed
+        - Backtest validates training accurately
+        """
+        if logger:
+            logger.info("=" * 80)
+            logger.info("🔧 UNIFIED PREPROCESSING (DataProcessor.preprocess_training_data)")
+            logger.info("=" * 80)
+
+        rows_before = len(X)
+        cols_before = len(X.columns)
+
+        # ===== Step 1: Remove infinite values from X and y =====
+        if logger:
+            logger.info("Step 1/8: Removing infinite values from X and y...")
+
+        X_clean, y_clean = DataProcessor.remove_infinite_values(X, y.iloc[:, 0])
+
+        rows_removed_inf = rows_before - len(X_clean)
+        if rows_removed_inf > 0 and logger:
+            logger.warning(f"   ⚠️  Removed {rows_removed_inf} rows with infinite values in X or y")
+
+        # ===== Step 2: Replace remaining infinite with NaN (safety) =====
+        if logger:
+            logger.info("Step 2/8: Replacing remaining infinite with NaN...")
+
+        X_clean, y_clean = DataProcessor.replace_infinite_with_nan(X_clean, y_clean)
+
+        # ===== Step 3: Remove rows with infinite in y_cls (if provided) =====
+        y_cls_clean = None
+        if y_cls is not None:
+            if logger:
+                logger.info("Step 3/8: Removing infinite values from y_cls...")
+
+            y_cls_aligned = y_cls.loc[X_clean.index]
+            X_clean, y_cls_series = DataProcessor.remove_infinite_values(
+                X_clean, y_cls_aligned.iloc[:, 0]
+            )
+
+            rows_removed_y_cls = len(y_clean) - len(X_clean)
+            if rows_removed_y_cls > 0 and logger:
+                logger.warning(f"   ⚠️  Removed {rows_removed_y_cls} rows with infinite in y_cls")
+
+            # Align y with final index
+            y_clean = y_clean.loc[X_clean.index]
+
+            # Convert y_cls back to DataFrame
+            y_cls_clean = DataProcessor.create_clean_dataframe(
+                y_cls_series, y_cls.columns, X_clean.index
+            )
+
+        # ===== Step 4: Log transformation =====
+        if logger:
+            logger.info("Step 4/8: Applying log transformation...")
+            max_before = np.nanmax(np.abs(X_clean.values))
+            logger.info(f"   Before: max abs value = {max_before:.2e}")
+
+        X_clean = DataProcessor.log_transform_features(X_clean)
+
+        if logger:
+            max_after = np.nanmax(np.abs(X_clean.values))
+            logger.info(f"   After: max abs value = {max_after:.2f}")
+
+        # ===== Step 5: Remove columns with >50% NaN =====
+        if logger:
+            logger.info("Step 5/8: Removing columns with >50% NaN...")
+
+        nan_threshold = 0.5
+        nan_ratio_per_col = X_clean.isna().sum() / len(X_clean)
+        high_nan_cols = nan_ratio_per_col[nan_ratio_per_col > nan_threshold].index.tolist()
+
+        if high_nan_cols:
+            if logger:
+                logger.warning(f"   ⚠️  Removing {len(high_nan_cols)} columns with >{nan_threshold*100}% NaN")
+                for col in high_nan_cols[:5]:
+                    logger.warning(f"      - {col}: {nan_ratio_per_col[col]*100:.1f}% NaN")
+                if len(high_nan_cols) > 5:
+                    logger.warning(f"      ... and {len(high_nan_cols)-5} more columns")
+
+            X_clean = X_clean.drop(columns=high_nan_cols)
+
+        # ===== Step 6: Remove rows with NaN in y labels =====
+        if logger:
+            logger.info("Step 6/8: Removing rows with NaN in y labels...")
+
+        nan_mask_y = y_clean.isna() if isinstance(y_clean, pd.Series) else False
+        if isinstance(y_clean, pd.DataFrame):
+            # Reconstruct y as DataFrame
+            y_df = DataProcessor.create_clean_dataframe(y_clean, y.columns, X_clean.index)
+            nan_mask_y = y_df.isna().any(axis=1)
+
+        nan_mask_y_cls = False
+        if y_cls_clean is not None:
+            nan_mask_y_cls = y_cls_clean.isna().any(axis=1)
+
+        nan_mask_labels = nan_mask_y | nan_mask_y_cls
+
+        if isinstance(nan_mask_labels, pd.Series) and nan_mask_labels.sum() > 0:
+            if logger:
+                logger.warning(f"   ⚠️  Removing {nan_mask_labels.sum()} rows with NaN labels")
+
+            X_clean = X_clean[~nan_mask_labels]
+
+            if isinstance(y_clean, pd.Series):
+                y_clean = y_clean[~nan_mask_labels]
+            else:
+                y_df = y_df[~nan_mask_labels]
+
+            if y_cls_clean is not None:
+                y_cls_clean = y_cls_clean[~nan_mask_labels]
+
+        # Reconstruct y as DataFrame
+        if isinstance(y_clean, pd.Series):
+            y_clean = DataProcessor.create_clean_dataframe(y_clean, y.columns, X_clean.index)
+        else:
+            y_clean = y_df
+
+        # ===== Step 7: Winsorization (optional, config-driven) =====
+        use_winsorization = False
+        if config:
+            features_config = config.get('FEATURES', {})
+            use_winsorization = features_config.get('USE_WINSORIZATION', 'N') == 'Y'
+
+        if use_winsorization:
+            if logger:
+                logger.info("Step 7/8: Applying winsorization (percentiles: 1-99%)...")
+
+            X_clean = DataProcessor.winsorize_features(
+                X_clean,
+                lower_percentile=0.01,
+                upper_percentile=0.99,
+                enabled=True
+            )
+
+            if logger:
+                logger.info("   ✅ Winsorization applied")
+        else:
+            if logger:
+                logger.info("Step 7/8: Skipping winsorization (disabled in config)")
+
+        # ===== Step 8: Feature selection (optional, config-driven) =====
+        selected_features = None
+        use_feature_selection = False
+        target_features = 1000
+
+        if config:
+            features_config = config.get('FEATURES', {})
+            use_feature_selection = features_config.get('USE_FEATURE_SELECTION', 'N') == 'Y'
+            target_features = int(features_config.get('TARGET_FEATURES', 1000))
+
+        if use_feature_selection:
+            if logger:
+                logger.info(f"Step 8/8: Selecting top {target_features} features...")
+
+            y_for_selection = y_clean.iloc[:, 0] if isinstance(y_clean, pd.DataFrame) else y_clean
+
+            X_clean, selected_features = DataProcessor.select_features_by_importance(
+                X_clean,
+                y_for_selection,
+                n_features=target_features,
+                task='regression',
+                enabled=True
+            )
+
+            if logger:
+                logger.info(f"   ✅ Selected {len(selected_features)} features")
+        else:
+            if logger:
+                logger.info("Step 8/8: Skipping feature selection (disabled in config)")
+            selected_features = X_clean.columns.tolist()
+
+        # ===== Final summary =====
+        rows_after = len(X_clean)
+        cols_after = len(X_clean.columns)
+
+        if logger:
+            logger.info("=" * 80)
+            logger.info("✅ PREPROCESSING COMPLETE")
+            logger.info(f"   Rows: {rows_before} → {rows_after} ({rows_after/rows_before*100:.1f}% retained)")
+            logger.info(f"   Cols: {cols_before} → {cols_after} ({cols_after/cols_before*100:.1f}% retained)")
+            logger.info(f"   Remaining NaN: {X_clean.isna().sum().sum()}")
+            logger.info("=" * 80)
+
+        return X_clean, y_clean, y_cls_clean, selected_features
+
+    @staticmethod
     def clip_extreme_values(
         X: pd.DataFrame,
         y: Optional[pd.Series] = None,

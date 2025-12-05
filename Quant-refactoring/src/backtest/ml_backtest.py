@@ -400,62 +400,38 @@ class MLBacktest:
         # ✅ UNIFIED: Use DataFrame for y (same structure as regressor.py)
         y = train_data[[DataSchema.REGRESSION_TARGET]].copy()  # DataFrame with column name preserved
 
-        # ✅ REFACTORED: Use DataProcessor for infinite value handling
-        # This ensures regressor.py and ml_backtest.py use IDENTICAL preprocessing
-        # Extract Series for DataProcessor (requires Series input)
-        X_clean, y_clean = DataProcessor.remove_infinite_values(X, y.iloc[:, 0])
-        X_clean, y_clean = DataProcessor.replace_infinite_with_nan(X_clean, y_clean)
+        # ========================================
+        # 🎯 UNIFIED PREPROCESSING (Single Source of Truth)
+        # ========================================
+        # Replaces ALL scattered preprocessing with ONE unified method
+        # SAME method used in regressor.py - GUARANTEED IDENTICAL preprocessing
+        #
+        # Steps performed (in order):
+        # 1. Remove infinite values from X and y
+        # 2. Replace remaining infinite with NaN
+        # 3. Remove rows with infinite in y labels (CRITICAL)
+        # 4. Log transformation (extreme value compression)
+        # 5. Remove columns with >50% NaN
+        # 6. Remove rows with NaN in y labels
+        # 7. (Optional) Winsorization - NOW CONFIG-DRIVEN (not hardcoded!)
+        # 8. (Optional) Feature selection - NOW CONFIG-DRIVEN (not hardcoded!)
 
-        # ✅ UNIFIED: Use log transformation for extreme value handling
-        # Better than hard clipping: preserves value ordering, adapts to any scale
-        # SAME logic as regressor.py (unified and sector models)
-        X_clean = DataProcessor.log_transform_features(X_clean)
-        self.logger.info(f"   ✅ Log transformation applied to features")
-
-        # ✅ UNIFIED: Convert y back to DataFrame (same as regressor.py)
-        X = X_clean
-        y = DataProcessor.create_clean_dataframe(y_clean, [DataSchema.REGRESSION_TARGET], X_clean.index)
-
-        # ✅ NaN handling: Let XGBoost/LightGBM handle NaN internally
-        # These models can use NaN for splits (missing value handling)
-        # fillna(0) was WRONG: NaN (missing) ≠ 0 (actual zero value)
-        # X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)  # REMOVED
-
-        # ✅ Winsorization: Outlier handling (OPTIONAL - disabled by default)
-        # Try enabled=True if models struggle with extreme values
-        # Disabled for tree-based models (XGBoost/LightGBM are outlier-robust)
-        USE_WINSORIZATION = False  # ← Set to True to enable
-        X = DataProcessor.winsorize_features(
+        X, y, _, selected_features = DataProcessor.preprocess_training_data(
             X,
-            lower_percentile=0.01,  # 1%
-            upper_percentile=0.99,  # 99%
-            enabled=USE_WINSORIZATION
+            y,
+            y_cls=None,  # No classification for unified regressor
+            config=self.config,
+            logger=self.logger
         )
 
-        # ✅ Feature Selection: Reduce dimension using model-based importance
-        # Target: 4,279 → ~1,000 features (improve sample/feature ratio)
-        # Disabled by default - enable to test if dimensionality is an issue
-        USE_FEATURE_SELECTION = False  # ← Set to True to enable
-        TARGET_FEATURES = 1000  # Target number of features
-        if USE_FEATURE_SELECTION:
-            X, selected_features = DataProcessor.select_features_by_importance(
-                X, y,
-                n_features=TARGET_FEATURES,
-                task='regression',
-                enabled=True
-            )
-            # Update feature_cols to selected features for model saving
+        # Update feature_cols if feature selection was applied
+        if selected_features is not None:
             feature_cols = selected_features
             self.selected_features_unified = selected_features
         else:
             self.selected_features_unified = None
 
-        # ✅ NO SCALING for tree-based models (XGBoost/LightGBM)
-        # Tree models are scale-invariant - they only care about split points
-        # Scaling is unnecessary and can introduce numerical issues (inf from IQR=0)
-        # This matches regressor.py behavior (no scaling)
-
-        # ✅ REFACTORED: Use DataProcessor for binary target creation
+        # ✅ Create binary target for classifier after preprocessing
         y_binary = DataProcessor.create_binary_target(y)
 
         # ✨ Load Optuna parameters (if USE_OPTUNA=Y)
@@ -574,18 +550,14 @@ class MLBacktest:
             # ✅ UNIFIED: Use DataFrame for y (same structure as regressor.py)
             y = sector_data[[DataSchema.REGRESSION_TARGET]].copy()  # DataFrame with column name preserved
 
-            # ✅ REFACTORED: Use DataProcessor for preprocessing (unified with regressor.py)
-            # Extract Series for DataProcessor (requires Series input)
-            X_clean, y_clean = DataProcessor.remove_infinite_values(X, y.iloc[:, 0])
-            X_clean, y_clean = DataProcessor.replace_infinite_with_nan(X_clean, y_clean)
-
-            # ✅ UNIFIED: Use log transformation (SAME as regressor.py sector models)
-            X_clean = DataProcessor.log_transform_features(X_clean)
-            self.logger.info(f"      ✅ {sector}: Log transformation applied")
-
-            # ✅ UNIFIED: Convert y back to DataFrame (same as regressor.py)
-            X = X_clean
-            y = DataProcessor.create_clean_dataframe(y_clean, [DataSchema.REGRESSION_TARGET], X_clean.index)
+            # 🎯 UNIFIED PREPROCESSING (SAME method as regressor.py sector models)
+            X, y, _, _ = DataProcessor.preprocess_training_data(
+                X,
+                y,
+                y_cls=None,  # No classification for sector models
+                config=self.config,
+                logger=self.logger
+            )
 
             # ✅ Binary target for classifier
             y_binary = DataProcessor.create_binary_target(y)
@@ -623,17 +595,14 @@ class MLBacktest:
         # ✅ UNIFIED: Use DataFrame for y_all (same structure as regressor.py)
         y_all = train_data[[DataSchema.REGRESSION_TARGET]].copy()  # DataFrame with column name preserved
 
-        # Preprocessing
-        X_all_clean, y_all_clean = DataProcessor.remove_infinite_values(X_all, y_all.iloc[:, 0])
-        X_all_clean, y_all_clean = DataProcessor.replace_infinite_with_nan(X_all_clean, y_all_clean)
-
-        # ✅ UNIFIED: Use log transformation (SAME as regressor.py)
-        X_all_clean = DataProcessor.log_transform_features(X_all_clean)
-        self.logger.info(f"   ✅ Log transformation applied to unified classifier data")
-
-        # ✅ UNIFIED: Convert y_all back to DataFrame (same as regressor.py)
-        X_all = X_all_clean
-        y_all = DataProcessor.create_clean_dataframe(y_all_clean, [DataSchema.REGRESSION_TARGET], X_all_clean.index)
+        # 🎯 UNIFIED PREPROCESSING (SAME method as regressor.py)
+        X_all, y_all, _, _ = DataProcessor.preprocess_training_data(
+            X_all,
+            y_all,
+            y_cls=None,  # No classification for unified classifier
+            config=self.config,
+            logger=self.logger
+        )
 
         y_all_binary = DataProcessor.create_binary_target(y_all)
 

@@ -1547,187 +1547,34 @@ class Regressor:
         if not (use_optuna and OPTUNA_AVAILABLE):
             self.x_train = self.clean_feature_names(self.x_train)
 
-        # ✅ UNIFIED: Final infinite value check using DataProcessor (SAME as ml_backtest.py)
-        logging.info("🔬 FINAL INFINITE VALUE CHECK (before model training)")
+        # ========================================
+        # 🎯 UNIFIED PREPROCESSING (Single Source of Truth)
+        # ========================================
+        # Replaces ALL scattered preprocessing with ONE unified method
+        # Used by BOTH regressor.py and ml_backtest.py for IDENTICAL preprocessing
+        #
+        # Steps performed (in order):
+        # 1. Remove infinite values from X and y
+        # 2. Replace remaining infinite with NaN
+        # 3. Remove rows with infinite in y labels (CRITICAL)
+        # 4. Log transformation (extreme value compression)
+        # 5. Remove columns with >50% NaN
+        # 6. Remove rows with NaN in y labels
+        # 7. (Optional) Winsorization
+        # 8. (Optional) Feature selection
 
-        rows_before = len(self.x_train)
-
-        # Step 1: Remove infinite from X and y_train together (DataProcessor)
-        x_train_clean, y_train_clean = DataProcessor.remove_infinite_values(
-            self.x_train,
-            self.y_train.iloc[:, 0]
-        )
-
-        x_y_removed = rows_before - len(x_train_clean)
-        if x_y_removed > 0:
-            logging.warning(f"⚠️  Removed {x_y_removed} rows with infinite in X or y_train")
-
-        # Step 2: Align y_train_cls with cleaned indices
-        y_train_cls_aligned = self.y_train_cls.loc[x_train_clean.index]
-
-        # Step 3: Remove infinite from y_train_cls (using cleaned X as reference)
-        x_train_final, y_cls_clean = DataProcessor.remove_infinite_values(
-            x_train_clean,
-            y_train_cls_aligned.iloc[:, 0]
-        )
-
-        y_cls_removed = len(x_train_clean) - len(x_train_final)
-        if y_cls_removed > 0:
-            logging.warning(f"⚠️  Removed {y_cls_removed} rows with infinite in y_train_cls")
-
-        # Step 4: Align y_train with final indices
-        y_train_final = y_train_clean.loc[x_train_final.index]
-
-        # Step 5: Update all training data
-        total_removed = rows_before - len(x_train_final)
-        if total_removed > 0:
-            logging.error(f"❌ CRITICAL: Removed {total_removed} rows total with infinite values before model training!")
-            logging.error(f"   - From X/y_train: {x_y_removed} rows")
-            logging.error(f"   - From y_train_cls: {y_cls_removed} rows")
-
-            self.x_train = x_train_final
-            # ✅ UNIFIED: Use DataProcessor to create clean DataFrame
-            self.y_train = DataProcessor.create_clean_dataframe(
-                y_train_final,
-                self.y_train.columns,
-                x_train_final.index
-            )
-            self.y_train_cls = y_train_cls_aligned.loc[x_train_final.index]
-
-            logging.info(f"   After final infinite removal: {len(self.x_train)} rows remaining")
-        else:
-            logging.info(f"✅ No infinite values in x_train and y labels ({len(self.x_train)} rows)")
-
-        # ✅ REFACTORED: Use DataProcessor for binary target creation
-        # Uses -0.02 threshold (2% loss tolerance) for consistency with ml_backtest.py
-        y_train_binary = DataProcessor.create_binary_target(self.y_train_cls)
-
-        # [CRITICAL DEBUG] 실제 데이터 상태 확인
-        logging.info("=" * 80)
-        logging.info("🔬 CRITICAL DEBUG: Checking actual data before XGBoost")
-        logging.info("=" * 80)
-
-        # x_train을 numpy array로 변환
-        x_values = self.x_train.values
-        logging.info(f"x_train shape: {x_values.shape}")
-        logging.info(f"x_train dtype: {x_values.dtype}")
-        logging.info(f"x_train has inf: {np.isinf(x_values).any()}")
-        logging.info(f"x_train has nan: {np.isnan(x_values).any()}")
-
-        # 매우 큰 값 체크 (XGBoost가 "too large"로 거부할 수 있는 값)
-        finite_mask = np.isfinite(x_values)
-        if finite_mask.all():
-            max_val = np.abs(x_values).max()
-            logging.info(f"x_train max abs value: {max_val}")
-        very_large_count = (np.abs(x_values) > 1e10).sum()
-        logging.info(f"x_train values > 1e10: {very_large_count}")
-        extreme_count = (np.abs(x_values) > 1e100).sum()
-        logging.info(f"x_train values > 1e100: {extreme_count}")
-
-        # y_train_binary 상세 체크
-        y_values = y_train_binary.values.ravel()
-        logging.info(f"y_train_binary shape: {y_values.shape}")
-        logging.info(f"y_train_binary unique values: {np.unique(y_values)}")
-
-        # ✅ UNIFIED: Use log transformation for extreme value handling
-        # Better than hard clipping: preserves value ordering, adapts to any scale
-        # Example: Apple $3T → log(3e12) = 28.7 (preserved!), not clipped to 1e10
-        logging.info("🔧 Applying log transformation to handle extreme values...")
-
-        # Check max value before transform
-        x_values_before = self.x_train.values
-        max_before = np.abs(x_values_before).max()
-        logging.info(f"   Before log transform: max abs value = {max_before:.2e}")
-
-        # Apply log transformation
-        self.x_train = DataProcessor.log_transform_features(self.x_train)
-
-        # Check max value after transform
-        x_values_after = self.x_train.values
-        max_after = np.abs(x_values_after).max()
-        logging.info(f"   After log transform: max abs value = {max_after:.2f}")
-        logging.info(f"   ✅ Log transformation applied (extreme values naturally compressed)")
-
-        logging.info("=" * 80)
-
-        # ===== NaN 값 처리 (개선된 전략) =====
-        logging.info("🔬 Checking for NaN values in training data...")
-
-        original_rows = len(self.x_train)
-        original_cols = len(self.x_train.columns)
-
-        # 1단계: NaN이 많은 컬럼 제거 (threshold: 50%)
-        nan_threshold = 0.5
-        nan_ratio_per_col = self.x_train.isna().sum() / len(self.x_train)
-        high_nan_cols = nan_ratio_per_col[nan_ratio_per_col > nan_threshold].index.tolist()
-
-        if high_nan_cols:
-            logging.warning(f"⚠️  Removing {len(high_nan_cols)} columns with >{nan_threshold*100}% NaN:")
-            for col in high_nan_cols[:5]:  # 상위 5개만 로깅
-                logging.warning(f"   - {col}: {nan_ratio_per_col[col]*100:.1f}% NaN")
-            if len(high_nan_cols) > 5:
-                logging.warning(f"   ... and {len(high_nan_cols)-5} more columns")
-            self.x_train = self.x_train.drop(columns=high_nan_cols)
-            logging.info(f"   Columns: {original_cols} → {len(self.x_train.columns)}")
-
-        # 2단계: y에 NaN이 있는 행만 제거 (레이블이 없으면 학습 불가)
-        nan_mask_y = self.y_train.isna().any(axis=1)
-        nan_mask_y_cls = self.y_train_cls.isna().any(axis=1)
-        nan_mask_labels = nan_mask_y | nan_mask_y_cls
-
-        if nan_mask_labels.sum() > 0:
-            logging.warning(f"⚠️  Removing {nan_mask_labels.sum()} rows with NaN labels")
-            self.x_train = self.x_train[~nan_mask_labels]
-            self.y_train = self.y_train[~nan_mask_labels]
-            self.y_train_cls = self.y_train_cls[~nan_mask_labels]
-
-        # 3단계: 나머지 NaN은 그대로 유지 (XGBoost의 missing=np.nan이 처리)
-        remaining_nan_count = self.x_train.isna().sum().sum()
-        if remaining_nan_count > 0:
-            logging.info(f"   Keeping {remaining_nan_count} NaN values for XGBoost to handle (missing=np.nan)")
-            logging.info(f"   XGBoost will treat NaN as a separate category in tree splits")
-
-        # ✅ REFACTORED: Update y_train_binary using DataProcessor
-        y_train_binary = DataProcessor.create_binary_target(self.y_train_cls)
-
-        logging.info(f"✅ NaN handling complete: {original_rows} → {len(self.x_train)} rows ({len(self.x_train)/original_rows*100:.1f}% retained)")
-        logging.info(f"   Final data: {len(self.x_train)} rows × {len(self.x_train.columns)} features")
-        logging.info(f"   Remaining NaN values: {remaining_nan_count} (will be handled by XGBoost)")
-
-        logging.info("=" * 80)
-
-        # ✅ Winsorization: Outlier handling (OPTIONAL - disabled by default)
-        # Same as ml_backtest.py for consistency
-        # Config setting: USE_WINSORIZATION (from FEATURES config)
-        if self.use_winsorization:
-            self.x_train = DataProcessor.winsorize_features(
+        self.x_train, self.y_train, self.y_train_cls, self.selected_features = \
+            DataProcessor.preprocess_training_data(
                 self.x_train,
-                lower_percentile=0.01,  # 1%
-                upper_percentile=0.99,  # 99%
-                enabled=True
+                self.y_train,
+                self.y_train_cls,
+                self.config,
+                logging.getLogger()
             )
-            logging.info(f"✅ Winsorization applied")
 
-        # ✅ Feature Selection: Reduce dimension using model-based importance
-        # Same as ml_backtest.py for consistency
-        # Config setting: USE_FEATURE_SELECTION (from FEATURES config)
-        if self.use_feature_selection:
-            # Need to align y_train with x_train indices
-            y_for_selection = self.y_train.iloc[:, 0] if isinstance(self.y_train, pd.DataFrame) else self.y_train
-            self.x_train, selected_features = DataProcessor.select_features_by_importance(
-                self.x_train,
-                y_for_selection,
-                n_features=TARGET_FEATURES,
-                task='regression',
-                enabled=True
-            )
-            # Save for test set application
-            self.selected_features = selected_features
-            logging.info(f"✅ Feature selection: {len(self.x_train.columns)} features selected")
-        else:
-            self.selected_features = None
-
-        logging.info("=" * 80)
+        # ✅ Create binary target for classification after preprocessing
+        # (preprocessing may change indices, so recreate after)
+        y_train_binary = DataProcessor.create_binary_target(self.y_train_cls)
 
         # 모든 분류 모델 학습
         for i, model in self.clsmodels.items():
@@ -1763,42 +1610,30 @@ class Regressor:
 
         # 섹터별 모델 학습 (PER_SECTOR=True인 경우)
         if self.use_sector_model:
-            # ✅ CRITICAL FIX: Check sector data for infinite values BEFORE training
             logging.info("="*80)
-            logging.info("🔬 SECTOR DATA INFINITE VALUE CHECK")
+            logging.info("🎯 SECTOR MODELS: Applying unified preprocessing to each sector")
             logging.info("="*80)
 
             for sec in self.sector_list:
-                # ✅ UNIFIED: Use DataProcessor (SAME LOGIC as ml_backtest.py)
-                x_sector_clean, y_sector_clean = DataProcessor.remove_infinite_values(
+                logging.info(f"\n📊 Processing sector: {sec}")
+                logging.info("-" * 60)
+
+                # ✅ UNIFIED: Use SAME preprocessing as unified model (SINGLE SOURCE OF TRUTH)
+                # Sector models have NO y_cls (classification target), so pass None
+                x_sector_clean, y_sector_clean, _, _ = DataProcessor.preprocess_training_data(
                     self.sector_x_train[sec],
-                    self.sector_y_train[sec].iloc[:, 0]
+                    self.sector_y_train[sec],
+                    y_cls=None,  # No classification for sector models
+                    config=self.config,
+                    logger=logging.getLogger()
                 )
 
-                x_sector_removed = len(self.sector_x_train[sec]) - len(x_sector_clean)
-                y_sector_removed = len(self.sector_y_train[sec]) - len(y_sector_clean)
-
-                if x_sector_removed > 0 or y_sector_removed > 0:
-                    logging.warning(f"⚠️  Sector '{sec}': Found infinite values!")
-                    logging.warning(f"   - Infinite in sector_x_train[{sec}]: {x_sector_removed} rows")
-                    logging.warning(f"   - Infinite in sector_y_train[{sec}]: {y_sector_removed} rows")
-                    logging.info(f"   After infinite removal: {len(x_sector_clean)} rows remaining for '{sec}'")
-                else:
-                    logging.info(f"✅ Sector '{sec}': No infinite values ({len(x_sector_clean)} rows)")
-
-                # ✅ UNIFIED: Apply log transformation (SAME as unified model)
-                # Prevents "value too large" errors in XGBoost
-                x_sector_clean = DataProcessor.log_transform_features(x_sector_clean)
-                logging.info(f"   ✅ Sector '{sec}': Log transformation applied")
-
-                # ✅ UNIFIED: Always use cleaned data (even if no infinites removed)
+                # Update sector training data with preprocessed results
                 self.sector_x_train[sec] = x_sector_clean
-                self.sector_y_train[sec] = DataProcessor.create_clean_dataframe(
-                    y_sector_clean,
-                    self.sector_y_train[sec].columns,
-                    x_sector_clean.index
-                )
+                self.sector_y_train[sec] = y_sector_clean
 
+            logging.info("="*80)
+            logging.info("✅ All sector preprocessing complete")
             logging.info("="*80)
             logging.info("")
 
