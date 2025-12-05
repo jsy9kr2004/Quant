@@ -720,6 +720,96 @@ class Regressor:
             'loss_wbinary_3': f'model_{model_idx}_loss_wbinary_3'
         }
 
+    @staticmethod
+    def _apply_binary_filtering(
+        df: pd.DataFrame,
+        y_predict: np.ndarray,
+        classifier_cols: dict,
+        regression_col_names: dict
+    ) -> pd.DataFrame:
+        """분류기 결과를 사용하여 회귀 예측을 필터링합니다.
+
+        분류기가 하락(0)을 예측하면 회귀 출력을 -1로 대체합니다.
+
+        Args:
+            df: 데이터프레임
+            y_predict: 회귀 예측 값
+            classifier_cols: 분류기 컬럼 이름 딕셔너리
+            regression_col_names: 회귀 컬럼 이름 딕셔너리
+
+        Returns:
+            필터링된 예측이 추가된 데이터프레임
+        """
+        for i in range(4):
+            col_name = regression_col_names[f'wbinary_{i}']
+            clf_col = classifier_cols[i]
+            df[col_name] = np.where(df[clf_col] == 0, -1, y_predict)
+        return df
+
+    @staticmethod
+    def _create_ensemble_predictions(
+        df: pd.DataFrame,
+        y_predict: np.ndarray,
+        classifier_cols: dict,
+        regression_col_names: dict
+    ) -> pd.DataFrame:
+        """앙상블 전략을 사용하여 예측을 생성합니다.
+
+        3가지 앙상블 전략:
+        - ensemble: 분류기 1 AND 3 모두 상승
+        - ensemble2: 분류기 1 AND 2 모두 상승
+        - ensemble3: 다수결 (3개 중 2개 이상)
+
+        Args:
+            df: 데이터프레임
+            y_predict: 회귀 예측 값
+            classifier_cols: 분류기 컬럼 이름 딕셔너리
+            regression_col_names: 회귀 컬럼 이름 딕셔너리
+
+        Returns:
+            앙상블 예측이 추가된 데이터프레임
+        """
+        # 앙상블 1: 분류기 1 AND 3
+        df[regression_col_names['wbinary_ensemble']] = np.where(
+            ((df[classifier_cols[1]] == 0) | (df[classifier_cols[3]] == 0)),
+            -1, y_predict)
+
+        # 앙상블 2: 분류기 1 AND 2
+        df[regression_col_names['wbinary_ensemble2']] = np.where(
+            ((df[classifier_cols[1]] == 0) | (df[classifier_cols[2]] == 0)),
+            -1, y_predict)
+
+        # 앙상블 3: 다수결 (2개 이상이 하락 예측)
+        condition = (
+            (df[[classifier_cols[1], classifier_cols[2], classifier_cols[3]]] == 0).sum(axis=1) >= 2
+        )
+        df[regression_col_names['wbinary_ensemble3']] = np.where(condition, -1, y_predict)
+
+        return df
+
+    @staticmethod
+    def _calculate_prediction_losses(
+        df: pd.DataFrame,
+        y_predict: np.ndarray,
+        regression_col_names: dict
+    ) -> pd.DataFrame:
+        """예측 오차(손실)를 계산합니다.
+
+        Args:
+            df: 데이터프레임 (label 컬럼 포함)
+            y_predict: 회귀 예측 값
+            regression_col_names: 회귀 컬럼 이름 딕셔너리
+
+        Returns:
+            손실이 추가된 데이터프레임
+        """
+        df[regression_col_names['loss']] = abs(df['label'] - y_predict)
+        for i in range(4):
+            loss_col = regression_col_names[f'loss_wbinary_{i}']
+            pred_col = regression_col_names[f'wbinary_{i}']
+            df[loss_col] = abs(df['label'] - df[pred_col])
+        return df
+
     def dataload(self) -> None:
         """parquet 파일에서 학습 및 테스트 데이터를 로드하고 특성을 준비합니다.
 
@@ -1992,78 +2082,38 @@ class Regressor:
 
             # === 회귀 단계 ===
             # 2개의 모든 회귀 모델을 실행하고 앙상블 예측 생성
+            # 통합 유틸리티 메서드로 컬럼 이름 가져오기
+            classifier_cols = self._get_classifier_column_names()
+
             for i, model in self.models.items():
-                # 분류기 출력의 컬럼 이름
-                pred_bin_col_name_0 = 'clsmodel_0_prediction'
-                pred_bin_col_name_1 = 'clsmodel_1_prediction'
-                pred_bin_col_name_2 = 'clsmodel_2_prediction'
-                pred_bin_col_name_3 = 'clsmodel_3_prediction'
-
-                # 회귀 출력의 컬럼 이름
-                pred_col_name = 'model_' + str(i) + '_prediction'
-                correct_col_name = 'clsmodel_' + str(i) + '_correct'
-                pred_col_name_wbinary_0 = 'model_' + str(i) + '_prediction_wbinary_0'
-                pred_col_name_wbinary_1 = 'model_' + str(i) + '_prediction_wbinary_1'
-                pred_col_name_wbinary_2 = 'model_' + str(i) + '_prediction_wbinary_2'
-                pred_col_name_wbinary_3 = 'model_' + str(i) + '_prediction_wbinary_3'
-                pred_col_name_wbinary_ensemble = 'model_' + str(i) + '_prediction_wbinary_ensemble'
-                pred_col_name_wbinary_ensemble2 = 'model_' + str(i) + '_prediction_wbinary_ensemble2'
-                pred_col_name_wbinary_ensemble3 = 'model_' + str(i) + '_prediction_wbinary_ensemble3'
-
-                # 예측 오차(손실)의 컬럼 이름
-                loss_col_name = 'model_' + str(i) + '_prediction_loss'
-                loss_bin_col_name_0 = 'model_' + str(i) + '_prediction_wbinary_loss_0'
-                loss_bin_col_name_1 = 'model_' + str(i) + '_prediction_wbinary_loss_1'
-                loss_bin_col_name_2 = 'model_' + str(i) + '_prediction_wbinary_loss_2'
-                loss_bin_col_name_3 = 'model_' + str(i) + '_prediction_wbinary_loss_3'
+                # 통합 유틸리티 메서드로 컬럼 이름 가져오기
+                reg_cols = self._get_regression_column_names(i)
 
                 # 원시 회귀 예측 가져오기
                 # GPU 지원으로 device mismatch 워닝 방지
                 y_predict = predict_with_gpu_support(model, x_test, self.use_gpu_prediction)
 
                 # 원시 회귀 예측 저장
-                df[pred_col_name] = y_predict
+                df[reg_cols['prediction']] = y_predict
 
-                # 분류기와 결합하여 필터링된 예측 생성
-                # 분류기가 하락(0)을 예측하면 회귀 출력을 -1로 대체
-                df[pred_col_name_wbinary_0] = np.where(df[pred_bin_col_name_0] == 0, -1, y_predict)
-                df[pred_col_name_wbinary_1] = np.where(df[pred_bin_col_name_1] == 0, -1, y_predict)
-                df[pred_col_name_wbinary_2] = np.where(df[pred_bin_col_name_2] == 0, -1, y_predict)
-                df[pred_col_name_wbinary_3] = np.where(df[pred_bin_col_name_3] == 0, -1, y_predict)
+                # 통합 메서드로 바이너리 필터링 적용
+                df = self._apply_binary_filtering(df, y_predict, classifier_cols, reg_cols)
 
-                # 앙상블 1: 분류기 1 AND 3 모두 상승을 예측해야 함
-                df[pred_col_name_wbinary_ensemble] = np.where(
-                    ((df[pred_bin_col_name_1] == 0) | (df[pred_bin_col_name_3] == 0)),
-                    -1, y_predict)
-
-                # 앙상블 2: 분류기 1 AND 2 모두 상승을 예측해야 함
-                df[pred_col_name_wbinary_ensemble2] = np.where(
-                    ((df[pred_bin_col_name_1] == 0) | (df[pred_bin_col_name_2] == 0)),
-                    -1, y_predict)
-
-                # 앙상블 3: 다수결 투표 - 3개 중 최소 2개가 상승을 예측해야 함
-                # 2개 이상의 분류기가 하락(0)을 예측하면 회귀 출력을 -1로 대체
-                condition = (
-                    (df[[pred_bin_col_name_1, pred_bin_col_name_2, pred_bin_col_name_3]] == 0).sum(axis=1) >= 2
-                )
-                df[pred_col_name_wbinary_ensemble3] = np.where(condition, -1, y_predict)
+                # 통합 메서드로 앙상블 예측 생성
+                df = self._create_ensemble_predictions(df, y_predict, classifier_cols, reg_cols)
 
                 # 평균화를 위한 원시 예측 저장
                 preds = np.vstack((preds, y_predict[None,:]))
 
-                # 모든 변형에 대한 예측 오차(손실) 계산
-                df[loss_col_name] = abs(df['label'] - y_predict)
-                df[loss_bin_col_name_0] = abs(df['label'] - df[pred_col_name_wbinary_0])
-                df[loss_bin_col_name_1] = abs(df['label'] - df[pred_col_name_wbinary_1])
-                df[loss_bin_col_name_2] = abs(df['label'] - df[pred_col_name_wbinary_2])
-                df[loss_bin_col_name_3] = abs(df['label'] - df[pred_col_name_wbinary_3])
+                # 통합 메서드로 예측 손실 계산
+                df = self._calculate_prediction_losses(df, y_predict, reg_cols)
 
                 # 이 기간의 평가 메트릭 로깅
-                logging.info(f"eval : model i : {i} loss : {df[loss_col_name].mean()} "
-                           f"loss_wbin_0 {df[loss_bin_col_name_0].mean()} "
-                           f"loss_wbin_1 {df[loss_bin_col_name_1].mean()} "
-                           f"loss_wbin_2 {df[loss_bin_col_name_2].mean()} "
-                           f"loss_wbin_3 {df[loss_bin_col_name_3].mean()}")
+                logging.info(f"eval : model i : {i} loss : {df[reg_cols['loss']].mean()} "
+                           f"loss_wbin_0 {df[reg_cols['loss_wbinary_0']].mean()} "
+                           f"loss_wbin_1 {df[reg_cols['loss_wbinary_1']].mean()} "
+                           f"loss_wbin_2 {df[reg_cols['loss_wbinary_2']].mean()} "
+                           f"loss_wbin_3 {df[reg_cols['loss_wbinary_3']].mean()}")
 
                 # 누적 메트릭 로깅 (지금까지의 모든 기간)
                 if test_idx != 0:
@@ -2432,53 +2482,26 @@ class Regressor:
 
         # === 회귀 단계 ===
         # 모든 회귀 모델을 실행하고 앙상블 예측 생성
-        for i, model in self.models.items():
-            pred_bin_col_name_0 = 'clsmodel_0_prediction'
-            pred_bin_col_name_1 = 'clsmodel_1_prediction'
-            pred_bin_col_name_2 = 'clsmodel_2_prediction'
-            pred_bin_col_name_3 = 'clsmodel_3_prediction'
-            pred_col_name = 'model_' + str(i) + '_prediction'
-            correct_col_name = 'clsmodel_' + str(i) + '_correct'
-            pred_col_name_wbinary_0 = 'model_' + str(i) + '_prediction_wbinary_0'
-            pred_col_name_wbinary_1 = 'model_' + str(i) + '_prediction_wbinary_1'
-            pred_col_name_wbinary_2 = 'model_' + str(i) + '_prediction_wbinary_2'
-            pred_col_name_wbinary_3 = 'model_' + str(i) + '_prediction_wbinary_3'
-            pred_col_name_wbinary_ensemble = 'model_' + str(i) + '_prediction_wbinary_ensemble'
-            pred_col_name_wbinary_ensemble2 = 'model_' + str(i) + '_prediction_wbinary_ensemble2'
-            pred_col_name_wbinary_ensemble3 = 'model_' + str(i) + '_prediction_wbinary_ensemble3'
+        # 통합 유틸리티 메서드로 컬럼 이름 가져오기
+        classifier_cols = self._get_classifier_column_names()
 
-            loss_col_name = 'model_' + str(i) + '_prediction_loss'
-            loss_bin_col_name_0 = 'model_' + str(i) + '_prediction_wbinary_loss_0'
-            loss_bin_col_name_1 = 'model_' + str(i) + '_prediction_wbinary_loss_1'
-            loss_bin_col_name_2 = 'model_' + str(i) + '_prediction_wbinary_loss_2'
-            loss_bin_col_name_3 = 'model_' + str(i) + '_prediction_wbinary_loss_3'
+        for i, model in self.models.items():
+            # 통합 유틸리티 메서드로 컬럼 이름 가져오기
+            reg_cols = self._get_regression_column_names(i)
 
             # 원시 회귀 예측 가져오기
             # GPU 지원으로 device mismatch 워닝 방지
             y_predict = predict_with_gpu_support(model, input, self.use_gpu_prediction)
 
             # 원시 예측 저장
-            ldf[pred_col_name] = y_predict
+            ldf[reg_cols['prediction']] = y_predict
 
-            # 분류기 출력을 사용하여 필터링된 예측 생성
-            ldf[pred_col_name_wbinary_0] = np.where(ldf[pred_bin_col_name_0] == 0, -1, y_predict)
-            ldf[pred_col_name_wbinary_1] = np.where(ldf[pred_bin_col_name_1] == 0, -1, y_predict)
-            ldf[pred_col_name_wbinary_2] = np.where(ldf[pred_bin_col_name_2] == 0, -1, y_predict)
-            ldf[pred_col_name_wbinary_3] = np.where(ldf[pred_bin_col_name_3] == 0, -1, y_predict)
+            # 통합 메서드로 바이너리 필터링 적용
+            ldf = self._apply_binary_filtering(ldf, y_predict, classifier_cols, reg_cols)
 
-            # 다양한 투표 전략을 사용한 앙상블 예측
-            ldf[pred_col_name_wbinary_ensemble] = np.where(
-                ((ldf[pred_bin_col_name_1] == 0) | (ldf[pred_bin_col_name_3] == 0)),
-                -1, y_predict)
-            ldf[pred_col_name_wbinary_ensemble2] = np.where(
-                ((ldf[pred_bin_col_name_1] == 0) | (ldf[pred_bin_col_name_2] == 0)),
-                -1, y_predict)
+            # 통합 메서드로 앙상블 예측 생성
+            ldf = self._create_ensemble_predictions(ldf, y_predict, classifier_cols, reg_cols)
 
-            # 다수결 투표: 3개 중 최소 2개가 상승을 예측해야 함
-            condition = (
-                (ldf[[pred_bin_col_name_1, pred_bin_col_name_2, pred_bin_col_name_3]] == 0).sum(axis=1) >= 2
-            )
-            ldf[pred_col_name_wbinary_ensemble3] = np.where(condition, -1, y_predict)
             preds = np.vstack((preds, y_predict[None,:]))
 
         # 평균 예측 계산
