@@ -206,7 +206,7 @@ class ModelFactory:
                 objective='binary:logistic',
                 eval_metric='logloss',
                 random_state=42,
-                missing=None
+                missing=np.nan  # ✅ CRITICAL FIX: Use np.nan, not None
             )
         else:
             clf_config = XGBOOST_CLASSIFIER_CONFIGS['default'].copy()
@@ -285,7 +285,8 @@ class ModelFactory:
                 base_depth = optuna_cfg.get('max_depth', 7)
                 params['max_depth'] = base_depth + variant_idx  # variant 0: depth, variant 1: depth+1
 
-                model = xgboost.XGBRegressor(**params)
+                # ✅ CRITICAL FIX: Add missing=np.nan for NaN handling
+                model = xgboost.XGBRegressor(**params, missing=np.nan)
                 sector_models[(sector, variant_idx)] = model
 
                 param_source = "Optuna" if sector in (sector_optuna_params or {}) else "SECTOR_CONFIG"
