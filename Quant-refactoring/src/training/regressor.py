@@ -588,6 +588,41 @@ class Regressor:
         df = df.rename(columns=new_names)
         return df
 
+    @staticmethod
+    def _extract_date_from_filepath(filepath: str) -> str:
+        """파일 경로에서 날짜 정보를 추출합니다.
+
+        이 메서드는 ML 데이터 파일명에서 연도와 분기 정보를 추출합니다.
+        정규표현식을 우선 사용하고, 실패 시 파싱 방식으로 폴백합니다.
+
+        Args:
+            filepath: 파일 경로 (예: '/path/to/rnorm_ml_2023_Q1.parquet')
+
+        Returns:
+            날짜 문자열 (예: '2023_Q1'), 실패 시 'unknown_period'
+
+        Examples:
+            >>> Regressor._extract_date_from_filepath('/data/rnorm_ml_2023_Q1.parquet')
+            '2023_Q1'
+            >>> Regressor._extract_date_from_filepath('C:\\data\\rnorm_ml_2024_Q2.parquet')
+            '2024_Q2'
+        """
+        filename = os.path.basename(filepath)
+
+        # 정규표현식으로 안전하게 추출 (연도_분기 패턴)
+        match = re.search(r'(\d{4})_(Q\d)', filename)
+        if match:
+            return f"{match.group(1)}_{match.group(2)}"
+
+        # 폴백: 언더스코어로 파싱 (레거시 호환성)
+        filename_without_ext = os.path.splitext(filename)[0]
+        parts = filename_without_ext.split('_')
+        if len(parts) >= 4:
+            return f"{parts[2]}_{parts[3]}"
+
+        logging.warning(f"⚠️  Cannot parse date from filename: {filename}")
+        return "unknown_period"
+
     def dataload(self) -> None:
         """parquet 파일에서 학습 및 테스트 데이터를 로드하고 특성을 준비합니다.
 
@@ -1764,25 +1799,9 @@ class Regressor:
         for test_idx, (testdate, df) in enumerate(self.test_df_list):
 
             logging.info("evaluation date : ")
-            # 파일 경로에서 날짜 추출 (OS 독립적)
-            # 예: /path/to/rnorm_ml_2023_Q1.parquet -> 2023_Q1
-            import os
-            import re
-            filename = os.path.basename(testdate)  # 'rnorm_ml_2023_Q1.parquet'
-
-            # 정규표현식으로 안전하게 추출 (연도_분기 패턴)
-            match = re.search(r'(\d{4})_(Q\d)', filename)
-            if match:
-                tdate = f"{match.group(1)}_{match.group(2)}"  # '2023_Q1'
-            else:
-                # 폴백: 언더스코어로 파싱 (레거시 호환성)
-                filename_without_ext = os.path.splitext(filename)[0]  # 'rnorm_ml_2023_Q1'
-                parts = filename_without_ext.split('_')
-                if len(parts) >= 4:
-                    tdate = f"{parts[2]}_{parts[3]}"  # '2023_Q1'
-                else:
-                    logging.warning(f"Cannot parse date from filename: {filename}")
-                    tdate = "unknown_period"
+            # 파일 경로에서 날짜 추출 (통합 유틸리티 메서드 사용)
+            tdate = self._extract_date_from_filepath(testdate)
+            filename = os.path.basename(testdate)
 
             print(f"in test loop filename : {filename}")
             print(f"in test loop tdate : {tdate}")
@@ -2073,14 +2092,10 @@ class Regressor:
             # 각 섹터 및 테스트 기간 평가
             for test_idx, (testdate, df, sec) in enumerate(self.sector_test_df_lists):
                 print("sec evaluation date : ")
-                # Extract date from filename (e.g., rnorm_ml_2023_Q1.parquet -> 2023_Q1)
-                filename = os.path.basename(testdate)  # Get filename from path
-                filename_without_ext = os.path.splitext(filename)[0]  # Remove extension
-                parts = filename_without_ext.split('_')  # Split by underscore
-                if len(parts) >= 4:
-                    tdate = f"{parts[2]}_{parts[3]}"  # Extract year and quarter (e.g., "2023_Q1")
-                else:
-                    logging.warning(f"⚠️  Unexpected filename format: {testdate}, skipping...")
+                # 파일 경로에서 날짜 추출 (통합 유틸리티 메서드 사용)
+                tdate = self._extract_date_from_filepath(testdate)
+                if tdate == "unknown_period":
+                    logging.warning(f"⚠️  Skipping sector evaluation due to unknown period: {testdate}")
                     continue
                 print(tdate)
                 print(sec)
