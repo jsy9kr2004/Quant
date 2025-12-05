@@ -275,7 +275,7 @@ class ModelFactory:
                 'colsample_bytree': optuna_cfg.get('colsample_bytree', 0.7),
                 'objective': 'reg:squarederror',
                 'eval_metric': 'rmse',
-                'missing': None
+                'missing': np.nan  # ✅ CRITICAL FIX: Set to np.nan for NaN handling
             }
 
             # Create variants with different max_depth
@@ -285,8 +285,8 @@ class ModelFactory:
                 base_depth = optuna_cfg.get('max_depth', 7)
                 params['max_depth'] = base_depth + variant_idx  # variant 0: depth, variant 1: depth+1
 
-                # ✅ CRITICAL FIX: Add missing=np.nan for NaN handling
-                model = xgboost.XGBRegressor(**params, missing=np.nan)
+                # Create model with params (missing is already in params, don't pass again)
+                model = xgboost.XGBRegressor(**params)
                 sector_models[(sector, variant_idx)] = model
 
                 param_source = "Optuna" if sector in (sector_optuna_params or {}) else "SECTOR_CONFIG"
