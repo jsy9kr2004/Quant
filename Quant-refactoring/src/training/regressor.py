@@ -623,6 +623,103 @@ class Regressor:
         logging.warning(f"⚠️  Cannot parse date from filename: {filename}")
         return "unknown_period"
 
+    def _load_classifiers(self, model_save_path: str) -> None:
+        """분류 모델들을 로드합니다.
+
+        Args:
+            model_save_path: 모델 저장 경로
+        """
+        for i in range(4):
+            filename = f"{model_save_path}clsmodel_{i}.sav"
+            self.clsmodels[i] = joblib.load(filename)
+        logging.info("✅ Loaded 4 classification models")
+
+    def _load_regressors(self, model_save_path: str) -> None:
+        """회귀 모델들을 로드합니다.
+
+        Args:
+            model_save_path: 모델 저장 경로
+        """
+        for i in range(2):
+            filename = f"{model_save_path}model_{i}.sav"
+            self.models[i] = joblib.load(filename)
+        logging.info("✅ Loaded 2 regression models")
+
+    def _load_sector_models(self, model_save_path: str, sector_list: List[str]) -> None:
+        """섹터별 모델들을 로드합니다.
+
+        Args:
+            model_save_path: 모델 저장 경로
+            sector_list: 섹터 이름 리스트
+        """
+        for sec in sector_list:
+            for i in range(2):
+                k = (sec, i)
+                filename = f"{model_save_path}{sec}_model_{i}.sav"
+                self.sector_models[k] = joblib.load(filename)
+        logging.info(f"✅ Loaded sector models for {len(sector_list)} sectors")
+
+    @staticmethod
+    def _build_prediction_column_names() -> List[str]:
+        """모든 예측 컬럼 이름 리스트를 생성합니다.
+
+        Returns:
+            예측 컬럼 이름 리스트
+        """
+        pred_col_list = ['ai_pred_avg']
+        for i in range(2):
+            pred_col_list.extend([
+                f'model_{i}_prediction',
+                f'model_{i}_prediction_wbinary_0',
+                f'model_{i}_prediction_wbinary_1',
+                f'model_{i}_prediction_wbinary_2',
+                f'model_{i}_prediction_wbinary_3',
+                f'model_{i}_prediction_wbinary_ensemble',
+                f'model_{i}_prediction_wbinary_ensemble2',
+                f'model_{i}_prediction_wbinary_ensemble3'
+            ])
+        return pred_col_list
+
+    @staticmethod
+    def _get_classifier_column_names() -> dict:
+        """분류기 예측 컬럼 이름들을 반환합니다.
+
+        Returns:
+            분류기 컬럼 이름 딕셔너리
+        """
+        return {
+            0: 'clsmodel_0_prediction',
+            1: 'clsmodel_1_prediction',
+            2: 'clsmodel_2_prediction',
+            3: 'clsmodel_3_prediction'
+        }
+
+    @staticmethod
+    def _get_regression_column_names(model_idx: int) -> dict:
+        """회귀 모델의 예측 컬럼 이름들을 반환합니다.
+
+        Args:
+            model_idx: 모델 인덱스
+
+        Returns:
+            회귀 컬럼 이름 딕셔너리
+        """
+        return {
+            'prediction': f'model_{model_idx}_prediction',
+            'wbinary_0': f'model_{model_idx}_prediction_wbinary_0',
+            'wbinary_1': f'model_{model_idx}_prediction_wbinary_1',
+            'wbinary_2': f'model_{model_idx}_prediction_wbinary_2',
+            'wbinary_3': f'model_{model_idx}_prediction_wbinary_3',
+            'wbinary_ensemble': f'model_{model_idx}_prediction_wbinary_ensemble',
+            'wbinary_ensemble2': f'model_{model_idx}_prediction_wbinary_ensemble2',
+            'wbinary_ensemble3': f'model_{model_idx}_prediction_wbinary_ensemble3',
+            'loss': f'model_{model_idx}_loss',
+            'loss_wbinary_0': f'model_{model_idx}_loss_wbinary_0',
+            'loss_wbinary_1': f'model_{model_idx}_loss_wbinary_1',
+            'loss_wbinary_2': f'model_{model_idx}_loss_wbinary_2',
+            'loss_wbinary_3': f'model_{model_idx}_loss_wbinary_3'
+        }
+
     def dataload(self) -> None:
         """parquet 파일에서 학습 및 테스트 데이터를 로드하고 특성을 준비합니다.
 
@@ -1761,36 +1858,13 @@ class Regressor:
         # 학습된 분류 모델 로드
         self.models = dict()
         self.clsmodels = dict()
-        self.clsmodels[0] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_0.sav')
-        self.clsmodels[1] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_1.sav')
-        self.clsmodels[2] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_2.sav')
-        self.clsmodels[3] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_3.sav')
 
-        # 학습된 회귀 모델 로드
-        self.models[0] = joblib.load(MODEL_SAVE_PATH + 'model_0.sav')
-        self.models[1] = joblib.load(MODEL_SAVE_PATH + 'model_1.sav')
+        # 통합 모델 로딩 메서드 사용
+        self._load_classifiers(MODEL_SAVE_PATH)
+        self._load_regressors(MODEL_SAVE_PATH)
 
-        # 모든 예측 컬럼 이름 리스트 (상위 K개 평가용)
-        pred_col_list = ['ai_pred_avg']  # 모든 회귀 모델의 평균
-
-        # 모든 모델 조합에 대한 예측 컬럼 이름 생성
-        for i in range(2):
-            pred_col_name = 'model_' + str(i) + '_prediction'
-            pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_0'
-            pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_1'
-            pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_2'
-            pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_3'
-            pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_ensemble'
-            pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_ensemble2'
-            pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_ensemble3'
-            pred_col_list.append(pred_col_name)
+        # 통합 메서드로 예측 컬럼 이름 생성
+        pred_col_list = self._build_prediction_column_names()
 
         model_eval_hist = []  # 모든 기간의 평가 결과 저장
         full_df = pd.DataFrame()  # 예측이 포함된 모든 테스트 데이터 누적
@@ -2080,12 +2154,8 @@ class Regressor:
             allsector_topk_df = pd.DataFrame()
             self.sector_models = dict()
 
-            # 섹터별 모델 로드
-            for sec in self.sector_list:
-                for i in range(2):
-                    filename = MODEL_SAVE_PATH + '{}_model_{}.sav'.format(sec, str(i))
-                    k = (sec, i)
-                    self.sector_models[k] = joblib.load(MODEL_SAVE_PATH + '{}_model_{}.sav'.format(sec, str(i)))
+            # 통합 섹터 모델 로딩 메서드 사용
+            self._load_sector_models(MODEL_SAVE_PATH, self.sector_list)
 
             sector_model_eval_hist = []
 
@@ -2213,37 +2283,16 @@ class Regressor:
         """
         MODEL_SAVE_PATH = self.root_path + '/MODELS/'
 
-        # 학습된 모델 로드
+        # 통합 모델 로딩 메서드 사용
         self.clsmodels = dict()
-        self.clsmodels[0] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_0.sav')
-        self.clsmodels[1] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_1.sav')
-        self.clsmodels[2] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_2.sav')
-        self.clsmodels[3] = joblib.load(MODEL_SAVE_PATH + 'clsmodel_3.sav')
         self.models = dict()
-        self.models[0] = joblib.load(MODEL_SAVE_PATH + 'model_0.sav')
-        self.models[1] = joblib.load(MODEL_SAVE_PATH + 'model_1.sav')
+        self._load_classifiers(MODEL_SAVE_PATH)
+        self._load_regressors(MODEL_SAVE_PATH)
 
         aidata_dir = self.root_path + '/processed/ml_data/per_year/'
 
-        # 예측 컬럼 리스트 생성 (evaluation과 동일)
-        pred_col_list = ['ai_pred_avg']
-        for i in range(2):
-            pred_col_name = 'model_' + str(i) + '_prediction'
-            pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_0'
-            pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_1'
-            pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_2'
-            pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_3'
-            pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_ensemble'
-            pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_ensemble2'
-            pred_col_list.append(pred_col_name)
-            pred_col_name = 'model_' + str(i) + '_prediction_wbinary_ensemble3'
-            pred_col_list.append(pred_col_name)
+        # 통합 메서드로 예측 컬럼 이름 생성
+        pred_col_list = self._build_prediction_column_names()
 
         # 최신 연도 데이터(모든 분기)를 로드하고 심볼당 가장 최근 것 유지
         # 자동으로 가장 최근 연도 감지 및 Parquet 형식 로드
@@ -2450,12 +2499,8 @@ class Regressor:
             ldf = pd.read_csv(latest_data_path)
 
             # 섹터별 모델 로드
-            for sec in self.sector_list:
-                for i in range(2):
-                    filename = MODEL_SAVE_PATH + '{}_model_{}.sav'.format(sec, str(i))
-                    k = (sec, i)
-                    print("model path : ", MODEL_SAVE_PATH + '{}_model_{}.sav'.format(sec, str(i)))
-                    self.sector_models[k] = joblib.load(MODEL_SAVE_PATH + '{}_model_{}.sav'.format(sec, str(i)))
+            # 통합 섹터 모델 로딩 메서드 사용
+            self._load_sector_models(MODEL_SAVE_PATH, self.sector_list)
 
             all_preds = []
 
