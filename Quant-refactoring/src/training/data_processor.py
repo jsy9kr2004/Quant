@@ -491,14 +491,24 @@ class DataProcessor:
         if inverse:
             # Inverse: sign(x) * (exp(|x|) - 1)
             # Recovers original scale from log-transformed values
+            # ✅ CRITICAL FIX: Skip NaN values (preserve them as-is)
             X_transformed = X.apply(
-                lambda col: np.sign(col) * (np.exp(np.abs(col)) - 1)
+                lambda col: np.where(
+                    pd.isna(col),
+                    np.nan,  # NaN stays NaN
+                    np.sign(col) * (np.exp(np.abs(col)) - 1)
+                )
             )
         else:
             # Forward: sign(x) * log(1 + |x|)
             # Compresses extreme values while preserving order
+            # ✅ CRITICAL FIX: Skip NaN values (preserve them as-is)
             X_transformed = X.apply(
-                lambda col: np.sign(col) * np.log1p(np.abs(col))
+                lambda col: np.where(
+                    pd.isna(col),
+                    np.nan,  # NaN stays NaN (XGBoost will handle it)
+                    np.sign(col) * np.log1p(np.abs(col))
+                )
             )
 
         return X_transformed
