@@ -2073,9 +2073,15 @@ class Regressor:
             # 각 섹터 및 테스트 기간 평가
             for test_idx, (testdate, df, sec) in enumerate(self.sector_test_df_lists):
                 print("sec evaluation date : ")
-                tmp = testdate.split('\\')
-                tmp = [v for v in tmp if v.endswith('.csv')]
-                tdate = "_".join(tmp[0].split('_')[0:2])
+                # Extract date from filename (e.g., rnorm_ml_2023_Q1.parquet -> 2023_Q1)
+                filename = os.path.basename(testdate)  # Get filename from path
+                filename_without_ext = os.path.splitext(filename)[0]  # Remove extension
+                parts = filename_without_ext.split('_')  # Split by underscore
+                if len(parts) >= 4:
+                    tdate = f"{parts[2]}_{parts[3]}"  # Extract year and quarter (e.g., "2023_Q1")
+                else:
+                    logging.warning(f"⚠️  Unexpected filename format: {testdate}, skipping...")
+                    continue
                 print(tdate)
                 print(sec)
                 testdates.add(tdate)
