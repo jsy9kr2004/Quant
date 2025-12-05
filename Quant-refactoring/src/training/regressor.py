@@ -674,15 +674,12 @@ class Regressor:
         self.train_df = DataProcessor.drop_many_nan_row(self.train_df, threshold=0.6)
         print("in train set after dtable len : ", len(self.train_df))
 
-        # TODO: 이것은 여기가 아니라 make_mldata.py에서 처리되어야 합니다
-        # 섹터 기반 가격 편차 계산 (price_dev에서 섹터 평균을 뺀 값)
-        self.train_df["sector"] = self.train_df["industry"].map(sector_map)
-        sector_list = list(self.train_df['sector'].unique())
-        sector_list = [x for x in sector_list if str(x) != 'nan']
-        for sec in sector_list:
-            sec_mask = self.train_df['sector'] == sec
-            sec_mean = self.train_df.loc[sec_mask, 'price_dev'].mean()
-            self.train_df.loc[sec_mask, 'sec_price_dev_subavg'] = self.train_df.loc[sec_mask, 'price_dev'] - sec_mean
+        # ✅ REFACTORED: Sector calculation is now done in make_mldata.py
+        # We just need to ensure 'sector' and 'sec_price_dev_subavg' columns exist
+        if 'sector' not in self.train_df.columns:
+            # Fallback for legacy data files
+            logging.info("ℹ️ 'sector' column missing, mapping from industry...")
+            self.train_df["sector"] = self.train_df["industry"].map(sector_map)
 
         # ✅ REFACTORED: Use DataProcessor for infinite value handling after sector calculation
         numeric_cols_train = self.train_df.select_dtypes(include=[np.number]).columns
@@ -735,15 +732,10 @@ class Regressor:
             df = DataProcessor.drop_many_nan_row(df, threshold=0.6)
             print("in test set after dtable len : ", len(df))
 
-            # TODO: 이것은 make_mldata.py에서 처리되어야 합니다
-            # 섹터 기반 가격 편차 계산
-            df["sector"] = df["industry"].map(sector_map)
-            sector_list = list(df['sector'].unique())
-            sector_list = [x for x in sector_list if str(x) != 'nan']
-            for sec in sector_list:
-                sec_mask = df['sector'] == sec
-                sec_mean = df.loc[sec_mask, 'price_dev'].mean()
-                df.loc[sec_mask, 'sec_price_dev_subavg'] = df.loc[sec_mask, 'price_dev'] - sec_mean
+            # ✅ REFACTORED: Sector calculation is now done in make_mldata.py
+            if 'sector' not in df.columns:
+                logging.info("ℹ️ 'sector' column missing in test data, mapping from industry...")
+                df["sector"] = df["industry"].map(sector_map)
 
             # ✅ REFACTORED: Use DataProcessor for infinite value handling after sector calculation
             numeric_cols_test2 = df.select_dtypes(include=[np.number]).columns
@@ -1151,42 +1143,6 @@ class Regressor:
             - 하이퍼파라미터 튜닝을 위한 Grid search / random search 코드는 주석 처리됨
             - 모델은 속도를 위해 GPU에서 학습됩니다 (CUDA 지원 GPU 필요)
         """
-        # 주석 처리됨: LightGBM 하이퍼파라미터 튜닝을 위한 Grid search
-        # param_grid = {
-        #     'n_estimators': [1000],
-        #     'max_depth': [6, 8, 10, 12],
-        #     'learning_rate': [0.01, 0.05, 0.1],
-        #     'num_leaves': [31, 50, 70],
-        #     'min_child_samples': [20, 30, 40]
-        # }
-        # lgbm = lgb.LGBMClassifier(boosting_type='gbdt', objective='binary',
-        #                           device='gpu', boost_from_average=False)
-        # grid_search = GridSearchCV(estimator=lgbm, param_grid=param_grid,
-        #                            cv=5, scoring='accuracy', n_jobs=-1)
-        # self.x_train = self.clean_feature_names(self.x_train)
-        # y_train_binary = (self.y_train_cls > 0).astype(int)
-        # grid_search.fit(self.x_train, y_train_binary)
-        # print("Best parameters found: ", grid_search.best_params_)
-        # print("Best accuracy: ", grid_search.best_score_)
-        # exit()
-
-        # 주석 처리됨: XGBoost 하이퍼파라미터 튜닝을 위한 Random search
-        # params = {
-        #     'learning_rate': np.arange(0.05, 0.3, 0.05),
-        #     'max_depth': range(3, 10),
-        #     'n_estimators': range(50, 500, 50),
-        #     'colsample_bytree': np.arange(0.3, 1.0, 0.1),
-        #     'subsample': np.arange(0.5, 1.0, 0.1),
-        #     'gamma': [0, 1, 5]
-        # }
-        # xgb = xgboost.XGBRegressor()
-        # cv = KFold(n_splits=5, shuffle=True)
-        # search = RandomizedSearchCV(xgb, params, n_iter=100, cv=cv,
-        #                             scoring='neg_mean_squared_error', random_state=42)
-        # search.fit(self.x_train, self.y_train.values.ravel())
-        # print(search.best_params_)
-        # exit()
-
         # 모델 저장 경로 설정
         MODEL_SAVE_PATH = self.root_path + '/MODELS/'
 
