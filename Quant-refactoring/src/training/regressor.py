@@ -1568,7 +1568,7 @@ class Regressor:
                 self.x_train,
                 self.y_train,
                 self.y_train_cls,
-                self.config,
+                self.conf,
                 logging.getLogger()
             )
 
@@ -1624,7 +1624,7 @@ class Regressor:
                     self.sector_x_train[sec],
                     self.sector_y_train[sec],
                     y_cls=None,  # No classification for sector models
-                    config=self.config,
+                    config=self.conf,
                     logger=logging.getLogger()
                 )
 
