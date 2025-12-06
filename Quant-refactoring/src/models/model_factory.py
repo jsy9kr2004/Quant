@@ -250,14 +250,20 @@ class ModelFactory:
     def create_sector_models(
         self,
         sector_list: List[str],
-        num_variants: int = 2,
+        num_regressor_variants: int = 2,
         sector_optuna_params: Optional[Dict[str, Dict[str, Any]]] = None
-    ) -> Dict[Tuple[str, int], Any]:
+    ) -> Tuple[Dict[Tuple[str, int], Any], Dict[Tuple[str, int], Any]]:
         """
         Create sector-specific models.
 
-        Creates separate regression models for each sector with slightly different
+        Creates separate models for each sector with slightly different
         hyperparameters to capture sector-specific patterns.
+
+        When USE_CLASSIFIER=Y:
+        - Per sector: 4 classifiers (XGB depth 8/9/10 + LGBM) + 2 regressors
+
+        When USE_CLASSIFIER=N:
+        - Per sector: 0 classifiers + 2 regressors
 
         **Parameter Priority**: Optuna > SECTOR_CONFIG > Default
 
@@ -265,19 +271,23 @@ class ModelFactory:
         ----------
         sector_list : List[str]
             List of sector names (e.g., ['Technology', 'Financial', ...])
-        num_variants : int
-            Number of model variants per sector (default: 2)
+        num_regressor_variants : int
+            Number of regressor variants per sector (default: 2)
         sector_optuna_params : Optional[Dict[str, Dict[str, Any]]]
             Optuna-optimized parameters per sector
             Format: {'Technology': {...}, 'Financial': {...}, ...}
 
         Returns:
         -------
-        sector_models : Dict[Tuple[str, int], Any]
-            Dictionary mapping (sector, variant_idx) to model
+        sector_classifiers : Dict[Tuple[str, int], Any]
+            Dictionary mapping (sector, variant_idx) to classifier
+            Empty dict if USE_CLASSIFIER=N
+        sector_regressors : Dict[Tuple[str, int], Any]
+            Dictionary mapping (sector, variant_idx) to regressor
             Example: {('Technology', 0): model, ('Technology', 1): model, ...}
         """
-        sector_models = {}
+        sector_classifiers = {}
+        sector_regressors = {}
 
         for sector in sector_list:
             # Get sector-specific config if available
@@ -286,6 +296,56 @@ class ModelFactory:
             # Get Optuna-optimized params if available
             optuna_cfg = sector_optuna_params.get(sector, {}) if sector_optuna_params else {}
 
+            # ===== Classifiers (only if USE_CLASSIFIER=Y) =====
+            if self.use_classifier:
+                # Classifier 0: XGBoost depth=8 (with Optuna params if available)
+                if optuna_cfg:
+                    clf_0 = xgboost.XGBClassifier(
+                        tree_method='hist',
+                        device='cpu',
+                        n_estimators=optuna_cfg.get('n_estimators', 500),
+                        learning_rate=optuna_cfg.get('learning_rate', 0.1),
+                        gamma=optuna_cfg.get('gamma', 0),
+                        subsample=optuna_cfg.get('subsample', 0.8),
+                        colsample_bytree=optuna_cfg.get('colsample_bytree', 0.8),
+                        max_depth=optuna_cfg.get('max_depth', 8),
+                        objective='binary:logistic',
+                        eval_metric='logloss',
+                        missing=np.nan
+                    )
+                else:
+                    clf_config = XGBOOST_CLASSIFIER_CONFIGS['default'].copy()
+                    clf_config['device'] = 'cpu'
+                    clf_0 = xgboost.XGBClassifier(**clf_config, missing=np.nan)
+                sector_classifiers[(sector, 0)] = clf_0
+
+                # Classifier 1: XGBoost depth=9
+                clf_config_9 = XGBOOST_CLASSIFIER_CONFIGS['depth_9'].copy()
+                clf_config_9['device'] = 'cpu'
+                clf_1 = xgboost.XGBClassifier(**clf_config_9, missing=np.nan)
+                sector_classifiers[(sector, 1)] = clf_1
+
+                # Classifier 2: XGBoost depth=10
+                clf_config_10 = XGBOOST_CLASSIFIER_CONFIGS['depth_10'].copy()
+                clf_config_10['device'] = 'cpu'
+                clf_2 = xgboost.XGBClassifier(**clf_config_10, missing=np.nan)
+                sector_classifiers[(sector, 2)] = clf_2
+
+                # Classifier 3: LightGBM
+                lgb_clf_config = LIGHTGBM_CLASSIFIER_CONFIGS['default'].copy()
+                lgb_clf_config['device'] = 'cpu'
+                clf_3 = lgb.LGBMClassifier(
+                    boosting_type=lgb_clf_config.get('boosting_type', 'gbdt'),
+                    objective=lgb_clf_config.get('objective', 'binary'),
+                    n_estimators=lgb_clf_config.get('n_estimators', 1000),
+                    max_depth=lgb_clf_config.get('max_depth', 8),
+                    learning_rate=lgb_clf_config.get('learning_rate', 0.1),
+                    device='cpu',
+                    boost_from_average=False
+                )
+                sector_classifiers[(sector, 3)] = clf_3
+
+            # ===== Regressors =====
             # Default parameters (matching regressor.py sector models)
             # Priority: Optuna > SECTOR_CONFIG > Default
             default_params = {
@@ -301,8 +361,8 @@ class ModelFactory:
                 'missing': np.nan  # ✅ CRITICAL FIX: Set to np.nan for NaN handling
             }
 
-            # Create variants with different max_depth
-            for variant_idx in range(num_variants):
+            # Create regressor variants with different max_depth
+            for variant_idx in range(num_regressor_variants):
                 params = default_params.copy()
                 # max_depth: Use Optuna if available, else increment from base
                 base_depth = optuna_cfg.get('max_depth', 7)
@@ -310,17 +370,26 @@ class ModelFactory:
 
                 # Create model with params (missing is already in params, don't pass again)
                 model = xgboost.XGBRegressor(**params)
-                sector_models[(sector, variant_idx)] = model
+                sector_regressors[(sector, variant_idx)] = model
 
                 param_source = "Optuna" if sector in (sector_optuna_params or {}) else "SECTOR_CONFIG"
                 self.logger.debug(f"Created sector model: {sector} variant {variant_idx}, max_depth={params['max_depth']} ({param_source})")
 
         optuna_count = len([s for s in sector_list if s in (sector_optuna_params or {})])
-        self.logger.info(f"✅ Created sector models: {len(sector_list)} sectors x {num_variants} variants = {len(sector_models)} models")
+
+        if self.use_classifier:
+            num_clf_per_sector = 4
+            self.logger.info(f"✅ Created sector models: {len(sector_list)} sectors")
+            self.logger.info(f"   Classifiers: {len(sector_list)} sectors x {num_clf_per_sector} variants = {len(sector_classifiers)} models")
+            self.logger.info(f"   Regressors: {len(sector_list)} sectors x {num_regressor_variants} variants = {len(sector_regressors)} models")
+        else:
+            self.logger.info(f"✅ Created sector models: {len(sector_list)} sectors x {num_regressor_variants} regressors = {len(sector_regressors)} models")
+            self.logger.info(f"   USE_CLASSIFIER=N: No sector classifiers created")
+
         if optuna_count > 0:
             self.logger.info(f"   {optuna_count}/{len(sector_list)} sectors using Optuna-optimized params")
 
-        return sector_models
+        return sector_classifiers, sector_regressors
 
     def is_gpu_available(self) -> bool:
         """
@@ -348,7 +417,7 @@ def create_models_for_regressor(
     sector_list: Optional[List[str]] = None,
     use_sector_model: bool = False,
     sector_optuna_params: Optional[Dict[str, Dict[str, Any]]] = None
-) -> Tuple[List[Any], List[Any], Dict[Tuple[str, int], Any]]:
+) -> Tuple[List[Any], List[Any], Dict[Tuple[str, int], Any], Dict[Tuple[str, int], Any]]:
     """
     Create all models for regressor.py (ensemble + sectors).
 
@@ -357,7 +426,7 @@ def create_models_for_regressor(
     config : Dict[str, Any]
         Configuration from conf.yaml
     optuna_params : Optional[Dict[str, Any]]
-        Optuna-optimized parameters for classifier
+        Optuna-optimized parameters for ensemble classifier
     sector_list : Optional[List[str]]
         List of sectors for sector models
     use_sector_model : bool
@@ -369,21 +438,26 @@ def create_models_for_regressor(
     Returns:
     -------
     classifiers : List[Any]
-        4 classification models
+        Ensemble classification models (empty if USE_CLASSIFIER=N)
     regressors : List[Any]
-        2 regression models
-    sector_models : Dict[Tuple[str, int], Any]
-        Sector-specific models (empty if use_sector_model=False)
+        Ensemble regression models
+    sector_classifiers : Dict[Tuple[str, int], Any]
+        Sector-specific classifiers (empty if use_sector_model=False or USE_CLASSIFIER=N)
+    sector_regressors : Dict[Tuple[str, int], Any]
+        Sector-specific regressors (empty if use_sector_model=False)
     """
     factory = ModelFactory(config, optuna_params=optuna_params, use_ensemble=True)
 
     classifiers, regressors = factory.create_ensemble_models()
 
-    sector_models = {}
+    sector_classifiers = {}
+    sector_regressors = {}
     if use_sector_model and sector_list:
-        sector_models = factory.create_sector_models(sector_list, sector_optuna_params=sector_optuna_params)
+        sector_classifiers, sector_regressors = factory.create_sector_models(
+            sector_list, sector_optuna_params=sector_optuna_params
+        )
 
-    return classifiers, regressors, sector_models
+    return classifiers, regressors, sector_classifiers, sector_regressors
 
 
 def create_models_for_backtest(
