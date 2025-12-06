@@ -2338,6 +2338,35 @@ class Regressor:
                 if len(x_test) == 0:
                     continue
 
+                # ===== Feature Alignment for Sector Models =====
+                # Filter x_test to match sector model's expected features
+                # (preprocessing during training may have dropped some columns)
+                first_sector_model = self.sector_models[(sec, 0)]
+                if hasattr(first_sector_model, 'get_booster'):
+                    # XGBoost model - get feature names from booster
+                    model_features = first_sector_model.get_booster().feature_names
+                    if model_features is not None:
+                        logging.info(f"   Sector {sec}: Aligning features...")
+                        logging.info(f"   Model expects {len(model_features)} features")
+                        logging.info(f"   Test data has {len(x_test.columns)} features")
+
+                        # Add missing features with NaN
+                        missing_features = set(model_features) - set(x_test.columns)
+                        if missing_features:
+                            logging.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with NaN")
+                            for col in missing_features:
+                                x_test[col] = np.nan
+
+                        # Remove extra features
+                        extra_features = set(x_test.columns) - set(model_features)
+                        if extra_features:
+                            logging.info(f"   Removing {len(extra_features)} extra features from test data")
+                            x_test = x_test.drop(columns=list(extra_features))
+
+                        # Reorder features to match training order (CRITICAL!)
+                        x_test = x_test[model_features]
+                        logging.info(f"   ✅ Feature alignment complete: {len(x_test.columns)} features")
+
                 sector_preds = np.empty((0, x_test.shape[0]))
                 df['label'] = y_test
 
