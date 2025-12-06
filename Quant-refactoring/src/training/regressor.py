@@ -2288,12 +2288,20 @@ class Regressor:
                 df.to_csv(MODEL_SAVE_PATH+ "sec_{}_prediction_ai_{}.csv".format(sec, tdate))
 
                 # 섹터별 예측의 상위 K개 평가
+                # Sector models only have basic predictions (no ensemble variants)
+                sector_pred_col_list = [
+                    'ai_pred_avg',
+                    'model_0_prediction',
+                    'model_0_prediction_wbinary_2',
+                    'model_1_prediction',
+                    'model_1_prediction_wbinary_2'
+                ]
                 topk_period_earning_sums = []
                 topk_list = [(0,3), (0,7)]
                 for s, e in topk_list:
                     logging.info("top" + str(s) + " ~ "  + str(e) )
                     k = str(s) + '~' + str(e)
-                    for col in pred_col_list:
+                    for col in sector_pred_col_list:
                         top_k_df = df.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
                         logging.info(col)
                         logging.info(("label"))
