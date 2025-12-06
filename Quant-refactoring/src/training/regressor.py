@@ -423,6 +423,7 @@ class Regressor:
         # 섹터별 학습 데이터
         self.sector_x_train: Dict[str, pd.DataFrame] = dict()
         self.sector_y_train: Dict[str, pd.DataFrame] = dict()
+        self.sector_y_train_cls: Dict[str, pd.DataFrame] = dict()  # Classification targets for sector models
 
         # 특성 선택 추적
         self.drop_col_list: List[str] = []
@@ -1021,6 +1022,11 @@ class Regressor:
                 sec_feature_cols = [col for col in self.x_train.columns if col in self.sector_train_dfs[sec].columns]
                 self.sector_x_train[sec] = self.sector_train_dfs[sec][sec_feature_cols]
                 self.sector_y_train[sec] = self.sector_train_dfs[sec][['sec_price_dev_subavg']]
+
+                # Extract classification target for sector models (if USE_CLASSIFIER=Y)
+                if self.use_classifier and DataSchema.CLASSIFICATION_TARGET in self.sector_train_dfs[sec].columns:
+                    self.sector_y_train_cls[sec] = self.sector_train_dfs[sec][[DataSchema.CLASSIFICATION_TARGET]]
+
                 logging.info(f"    {sec}: {len(self.sector_train_dfs[sec])} rows")
 
             logging.info(f"  ✅ Split into {len(self.sector_list)} sectors")
@@ -1893,11 +1899,12 @@ class Regressor:
                 logging.info("-" * 60)
 
                 # ✅ UNIFIED: Use SAME preprocessing as unified model (SINGLE SOURCE OF TRUTH)
-                # Sector models have NO y_cls (classification target), so pass None
-                x_sector_clean, y_sector_clean, _, _ = DataProcessor.preprocess_training_data(
+                # Pass y_cls if USE_CLASSIFIER=Y, otherwise None
+                y_cls_input = self.sector_y_train_cls.get(sec) if self.use_classifier else None
+                x_sector_clean, y_sector_clean, y_cls_clean, _ = DataProcessor.preprocess_training_data(
                     self.sector_x_train[sec],
                     self.sector_y_train[sec],
-                    y_cls=None,  # No classification for sector models
+                    y_cls=y_cls_input,
                     config=self.conf,
                     logger=logging.getLogger()
                 )
@@ -1905,13 +1912,49 @@ class Regressor:
                 # Update sector training data with preprocessed results
                 self.sector_x_train[sec] = x_sector_clean
                 self.sector_y_train[sec] = y_sector_clean
+                if self.use_classifier and y_cls_clean is not None:
+                    self.sector_y_train_cls[sec] = y_cls_clean
 
             logging.info("="*80)
             logging.info("✅ All sector preprocessing complete")
             logging.info("="*80)
             logging.info("")
 
-            # Train sector models
+            # ===== Train sector classifiers (if USE_CLASSIFIER=Y) =====
+            if self.use_classifier:
+                logging.info("="*80)
+                logging.info("🎯 SECTOR CLASSIFIERS: Training sector-specific classifiers")
+                logging.info("="*80)
+
+                for sec_idx, sec in enumerate(self.sector_list):
+                    logging.info(f"\n📊 Training classifiers for sector: {sec}")
+
+                    # Get preprocessed classification target and create binary target
+                    y_cls_sector = self.sector_y_train_cls[sec]
+                    y_train_binary = DataProcessor.create_binary_target(y_cls_sector)
+
+                    # Train all 4 classifiers for this sector
+                    for i in range(4):
+                        k = (sec, i)
+                        model = self.sector_classifiers[k]
+                        logging.info(f"  Training sector classifier {i} for {sec}...")
+                        model.fit(self.sector_x_train[sec], y_train_binary)
+                        filename = MODEL_SAVE_PATH + '{}_clsmodel_{}.sav'.format(sec, str(i))
+                        joblib.dump(model, filename)
+                        score = model.score(self.sector_x_train[sec], y_train_binary)
+                        logging.info(f"  Sector classifier {i} score: {score:.4f}")
+
+                    logging.info(f"✅ Trained and saved 4 classifiers for {sec}")
+
+                logging.info("="*80)
+                logging.info(f"✅ All sector classifiers complete ({len(self.sector_list)} sectors x 4 classifiers)")
+                logging.info("="*80)
+                logging.info("")
+
+            # ===== Train sector regressors =====
+            logging.info("="*80)
+            logging.info("🎯 SECTOR REGRESSORS: Training sector-specific regressors")
+            logging.info("="*80)
             for sec_idx, sec in enumerate(self.sector_list):
                 for i in range(2):
                     k = (sec, i)
