@@ -105,9 +105,28 @@ ML:
   EXIT_AFTER_ML: Y  # Y = Exit after ML, N = Continue to backtest
 
   # ============================================================================
+  # Model Architecture (모델 아키텍처)
+  # ============================================================================
+  # Classifier on/off (분류기 사용 여부)
+  # Y = Train classifiers + regressors (default, enables wbinary/ensemble predictions)
+  # N = Train regressors only (simpler, faster, no ensemble strategies)
+  USE_CLASSIFIER: Y
+
+  # ============================================================================
   # Sector-based Model Training (섹터별 모델 학습)
   # ============================================================================
-  USE_SECTOR_MODEL: Y  # Y = Train separate models per sector for better sector-specific predictions
+  # Y = Train separate models per sector (each sector gets own classifiers + regressors)
+  # N = Train global models for all stocks (one set of classifiers + regressors)
+  #
+  # When USE_SECTOR_MODEL: Y and USE_CLASSIFIER: Y
+  #   → Each sector: 4 classifiers + 2 regressors (fully independent)
+  # When USE_SECTOR_MODEL: Y and USE_CLASSIFIER: N
+  #   → Each sector: 2 regressors only
+  # When USE_SECTOR_MODEL: N and USE_CLASSIFIER: Y
+  #   → Global: 4 classifiers + 2 regressors
+  # When USE_SECTOR_MODEL: N and USE_CLASSIFIER: N
+  #   → Global: 2 regressors only
+  USE_SECTOR_MODEL: Y
 
   # Sector configuration (only used if USE_SECTOR_MODEL = Y)
   SECTOR_CONFIG:

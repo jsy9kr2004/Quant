@@ -77,6 +77,7 @@ class ModelFactory:
 
         # Get ML configuration
         self.ml_config = config.get('ML', {})
+        self.use_classifier = self.ml_config.get('USE_CLASSIFIER', 'Y') == 'Y'
         self.use_sector_model = self.ml_config.get('USE_SECTOR_MODEL', 'N') == 'Y'
         self.sector_config = self.ml_config.get('SECTOR_CONFIG', {}) if self.use_sector_model else {}
 
@@ -84,70 +85,80 @@ class ModelFactory:
         """
         Create ensemble models (regressor.py mode).
 
-        Creates multiple models with different hyperparameters for ensemble prediction:
+        Creates multiple models with different hyperparameters for ensemble prediction.
+
+        When USE_CLASSIFIER=Y:
         - 4 Classifiers: XGB (depth 8,9,10) + LGBM
+        - 2 Regressors: XGB (depth 8,10)
+
+        When USE_CLASSIFIER=N:
+        - 0 Classifiers (empty list)
         - 2 Regressors: XGB (depth 8,10)
 
         Returns:
         -------
         classifiers : List[Any]
-            List of 4 classification models [clsmodel_0, clsmodel_1, clsmodel_2, clsmodel_3]
+            List of classification models (empty if USE_CLASSIFIER=N)
         regressors : List[Any]
-            List of 2 regression models [model_0, model_1]
+            List of 2 regression models
         """
         classifiers = []
         regressors = []
 
-        # ===== Classifiers =====
-        # Classifier 0: XGBoost depth=8 (with Optuna params if available)
-        if self.optuna_params:
-            self.logger.info(f" Using Optuna-optimized params for classifier_0: {self.optuna_params}")
-            clf_0 = xgboost.XGBClassifier(
-                tree_method='hist',
-                device='cpu',  # Use CPU for compatibility
-                n_estimators=self.optuna_params.get('n_estimators', 500),
-                learning_rate=self.optuna_params.get('learning_rate', 0.1),
-                gamma=self.optuna_params.get('gamma', 0),
-                subsample=self.optuna_params.get('subsample', 0.8),
-                colsample_bytree=self.optuna_params.get('colsample_bytree', 0.8),
-                max_depth=self.optuna_params.get('max_depth', 8),
-                objective='binary:logistic',
-                eval_metric='logloss',
-                missing=np.nan  # XGBoost handles NaN automatically (use np.nan, not None)
+        # ===== Classifiers (only if USE_CLASSIFIER=Y) =====
+        if self.use_classifier:
+            # Classifier 0: XGBoost depth=8 (with Optuna params if available)
+            if self.optuna_params:
+                self.logger.info(f" Using Optuna-optimized params for classifier_0: {self.optuna_params}")
+                clf_0 = xgboost.XGBClassifier(
+                    tree_method='hist',
+                    device='cpu',  # Use CPU for compatibility
+                    n_estimators=self.optuna_params.get('n_estimators', 500),
+                    learning_rate=self.optuna_params.get('learning_rate', 0.1),
+                    gamma=self.optuna_params.get('gamma', 0),
+                    subsample=self.optuna_params.get('subsample', 0.8),
+                    colsample_bytree=self.optuna_params.get('colsample_bytree', 0.8),
+                    max_depth=self.optuna_params.get('max_depth', 8),
+                    objective='binary:logistic',
+                    eval_metric='logloss',
+                    missing=np.nan  # XGBoost handles NaN automatically (use np.nan, not None)
+                )
+            else:
+                clf_config = XGBOOST_CLASSIFIER_CONFIGS['default'].copy()
+                clf_config['device'] = 'cpu'  # Override to CPU
+                clf_0 = xgboost.XGBClassifier(**clf_config, missing=np.nan)
+
+            classifiers.append(clf_0)
+
+            # Classifier 1: XGBoost depth=9
+            clf_config_9 = XGBOOST_CLASSIFIER_CONFIGS['depth_9'].copy()
+            clf_config_9['device'] = 'cpu'
+            clf_1 = xgboost.XGBClassifier(**clf_config_9, missing=np.nan)
+            classifiers.append(clf_1)
+
+            # Classifier 2: XGBoost depth=10
+            clf_config_10 = XGBOOST_CLASSIFIER_CONFIGS['depth_10'].copy()
+            clf_config_10['device'] = 'cpu'
+            clf_2 = xgboost.XGBClassifier(**clf_config_10, missing=np.nan)
+            classifiers.append(clf_2)
+
+            # Classifier 3: LightGBM
+            lgb_clf_config = LIGHTGBM_CLASSIFIER_CONFIGS['default'].copy()
+            lgb_clf_config['device'] = 'cpu'
+            # LightGBM uses different parameter structure
+            clf_3 = lgb.LGBMClassifier(
+                boosting_type=lgb_clf_config.get('boosting_type', 'gbdt'),
+                objective=lgb_clf_config.get('objective', 'binary'),
+                n_estimators=lgb_clf_config.get('n_estimators', 1000),
+                max_depth=lgb_clf_config.get('max_depth', 8),
+                learning_rate=lgb_clf_config.get('learning_rate', 0.1),
+                device='cpu',
+                boost_from_average=False
             )
+            classifiers.append(clf_3)
+            self.logger.info(f" Created {len(classifiers)} classifiers")
         else:
-            clf_config = XGBOOST_CLASSIFIER_CONFIGS['default'].copy()
-            clf_config['device'] = 'cpu'  # Override to CPU
-            clf_0 = xgboost.XGBClassifier(**clf_config, missing=np.nan)
-
-        classifiers.append(clf_0)
-
-        # Classifier 1: XGBoost depth=9
-        clf_config_9 = XGBOOST_CLASSIFIER_CONFIGS['depth_9'].copy()
-        clf_config_9['device'] = 'cpu'
-        clf_1 = xgboost.XGBClassifier(**clf_config_9, missing=np.nan)
-        classifiers.append(clf_1)
-
-        # Classifier 2: XGBoost depth=10
-        clf_config_10 = XGBOOST_CLASSIFIER_CONFIGS['depth_10'].copy()
-        clf_config_10['device'] = 'cpu'
-        clf_2 = xgboost.XGBClassifier(**clf_config_10, missing=np.nan)
-        classifiers.append(clf_2)
-
-        # Classifier 3: LightGBM
-        lgb_clf_config = LIGHTGBM_CLASSIFIER_CONFIGS['default'].copy()
-        lgb_clf_config['device'] = 'cpu'
-        # LightGBM uses different parameter structure
-        clf_3 = lgb.LGBMClassifier(
-            boosting_type=lgb_clf_config.get('boosting_type', 'gbdt'),
-            objective=lgb_clf_config.get('objective', 'binary'),
-            n_estimators=lgb_clf_config.get('n_estimators', 1000),
-            max_depth=lgb_clf_config.get('max_depth', 8),
-            learning_rate=lgb_clf_config.get('learning_rate', 0.1),
-            device='cpu',
-            boost_from_average=False
-        )
-        classifiers.append(clf_3)
+            self.logger.info(" USE_CLASSIFIER=N: Skipping classifier creation")
 
         # ===== Regressors =====
         # Regressor 0: XGBoost depth=8
@@ -170,8 +181,14 @@ class ModelFactory:
         """
         Create single models (ml_backtest.py mode).
 
-        Creates simple single models for walk-forward backtesting:
+        Creates simple single models for walk-forward backtesting.
+
+        When USE_CLASSIFIER=Y:
         - 1 Classifier: XGBoost depth=8
+        - 1 Regressor: XGBoost depth=8
+
+        When USE_CLASSIFIER=N:
+        - Classifier: None
         - 1 Regressor: XGBoost depth=8
 
         Note: To maintain consistency, we use the SAME parameters as ensemble's first model.
@@ -184,43 +201,49 @@ class ModelFactory:
         Returns:
         -------
         classifier : Any
-            Single classification model
+            Single classification model (None if USE_CLASSIFIER=N)
         regressor : Any
             Single regression model
         """
         device = 'cuda:0' if use_gpu else 'cpu'
         tree_method = 'gpu_hist' if use_gpu else 'hist'
 
-        # Use the SAME config as ensemble's first models to ensure consistency
-        if self.optuna_params:
-            self.logger.info(f" Using Optuna-optimized params for single models: {self.optuna_params}")
-            classifier = xgboost.XGBClassifier(
-                tree_method=tree_method,
-                device=device,
-                n_estimators=self.optuna_params.get('n_estimators', 500),
-                learning_rate=self.optuna_params.get('learning_rate', 0.1),
-                gamma=self.optuna_params.get('gamma', 0),
-                subsample=self.optuna_params.get('subsample', 0.8),
-                colsample_bytree=self.optuna_params.get('colsample_bytree', 0.8),
-                max_depth=self.optuna_params.get('max_depth', 8),
-                objective='binary:logistic',
-                eval_metric='logloss',
-                random_state=42,
-                missing=np.nan  # ✅ CRITICAL FIX: Use np.nan, not None
-            )
+        # ===== Classifier (only if USE_CLASSIFIER=Y) =====
+        classifier = None
+        if self.use_classifier:
+            if self.optuna_params:
+                self.logger.info(f" Using Optuna-optimized params for single models: {self.optuna_params}")
+                classifier = xgboost.XGBClassifier(
+                    tree_method=tree_method,
+                    device=device,
+                    n_estimators=self.optuna_params.get('n_estimators', 500),
+                    learning_rate=self.optuna_params.get('learning_rate', 0.1),
+                    gamma=self.optuna_params.get('gamma', 0),
+                    subsample=self.optuna_params.get('subsample', 0.8),
+                    colsample_bytree=self.optuna_params.get('colsample_bytree', 0.8),
+                    max_depth=self.optuna_params.get('max_depth', 8),
+                    objective='binary:logistic',
+                    eval_metric='logloss',
+                    random_state=42,
+                    missing=np.nan
+                )
+            else:
+                clf_config = XGBOOST_CLASSIFIER_CONFIGS['default'].copy()
+                clf_config['device'] = device
+                clf_config['tree_method'] = tree_method
+                classifier = xgboost.XGBClassifier(**clf_config, random_state=42, missing=np.nan)
+    
+            self.logger.info(f" Created single classifier (device={device})")
         else:
-            clf_config = XGBOOST_CLASSIFIER_CONFIGS['default'].copy()
-            clf_config['device'] = device
-            clf_config['tree_method'] = tree_method
-            classifier = xgboost.XGBClassifier(**clf_config, random_state=42, missing=np.nan)
+            self.logger.info(" USE_CLASSIFIER=N: Skipping single classifier creation")
 
-        # Regressor: Use same config as ensemble's first regressor
+        # ===== Regressor =====
         reg_config = XGBOOST_REGRESSOR_CONFIGS['default'].copy()
         reg_config['device'] = device
         reg_config['tree_method'] = tree_method
         regressor = xgboost.XGBRegressor(**reg_config, random_state=42, missing=np.nan)
 
-        self.logger.info(f" Created single models (device={device})")
+        self.logger.info(f" Created single regressor (device={device})")
 
         return classifier, regressor
 
