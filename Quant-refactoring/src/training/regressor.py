@@ -2669,7 +2669,8 @@ class Regressor:
         if self.use_sector_model:
             self.sector_models = dict()
             self.sector_classifiers = dict()
-            ldf = pd.read_csv(latest_data_path)
+            # CP949 encoding for Korean characters (handles 한글)
+            ldf = pd.read_csv(latest_data_path, encoding='cp949')
 
             # 섹터별 모델 로드
             # 통합 섹터 모델 로딩 메서드 사용
