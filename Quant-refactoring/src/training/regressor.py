@@ -646,7 +646,7 @@ class Regressor:
         logging.info("✅ Loaded 2 regression models")
 
     def _load_sector_models(self, model_save_path: str, sector_list: List[str]) -> None:
-        """섹터별 모델들을 로드합니다.
+        """섹터별 회귀 모델들을 로드합니다.
 
         Args:
             model_save_path: 모델 저장 경로
@@ -657,7 +657,25 @@ class Regressor:
                 k = (sec, i)
                 filename = f"{model_save_path}{sec}_model_{i}.sav"
                 self.sector_models[k] = joblib.load(filename)
-        logging.info(f"✅ Loaded sector models for {len(sector_list)} sectors")
+        logging.info(f"✅ Loaded {len(self.sector_models)} sector regressor models for {len(sector_list)} sectors")
+
+    def _load_sector_classifiers(self, model_save_path: str, sector_list: List[str]) -> None:
+        """섹터별 분류 모델들을 로드합니다 (USE_CLASSIFIER=Y인 경우).
+
+        Args:
+            model_save_path: 모델 저장 경로
+            sector_list: 섹터 이름 리스트
+        """
+        if not self.use_classifier:
+            logging.info(" USE_CLASSIFIER=N: Skipping sector classifier loading")
+            return
+
+        for sec in sector_list:
+            for i in range(4):  # 4 classifiers per sector (XGB depth 8/9/10 + LGBM)
+                k = (sec, i)
+                filename = f"{model_save_path}{sec}_clsmodel_{i}.sav"
+                self.sector_classifiers[k] = joblib.load(filename)
+        logging.info(f"✅ Loaded {len(self.sector_classifiers)} sector classifier models for {len(sector_list)} sectors")
 
     @staticmethod
     def _build_prediction_column_names() -> List[str]:
@@ -2237,9 +2255,11 @@ class Regressor:
             testdates = set()
             allsector_topk_df = pd.DataFrame()
             self.sector_models = dict()
+            self.sector_classifiers = dict()
 
             # 통합 섹터 모델 로딩 메서드 사용
             self._load_sector_models(MODEL_SAVE_PATH, self.sector_list)
+            self._load_sector_classifiers(MODEL_SAVE_PATH, self.sector_list)
 
             sector_model_eval_hist = []
 
@@ -2561,11 +2581,13 @@ class Regressor:
         # === 섹터별 예측 (PER_SECTOR=True인 경우) ===
         if self.use_sector_model:
             self.sector_models = dict()
+            self.sector_classifiers = dict()
             ldf = pd.read_csv(latest_data_path)
 
             # 섹터별 모델 로드
             # 통합 섹터 모델 로딩 메서드 사용
             self._load_sector_models(MODEL_SAVE_PATH, self.sector_list)
+            self._load_sector_classifiers(MODEL_SAVE_PATH, self.sector_list)
 
             all_preds = []
 
