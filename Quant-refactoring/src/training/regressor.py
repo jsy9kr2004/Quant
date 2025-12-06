@@ -2148,11 +2148,11 @@ class Regressor:
                 # 누적 메트릭 로깅 (지금까지의 모든 기간)
                 if test_idx != 0:
                     logging.info(f"accumulated eval : model i : {i} "
-                               f"loss : {full_df[loss_col_name].mean()} "
-                               f"loss_wbin_0 {full_df[loss_bin_col_name_0].mean()} "
-                               f"loss_wbin_1 {full_df[loss_bin_col_name_1].mean()} "
-                               f"loss_wbin_2 {full_df[loss_bin_col_name_2].mean()} "
-                               f"loss_wbin_3 {full_df[loss_bin_col_name_3].mean()}")
+                               f"loss : {full_df[reg_cols['loss']].mean()} "
+                               f"loss_wbin_0 {full_df[reg_cols['loss_wbinary_0']].mean()} "
+                               f"loss_wbin_1 {full_df[reg_cols['loss_wbinary_1']].mean()} "
+                               f"loss_wbin_2 {full_df[reg_cols['loss_wbinary_2']].mean()} "
+                               f"loss_wbin_3 {full_df[reg_cols['loss_wbinary_3']].mean()}")
 
             # 모든 회귀 모델의 평균 예측 계산
             df['ai_pred_avg'] = np.average(preds, axis=0)
