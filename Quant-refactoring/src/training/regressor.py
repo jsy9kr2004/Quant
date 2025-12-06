@@ -415,14 +415,15 @@ class Regressor:
         self.sector_test_df_lists: List = []
 
         # 모델 컨테이너
-        self.clsmodels: Dict[int, Any] = dict()  # 분류 모델
-        self.models: Dict[int, Any] = dict()  # 회귀 모델
-        self.sector_models: Dict[Tuple[str, int], Any] = dict()  # 섹터별 모델
-        self.sector_cls_models: Dict = dict()
+        self.clsmodels: Dict[int, Any] = dict()  # Ensemble classifiers (global)
+        self.models: Dict[int, Any] = dict()  # Ensemble regressors (global)
+        self.sector_classifiers: Dict[Tuple[str, int], Any] = dict()  # Sector classifiers
+        self.sector_models: Dict[Tuple[str, int], Any] = dict()  # Sector regressors (legacy name)
 
         # 섹터별 학습 데이터
         self.sector_x_train: Dict[str, pd.DataFrame] = dict()
         self.sector_y_train: Dict[str, pd.DataFrame] = dict()
+        self.sector_y_train_cls: Dict[str, pd.DataFrame] = dict()  # Classification targets for sector models
 
         # 특성 선택 추적
         self.drop_col_list: List[str] = []
@@ -646,7 +647,7 @@ class Regressor:
         logging.info("✅ Loaded 2 regression models")
 
     def _load_sector_models(self, model_save_path: str, sector_list: List[str]) -> None:
-        """섹터별 모델들을 로드합니다.
+        """섹터별 회귀 모델들을 로드합니다.
 
         Args:
             model_save_path: 모델 저장 경로
@@ -657,7 +658,25 @@ class Regressor:
                 k = (sec, i)
                 filename = f"{model_save_path}{sec}_model_{i}.sav"
                 self.sector_models[k] = joblib.load(filename)
-        logging.info(f"✅ Loaded sector models for {len(sector_list)} sectors")
+        logging.info(f"✅ Loaded {len(self.sector_models)} sector regressor models for {len(sector_list)} sectors")
+
+    def _load_sector_classifiers(self, model_save_path: str, sector_list: List[str]) -> None:
+        """섹터별 분류 모델들을 로드합니다 (USE_CLASSIFIER=Y인 경우).
+
+        Args:
+            model_save_path: 모델 저장 경로
+            sector_list: 섹터 이름 리스트
+        """
+        if not self.use_classifier:
+            logging.info(" USE_CLASSIFIER=N: Skipping sector classifier loading")
+            return
+
+        for sec in sector_list:
+            for i in range(4):  # 4 classifiers per sector (XGB depth 8/9/10 + LGBM)
+                k = (sec, i)
+                filename = f"{model_save_path}{sec}_clsmodel_{i}.sav"
+                self.sector_classifiers[k] = joblib.load(filename)
+        logging.info(f"✅ Loaded {len(self.sector_classifiers)} sector classifier models for {len(sector_list)} sectors")
 
     @staticmethod
     def _build_prediction_column_names() -> List[str]:
@@ -1003,6 +1022,11 @@ class Regressor:
                 sec_feature_cols = [col for col in self.x_train.columns if col in self.sector_train_dfs[sec].columns]
                 self.sector_x_train[sec] = self.sector_train_dfs[sec][sec_feature_cols]
                 self.sector_y_train[sec] = self.sector_train_dfs[sec][['sec_price_dev_subavg']]
+
+                # Extract classification target for sector models (if USE_CLASSIFIER=Y)
+                if self.use_classifier and DataSchema.CLASSIFICATION_TARGET in self.sector_train_dfs[sec].columns:
+                    self.sector_y_train_cls[sec] = self.sector_train_dfs[sec][[DataSchema.CLASSIFICATION_TARGET]]
+
                 logging.info(f"    {sec}: {len(self.sector_train_dfs[sec])} rows")
 
             logging.info(f"  ✅ Split into {len(self.sector_list)} sectors")
@@ -1159,7 +1183,7 @@ class Regressor:
         logging.info("🔧 Creating models using ModelFactory (ensures consistency with ml_backtest.py)")
 
         # Use ModelFactory to create all models
-        classifiers, regressors, sector_models = create_models_for_regressor(
+        classifiers, regressors, sector_classifiers, sector_regressors = create_models_for_regressor(
             config=self.conf,
             optuna_params=optuna_params,
             sector_list=self.sector_list if self.use_sector_model else None,
@@ -1175,10 +1199,14 @@ class Regressor:
             self.models[i] = reg
 
         if self.use_sector_model:
-            self.sector_models = sector_models
+            self.sector_classifiers = sector_classifiers
+            self.sector_models = sector_regressors
 
-        logging.info(f"✅ Models created: {len(classifiers)} classifiers, {len(regressors)} regressors" +
-                    (f", {len(sector_models)} sector models" if self.use_sector_model else ""))
+        # Logging
+        msg = f"✅ Models created: {len(classifiers)} ensemble classifiers, {len(regressors)} ensemble regressors"
+        if self.use_sector_model:
+            msg += f", {len(sector_classifiers)} sector classifiers, {len(sector_regressors)} sector regressors"
+        logging.info(msg)
 
     def _diagnose_extreme_values(self, X: np.ndarray, y: np.ndarray, name: str = "data") -> bool:
         """
@@ -1871,11 +1899,12 @@ class Regressor:
                 logging.info("-" * 60)
 
                 # ✅ UNIFIED: Use SAME preprocessing as unified model (SINGLE SOURCE OF TRUTH)
-                # Sector models have NO y_cls (classification target), so pass None
-                x_sector_clean, y_sector_clean, _, _ = DataProcessor.preprocess_training_data(
+                # Pass y_cls if USE_CLASSIFIER=Y, otherwise None
+                y_cls_input = self.sector_y_train_cls.get(sec) if self.use_classifier else None
+                x_sector_clean, y_sector_clean, y_cls_clean, _ = DataProcessor.preprocess_training_data(
                     self.sector_x_train[sec],
                     self.sector_y_train[sec],
-                    y_cls=None,  # No classification for sector models
+                    y_cls=y_cls_input,
                     config=self.conf,
                     logger=logging.getLogger()
                 )
@@ -1883,13 +1912,49 @@ class Regressor:
                 # Update sector training data with preprocessed results
                 self.sector_x_train[sec] = x_sector_clean
                 self.sector_y_train[sec] = y_sector_clean
+                if self.use_classifier and y_cls_clean is not None:
+                    self.sector_y_train_cls[sec] = y_cls_clean
 
             logging.info("="*80)
             logging.info("✅ All sector preprocessing complete")
             logging.info("="*80)
             logging.info("")
 
-            # Train sector models
+            # ===== Train sector classifiers (if USE_CLASSIFIER=Y) =====
+            if self.use_classifier:
+                logging.info("="*80)
+                logging.info("🎯 SECTOR CLASSIFIERS: Training sector-specific classifiers")
+                logging.info("="*80)
+
+                for sec_idx, sec in enumerate(self.sector_list):
+                    logging.info(f"\n📊 Training classifiers for sector: {sec}")
+
+                    # Get preprocessed classification target and create binary target
+                    y_cls_sector = self.sector_y_train_cls[sec]
+                    y_train_binary = DataProcessor.create_binary_target(y_cls_sector)
+
+                    # Train all 4 classifiers for this sector
+                    for i in range(4):
+                        k = (sec, i)
+                        model = self.sector_classifiers[k]
+                        logging.info(f"  Training sector classifier {i} for {sec}...")
+                        model.fit(self.sector_x_train[sec], y_train_binary)
+                        filename = MODEL_SAVE_PATH + '{}_clsmodel_{}.sav'.format(sec, str(i))
+                        joblib.dump(model, filename)
+                        score = model.score(self.sector_x_train[sec], y_train_binary)
+                        logging.info(f"  Sector classifier {i} score: {score:.4f}")
+
+                    logging.info(f"✅ Trained and saved 4 classifiers for {sec}")
+
+                logging.info("="*80)
+                logging.info(f"✅ All sector classifiers complete ({len(self.sector_list)} sectors x 4 classifiers)")
+                logging.info("="*80)
+                logging.info("")
+
+            # ===== Train sector regressors =====
+            logging.info("="*80)
+            logging.info("🎯 SECTOR REGRESSORS: Training sector-specific regressors")
+            logging.info("="*80)
             for sec_idx, sec in enumerate(self.sector_list):
                 for i in range(2):
                     k = (sec, i)
@@ -2233,9 +2298,11 @@ class Regressor:
             testdates = set()
             allsector_topk_df = pd.DataFrame()
             self.sector_models = dict()
+            self.sector_classifiers = dict()
 
             # 통합 섹터 모델 로딩 메서드 사용
             self._load_sector_models(MODEL_SAVE_PATH, self.sector_list)
+            self._load_sector_classifiers(MODEL_SAVE_PATH, self.sector_list)
 
             sector_model_eval_hist = []
 
@@ -2288,12 +2355,20 @@ class Regressor:
                 df.to_csv(MODEL_SAVE_PATH+ "sec_{}_prediction_ai_{}.csv".format(sec, tdate))
 
                 # 섹터별 예측의 상위 K개 평가
+                # Sector models only have basic predictions (no ensemble variants)
+                sector_pred_col_list = [
+                    'ai_pred_avg',
+                    'model_0_prediction',
+                    'model_0_prediction_wbinary_2',
+                    'model_1_prediction',
+                    'model_1_prediction_wbinary_2'
+                ]
                 topk_period_earning_sums = []
                 topk_list = [(0,3), (0,7)]
                 for s, e in topk_list:
                     logging.info("top" + str(s) + " ~ "  + str(e) )
                     k = str(s) + '~' + str(e)
-                    for col in pred_col_list:
+                    for col in sector_pred_col_list:
                         top_k_df = df.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
                         logging.info(col)
                         logging.info(("label"))
@@ -2549,11 +2624,13 @@ class Regressor:
         # === 섹터별 예측 (PER_SECTOR=True인 경우) ===
         if self.use_sector_model:
             self.sector_models = dict()
+            self.sector_classifiers = dict()
             ldf = pd.read_csv(latest_data_path)
 
             # 섹터별 모델 로드
             # 통합 섹터 모델 로딩 메서드 사용
             self._load_sector_models(MODEL_SAVE_PATH, self.sector_list)
+            self._load_sector_classifiers(MODEL_SAVE_PATH, self.sector_list)
 
             all_preds = []
 
