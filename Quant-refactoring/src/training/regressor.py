@@ -1941,10 +1941,20 @@ class Regressor:
                         k = (sec, i)
                         model = self.sector_classifiers[k]
                         logging.info(f"  Training sector classifier {i} for {sec}...")
-                        model.fit(self.sector_x_train[sec], y_train_binary)
+
+                        # LightGBM (classifier 3) doesn't support special characters in feature names
+                        # Convert DataFrame to numpy array for LightGBM to avoid JSON character errors
+                        if i == 3:  # LightGBM classifier
+                            X_train = self.sector_x_train[sec].values
+                        else:  # XGBoost classifiers (0, 1, 2)
+                            X_train = self.sector_x_train[sec]
+
+                        model.fit(X_train, y_train_binary)
                         filename = MODEL_SAVE_PATH + '{}_clsmodel_{}.sav'.format(sec, str(i))
                         joblib.dump(model, filename)
-                        score = model.score(self.sector_x_train[sec], y_train_binary)
+
+                        # Score calculation (use values for consistency)
+                        score = model.score(self.sector_x_train[sec].values if i == 3 else self.sector_x_train[sec], y_train_binary)
                         logging.info(f"  Sector classifier {i} score: {score:.4f}")
 
                     logging.info(f"✅ Trained and saved 4 classifiers for {sec}")
