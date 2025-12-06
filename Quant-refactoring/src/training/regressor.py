@@ -415,10 +415,10 @@ class Regressor:
         self.sector_test_df_lists: List = []
 
         # 모델 컨테이너
-        self.clsmodels: Dict[int, Any] = dict()  # 분류 모델
-        self.models: Dict[int, Any] = dict()  # 회귀 모델
-        self.sector_models: Dict[Tuple[str, int], Any] = dict()  # 섹터별 모델
-        self.sector_cls_models: Dict = dict()
+        self.clsmodels: Dict[int, Any] = dict()  # Ensemble classifiers (global)
+        self.models: Dict[int, Any] = dict()  # Ensemble regressors (global)
+        self.sector_classifiers: Dict[Tuple[str, int], Any] = dict()  # Sector classifiers
+        self.sector_models: Dict[Tuple[str, int], Any] = dict()  # Sector regressors (legacy name)
 
         # 섹터별 학습 데이터
         self.sector_x_train: Dict[str, pd.DataFrame] = dict()
@@ -1159,7 +1159,7 @@ class Regressor:
         logging.info("🔧 Creating models using ModelFactory (ensures consistency with ml_backtest.py)")
 
         # Use ModelFactory to create all models
-        classifiers, regressors, sector_models = create_models_for_regressor(
+        classifiers, regressors, sector_classifiers, sector_regressors = create_models_for_regressor(
             config=self.conf,
             optuna_params=optuna_params,
             sector_list=self.sector_list if self.use_sector_model else None,
@@ -1175,10 +1175,14 @@ class Regressor:
             self.models[i] = reg
 
         if self.use_sector_model:
-            self.sector_models = sector_models
+            self.sector_classifiers = sector_classifiers
+            self.sector_models = sector_regressors
 
-        logging.info(f"✅ Models created: {len(classifiers)} classifiers, {len(regressors)} regressors" +
-                    (f", {len(sector_models)} sector models" if self.use_sector_model else ""))
+        # Logging
+        msg = f"✅ Models created: {len(classifiers)} ensemble classifiers, {len(regressors)} ensemble regressors"
+        if self.use_sector_model:
+            msg += f", {len(sector_classifiers)} sector classifiers, {len(sector_regressors)} sector regressors"
+        logging.info(msg)
 
     def _diagnose_extreme_values(self, X: np.ndarray, y: np.ndarray, name: str = "data") -> bool:
         """
