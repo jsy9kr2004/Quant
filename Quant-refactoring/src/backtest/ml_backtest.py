@@ -445,10 +445,14 @@ class MLBacktest:
         # 모델 학습
         models = {}
 
-        # 분류 모델 (상승/하락 예측)
-        self.logger.info("   Training classifier...")
-        clf.fit(X, y_binary)
-        models['classifier'] = clf
+        # 분류 모델 (상승/하락 예측) - only if USE_CLASSIFIER=Y
+        if clf is not None:
+            self.logger.info("   Training classifier...")
+            clf.fit(X, y_binary)
+            models['classifier'] = clf
+        else:
+            self.logger.info("   USE_CLASSIFIER=N: Skipping classifier training")
+            models['classifier'] = None
 
         # 회귀 모델 (수익률 크기 예측)
         self.logger.info("   Training regressor...")
@@ -518,19 +522,21 @@ class MLBacktest:
         optuna_params = self._load_optuna_params()
         sector_optuna_params = self._load_sector_optuna_params(list(sectors))
 
-        # ✨ Create unified classifier (same as regressor.py - no sector-specific classifiers)
+        # ✨ Create sector models using ModelFactory (SAME as regressor.py!)
         use_gpu = self._is_gpu_available()
-        unified_clf, _ = create_models_for_backtest(self.config, optuna_params=optuna_params, use_gpu=use_gpu)
-        self.logger.info("   Created unified classifier (used for all sectors)")
-
-        # ✨ Create sector-specific regressors using ModelFactory (SAME as regressor.py!)
         factory = ModelFactory(self.config, optuna_params=optuna_params, use_ensemble=False)
-        sector_regressors = factory.create_sector_models(
+        sector_classifiers, sector_regressors = factory.create_sector_models(
             sector_list=list(sectors),
-            num_variants=2,
+            num_regressor_variants=2,
             sector_optuna_params=sector_optuna_params
         )
-        self.logger.info(f"   Created sector regressors: {len(sectors)} sectors x 2 variants = {len(sector_regressors)} models")
+
+        # Check if we're using classifiers
+        use_classifier = len(sector_classifiers) > 0
+        if use_classifier:
+            self.logger.info(f"   Created sector models: {len(sectors)} sectors x 4 classifiers x 2 regressors")
+        else:
+            self.logger.info(f"   Created sector models: {len(sectors)} sectors x 2 regressors (USE_CLASSIFIER=N)")
 
         # 섹터별 데이터로 모델 학습
         sector_results = {}
@@ -550,21 +556,31 @@ class MLBacktest:
             # ✅ UNIFIED: Use DataFrame for y (same structure as regressor.py)
             y = sector_data[[DataSchema.REGRESSION_TARGET]].copy()  # DataFrame with column name preserved
 
+            # Extract classification target if USE_CLASSIFIER=Y
+            y_cls = sector_data[[DataSchema.CLASSIFICATION_TARGET]].copy() if use_classifier else None
+
             # 🎯 UNIFIED PREPROCESSING (SAME method as regressor.py sector models)
-            X, y, _, _ = DataProcessor.preprocess_training_data(
+            X, y, y_cls_clean, _ = DataProcessor.preprocess_training_data(
                 X,
                 y,
-                y_cls=None,  # No classification for sector models
+                y_cls=y_cls,
                 config=self.config,
                 logger=self.logger
             )
 
-            # ✅ Binary target for classifier
-            y_binary = DataProcessor.create_binary_target(y)
-
             try:
-                # Train sector-specific regressors (2 variants, same as regressor.py)
                 sector_models = {}
+
+                # Train sector classifiers (if USE_CLASSIFIER=Y)
+                if use_classifier and y_cls_clean is not None:
+                    y_binary = DataProcessor.create_binary_target(y_cls_clean)
+                    for clf_idx in range(4):
+                        clf = sector_classifiers[(sector, clf_idx)]
+                        clf.fit(X, y_binary)
+                        sector_models[f'classifier_{clf_idx}'] = clf
+                    self.logger.info(f"      ✅ {sector} classifiers trained (4 variants)")
+
+                # Train sector-specific regressors (2 variants, same as regressor.py)
                 for variant_idx in range(2):
                     reg = sector_regressors[(sector, variant_idx)]
                     reg.fit(X, y)
@@ -675,8 +691,12 @@ class MLBacktest:
         # ✅ NaN handling: Let XGBoost/LightGBM handle NaN during prediction
         # Don't fillna(0) - models trained with NaN can handle NaN in test data
 
-        # 분류 예측 (상승 확률)
-        y_pred_proba = models['classifier'].predict_proba(X)[:, 1]
+        # 분류 예측 (상승 확률) - only if USE_CLASSIFIER=Y
+        if models['classifier'] is not None:
+            y_pred_proba = models['classifier'].predict_proba(X)[:, 1]
+        else:
+            # USE_CLASSIFIER=N: Use regressor prediction sign as proxy
+            y_pred_proba = np.ones(len(X))  # Default to 1.0 (no filtering)
 
         # 회귀 예측 (예상 수익률)
         y_pred_return = models['regressor'].predict(X)
@@ -721,7 +741,6 @@ class MLBacktest:
             self.logger.warning("⚠️ 'sector' column not found! Cannot use sector models.")
             return test_data.copy()
 
-        unified_clf = models['classifier']  # Unified classifier (same as regressor.py)
         sector_models = models['sectors']
         result = test_data.copy()
 
@@ -730,14 +749,11 @@ class MLBacktest:
         result['pred_return'] = 0.0
         result['ml_score'] = 0.0
 
-        # Step 1: Unified classifier prediction for ALL data (same as regressor.py)
-        all_features = DataSchema.get_feature_cols(test_data)
-        X_all = test_data[all_features].copy()
-        y_pred_proba_all = unified_clf.predict_proba(X_all)[:, 1]
-        result['pred_up_proba'] = y_pred_proba_all
-        self.logger.info(f"   Predicted classification (unified): {len(test_data)} stocks")
+        # Check if sector models have classifiers (USE_CLASSIFIER=Y architecture)
+        first_sector = list(sector_models.keys())[0] if sector_models else None
+        has_sector_classifiers = first_sector and 'classifier_0' in sector_models[first_sector]
 
-        # Step 2: Sector-specific regressor predictions
+        # Sector-specific predictions (both classifiers and regressors if USE_CLASSIFIER=Y)
         for sector, sector_model in sector_models.items():
             sector_mask = result['sector'] == sector
             sector_data = result[sector_mask]
@@ -748,6 +764,19 @@ class MLBacktest:
             try:
                 feature_cols = sector_model['features']
                 X = sector_data[feature_cols].copy()
+
+                # Sector classifier prediction (if USE_CLASSIFIER=Y)
+                if has_sector_classifiers:
+                    # Average classifier predictions from 4 variants
+                    clf_probas = []
+                    for clf_idx in range(4):
+                        clf = sector_model[f'classifier_{clf_idx}']
+                        clf_probas.append(clf.predict_proba(X)[:, 1])
+                    y_pred_proba = np.mean(clf_probas, axis=0)
+                    result.loc[sector_mask, 'pred_up_proba'] = y_pred_proba
+                else:
+                    # USE_CLASSIFIER=N: Default to 1.0 (no filtering)
+                    result.loc[sector_mask, 'pred_up_proba'] = 1.0
 
                 # Average prediction from 2 regressor variants (same as regressor.py ensemble)
                 reg_0 = sector_model['regressor_0']
@@ -761,7 +790,8 @@ class MLBacktest:
                 result.loc[sector_mask, 'pred_return'] = y_pred_return
                 result.loc[sector_mask, 'ml_score'] = result.loc[sector_mask, 'pred_up_proba'] * y_pred_return
 
-                self.logger.info(f"   Predicted regression ({sector}): {len(sector_data)} stocks")
+                clf_msg = "classifiers + regressors" if has_sector_classifiers else "regressors only"
+                self.logger.info(f"   Predicted {sector} ({clf_msg}): {len(sector_data)} stocks")
 
             except Exception as e:
                 self.logger.error(f"   ❌ {sector} prediction failed: {str(e)}")
