@@ -2758,10 +2758,41 @@ class Regressor:
 
             # 섹터별로 예측 수행
             for sec in self.sector_list:
-                sec_df = ldf[ldf['sector']==sec]
-                sec_df = sec_df.drop('sector', axis=1)
-                indata = sec_df[sec_df.columns.difference(['symbol'])]
-                print(indata)
+                sec_df = ldf[ldf['sector']==sec].copy()
+
+                # 섹터별 데이터에도 동일한 전처리 적용
+                # 1. 섹터 컬럼 제거
+                sec_df_nosector = sec_df.drop('sector', axis=1)
+
+                # 2. y 컬럼 제외하고 feature만 추출 (전역 모델과 동일)
+                sec_input = sec_df_nosector[sec_df_nosector.columns.difference(y_col_list)]
+                sec_input = self.clean_feature_names(sec_input)
+
+                # 3. Feature alignment (학습 시 사용한 피처만 유지)
+                # 섹터 모델의 feature list 가져오기
+                first_sector_model = self.sector_models[(sec, 0)]
+                if hasattr(first_sector_model, 'get_booster'):
+                    model_features = first_sector_model.get_booster().feature_names
+                    if model_features is not None:
+                        # 누락된 피처는 NaN으로 채우기
+                        missing_features = set(model_features) - set(sec_input.columns)
+                        for col in missing_features:
+                            sec_input[col] = np.nan
+
+                        # 모델 피처만 선택 (순서 맞춤)
+                        sec_input = sec_input[model_features]
+
+                # 4. Winsorization 적용 (전역 모델과 동일)
+                if self.use_winsorization:
+                    sec_input = DataProcessor.winsorize_features(
+                        sec_input,
+                        lower_percentile=0.01,
+                        upper_percentile=0.99,
+                        enabled=True
+                    )
+
+                # 전처리된 데이터를 indata로 사용
+                indata = sec_input
                 preds = np.empty((0, indata.shape[0]))
 
                 # 섹터별 모델 실행
@@ -2771,10 +2802,11 @@ class Regressor:
                     pred_col_name = 'model_' + str(i) + '_prediction'
                     # GPU 지원으로 device mismatch 워닝 방지
                     y_predict3 = predict_with_gpu_support(model, indata, self.use_gpu_prediction)
-                    sec_df[pred_col_name] = y_predict3
+                    # 원본 sec_df에 예측 결과 추가 (인덱스 정렬)
+                    sec_df.loc[sec_input.index, pred_col_name] = y_predict3
                     preds = np.vstack((preds, y_predict3[None,:]))
 
-                sec_df['ai_pred_avg'] = np.average(preds, axis=0)
+                sec_df.loc[sec_input.index, 'ai_pred_avg'] = np.average(preds, axis=0)
                 sec_df.to_csv(MODEL_SAVE_PATH+"sec_{}_latest_prediction.csv".format(sec))
 
                 # 섹터별 상위 K개 (config의 TOP_K_NUM 사용, ml_backtest.py와 동일)
