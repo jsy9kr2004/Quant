@@ -2331,16 +2331,18 @@ class Regressor:
                 print(sec)
                 testdates.add(tdate)
 
-                x_test = df[df.columns.difference(y_col_list)]
+                x_test_full = df[df.columns.difference(y_col_list)]
                 y_test = df[['price_dev_subavg']]
                 y_test_2 = df[['price_dev_subavg']]
 
-                if len(x_test) == 0:
+                if len(x_test_full) == 0:
                     continue
 
                 # ===== Feature Alignment for Sector Models =====
-                # Filter x_test to match sector model's expected features
+                # Create sector-specific x_test that matches sector model's expected features
                 # (preprocessing during training may have dropped some columns)
+                # Keep x_test_full for global classifier, create x_test_sector for sector models
+                x_test_sector = x_test_full.copy()
                 first_sector_model = self.sector_models[(sec, 0)]
                 if hasattr(first_sector_model, 'get_booster'):
                     # XGBoost model - get feature names from booster
@@ -2348,47 +2350,47 @@ class Regressor:
                     if model_features is not None:
                         logging.info(f"   Sector {sec}: Aligning features...")
                         logging.info(f"   Model expects {len(model_features)} features")
-                        logging.info(f"   Test data has {len(x_test.columns)} features")
+                        logging.info(f"   Test data has {len(x_test_sector.columns)} features")
 
                         # Add missing features with NaN
-                        missing_features = set(model_features) - set(x_test.columns)
+                        missing_features = set(model_features) - set(x_test_sector.columns)
                         if missing_features:
                             logging.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with NaN")
                             for col in missing_features:
-                                x_test[col] = np.nan
+                                x_test_sector[col] = np.nan
 
                         # Remove extra features
-                        extra_features = set(x_test.columns) - set(model_features)
+                        extra_features = set(x_test_sector.columns) - set(model_features)
                         if extra_features:
                             logging.info(f"   Removing {len(extra_features)} extra features from test data")
-                            x_test = x_test.drop(columns=list(extra_features))
+                            x_test_sector = x_test_sector.drop(columns=list(extra_features))
 
                         # Reorder features to match training order (CRITICAL!)
-                        x_test = x_test[model_features]
-                        logging.info(f"   ✅ Feature alignment complete: {len(x_test.columns)} features")
+                        x_test_sector = x_test_sector[model_features]
+                        logging.info(f"   ✅ Feature alignment complete: {len(x_test_sector.columns)} features")
 
-                sector_preds = np.empty((0, x_test.shape[0]))
+                sector_preds = np.empty((0, x_test_sector.shape[0]))
                 df['label'] = y_test
 
-                # 섹터 기반 필터링을 위해 분류기 2 사용
+                # 섹터 기반 필터링을 위해 분류기 2 사용 (GLOBAL classifier - use full features!)
                 # GPU 지원으로 device mismatch 워닝 방지
-                y_probs = predict_proba_with_gpu_support(self.clsmodels[2], x_test, self.use_gpu_prediction)[:, 1]
+                y_probs = predict_proba_with_gpu_support(self.clsmodels[2], x_test_full, self.use_gpu_prediction)[:, 1]
                 threshold = np.percentile(y_probs, THRESHOLD)
                 y_predict_binary = (y_probs > threshold).astype(int)
 
-                # 섹터별 모델 실행
+                # 섹터별 모델 실행 (use sector-specific features!)
                 for i in range(2):
                     k = (sec, i)
                     model = self.sector_models[k]
                     pred_col_name = 'model_' + str(i) + '_prediction'
                     pred_col_name_wbin = 'model_' + str(i) + '_prediction_wbinary_2'
                     # GPU 지원으로 device mismatch 워닝 방지
-                    y_predict = predict_with_gpu_support(model, x_test, self.use_gpu_prediction)
+                    y_predict = predict_with_gpu_support(model, x_test_sector, self.use_gpu_prediction)
                     df[pred_col_name] = y_predict
 
                     df[pred_col_name_wbin] = np.where(y_predict_binary == 0, -1, y_predict)
                     print(f"i{i} sec {sec}")
-                    print(x_test.shape)
+                    print(x_test_sector.shape)
                     print(sector_preds.shape)
                     print(y_predict[None,:].shape)
                     sector_preds = np.vstack((sector_preds, y_predict[None,:]))
