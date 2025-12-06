@@ -366,6 +366,9 @@ class Regressor:
         self.use_sector_model = ml_config.get('USE_SECTOR_MODEL', 'N') == 'Y'
         self.sector_config = ml_config.get('SECTOR_CONFIG', {}) if self.use_sector_model else {}
 
+        # Classifier 사용 여부 (ModelFactory와 동일한 방식)
+        self.use_classifier = ml_config.get('USE_CLASSIFIER', 'Y') == 'Y'
+
         # Preprocessing 설정 (ml_backtest.py와 동일한 방식)
         self.use_winsorization = features_config.get('USE_WINSORIZATION', 'Y') == 'Y'
         self.use_feature_selection = features_config.get('USE_FEATURE_SELECTION', 'Y') == 'Y'
