@@ -2546,6 +2546,10 @@ class Regressor:
         # 섹터 리스트 추출
         self.sector_list = list(ldf['sector'].unique())
         self.sector_list = [x for x in self.sector_list if str(x) != 'nan']
+
+        # 섹터별 예측을 위해 sector 컬럼이 있는 복사본 저장
+        ldf_with_sector = ldf.copy() if self.use_sector_model else None
+
         ldf = ldf.drop('sector', axis=1)
 
         # 과도한 누락 데이터가 있는 행 필터링 (>60% NaN)
@@ -2669,7 +2673,8 @@ class Regressor:
         if self.use_sector_model:
             self.sector_models = dict()
             self.sector_classifiers = dict()
-            ldf = pd.read_csv(latest_data_path)
+            # Use the saved copy with sector information
+            ldf = ldf_with_sector.copy()
 
             # 섹터별 모델 로드
             # 통합 섹터 모델 로딩 메서드 사용
