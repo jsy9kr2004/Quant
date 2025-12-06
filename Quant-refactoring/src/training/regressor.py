@@ -927,11 +927,30 @@ class Regressor:
 
         if 'industry' in self.train_df.columns:
             self.train_df["sector"] = self.train_df["industry"].map(sector_map)
-            sector_list = list(self.train_df['sector'].unique())
+            all_sectors = list(self.train_df['sector'].unique())
             sector_list = [
-                x for x in sector_list
+                x for x in all_sectors
                 if pd.notna(x) and x is not None and isinstance(x, str) and x.strip()
             ]
+
+            # Log invalid sectors and affected rows
+            invalid_sectors = [
+                x for x in all_sectors
+                if not (pd.notna(x) and x is not None and isinstance(x, str) and x.strip())
+            ]
+            if invalid_sectors:
+                logging.warning(f"  ⚠️  Found {len(invalid_sectors)} invalid sector value(s) in training data")
+                total_invalid_rows = 0
+                for inv_sec in invalid_sectors:
+                    if pd.isna(inv_sec):
+                        count = self.train_df['sector'].isna().sum()
+                        logging.warning(f"     - NaN/None: {count} rows excluded from sector calculations")
+                        total_invalid_rows += count
+                    else:
+                        count = (self.train_df['sector'] == inv_sec).sum()
+                        logging.warning(f"     - '{inv_sec}': {count} rows excluded from sector calculations")
+                        total_invalid_rows += count
+                logging.warning(f"  Total rows excluded: {total_invalid_rows} / {len(self.train_df)}")
 
             logging.info(f"  Found {len(sector_list)} valid sectors: {sector_list}")
 
@@ -1020,11 +1039,30 @@ class Regressor:
         # PER_SECTOR mode: Split training data by sector
         if self.use_sector_model and 'sector' in self.train_df.columns:
             logging.info("  🔧 Sector model enabled: Splitting training data by sector...")
-            self.sector_list = list(self.train_df['sector'].unique())
+            all_sectors = list(self.train_df['sector'].unique())
             self.sector_list = [
-                x for x in self.sector_list
+                x for x in all_sectors
                 if pd.notna(x) and x is not None and isinstance(x, str) and x.strip()
             ]
+
+            # Log invalid sectors and affected rows
+            invalid_sectors = [
+                x for x in all_sectors
+                if not (pd.notna(x) and x is not None and isinstance(x, str) and x.strip())
+            ]
+            if invalid_sectors:
+                logging.warning(f"  ⚠️  Found {len(invalid_sectors)} invalid sector value(s) for sector model training")
+                total_invalid_rows = 0
+                for inv_sec in invalid_sectors:
+                    if pd.isna(inv_sec):
+                        count = self.train_df['sector'].isna().sum()
+                        logging.warning(f"     - NaN/None: {count} rows excluded from sector models")
+                        total_invalid_rows += count
+                    else:
+                        count = (self.train_df['sector'] == inv_sec).sum()
+                        logging.warning(f"     - '{inv_sec}': {count} rows excluded from sector models")
+                        total_invalid_rows += count
+                logging.warning(f"  Total rows excluded from sector models: {total_invalid_rows} / {len(self.train_df)}")
 
             logging.info(f"  Found {len(self.sector_list)} valid sectors for training: {self.sector_list}")
 
@@ -2552,11 +2590,30 @@ class Regressor:
         # Parquet 파일은 인덱스 컬럼 없음 (CSV와 달리)
 
         # 섹터 리스트 추출 (NaN, None, 빈 문자열 필터링)
-        self.sector_list = list(ldf['sector'].unique())
+        all_sectors = list(ldf['sector'].unique())
         self.sector_list = [
-            x for x in self.sector_list
+            x for x in all_sectors
             if pd.notna(x) and x is not None and isinstance(x, str) and x.strip()
         ]
+
+        # Log invalid sectors and affected stocks
+        invalid_sectors = [
+            x for x in all_sectors
+            if not (pd.notna(x) and x is not None and isinstance(x, str) and x.strip())
+        ]
+        if invalid_sectors:
+            logging.warning(f"  ⚠️  Found {len(invalid_sectors)} invalid sector value(s) in latest data")
+            total_invalid_rows = 0
+            for inv_sec in invalid_sectors:
+                if pd.isna(inv_sec):
+                    count = ldf['sector'].isna().sum()
+                    logging.warning(f"     - NaN/None: {count} stocks excluded from sector predictions")
+                    total_invalid_rows += count
+                else:
+                    count = (ldf['sector'] == inv_sec).sum()
+                    logging.warning(f"     - '{inv_sec}': {count} stocks excluded from sector predictions")
+                    total_invalid_rows += count
+            logging.warning(f"  Total stocks excluded from sector predictions: {total_invalid_rows} / {len(ldf)}")
 
         if len(self.sector_list) == 0:
             logging.warning("⚠️  No valid sectors found in data")
