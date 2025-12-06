@@ -612,14 +612,21 @@ class AIDataMaker:
             cur_price_table = self.filter_dates(cur_price_table, 'date', cur_year-4, cur_year)
 
             # 고유동성 주식으로 필터링 (평균 거래 금액 기준)
-            # Config-driven: FEATURES.MIN_VOLUME_PERCENTILE (default: 50%)
-            min_volume_pct = self.conf.get('FEATURES', {}).get('MIN_VOLUME_PERCENTILE', 50)
+            # Config-driven: FEATURES.MIN_VOLUME_PERCENTILE (default: 10%)
+            # Removes bottom X% of stocks by volume (e.g., 10 = remove bottom 10%, keep top 90%)
+            min_volume_pct = self.conf.get('FEATURES', {}).get('MIN_VOLUME_PERCENTILE', 10)
             symbol_means = cur_price_table.groupby('symbol')['volume_mul_price'].mean().reset_index()
-            top_symbols = symbol_means.nlargest(int(len(symbol_means) * (min_volume_pct / 100)), 'volume_mul_price')
+
+            # Calculate volume threshold at the Xth percentile
+            volume_threshold = symbol_means['volume_mul_price'].quantile(min_volume_pct / 100)
+
+            # Keep stocks with volume >= threshold (removes bottom X%)
+            top_symbols = symbol_means[symbol_means['volume_mul_price'] >= volume_threshold]
             cur_price_table = cur_price_table[cur_price_table['symbol'].isin(top_symbols['symbol'])]
 
             filtered_count = len(symbol_means) - len(top_symbols)
-            self.logger.info(f"   📊 Volume filter (>= {min_volume_pct}th percentile): "
+            keep_pct = 100 - min_volume_pct
+            self.logger.info(f"   📊 Volume filter (removes bottom {min_volume_pct}%, keeps top {keep_pct}%): "
                            f"{len(symbol_means)} → {len(top_symbols)} stocks "
                            f"({filtered_count} low-liquidity stocks removed)")
 
