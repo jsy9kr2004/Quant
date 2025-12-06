@@ -978,7 +978,12 @@ class Regressor:
         y_train_cls_reset = y_train_cls.reset_index(drop=True)
 
         # Combine into full train_df
-        self.train_df = pd.concat([metadata_df, X_train_reset, y_train_reset, y_train_cls_reset], axis=1)
+        # Include sec_price_dev_subavg for sector models if available
+        if self.use_sector_model and 'sec_price_dev_subavg' in self.train_df.columns:
+            sec_target = self.train_df.loc[X_train.index, ['sec_price_dev_subavg']].reset_index(drop=True)
+            self.train_df = pd.concat([metadata_df, X_train_reset, y_train_reset, y_train_cls_reset, sec_target], axis=1)
+        else:
+            self.train_df = pd.concat([metadata_df, X_train_reset, y_train_reset, y_train_cls_reset], axis=1)
 
         # Store X, y separately
         self.x_train = X_train
