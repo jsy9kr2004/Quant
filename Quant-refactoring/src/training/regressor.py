@@ -928,7 +928,7 @@ class Regressor:
         if 'industry' in self.train_df.columns:
             self.train_df["sector"] = self.train_df["industry"].map(sector_map)
             sector_list = list(self.train_df['sector'].unique())
-            sector_list = [x for x in sector_list if str(x) != 'nan']
+            sector_list = [x for x in sector_list if pd.notna(x) and x is not None]
 
             logging.info(f"  Found {len(sector_list)} sectors: {sector_list}")
 
@@ -1018,7 +1018,7 @@ class Regressor:
         if self.use_sector_model and 'sector' in self.train_df.columns:
             logging.info("  🔧 Sector model enabled: Splitting training data by sector...")
             self.sector_list = list(self.train_df['sector'].unique())
-            self.sector_list = [x for x in self.sector_list if str(x) != 'nan']
+            self.sector_list = [x for x in self.sector_list if pd.notna(x) and x is not None]
 
             for sec in self.sector_list:
                 self.sector_train_dfs[sec] = self.train_df[self.train_df['sector'] == sec].copy()
@@ -2543,9 +2543,9 @@ class Regressor:
 
         # Parquet 파일은 인덱스 컬럼 없음 (CSV와 달리)
 
-        # 섹터 리스트 추출
+        # 섹터 리스트 추출 (NaN과 None 모두 필터링)
         self.sector_list = list(ldf['sector'].unique())
-        self.sector_list = [x for x in self.sector_list if str(x) != 'nan']
+        self.sector_list = [x for x in self.sector_list if pd.notna(x) and x is not None]
 
         # 섹터별 예측을 위해 sector 컬럼이 있는 복사본 저장
         ldf_with_sector = ldf.copy() if self.use_sector_model else None
