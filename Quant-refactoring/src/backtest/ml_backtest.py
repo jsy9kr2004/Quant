@@ -147,38 +147,29 @@ class MLBacktest:
         - 2023 Q1 실적이 2023-05-15에 공시되었다면 → 사용 가능 ✓
         - 2023 Q2 실적이 2023-08-15에 공시되었다면 → 사용 불가 ✗
         """
+        # ✅ Use unified data loading (DataProcessor.load_quarterly_data)
+        # Load data for all years from start_year to cutoff_date.year
         all_data = []
 
-        # 분기별 파일을 순회하며 로드
         for year in range(self.main_ctx.start_year, cutoff_date.year + 1):
-            for quarter in ['Q1', 'Q2', 'Q3', 'Q4']:
-                file_path = self.data_path / f'rnorm_ml_{year}_{quarter}.parquet'
-
-                if not file_path.exists():
-                    continue
-
-                try:
-                    df = pd.read_parquet(file_path)
-
-                    # Filing Date 확인
-                    # 주의: make_mldata.py에서 이미 filing date를 고려하여
-                    # rebalance_date를 할당했지만, 추가 검증
-                    if 'fillingDate' in df.columns:
-                        df['fillingDate'] = pd.to_datetime(df['fillingDate'])
-                        # Filing Date가 cutoff_date 이전인 것만 사용
-                        df = df[df['fillingDate'] <= cutoff_date]
-
-                    if not df.empty:
-                        all_data.append(df)
-                        self.logger.debug(f"Loaded {file_path.name}: {len(df)} rows")
-
-                except Exception as e:
-                    self.logger.warning(f"Failed to load {file_path}: {e}")
-                    continue
+            try:
+                yearly_data = DataProcessor.load_quarterly_data(
+                    data_dir=str(self.data_path),
+                    year=year,
+                    file_prefix='rnorm_ml',
+                    cutoff_date=cutoff_date,
+                    logger=self.logger
+                )
+                all_data.append(yearly_data)
+            except ValueError:
+                # No data for this year, skip
+                self.logger.debug(f"No data found for year {year}")
+                continue
 
         if not all_data:
             raise ValueError(f"No data available until {cutoff_date}")
 
+        # Combine all years
         combined_data = pd.concat(all_data, ignore_index=True)
         self.logger.info(f"📊 Available data until {cutoff_date.date()}: {len(combined_data)} rows")
 
