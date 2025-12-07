@@ -2620,16 +2620,18 @@ class Regressor:
         else:
             logging.info(f"  Found {len(self.sector_list)} valid sectors: {self.sector_list}")
 
-        # 섹터별 예측을 위해 sector 컬럼이 있는 복사본 저장
-        ldf_with_sector = ldf.copy() if self.use_sector_model else None
-
-        ldf = ldf.drop('sector', axis=1)
-
         # 과도한 누락 데이터가 있는 행 필터링 (>60% NaN)
-        # ✅ REFACTORED: Use DataProcessor for excessive NaN row removal
+        # ⚠️ IMPORTANT: Apply BEFORE dropping sector column
         print("before dtable len : ", len(ldf))
         ldf = DataProcessor.drop_many_nan_row(ldf, threshold=0.6)
         print("after dtable len : ", len(ldf))
+
+        # 섹터별 예측을 위해 sector 컬럼이 있는 복사본 저장
+        # ⚠️ CRITICAL: Save AFTER NaN row removal to ensure same row count
+        ldf_with_sector = ldf.copy() if self.use_sector_model else None
+
+        # sector 컬럼 제거 (global 모델은 sector를 사용하지 않음)
+        ldf = ldf.drop('sector', axis=1)
 
         # 입력 특성 준비
         input = ldf[ldf.columns.difference(y_col_list)]
