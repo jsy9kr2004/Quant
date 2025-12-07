@@ -744,6 +744,11 @@ class MLBacktest:
         first_sector = list(sector_models.keys())[0] if sector_models else None
         has_sector_classifiers = first_sector and 'classifier_0' in sector_models[first_sector]
 
+        # y 컬럼 리스트 (전처리에서 제외)
+        y_col_list = ['price_dev', 'sec_price_dev_subavg', 'symbol', 'date',
+                      'year_period', 'industry', 'rebalance_date', 'report_date',
+                      'fillingDate', 'fillingDate_x']
+
         # Sector-specific predictions (both classifiers and regressors if USE_CLASSIFIER=Y)
         for sector, sector_model in sector_models.items():
             sector_mask = result['sector'] == sector
@@ -753,8 +758,16 @@ class MLBacktest:
                 continue
 
             try:
-                feature_cols = sector_model['features']
-                X = sector_data[feature_cols].copy()
+                # ✅ Use unified preprocessing (DataProcessor.prepare_sector_data)
+                # Ensures consistency with regressor.py
+                first_regressor = sector_model['regressor_0']
+                X = DataProcessor.prepare_sector_data(
+                    sector_df=sector_data,
+                    sector_model=first_regressor,
+                    y_col_list=y_col_list,
+                    use_winsorization=True,  # Match regressor.py
+                    logger=self.logger
+                )
 
                 # Sector classifier prediction (if USE_CLASSIFIER=Y)
                 if has_sector_classifiers:
