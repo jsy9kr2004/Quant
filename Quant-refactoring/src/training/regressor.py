@@ -2561,7 +2561,8 @@ class Regressor:
             return
 
         # 최신 연도의 모든 분기 로드
-        ldf = pd.DataFrame()
+        # ✅ BEST PRACTICE: Use list append + concat with ignore_index (same as ml_backtest.py)
+        all_data = []
         loaded_quarters = []
 
         for Q in ['Q1', 'Q2', 'Q3', 'Q4']:
@@ -2569,29 +2570,26 @@ class Regressor:
 
             if os.path.exists(latest_data_path):
                 df = pd.read_parquet(latest_data_path)
-                ldf = pd.concat([ldf, df], axis=0)
+                all_data.append(df)
                 loaded_quarters.append(Q)
                 logging.info(f"Loaded {latest_year}_{Q}: {len(df)} rows")
             else:
                 logging.warning(f"Latest data file not found: {os.path.basename(latest_data_path)}")
 
-        if ldf.empty:
+        if not all_data:
             logging.error(f"No data loaded for latest year {latest_year}")
             logging.error(f"Checked quarters: Q1, Q2, Q3, Q4")
             return
 
+        # ✅ Concat with ignore_index=True to prevent duplicate indices
+        # This matches ml_backtest.py approach and eliminates the need for reset_index
+        ldf = pd.concat(all_data, ignore_index=True)
         logging.info(f"Total loaded for {latest_year}: {len(ldf)} rows from {loaded_quarters}")
 
         # year_period를 기준으로 내림차순 정렬하고 심볼당 첫 번째(가장 최근) 유지
         ldf = ldf.sort_values(by='year_period', ascending=False)
         ldf = ldf.drop_duplicates(subset='symbol', keep='first')
-
-        # ⚠️ CRITICAL: Reset index after drop_duplicates to avoid duplicate indices
-        # Multiple quarterly parquet files have overlapping indices (0, 1, 2, ...)
-        # After concat without ignore_index=True, we have duplicate indices
-        # This causes issues when using .loc[index] for sector predictions
-        ldf = ldf.reset_index(drop=True)
-        logging.info(f"  After deduplication and index reset: {len(ldf)} rows")
+        logging.info(f"  After deduplication: {len(ldf)} unique symbols")
 
         ldf = ldf.drop(columns=self.drop_col_list, errors='ignore')
 
