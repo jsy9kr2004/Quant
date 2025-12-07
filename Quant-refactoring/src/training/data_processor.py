@@ -203,6 +203,120 @@ class DataProcessor:
         return combined_df
 
     # ========================================================================
+    # Sector Prediction (Common Logic)
+    # ========================================================================
+
+    @staticmethod
+    def prepare_sector_data(
+        sector_df: pd.DataFrame,
+        sector_model: Any,
+        y_col_list: List[str],
+        use_winsorization: bool = True,
+        logger: Optional[logging.Logger] = None
+    ) -> pd.DataFrame:
+        """
+        섹터 데이터 전처리 (regressor.py와 ml_backtest.py 공통 로직)
+
+        이 함수는 섹터별 예측을 위한 데이터 전처리를 통합합니다.
+        regressor.py와 ml_backtest.py가 동일한 전처리를 사용하도록 보장합니다.
+
+        **Critical**: 백테스트 결과가 실제 예측과 일치하려면 동일한 전처리 필수
+
+        Parameters:
+        -----------
+        sector_df : pd.DataFrame
+            섹터 필터링된 원본 데이터 (sector 컬럼 포함)
+        sector_model : Any
+            섹터 모델 (feature list 추출용)
+        y_col_list : List[str]
+            제외할 타겟 컬럼 리스트
+        use_winsorization : bool
+            Winsorization 적용 여부
+        logger : Optional[logging.Logger]
+            Logger instance
+
+        Returns:
+        --------
+        pd.DataFrame
+            전처리된 feature 데이터 (X)
+
+        Steps:
+        ------
+        1. sector 컬럼 제거
+        2. y 컬럼 제외하고 feature만 추출
+        3. Feature name cleaning
+        4. Feature alignment (모델이 학습한 피처만 유지)
+        5. Winsorization 적용
+
+        Example:
+        --------
+        X = DataProcessor.prepare_sector_data(
+            sector_df=df[df['sector'] == 'Healthcare'],
+            sector_model=sector_models[('Healthcare', 0)],
+            y_col_list=['price_dev', 'sec_price_dev_subavg'],
+            use_winsorization=True
+        )
+        y_pred = sector_model.predict(X)
+        """
+        if logger is None:
+            logger = logging.getLogger('DataProcessor')
+
+        # 1. 섹터 컬럼 제거
+        df_no_sector = sector_df.drop('sector', axis=1, errors='ignore')
+
+        # 2. y 컬럼 제외하고 feature만 추출
+        X = df_no_sector[df_no_sector.columns.difference(y_col_list)]
+
+        # 3. Feature name cleaning (특수문자 제거)
+        X = DataProcessor.clean_feature_names(X)
+
+        # 4. Feature alignment (모델이 학습한 피처만 유지)
+        if hasattr(sector_model, 'get_booster'):
+            model_features = sector_model.get_booster().feature_names
+            if model_features is not None:
+                # 누락된 피처는 NaN으로 채우기
+                missing_features = set(model_features) - set(X.columns)
+                for col in missing_features:
+                    X[col] = np.nan
+
+                # 모델 피처만 선택 (순서 맞춤)
+                X = X[model_features]
+
+        # 5. Winsorization 적용
+        if use_winsorization:
+            X = DataProcessor.winsorize_features(
+                X,
+                lower_percentile=0.01,
+                upper_percentile=0.99,
+                enabled=True
+            )
+
+        return X
+
+    @staticmethod
+    def clean_feature_names(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Feature 이름에서 특수문자 제거
+
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            Input dataframe
+
+        Returns:
+        --------
+        pd.DataFrame
+            Cleaned feature names
+        """
+        # 컬럼명에서 특수문자 제거
+        df.columns = df.columns.str.replace('[', '_', regex=False)
+        df.columns = df.columns.str.replace(']', '_', regex=False)
+        df.columns = df.columns.str.replace('<', '_', regex=False)
+        df.columns = df.columns.str.replace('>', '_', regex=False)
+        df.columns = df.columns.str.replace(',', '_', regex=False)
+        return df
+
+    # ========================================================================
     # Sparse Data Handling
     # ========================================================================
 

@@ -2755,36 +2755,16 @@ class Regressor:
             for sec in self.sector_list:
                 sec_df = ldf[ldf['sector']==sec].copy()
 
-                # 섹터별 데이터에도 동일한 전처리 적용
-                # 1. 섹터 컬럼 제거
-                sec_df_nosector = sec_df.drop('sector', axis=1)
-
-                # 2. y 컬럼 제외하고 feature만 추출 (전역 모델과 동일)
-                sec_input = sec_df_nosector[sec_df_nosector.columns.difference(y_col_list)]
-                sec_input = self.clean_feature_names(sec_input)
-
-                # 3. Feature alignment (학습 시 사용한 피처만 유지)
-                # 섹터 모델의 feature list 가져오기
+                # ✅ Use unified preprocessing (DataProcessor.prepare_sector_data)
+                # Ensures consistency with ml_backtest.py
                 first_sector_model = self.sector_models[(sec, 0)]
-                if hasattr(first_sector_model, 'get_booster'):
-                    model_features = first_sector_model.get_booster().feature_names
-                    if model_features is not None:
-                        # 누락된 피처는 NaN으로 채우기
-                        missing_features = set(model_features) - set(sec_input.columns)
-                        for col in missing_features:
-                            sec_input[col] = np.nan
-
-                        # 모델 피처만 선택 (순서 맞춤)
-                        sec_input = sec_input[model_features]
-
-                # 4. Winsorization 적용 (전역 모델과 동일)
-                if self.use_winsorization:
-                    sec_input = DataProcessor.winsorize_features(
-                        sec_input,
-                        lower_percentile=0.01,
-                        upper_percentile=0.99,
-                        enabled=True
-                    )
+                sec_input = DataProcessor.prepare_sector_data(
+                    sector_df=sec_df,
+                    sector_model=first_sector_model,
+                    y_col_list=y_col_list,
+                    use_winsorization=self.use_winsorization,
+                    logger=logging.getLogger()
+                )
 
                 # 전처리된 데이터를 indata로 사용
                 indata = sec_input
@@ -2805,10 +2785,12 @@ class Regressor:
                 sec_df.to_csv(MODEL_SAVE_PATH+"sec_{}_latest_prediction.csv".format(sec))
 
                 # 섹터별 상위 K개 (config의 TOP_K_NUM 사용, ml_backtest.py와 동일)
+                # ⚠️ 섹터 예측은 wbinary 컬럼을 생성하지 않으므로, 실제 생성된 컬럼만 사용
+                sector_pred_col_list = ['ai_pred_avg', 'model_0_prediction', 'model_1_prediction']
                 topk_list = [(0, self.top_k_num - 1)]
                 for s, e in topk_list:
                     logging.info("top" + str(s) + " ~ " + str(e))
-                    for col in pred_col_list:
+                    for col in sector_pred_col_list:
                         top_k_df = sec_df.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
                         top_k_df.to_csv(MODEL_SAVE_PATH+'latest_prediction_{}_{}_top{}-{}.csv'.format(col, sec, s, e))
                         symbols = top_k_df['symbol'].to_list()
