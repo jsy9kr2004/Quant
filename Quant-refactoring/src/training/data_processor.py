@@ -82,6 +82,127 @@ class DataProcessor:
         self.is_fitted = False
 
     # ========================================================================
+    # Data Loading (Quarterly Parquet Files)
+    # ========================================================================
+
+    @staticmethod
+    def load_quarterly_data(
+        data_dir: str,
+        year: int,
+        file_prefix: str = 'rnorm_ml',
+        quarters: Optional[List[str]] = None,
+        cutoff_date: Optional[pd.Timestamp] = None,
+        logger: Optional[logging.Logger] = None
+    ) -> pd.DataFrame:
+        """
+        Load and concatenate quarterly parquet files.
+
+        This method provides a unified way to load quarterly data for both
+        regressor.py (latest prediction) and ml_backtest.py (backtesting).
+
+        **Key Features**:
+        - Loads multiple quarterly parquet files (Q1, Q2, Q3, Q4)
+        - Concatenates with ignore_index=True (prevents duplicate indices)
+        - Optional cutoff_date filtering for backtesting
+        - Consistent error handling
+
+        Parameters:
+        -----------
+        data_dir : str
+            Directory containing parquet files
+        year : int
+            Year to load (e.g., 2025)
+        file_prefix : str
+            File prefix (default: 'rnorm_ml')
+            - Use 'rnorm_ml' for backtesting
+            - Use 'rnorm_fs' for latest prediction
+        quarters : Optional[List[str]]
+            Quarters to load (default: ['Q1', 'Q2', 'Q3', 'Q4'])
+        cutoff_date : Optional[pd.Timestamp]
+            If provided, filter data where fillingDate <= cutoff_date
+            Used for backtesting to simulate historical knowledge
+        logger : Optional[logging.Logger]
+            Logger instance
+
+        Returns:
+        --------
+        pd.DataFrame
+            Combined quarterly data with clean sequential index
+
+        Raises:
+        -------
+        ValueError
+            If no data files found for the specified year
+
+        Example (regressor.py):
+        -----------------------
+        ldf = DataProcessor.load_quarterly_data(
+            data_dir='../data_parquet/ml_input',
+            year=2025,
+            file_prefix='rnorm_fs',
+            logger=logging.getLogger()
+        )
+
+        Example (ml_backtest.py):
+        --------------------------
+        df = DataProcessor.load_quarterly_data(
+            data_dir=self.data_path,
+            year=2023,
+            file_prefix='rnorm_ml',
+            cutoff_date=pd.Timestamp('2023-06-15'),
+            logger=self.logger
+        )
+        """
+        if logger is None:
+            logger = logging.getLogger('DataProcessor')
+
+        if quarters is None:
+            quarters = ['Q1', 'Q2', 'Q3', 'Q4']
+
+        all_data = []
+        loaded_quarters = []
+
+        for Q in quarters:
+            file_path = Path(data_dir) / f'{file_prefix}_{year}_{Q}.parquet'
+
+            if not file_path.exists():
+                logger.debug(f"Quarterly file not found: {file_path.name}")
+                continue
+
+            try:
+                df = pd.read_parquet(file_path)
+
+                # Apply cutoff_date filter if provided (for backtesting)
+                if cutoff_date is not None and 'fillingDate' in df.columns:
+                    df['fillingDate'] = pd.to_datetime(df['fillingDate'])
+                    df = df[df['fillingDate'] <= cutoff_date]
+
+                if not df.empty:
+                    all_data.append(df)
+                    loaded_quarters.append(Q)
+                    logger.debug(f"Loaded {year}_{Q}: {len(df)} rows")
+
+            except Exception as e:
+                logger.warning(f"Failed to load {file_path.name}: {e}")
+                continue
+
+        if not all_data:
+            raise ValueError(
+                f"No data loaded for year {year} "
+                f"(prefix='{file_prefix}', quarters={quarters})"
+            )
+
+        # ✅ Concat with ignore_index=True to prevent duplicate indices
+        # This is critical for sector predictions using .loc[index]
+        combined_df = pd.concat(all_data, ignore_index=True)
+        logger.info(
+            f"Loaded {year} data: {len(combined_df)} rows "
+            f"from quarters {loaded_quarters}"
+        )
+
+        return combined_df
+
+    # ========================================================================
     # Sparse Data Handling
     # ========================================================================
 
