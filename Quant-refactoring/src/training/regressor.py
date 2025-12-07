@@ -2805,10 +2805,12 @@ class Regressor:
                 sec_df.to_csv(MODEL_SAVE_PATH+"sec_{}_latest_prediction.csv".format(sec))
 
                 # 섹터별 상위 K개 (config의 TOP_K_NUM 사용, ml_backtest.py와 동일)
+                # ⚠️ 섹터 예측은 wbinary 컬럼을 생성하지 않으므로, 실제 생성된 컬럼만 사용
+                sector_pred_col_list = ['ai_pred_avg', 'model_0_prediction', 'model_1_prediction']
                 topk_list = [(0, self.top_k_num - 1)]
                 for s, e in topk_list:
                     logging.info("top" + str(s) + " ~ " + str(e))
-                    for col in pred_col_list:
+                    for col in sector_pred_col_list:
                         top_k_df = sec_df.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
                         top_k_df.to_csv(MODEL_SAVE_PATH+'latest_prediction_{}_{}_top{}-{}.csv'.format(col, sec, s, e))
                         symbols = top_k_df['symbol'].to_list()
