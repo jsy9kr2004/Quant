@@ -2585,6 +2585,14 @@ class Regressor:
         # year_period를 기준으로 내림차순 정렬하고 심볼당 첫 번째(가장 최근) 유지
         ldf = ldf.sort_values(by='year_period', ascending=False)
         ldf = ldf.drop_duplicates(subset='symbol', keep='first')
+
+        # ⚠️ CRITICAL: Reset index after drop_duplicates to avoid duplicate indices
+        # Multiple quarterly parquet files have overlapping indices (0, 1, 2, ...)
+        # After concat without ignore_index=True, we have duplicate indices
+        # This causes issues when using .loc[index] for sector predictions
+        ldf = ldf.reset_index(drop=True)
+        logging.info(f"  After deduplication and index reset: {len(ldf)} rows")
+
         ldf = ldf.drop(columns=self.drop_col_list, errors='ignore')
 
         # Parquet 파일은 인덱스 컬럼 없음 (CSV와 달리)
@@ -2761,14 +2769,6 @@ class Regressor:
             # 섹터별로 예측 수행
             for sec in self.sector_list:
                 sec_df = ldf[ldf['sector']==sec].copy()
-                logging.info(f"\n{'='*70}")
-                logging.info(f"🔍 DEBUG: Processing sector '{sec}'")
-                logging.info(f"  sec_df shape: {sec_df.shape}")
-                logging.info(f"  sec_df index type: {type(sec_df.index)}")
-                logging.info(f"  sec_df has duplicate indices: {sec_df.index.duplicated().any()}")
-                if sec_df.index.duplicated().any():
-                    dup_count = sec_df.index.duplicated().sum()
-                    logging.warning(f"  ⚠️ Found {dup_count} duplicate indices in sec_df!")
 
                 # 섹터별 데이터에도 동일한 전처리 적용
                 # 1. 섹터 컬럼 제거
@@ -2776,10 +2776,7 @@ class Regressor:
 
                 # 2. y 컬럼 제외하고 feature만 추출 (전역 모델과 동일)
                 sec_input = sec_df_nosector[sec_df_nosector.columns.difference(y_col_list)]
-                logging.info(f"  After y column removal: {sec_input.shape}")
-
                 sec_input = self.clean_feature_names(sec_input)
-                logging.info(f"  After clean_feature_names: {sec_input.shape}, index matches: {sec_input.index.equals(sec_df.index)}")
 
                 # 3. Feature alignment (학습 시 사용한 피처만 유지)
                 # 섹터 모델의 feature list 가져오기
@@ -2794,24 +2791,15 @@ class Regressor:
 
                         # 모델 피처만 선택 (순서 맞춤)
                         sec_input = sec_input[model_features]
-                        logging.info(f"  After feature alignment: {sec_input.shape}, index matches: {sec_input.index.equals(sec_df.index)}")
 
                 # 4. Winsorization 적용 (전역 모델과 동일)
                 if self.use_winsorization:
-                    before_shape = sec_input.shape
                     sec_input = DataProcessor.winsorize_features(
                         sec_input,
                         lower_percentile=0.01,
                         upper_percentile=0.99,
                         enabled=True
                     )
-                    logging.info(f"  After winsorization: {sec_input.shape} (before: {before_shape}), index matches: {sec_input.index.equals(sec_df.index)}")
-                    if sec_input.shape[0] != before_shape[0]:
-                        logging.error(f"  ❌ Winsorization CHANGED ROW COUNT: {before_shape[0]} → {sec_input.shape[0]}")
-
-                logging.info(f"  Final sec_input shape: {sec_input.shape}")
-                logging.info(f"  sec_df.loc[sec_input.index] would select: {len(sec_df.loc[sec_input.index])} rows")
-                logging.info(f"{'='*70}\n")
 
                 # 전처리된 데이터를 indata로 사용
                 indata = sec_input
