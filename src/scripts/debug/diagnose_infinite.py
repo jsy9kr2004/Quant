@@ -14,7 +14,7 @@ def analyze_log():
     print("🔍 로그 파일 분석: 무한대 값 컬럼 찾기")
     print("=" * 80)
 
-    with open('Quant-refactoring/log_to_git_5', 'r') as f:
+    with open('log_to_git_5', 'r') as f:
         content = f.read()
 
     # 1. 필터 통계 분석 (not_in_data, nan>=30%, has_infinite)
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     try:
         analyze_log()
     except FileNotFoundError:
-        print("❌ 로그 파일을 찾을 수 없습니다: Quant-refactoring/log_to_git_5")
+        print("❌ 로그 파일을 찾을 수 없습니다: log_to_git_5")
         print("현재 디렉토리에서 실행해야 합니다.")
     except Exception as e:
         print(f"❌ 오류 발생: {e}")

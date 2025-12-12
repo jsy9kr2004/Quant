@@ -965,7 +965,7 @@ class MLBacktest:
         if not backtest_config:
             raise ValueError(
                 "BACKTEST section not found in config/conf.yaml!\n"
-                "Please add BACKTEST section to Quant-refactoring/config/conf.yaml"
+                "Please add BACKTEST section to config/conf.yaml"
             )
 
         # 여러 구간 지원: PERIODS 리스트 또는 단일 START_YEAR/END_YEAR

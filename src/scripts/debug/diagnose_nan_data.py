@@ -12,7 +12,8 @@ NaN 데이터 진단 스크립트
 
 import sys
 import os
-sys.path.append('Quant-refactoring')
+# Add parent directories to path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
 import pandas as pd
 import numpy as np
@@ -27,7 +28,7 @@ def diagnose_nan_patterns():
     print("=" * 80)
 
     # 설정 로드
-    config = load_config('Quant-refactoring/config/conf.yaml')
+    config = load_config('config/conf.yaml')
     main_ctx = MainContext(config)
 
     # VIEW 데이터 로드
