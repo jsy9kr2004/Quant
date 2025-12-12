@@ -139,8 +139,7 @@ def main():
         # 여러 경로에서 설정 파일 찾기
         config_paths = [
             'config/conf.yaml',
-            '../config/conf.yaml',
-            'Quant-refactoring/config/conf.yaml'
+            '../config/conf.yaml'
         ]
 
         config = None
