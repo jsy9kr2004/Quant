@@ -675,10 +675,16 @@ class MLBacktest:
         pd.DataFrame
             예측 결과 포함 데이터프레임
         """
-        feature_cols = models['features']
-        # No scaler needed - tree models don't require scaling
+        # ===== Feature Alignment (Unified via DataProcessor) =====
+        # Uses DataProcessor.align_features_to_model() to ensure consistency
+        # with regressor.py and eliminate code duplication
 
-        X = test_data[feature_cols].copy()
+        # Choose model for feature extraction (prefer classifier if available)
+        reference_model = models['classifier'] if models['classifier'] is not None else models['regressor']
+
+        X = test_data.copy()
+        X = DataProcessor.align_features_to_model(X, reference_model, self.logger)
+
         # ✅ NaN handling: Let XGBoost/LightGBM handle NaN during prediction
         # Don't fillna(0) - models trained with NaN can handle NaN in test data
 
