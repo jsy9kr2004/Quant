@@ -206,7 +206,8 @@ class ModelFactory:
             Single regression model
         """
         device = 'cuda:0' if use_gpu else 'cpu'
-        tree_method = 'gpu_hist' if use_gpu else 'hist'
+        # XGBoost 2.0+: Use device parameter for GPU, tree_method='hist' for all cases
+        tree_method = 'hist'
 
         # ===== Classifier (only if USE_CLASSIFIER=Y) =====
         classifier = None
