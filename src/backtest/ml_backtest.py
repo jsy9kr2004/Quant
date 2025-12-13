@@ -678,7 +678,21 @@ class MLBacktest:
         feature_cols = models['features']
         # No scaler needed - tree models don't require scaling
 
-        X = test_data[feature_cols].copy()
+        # ===== Feature Alignment =====
+        # Handle missing features by filling with NaN (same as regressor.py)
+        X = test_data.copy()
+
+        # Add missing features with NaN
+        missing_features = set(feature_cols) - set(X.columns)
+        if missing_features:
+            self.logger.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with NaN")
+            for col in missing_features:
+                X[col] = np.nan
+
+        # Select only required features in correct order
+        X = X[feature_cols]
+        self.logger.info(f"   ✅ Feature alignment complete: {len(X.columns)} features")
+
         # ✅ NaN handling: Let XGBoost/LightGBM handle NaN during prediction
         # Don't fillna(0) - models trained with NaN can handle NaN in test data
 
