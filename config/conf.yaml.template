@@ -1,53 +1,53 @@
-# Quant Trading System Configuration Template
-# Copy this file to conf.yaml and fill in your settings
+# 퀀트 트레이딩 시스템 설정 템플릿
+# 이 파일을 conf.yaml로 복사한 후 설정을 입력하세요
 
 # ============================================================================
-# DATA Configuration
+# 데이터 설정 (DATA Configuration)
 # ============================================================================
 DATA:
-  # Years to process (maximum historical range for comprehensive learning)
-  START_YEAR: 1996  # FMP API provides ~30 years of historical data
+  # 처리할 연도 범위 (포괄적 학습을 위한 최대 히스토리)
+  START_YEAR: 1996  # FMP API는 약 30년의 히스토리 데이터 제공
   END_YEAR: 2025
 
-  # Data root path (will create subdirectories here)
+  # 데이터 저장 경로 (하위 디렉토리가 자동 생성됨)
   ROOT_PATH: /home/user/Quant/data
 
-  # FMP API settings
+  # FMP API 설정
   FMP_URL: https://financialmodelingprep.com
-  API_KEY: YOUR_FMP_API_KEY_HERE  # Get from https://site.financialmodelingprep.com/
-  EX_SYMBOL: AAPL  # Example symbol used for URL parsing (usually don't need to change)
+  API_KEY: YOUR_FMP_API_KEY_HERE  # https://site.financialmodelingprep.com/ 에서 발급
+  EX_SYMBOL: AAPL  # URL 파싱용 예제 심볼 (보통 변경 불필요)
   TARGET_STOCK_LIST: /home/user/Quant/stocks.csv
   TARGET_API_LIST: data_collector/target_api_list.csv
 
-  # Data collection
-  GET_FMP: N  # Y = Fetch new data from FMP, N = Use existing data
-  MAKE_VIEW: N  # Y = Rebuild VIEW CSVs from existing data (works even when GET_FMP=N), N = Skip
-  STORAGE_TYPE: PARQUET  # PARQUET (recommended) or DB
+  # 데이터 수집
+  GET_FMP: N  # Y = FMP에서 새 데이터 가져오기, N = 기존 데이터 사용
+  MAKE_VIEW: N  # Y = 기존 데이터로 VIEW CSV 재생성 (GET_FMP=N일 때도 동작), N = 건너뛰기
+  STORAGE_TYPE: PARQUET  # PARQUET (권장) 또는 DB
 
   # Debug mode removed: SAVE_DEBUG_CSV not used in codebase
 
 # ============================================================================
-# ML Configuration
+# 머신러닝 설정 (ML Configuration)
 # ============================================================================
 ML:
-  # Enable ML training
-  RUN_REGRESSION: Y  # Y = Train models, N = Skip
+  # ML 학습 실행 여부
+  RUN_REGRESSION: Y  # Y = 모델 학습, N = 건너뛰기
 
-  # Training/test split by year
-  # Train on maximum historical data for diverse market conditions
+  # 연도별 학습/테스트 데이터 분할
+  # 다양한 시장 상황을 학습하기 위해 최대한 긴 히스토리 데이터로 학습
   TRAIN_START_YEAR: 1996
   TRAIN_END_YEAR: 2022
-  # Test on recent 3 years to validate performance on latest market trends
+  # 최근 3년 데이터로 테스트하여 최신 시장 트렌드 반영 여부 검증
   TEST_START_YEAR: 2023
   TEST_END_YEAR: 2025
 
-  # NaN removal diagnostics (초기 데이터 품질 확인용)
+  # NaN 제거 진단 (초기 데이터 품질 확인용)
   EXPORT_NAN_REMOVAL_DETAILS: Y  # Y = 제거된 NaN 데이터를 CSV로 저장, N = 로그만 출력
 
-  # Model selection (use new models or legacy)
-  USE_NEW_MODELS: N  # Y = Use new CatBoost/MLflow, N = Use legacy regressor.py
+  # 모델 선택 (신규 모델 vs 레거시 모델)
+  USE_NEW_MODELS: N  # Y = 신규 CatBoost/MLflow 사용, N = 레거시 regressor.py 사용
 
-  # Models to train (if USE_NEW_MODELS = Y)
+  # 학습할 모델 목록 (USE_NEW_MODELS = Y일 때만)
   MODELS:
     - xgboost_default
     - xgboost_depth_9
@@ -58,51 +58,51 @@ ML:
 
   # Ensemble removed: Not implemented
 
-  # Hyperparameter optimization (recommended for production)
-  USE_OPTUNA: Y  # Y = Auto-tune hyperparameters for optimal performance
+  # 하이퍼파라미터 최적화 (프로덕션 환경 권장)
+  USE_OPTUNA: Y  # Y = 자동 하이퍼파라미터 튜닝으로 최적 성능 추구
 
   # ===== Classifier Optuna (전체 데이터로 최적화) =====
   # ===== Test Mode (빠른 동작 확인용 - 모델 성능보다 실행 가능 여부 테스트) =====
-  OPTUNA_TRIALS: 3  # Minimal trials for quick test
-  OPTUNA_CV_FOLDS: 2  # Minimal CV folds
-  OPTUNA_TIMEOUT: 300  # 5 minutes limit
+  OPTUNA_TRIALS: 3  # 빠른 테스트용 최소 trial 수
+  OPTUNA_CV_FOLDS: 2  # 빠른 테스트용 최소 CV fold 수
+  OPTUNA_TIMEOUT: 300  # 5분 제한
 
   # ===== Production Mode (실전 투자용 - 최고 성능 추구) =====
-  # OPTUNA_TRIALS: 50  # Thorough optimization (recommended)
-  # OPTUNA_CV_FOLDS: 5  # Full cross-validation
-  # OPTUNA_TIMEOUT: null  # No time limit (may take 40-80 hours)
+  # OPTUNA_TRIALS: 50  # 철저한 최적화 (권장)
+  # OPTUNA_CV_FOLDS: 5  # 전체 교차 검증
+  # OPTUNA_TIMEOUT: null  # 시간 제한 없음 (40-80시간 소요 가능)
 
-  OPTUNA_SAVE_REPORT: Y  # Y = Save detailed TXT/CSV/JSON reports
-  OPTUNA_SAVE_PLOTS: Y  # Y = Save PNG visualization charts
+  OPTUNA_SAVE_REPORT: Y  # Y = 상세 TXT/CSV/JSON 리포트 저장
+  OPTUNA_SAVE_PLOTS: Y  # Y = PNG 시각화 차트 저장
 
-  # Optuna search space (updated for memory safety and overfitting prevention)
-  # Based on analysis: max_depth=8, n_estimators=500 prevents memory errors
+  # Optuna 탐색 공간 (메모리 안전성 및 과적합 방지를 위해 업데이트됨)
+  # 분석 결과: max_depth=8, n_estimators=500이 메모리 오류 방지
   OPTUNA_SEARCH_SPACE:
-    n_estimators: [100, 500]  # Limited to prevent memory allocation errors
-    learning_rate: [0.01, 0.3]  # Minimum 0.01 to avoid extremely slow learning
-    max_depth: [3, 8]  # Limited to 8 for memory safety and overfitting prevention
-    subsample: [0.5, 1.0]  # Row sampling ratio
-    colsample_bytree: [0.5, 1.0]  # Column sampling ratio
-    gamma: [0, 10]  # Minimum loss reduction for split
+    n_estimators: [100, 500]  # 메모리 할당 오류 방지를 위해 제한
+    learning_rate: [0.01, 0.3]  # 최소 0.01 (너무 느린 학습 방지)
+    max_depth: [3, 8]  # 메모리 안전성 및 과적합 방지를 위해 8로 제한
+    subsample: [0.5, 1.0]  # 행 샘플링 비율
+    colsample_bytree: [0.5, 1.0]  # 열 샘플링 비율
+    gamma: [0, 10]  # 분할을 위한 최소 손실 감소
 
   # ===== Sector-specific Optuna (섹터별 개별 최적화) =====
-  OPTUNA_OPTIMIZE_SECTORS: Y  # Y = Optimize each sector separately, N = Use SECTOR_CONFIG only
-  OPTUNA_SECTOR_TRIALS: 30  # Trials per sector (less than classifier for efficiency)
-  OPTUNA_SECTOR_CV_FOLDS: 2  # CV folds for sector optimization
-  OPTUNA_SECTOR_TIMEOUT: 180  # Timeout per sector (3 minutes in test mode)
+  OPTUNA_OPTIMIZE_SECTORS: Y  # Y = 각 섹터별로 개별 최적화, N = SECTOR_CONFIG만 사용
+  OPTUNA_SECTOR_TRIALS: 30  # 섹터당 trial 수 (효율성을 위해 classifier보다 적게)
+  OPTUNA_SECTOR_CV_FOLDS: 2  # 섹터 최적화용 CV fold 수
+  OPTUNA_SECTOR_TIMEOUT: 180  # 섹터당 타임아웃 (테스트 모드에서 3분)
 
-  # ===== Optuna Result Reuse (결과 재사용) =====
-  OPTUNA_REUSE_EXISTING: Y  # Y = Reuse existing results if available, N = Always re-optimize
-  OPTUNA_REUSE_MAX_AGE_DAYS: 7  # Maximum age in days for reusing results (0 = always reuse)
-  # Note: Results saved to {ROOT_PATH}/models/optuna/ for portability
+  # ===== Optuna 결과 재사용 (Result Reuse) =====
+  OPTUNA_REUSE_EXISTING: Y  # Y = 기존 결과 재사용 (있으면), N = 항상 재최적화
+  OPTUNA_REUSE_MAX_AGE_DAYS: 7  # 결과 재사용 가능 최대 일수 (0 = 항상 재사용)
+  # 참고: 결과는 {ROOT_PATH}/models/optuna/에 저장되어 이식성 보장
 
-  # MLflow experiment tracking
-  USE_MLFLOW: N  # Y = Track experiments with MLflow
+  # MLflow 실험 추적
+  USE_MLFLOW: N  # Y = MLflow로 실험 추적
   MLFLOW_EXPERIMENT: quant_trading_v2
-  MLFLOW_TRACKING_URI: null  # null for local, or http://server:5000
+  MLFLOW_TRACKING_URI: null  # 로컬은 null, 서버는 http://server:5000
 
-  # Exit after ML (don't run backtest)
-  EXIT_AFTER_ML: Y  # Y = Exit after ML, N = Continue to backtest
+  # ML 후 종료 (백테스트 실행 안 함)
+  EXIT_AFTER_ML: Y  # Y = ML 후 종료, N = 백테스트 계속
 
   # ============================================================================
   # Model Architecture (모델 아키텍처)
@@ -113,55 +113,55 @@ ML:
   USE_CLASSIFIER: Y
 
   # ============================================================================
-  # Classifier Threshold Configuration (분류기 임계값 설정)
+  # 분류기 임계값 설정 (Classifier Threshold Configuration)
   # ============================================================================
-  # Determines which stocks pass Stage 1 filtering before Stage 2 regression
+  # Stage 1 필터링 후 Stage 2 회귀로 넘어갈 종목을 결정
 
-  # Automatic threshold optimization (recommended)
-  CLASSIFIER_THRESHOLD_AUTO_SEARCH: Y  # Y = Auto-find optimal threshold, N = Use fixed value
+  # 자동 임계값 최적화 (권장)
+  CLASSIFIER_THRESHOLD_AUTO_SEARCH: Y  # Y = 최적 임계값 자동 탐색, N = 고정값 사용
 
-  # Fixed threshold (only used when AUTO_SEARCH = N)
-  CLASSIFIER_THRESHOLD_PERCENTILE: 92  # Percentile cutoff (92 = top 8%)
+  # 고정 임계값 (AUTO_SEARCH = N일 때만 사용)
+  CLASSIFIER_THRESHOLD_PERCENTILE: 92  # 백분위수 cutoff (92 = 상위 8%)
 
-  # Auto-search configuration
-  CLASSIFIER_THRESHOLD_SEARCH_MIN: 85  # Minimum percentile to test (85 = top 15%)
-  CLASSIFIER_THRESHOLD_SEARCH_MAX: 98  # Maximum percentile to test (98 = top 2%)
+  # 자동 탐색 설정
+  CLASSIFIER_THRESHOLD_SEARCH_MIN: 85  # 테스트할 최소 백분위수 (85 = 상위 15%)
+  CLASSIFIER_THRESHOLD_SEARCH_MAX: 98  # 테스트할 최대 백분위수 (98 = 상위 2%)
 
-  # Selection criteria for optimal threshold
-  CLASSIFIER_THRESHOLD_MIN_PRECISION: 0.65  # Minimum precision required (65%)
-  CLASSIFIER_THRESHOLD_MIN_SAMPLES: 30      # Minimum stocks after filtering
-  CLASSIFIER_THRESHOLD_STRATEGY: "balance"  # "precision" (max precision) or "balance" (precision + data size)
+  # 최적 임계값 선택 기준
+  CLASSIFIER_THRESHOLD_MIN_PRECISION: 0.65  # 필요한 최소 precision (65%)
+  CLASSIFIER_THRESHOLD_MIN_SAMPLES: 30      # 필터링 후 최소 종목 수
+  CLASSIFIER_THRESHOLD_STRATEGY: "balance"  # "precision" (최대 정확도) 또는 "balance" (정확도 + 데이터 크기)
 
-  # How auto-search works:
-  # 1. Train classifier on all data
-  # 2. Test percentiles 85-98 to find where classifier is most accurate
-  # 3. Select threshold that meets min_precision with max data (balance mode)
-  #    OR select threshold with highest precision (precision mode)
-  # 4. Use this threshold to filter stocks before training regressor
-  # 5. Save threshold config with model for consistent evaluation
+  # 자동 탐색 작동 방식:
+  # 1. 모든 데이터로 분류기 학습
+  # 2. 백분위수 85-98을 테스트하여 분류기가 가장 정확한 지점 찾기
+  # 3. min_precision을 만족하면서 최대 데이터를 가진 임계값 선택 (balance 모드)
+  #    또는 가장 높은 precision을 가진 임계값 선택 (precision 모드)
+  # 4. 이 임계값으로 종목을 필터링한 후 회귀기 학습
+  # 5. 일관된 평가를 위해 모델과 함께 임계값 설정 저장
 
   # ============================================================================
-  # Sector-based Model Training (섹터별 모델 학습)
+  # 섹터별 모델 학습 (Sector-based Model Training)
   # ============================================================================
-  # Y = Train separate models per sector (each sector gets own classifiers + regressors)
-  # N = Train global models for all stocks (one set of classifiers + regressors)
+  # Y = 섹터별로 독립적인 모델 학습 (각 섹터가 자체 분류기 + 회귀기 보유)
+  # N = 전체 종목에 대한 글로벌 모델 학습 (하나의 분류기 + 회귀기 세트)
   #
-  # When USE_SECTOR_MODEL: Y and USE_CLASSIFIER: Y
-  #   → Each sector: 4 classifiers + 2 regressors (fully independent)
-  # When USE_SECTOR_MODEL: Y and USE_CLASSIFIER: N
-  #   → Each sector: 2 regressors only
-  # When USE_SECTOR_MODEL: N and USE_CLASSIFIER: Y
-  #   → Global: 4 classifiers + 2 regressors
-  # When USE_SECTOR_MODEL: N and USE_CLASSIFIER: N
-  #   → Global: 2 regressors only
+  # USE_SECTOR_MODEL: Y and USE_CLASSIFIER: Y인 경우
+  #   → 각 섹터: 4 분류기 + 2 회귀기 (완전 독립)
+  # USE_SECTOR_MODEL: Y and USE_CLASSIFIER: N인 경우
+  #   → 각 섹터: 2 회귀기만
+  # USE_SECTOR_MODEL: N and USE_CLASSIFIER: Y인 경우
+  #   → 글로벌: 4 분류기 + 2 회귀기
+  # USE_SECTOR_MODEL: N and USE_CLASSIFIER: N인 경우
+  #   → 글로벌: 2 회귀기만
   USE_SECTOR_MODEL: Y
 
-  # Sector configuration (only used if USE_SECTOR_MODEL = Y)
+  # 섹터 설정 (USE_SECTOR_MODEL = Y일 때만 사용)
   SECTOR_CONFIG:
-    # Default: Use same model for all sectors (XGBoost)
-    # Advanced: Customize model per sector for better performance
+    # 기본: 모든 섹터에 동일한 모델 사용 (XGBoost)
+    # 고급: 섹터별로 모델을 커스터마이징하여 더 나은 성능 추구
 
-    # Example 1: Same model, different parameters per sector
+    # 예시 1: 동일한 모델, 섹터별로 다른 파라미터
     Technology:
       model: xgboost  # xgboost, lightgbm, catboost
       n_estimators: 200
@@ -192,7 +192,7 @@ ML:
       max_depth: 6
       learning_rate: 0.1
 
-    # Example 2: Different models per sector (uncomment to use)
+    # 예시 2: 섹터별로 다른 모델 (사용하려면 주석 해제)
     # Technology:
     #   model: xgboost
     #   n_estimators: 200
@@ -209,11 +209,11 @@ ML:
     #   depth: 7
 
 # ============================================================================
-# BACKTEST Configuration (ML Walk-Forward 백테스트)
+# 백테스트 설정 (BACKTEST Configuration - ML Walk-Forward)
 # ============================================================================
 BACKTEST:
-  # Run backtesting
-  RUN_BACKTEST: Y  # Y = Run backtest, N = Skip
+  # 백테스트 실행 여부
+  RUN_BACKTEST: Y  # Y = 백테스트 실행, N = 건너뛰기
 
   # ===== 옵션 1: 여러 구간 백테스트 (권장) =====
   # 서로 다른 시기의 성과를 별도로 측정
@@ -247,79 +247,79 @@ BACKTEST:
   REBALANCE_PERIOD: 3  # 리밸런싱 주기 (개월)
   TOP_K_NUM: 20        # 선택할 종목 수 (포트폴리오 크기)
 
-  # Reports to generate
+  # 생성할 리포트 목록
   REPORT_LIST:
-    - EVAL
-    - RANK
-    - AI
+    - EVAL  # 평가 리포트
+    - RANK  # 종목 순위 리포트
+    - AI    # AI 예측 리포트
 
 # ============================================================================
-# FEATURE ENGINEERING Configuration
+# 피처 엔지니어링 설정 (FEATURE ENGINEERING Configuration)
 # ============================================================================
 FEATURES:
-  # Minimum trading volume (percentile) - filters out illiquid stocks
-  # Note: Calculated per year, so automatically adjusts for market conditions (M2, inflation)
-  # 10 = bottom 10% (very conservative, removes only extreme illiquidity)
-  # 20 = bottom 20% (conservative)
-  # 50 = bottom 50% (too aggressive, not recommended)
+  # 최소 거래량 필터링 (백분위수) - 비유동성 종목 제거
+  # 참고: 연도별로 계산되므로 시장 상황(M2, 인플레이션)에 자동 적응
+  # 10 = 하위 10% 제거 (매우 보수적, 극단적 비유동성만 제거)
+  # 20 = 하위 20% 제거 (보수적)
+  # 50 = 하위 50% 제거 (너무 공격적, 비권장)
   MIN_VOLUME_PERCENTILE: 10
 
-  # Extreme mover filtering - removes stocks with extreme returns (likely news/event-driven)
-  # Philosophy: Extreme movers are driven by news/sentiment, not fundamentals, so exclude from training
-  # NOTE: Only applied during TRAINING data generation, NOT during prediction/backtesting
-  FILTER_EXTREME_MOVERS: Y  # Y = filter extremes during training, N = keep all
-  EXTREME_FILTER_METHOD: robust_zscore  # 'robust_zscore' (recommended), 'zscore', 'percentile'
-  EXTREME_FILTER_THRESHOLD: 3.0  # For z-score: ±3.0σ (±3σ ≈ 99.7%), For percentile: 0.025 (2.5%)
+  # 극단적 수익률 필터링 - 뉴스/이벤트 기반 급등락 종목 제거
+  # 철학: 극단적 수익률은 뉴스/심리 기반이지 펀더멘털 기반이 아니므로 학습에서 제외
+  # 주의: 학습 데이터 생성 시에만 적용, 예측/백테스트 시에는 적용 안 함
+  FILTER_EXTREME_MOVERS: Y  # Y = 학습 시 극단값 제거, N = 모두 유지
+  EXTREME_FILTER_METHOD: robust_zscore  # 'robust_zscore' (권장), 'zscore', 'percentile'
+  EXTREME_FILTER_THRESHOLD: 3.0  # z-score 기준: ±3.0σ (±3σ ≈ 99.7%), percentile 기준: 0.025 (2.5%)
 
-  # Explanation of methods:
-  # - robust_zscore: Uses median/MAD (robust to outliers, adapts to volatility regimes) - RECOMMENDED
-  # - zscore: Uses mean/std (sensitive to outliers, but simpler)
-  # - percentile: Hard cut at specified percentile (simple but doesn't adapt to volatility)
+  # 방법 설명:
+  # - robust_zscore: 중앙값/MAD 사용 (이상치에 강건, 변동성 체제에 적응) - 권장
+  # - zscore: 평균/표준편차 사용 (이상치에 민감, 하지만 단순)
+  # - percentile: 지정된 백분위수에서 하드 컷 (단순하지만 변동성에 적응 안 함)
 
-  # Feature selection thresholds
-  MISSING_THRESHOLD: 0.8  # Remove columns with > 80% missing
-  SAME_VALUE_THRESHOLD: 0.95  # Remove columns with > 95% same value
+  # 피처 선택 임계값
+  MISSING_THRESHOLD: 0.8  # 80% 이상 결측치인 컬럼 제거
+  SAME_VALUE_THRESHOLD: 0.95  # 95% 이상 동일한 값인 컬럼 제거
 
-  # Preprocessing flags (applied consistently in both regressor and ml_backtest)
-  USE_WINSORIZATION: Y  # Y = Apply winsorization to handle outliers
-  USE_FEATURE_SELECTION: Y  # Y = Apply feature selection to remove low-quality features
+  # 전처리 플래그 (regressor와 ml_backtest에 일관되게 적용)
+  USE_WINSORIZATION: Y  # Y = 이상치 처리를 위한 winsorization 적용
+  USE_FEATURE_SELECTION: Y  # Y = 저품질 피처 제거를 위한 피처 선택 적용
 
 # ============================================================================
-# GENERAL Configuration
+# 일반 설정 (GENERAL Configuration)
 # ============================================================================
-# Logging level (10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR)
+# 로깅 레벨 (10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR)
 LOG_LVL: 20
 
-# DEPRECATED: Moved to ML.CLASSIFIER_THRESHOLD_PERCENTILE
-# THRESHOLD_PERCENTILE: 92  # Use ML.CLASSIFIER_THRESHOLD_PERCENTILE instead
+# 사용 중지: ML.CLASSIFIER_THRESHOLD_PERCENTILE로 이동됨
+# THRESHOLD_PERCENTILE: 92  # ML.CLASSIFIER_THRESHOLD_PERCENTILE 사용
 
 # ============================================================================
-# USAGE EXAMPLES
+# 사용 예시 (USAGE EXAMPLES)
 # ============================================================================
 #
-# 1. First time setup (fetch data):
+# 1. 최초 설정 (데이터 수집):
 #    DATA.GET_FMP: Y
 #    ML.RUN_REGRESSION: N
 #    BACKTEST.RUN_BACKTEST: N
 #
-# 2. Rebuild VIEW CSVs only (without fetching FMP data):
+# 2. VIEW CSV만 재생성 (FMP 데이터 수집 없이):
 #    DATA.GET_FMP: N
 #    DATA.MAKE_VIEW: Y
 #    ML.RUN_REGRESSION: N
 #    BACKTEST.RUN_BACKTEST: N
 #
-# 3. Train ML models:
+# 3. ML 모델 학습:
 #    DATA.GET_FMP: N
 #    ML.RUN_REGRESSION: Y
 #    ML.EXIT_AFTER_ML: Y
 #
-# 4. Run backtest only:
+# 4. 백테스트만 실행:
 #    DATA.GET_FMP: N
 #    ML.RUN_REGRESSION: N
 #    ML.EXIT_AFTER_ML: N
 #    BACKTEST.RUN_BACKTEST: Y
 #
-# 5. Full pipeline:
+# 5. 전체 파이프라인:
 #    DATA.GET_FMP: Y
 #    ML.RUN_REGRESSION: Y
 #    ML.EXIT_AFTER_ML: N
