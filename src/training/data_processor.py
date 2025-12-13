@@ -224,9 +224,14 @@ class DataProcessor:
         - ml_backtest.py (walk-forward backtesting)
 
         Common problematic features from tsfresh:
-        - 'feature__param_(value1, value2)' → 'feature__param__value1__value2_'
-        - 'feature[index]' → 'feature_index_'
-        - 'feature{key}' → 'feature_key_'
+        - 'feature__param_(value1, value2)' → 'feature_param_value1_value2'
+        - 'feature[index]' → 'feature_index'
+        - 'feature{key}' → 'feature_key'
+        - 'feature:value' → 'feature_value'
+
+        Strategy: Keep only alphanumeric characters and underscores.
+        All other characters (including periods, colons, slashes, etc.)
+        are replaced with underscores for maximum compatibility.
 
         Parameters:
         -----------
@@ -250,20 +255,19 @@ class DataProcessor:
         ... })
         >>> normalized_df = DataProcessor.normalize_feature_names(df)
         >>> print(normalized_df.columns.tolist())
-        ['price__2__5_', 'volume_0_', 'ratio_a_']
+        ['price_2_5', 'volume_0', 'ratio_a']
         """
         import re
 
         original_cols = df.columns.tolist()
 
         # Replace special JSON characters with underscores
-        # Order matters: do multiple-character replacements first
+        # Strategy: Keep only alphanumeric and underscores, replace everything else
         normalized_cols = []
         for col in original_cols:
-            # Replace parentheses, brackets, curly braces with underscores
-            new_col = re.sub(r'[(),\[\]{}]', '_', col)
-            # Replace spaces with underscores
-            new_col = re.sub(r'\s+', '_', new_col)
+            # Replace all non-alphanumeric characters (except underscore) with underscore
+            # This is more aggressive but safer for JSON/XGBoost/LightGBM compatibility
+            new_col = re.sub(r'[^a-zA-Z0-9_]', '_', col)
             # Remove consecutive underscores
             new_col = re.sub(r'_+', '_', new_col)
             # Remove leading/trailing underscores
