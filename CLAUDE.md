@@ -32,13 +32,39 @@
 
 ### Stage 1: Stability Filtering (안정성 필터링)
 
-**목적**: "이 회사는 펀더멘털이 깨져 있지 않다"는 신호만 남기는 **Negative Screening**
+**설계 의도**: "이 회사는 펀더멘털이 깨져 있지 않다"는 신호만 남기는 **Negative Screening**
 
-**방식**:
-- **분류 모델 (Classification)** 사용
-- 하위 N% 위험 종목 제거 (기본값: `THRESHOLD = 92`, 상위 8%만 선택)
-- 상위 1% 극단적 모멘텀 폭등주 제외 (데이터 왜곡 방지)
-- 결측치, 이상치가 심한 종목 필터링
+#### 학습 시 (Training)
+
+**타겟**: `label_binary = (price_dev > 0)` - 다음 분기 가격 상승/하락
+
+**프로세스**:
+1. 모든 학습 데이터로 분류기 학습
+2. **자동 Threshold 탐색** (CLASSIFIER_THRESHOLD_AUTO_SEARCH=Y):
+   - 학습된 분류기로 학습 데이터 예측 확률 계산
+   - Percentile 85~98 구간 탐색
+   - 각 percentile에서 precision, recall 계산
+   - 최적 threshold 선정:
+     - "precision" 모드: Precision 최대값
+     - "balance" 모드: Min precision 조건 만족하면서 최대 데이터
+   - 결과를 `threshold_config.pkl`로 저장
+3. 또는 **고정 Threshold** 사용 (AUTO_SEARCH=N):
+   - Config에서 지정한 percentile 사용 (기본값: 92)
+
+**결과**: 최적 threshold로 학습 데이터 필터링 → Stage 2로 전달
+
+#### 예측 시 (Evaluation/Backtest)
+
+**프로세스**:
+1. 저장된 `threshold_config.pkl` 로드
+2. 분류기로 예측 확률 계산
+3. 학습 시와 동일한 percentile threshold 적용
+4. ml_backtest.py: 확률 × 수익률 (down-weighting)
+
+**수학적 동등성**:
+- "재무적으로 부실한 기업 제거" (설계 의도)
+- ≈ "상승 확률 낮은 종목 제거" (현재 구현)
+- → Top-K < threshold%이면 두 방식 모두 동일한 결과
 
 **모델 구성**:
 ```python
@@ -56,11 +82,29 @@ clsmodels[3]: LGBMClassifier (max_depth=8)
 
 **목적**: 단기적으로 무효화된 가치의 회복 가능성을 통계적으로 점수화
 
-**방식**:
-- **회귀 모델 (Regression)** 사용
-- 다음 분기(Next-Quarter) 상대 수익률 예측
-- Stage 1 통과 종목만 대상으로 스코어링
-- Top-K 선정하여 포트폴리오 구성
+#### 학습 시 (Training)
+
+**타겟**: `price_dev_subavg` - 다음 분기 상대 수익률
+
+**프로세스**:
+1. Stage 1에서 필터링된 "안전한" 종목 데이터만 사용
+2. **회귀 모델 (Regression)** 학습:
+   - 입력: 필터링된 종목들의 재무제표 features
+   - 출력: 다음 분기 상대 수익률 예측
+3. 노이즈(하위 종목)가 제거되어 더 clean한 학습
+
+**장점**:
+- 회귀기가 "안전한" 종목들의 패턴만 학습
+- 하위 종목 노이즈가 회귀기 학습에 방해하지 않음
+- 학습 데이터는 감소하지만 품질 향상
+
+#### 예측 시 (Evaluation/Backtest)
+
+**프로세스**:
+1. 모든 종목에 대해 회귀기로 수익률 예측
+2. Stage 1 필터링 (확률 weighting 또는 threshold cutoff)
+3. 최종 스코어: `ml_score = y_pred_proba × y_pred_return`
+4. Top-K 선정하여 포트폴리오 구성
 
 **모델 구성**:
 ```python
@@ -93,6 +137,153 @@ models[1]: XGBRegressor (max_depth=10)
 | `USE_CLASSIFIER: Y`<br>`USE_SECTOR_MODEL: Y` | 섹터별 2-Stage | 각 섹터: 4 classifiers + 2 regressors |
 | `USE_CLASSIFIER: N`<br>`USE_SECTOR_MODEL: N` | 전역 Regression만 | 2 regressors |
 | `USE_CLASSIFIER: N`<br>`USE_SECTOR_MODEL: Y` | 섹터별 Regression만 | 각 섹터: 2 regressors |
+
+### 🔬 분류기 작동 방식 상세 (Classifier Implementation Details)
+
+#### 학습 단계 (Training)
+
+**Step 1: 분류기 학습 (모든 데이터)**
+
+타겟 생성 (`DataProcessor.create_binary_target`):
+```python
+# 실제 다음 분기 가격 변동 기준
+label_binary = (price_dev > 0).astype(int)
+# 1 = 가격 상승, 0 = 가격 하락
+```
+
+의미:
+- 분류기는 "재무제표 → 다음 분기 상승/하락" 패턴을 학습
+- 재무적으로 건전한 기업 ≈ 상승 확률 높음 (간접적 proxy)
+- 4개 분류기 앙상블로 과적합 방지
+
+**Step 2: 최적 Threshold 자동 탐색** (`_find_optimal_threshold()`)
+
+```python
+# 학습된 분류기로 학습 데이터 예측
+y_probs = classifier.predict_proba(x_train)[:, 1]
+
+# 여러 percentile 시도 (85~98)
+for pct in range(85, 99):
+    threshold = np.percentile(y_probs, pct)
+    mask = y_probs > threshold
+
+    # 선택된 종목의 precision 계산
+    precision = precision_score(y_true[mask], y_pred[mask])
+    recall = recall_score(y_true[mask], y_pred[mask])
+
+# 최적 percentile 선택 (balance 모드)
+optimal_pct = max(pct where precision >= 0.65, key=n_selected)
+```
+
+결과 예시:
+```
+Percentile 85: threshold=0.612, selected=15000, precision=0.523
+Percentile 90: threshold=0.701, selected=10000, precision=0.610
+Percentile 93: threshold=0.789, selected=7000,  precision=0.729  ← 선택!
+Percentile 95: threshold=0.854, selected=5000,  precision=0.780
+```
+
+저장:
+- `threshold_config.pkl`: {'percentile': 93, 'threshold_value': 0.789, 'precision': 0.729, ...}
+
+**Step 3: 학습 데이터 필터링**
+
+```python
+# 최적 threshold로 필터링
+threshold = threshold_config['threshold_value']
+safe_mask = y_probs > threshold
+
+x_train_filtered = x_train[safe_mask]  # 상위 7% (93 percentile)
+y_train_filtered = y_train[safe_mask]
+
+# 필터링된 데이터로 회귀기 학습
+regressor.fit(x_train_filtered, y_train_filtered)
+```
+
+효과:
+- 회귀기가 상위 7% "안전한" 종목의 패턴만 학습
+- 하위 93% 노이즈 제거
+- 학습 데이터는 감소하지만 품질 향상
+
+#### 예측 및 필터링 단계 (Prediction & Filtering)
+
+**1. regressor.py (모델 평가)**:
+```python
+# 저장된 threshold config 로드
+threshold_config = joblib.load('threshold_config.pkl')
+THRESHOLD_PERCENTILE = threshold_config['percentile']  # 93
+
+# 상승 확률 예측
+y_probs = classifier.predict_proba(X)[:, 1]
+
+# 학습 시와 동일한 percentile threshold 적용
+threshold = np.percentile(y_probs, THRESHOLD_PERCENTILE)
+y_predict_binary = (y_probs > threshold).astype(int)
+
+# 하위 93% 패널티 적용 (평가용)
+prediction_wbinary = np.where(y_predict_binary == 0, -1, y_predict_return)
+```
+
+**2. ml_backtest.py (백테스트)**:
+```python
+# 상승 확률 예측
+y_pred_proba = classifier.predict_proba(X)[:, 1]
+
+# 수익률 예측
+y_pred_return = regressor.predict(X)
+
+# 최종 스코어: 확률 × 수익률 (down-weighting)
+ml_score = y_pred_proba * y_pred_return
+```
+
+**효과**:
+- 상승 확률 높음 (0.9) × 예측 수익률 (+10%) = +9.0
+- 상승 확률 낮음 (0.1) × 예측 수익률 (+10%) = +1.0
+- Down-weighting으로 하위 종목 점수 자동 하락
+
+#### 수학적 동등성 증명
+
+설정:
+- 전체 종목 수: N
+- THRESHOLD = 92 (상위 8% 선택)
+- Top-K = 5 (포트폴리오 5개 종목)
+
+**Hard Filtering (설계 의도)**:
+```
+1. 상위 8% 선택: 0.08N 종목
+2. Top-5 선택: min(5, 0.08N) 종목
+3. N > 62이면 항상 5개 선택
+```
+
+**Soft Filtering (현재 구현)**:
+```
+1. 하위 92% 점수: -1 (또는 매우 낮음)
+2. 상위 8% 점수: 원래 예측값 (양수)
+3. Top-5 정렬 → 자동으로 상위 8%에서만 선택
+```
+
+**결론**: N > K/0.08 조건에서 두 방식 완전 동일
+
+#### 왜 이렇게 구현했는가?
+
+**장점**:
+1. **유연성**: Hard cutoff 없이 연속적인 점수 부여
+2. **앙상블**: 여러 분류기 확률을 평균/투표로 결합 가능
+3. **해석 가능성**: 확률값 자체가 신뢰도 지표
+4. **구현 단순성**: 행 제거 없이 벡터 연산만 사용
+
+**단점**:
+1. **개념적 혼란**: "필터링"이지만 실제로는 "가중치 조정"
+2. **메모리**: 모든 종목 예측 후 정렬 (vs 사전 필터링)
+
+#### 실전 적용 시 주의사항
+
+- **Top-K > 8%인 경우**: 하위 종목도 포함될 수 있음
+  - 해결: THRESHOLD 조정 또는 hard filtering 추가
+- **분류기 정확도**: 상승/하락 예측이 부정확하면 필터링 효과 저하
+  - 해결: 분류기 성능 모니터링 (Accuracy, Precision, Recall)
+- **시장 환경 변화**: 과거 패턴이 깨지면 분류기 무용
+  - 해결: 주기적 재학습 및 walk-forward validation
 
 ---
 
@@ -211,6 +402,132 @@ current_quarter_data['filling_delay_days'] = (
 
 ⚠️ **통합 필요**:
 - Feature alignment 로직 (현재 regressor.py, ml_backtest.py에 중복)
+
+## 🗂️ 프로젝트 관리 (Project Management)
+
+### Configuration 파일 관리
+
+**conf.yaml vs conf.yaml.template**
+
+- **conf.yaml**: 실제 사용하는 설정 파일 (Git에 포함 안 됨)
+  - API_KEY 등 보안 정보 포함
+  - `.gitignore`에 등록되어 Git 추적 제외
+  - 사용자가 직접 생성하고 관리
+
+- **conf.yaml.template**: 설정 파일 템플릿 (Git에 포함)
+  - API_KEY 자리는 placeholder로 표시
+  - 모든 설정 항목의 기본값 제공
+  - 코드 수정 시 이 파일을 업데이트
+
+**작업 원칙**:
+1. **코드 작성 시**: 사용자가 conf.yaml.template을 복사하여 conf.yaml을 만들었다고 가정
+2. **새 설정 추가**: conf.yaml.template에 추가 (주석과 예시 포함)
+3. **보안 정보**: conf.yaml.template에는 절대 실제 키 입력 금지
+4. **기본값**: 합리적인 기본값 제공 (사용자가 바로 테스트 가능하도록)
+
+**예시**:
+```yaml
+# conf.yaml.template
+DATA:
+  API_KEY: "your_fmp_api_key_here"  # ← placeholder
+
+# 사용자가 만드는 conf.yaml
+DATA:
+  API_KEY: "abc123xyz789real"  # ← 실제 키
+```
+
+### Dependencies 관리 (requirements.txt)
+
+**작업 원칙**:
+1. **새 패키지 설치**: requirements.txt에 반드시 추가
+   ```bash
+   pip install new-package
+   pip freeze | grep new-package >> requirements.txt
+   ```
+
+2. **패키지 제거**: requirements.txt에서도 삭제
+   ```bash
+   pip uninstall old-package
+   # requirements.txt에서 해당 줄 삭제
+   ```
+
+3. **버전 명시**: 주요 패키지는 버전 고정
+   ```
+   pandas==1.5.3  # 고정 버전 (재현성)
+   numpy>=1.24.0  # 최소 버전 (호환성)
+   ```
+
+4. **주석 추가**: 용도가 명확하지 않은 패키지는 주석 작성
+   ```
+   optuna==3.1.0  # Hyperparameter optimization
+   plotly==5.14.0  # Optuna visualization charts
+   ```
+
+**체크리스트**:
+- [ ] 새 import 문 추가 시 requirements.txt 확인
+- [ ] 에러 발생 시 버전 충돌 가능성 확인
+- [ ] 주기적으로 `pip list --outdated` 실행하여 업데이트 검토
+
+### 문서 관리 (README.md)
+
+**업데이트 필요 시점**:
+1. **구조 변경**: 폴더/파일 구조가 크게 바뀐 경우
+   - 새 디렉토리 추가
+   - 주요 파일 이동/이름 변경
+   - 모듈 재구성
+
+2. **주요 기능 추가**: 사용자가 알아야 할 새 기능
+   - 새로운 ML 모델 추가
+   - 백테스트 방식 변경
+   - 설정 옵션 추가
+
+3. **설치 방법 변경**: 의존성이나 설치 절차 변경
+   - 새 필수 패키지
+   - 설정 파일 형식 변경
+   - 환경 요구사항 변경
+
+4. **사용법 변경**: 실행 방법이나 워크플로우 변경
+   - CLI 인터페이스 변경
+   - 입력 데이터 형식 변경
+   - 출력 파일 위치 변경
+
+**README.md 필수 섹션**:
+- **Installation**: requirements.txt 설치 방법
+- **Configuration**: conf.yaml.template 사용법
+- **Project Structure**: 주요 디렉토리 및 파일 설명
+- **Usage**: 실행 예시 및 워크플로우
+- **Development**: 개발자를 위한 가이드
+
+**예시**:
+```markdown
+## Installation
+
+1. Clone repository
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Copy config template:
+   ```bash
+   cp config/conf.yaml.template config/conf.yaml
+   ```
+4. Edit `config/conf.yaml` and add your API key
+```
+
+### 작업 시 체크리스트
+
+**코드 수정 완료 후 반드시 확인**:
+
+- [ ] 새 설정 추가 → `conf.yaml.template` 업데이트
+- [ ] 새 패키지 사용 → `requirements.txt` 추가
+- [ ] 구조 변경 → `README.md` 업데이트
+- [ ] API 키 노출 → `.gitignore` 확인
+- [ ] 커밋 전 → `git status`로 conf.yaml 포함 여부 확인
+
+**자주 하는 실수**:
+- ❌ conf.yaml을 실수로 커밋 (보안 위험!)
+- ❌ requirements.txt 업데이트 없이 새 패키지 사용 (타인이 실행 불가)
+- ❌ README.md 업데이트 없이 구조 변경 (혼란 야기)
 
 ## 🔧 작업 중 발견 시 즉시 조치
 

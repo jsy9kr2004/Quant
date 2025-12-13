@@ -91,7 +91,7 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import RandomizedSearchCV
-from sklearn.metrics import accuracy_score, classification_report, precision_recall_fscore_support
+from sklearn.metrics import accuracy_score, classification_report, precision_recall_fscore_support, precision_score, recall_score
 
 # Optuna for hyperparameter optimization
 try:
@@ -1452,6 +1452,171 @@ class Regressor:
 
         return is_fresh
 
+    def _find_optimal_threshold(
+        self,
+        classifier: Any,
+        x_train: pd.DataFrame,
+        y_train_binary: pd.Series
+    ) -> Dict[str, Any]:
+        """
+        분류기의 최적 percentile threshold 자동 탐색
+
+        이 메서드는 분류기가 학습된 후, 어느 확률 구간에서 가장 정확한지 탐색하여
+        최적의 threshold를 찾습니다. 이를 통해 매직 넘버(92)를 제거하고 데이터 기반으로
+        threshold를 결정합니다.
+
+        작동 원리:
+            1. 학습된 분류기로 학습 데이터에 대한 예측 확률 계산
+            2. 여러 percentile (85~98)에 대해 반복:
+               - 해당 percentile을 threshold로 사용
+               - threshold보다 높은 확률을 가진 종목만 선택
+               - 선택된 종목의 precision, recall 계산
+            3. 설정된 전략에 따라 최적 threshold 선택:
+               - "precision": Precision이 가장 높은 percentile
+               - "balance": Min precision 조건 만족하면서 데이터 최대화
+
+        Args:
+            classifier: 학습 완료된 분류 모델
+            x_train: 학습 데이터 (features)
+            y_train_binary: 실제 binary target (1=상승, 0=하락)
+
+        Returns:
+            Dict containing:
+                - percentile (int): 최적 percentile 값
+                - threshold_value (float): 해당 percentile의 확률값
+                - precision (float): 선택된 종목들의 precision
+                - recall (float): 선택된 종목들의 recall
+                - n_selected (int): 선택된 종목 수
+                - all_results (dict): 모든 percentile의 결과 (디버깅용)
+
+        Example:
+            >>> threshold_config = self._find_optimal_threshold(
+            ...     classifier=self.clsmodels[0],
+            ...     x_train=self.x_train,
+            ...     y_train_binary=y_train_binary
+            ... )
+            >>> print(f"Optimal: {threshold_config['percentile']} percentile")
+            Optimal: 93 percentile
+
+        Note:
+            - Config에서 탐색 범위 및 기준 읽기:
+              * CLASSIFIER_THRESHOLD_SEARCH_MIN/MAX
+              * CLASSIFIER_THRESHOLD_MIN_PRECISION
+              * CLASSIFIER_THRESHOLD_MIN_SAMPLES
+              * CLASSIFIER_THRESHOLD_STRATEGY
+            - 결과는 threshold_config.pkl로 저장되어 평가/백테스트 시 재사용
+        """
+        # Config에서 설정 읽기
+        ml_config = self.conf.get('ML', {})
+        search_min = int(ml_config.get('CLASSIFIER_THRESHOLD_SEARCH_MIN', 85))
+        search_max = int(ml_config.get('CLASSIFIER_THRESHOLD_SEARCH_MAX', 98))
+        min_precision = float(ml_config.get('CLASSIFIER_THRESHOLD_MIN_PRECISION', 0.65))
+        min_samples = int(ml_config.get('CLASSIFIER_THRESHOLD_MIN_SAMPLES', 30))
+        strategy = ml_config.get('CLASSIFIER_THRESHOLD_STRATEGY', 'balance')
+
+        logging.info("="*80)
+        logging.info("🔍 OPTIMAL THRESHOLD SEARCH")
+        logging.info("="*80)
+        logging.info(f"   Search range: {search_min}-{search_max} percentile")
+        logging.info(f"   Min precision: {min_precision:.2f}")
+        logging.info(f"   Min samples: {min_samples}")
+        logging.info(f"   Strategy: {strategy}")
+        logging.info("")
+
+        # 예측 확률 계산
+        y_probs = predict_proba_with_gpu_support(classifier, x_train, self.use_gpu_prediction)[:, 1]
+
+        results = {}
+        for pct in range(search_min, search_max + 1):
+            threshold = np.percentile(y_probs, pct)
+            mask = y_probs > threshold
+
+            n_selected = mask.sum()
+            if n_selected < min_samples:
+                continue  # 너무 적으면 skip
+
+            # 선택된 종목의 precision, recall 계산
+            y_pred_binary = (y_probs[mask] > threshold).astype(int)
+            y_true_filtered = y_train_binary.values.ravel()[mask]
+
+            # precision_score, recall_score는 zero_division 처리 필요
+            try:
+                precision = precision_score(y_true_filtered, y_pred_binary, zero_division=0)
+                recall = recall_score(y_true_filtered, y_pred_binary, zero_division=0)
+            except Exception as e:
+                logging.warning(f"  Percentile {pct}: Error calculating metrics - {e}")
+                continue
+
+            results[pct] = {
+                'precision': precision,
+                'recall': recall,
+                'n_selected': n_selected,
+                'threshold_value': threshold
+            }
+
+            logging.info(
+                f"  Percentile {pct:2d}: threshold={threshold:.3f}, "
+                f"selected={n_selected:5d}, precision={precision:.3f}, recall={recall:.3f}"
+            )
+
+        if not results:
+            logging.warning("⚠️  No valid percentile found! Using default 92")
+            # Fallback to 92
+            threshold = np.percentile(y_probs, 92)
+            mask = y_probs > threshold
+            n_selected = mask.sum()
+            y_pred_binary = (y_probs[mask] > threshold).astype(int)
+            y_true_filtered = y_train_binary.values.ravel()[mask]
+            precision = precision_score(y_true_filtered, y_pred_binary, zero_division=0)
+            recall = recall_score(y_true_filtered, y_pred_binary, zero_division=0)
+
+            return {
+                'percentile': 92,
+                'threshold_value': threshold,
+                'precision': precision,
+                'recall': recall,
+                'n_selected': n_selected,
+                'all_results': {}
+            }
+
+        # 전략에 따라 최적 percentile 선택
+        if strategy == 'precision':
+            # 전략 1: Precision 최대화
+            optimal_pct = max(results, key=lambda x: results[x]['precision'])
+        else:  # strategy == 'balance'
+            # 전략 2: Min precision 조건 만족하면서 최대 데이터
+            optimal_pct = None
+            for pct in sorted(results.keys()):
+                if results[pct]['precision'] >= min_precision:
+                    if optimal_pct is None or results[pct]['n_selected'] > results[optimal_pct]['n_selected']:
+                        optimal_pct = pct
+
+            # balance 전략에서 조건 만족 못하면 precision 최대값 선택
+            if optimal_pct is None:
+                logging.warning(f"⚠️  No percentile meets min_precision={min_precision}, using max precision")
+                optimal_pct = max(results, key=lambda x: results[x]['precision'])
+
+        logging.info("")
+        logging.info("="*80)
+        logging.info(f"🎯 OPTIMAL THRESHOLD: Percentile {optimal_pct}")
+        logging.info("="*80)
+        logging.info(f"   Threshold value: {results[optimal_pct]['threshold_value']:.3f}")
+        logging.info(f"   Precision: {results[optimal_pct]['precision']:.3f}")
+        logging.info(f"   Recall: {results[optimal_pct]['recall']:.3f}")
+        logging.info(f"   Selected stocks: {results[optimal_pct]['n_selected']:,}")
+        logging.info(f"   Percentage: {results[optimal_pct]['n_selected'] / len(y_train_binary) * 100:.1f}%")
+        logging.info("="*80)
+        logging.info("")
+
+        return {
+            'percentile': optimal_pct,
+            'threshold_value': results[optimal_pct]['threshold_value'],
+            'precision': results[optimal_pct]['precision'],
+            'recall': results[optimal_pct]['recall'],
+            'n_selected': results[optimal_pct]['n_selected'],
+            'all_results': results  # 디버깅용
+        }
+
     def train(self) -> None:
         """모든 분류 및 회귀 모델을 학습하고 디스크에 저장합니다.
 
@@ -1905,25 +2070,96 @@ class Regressor:
         # (preprocessing may change indices, so recreate after)
         y_train_binary = DataProcessor.create_binary_target(self.y_train_cls)
 
-        # 모든 분류 모델 학습
+        # ===== Stage 1: Train Classifiers (모든 데이터) =====
+        logging.info("="*80)
+        logging.info("🎯 STAGE 1: CLASSIFIER TRAINING (All data)")
+        logging.info("="*80)
+
         for i, model in self.clsmodels.items():
-            logging.info("start fitting classifier")
+            logging.info(f"Training classifier {i}...")
             model.fit(self.x_train, y_train_binary)
             filename = MODEL_SAVE_PATH + 'clsmodel_{}.sav'.format(str(i))
             joblib.dump(model, filename)
-            logging.info("model {} score : ".format(str(i)))
-            logging.info(model.score(self.x_train, y_train_binary))
+            score = model.score(self.x_train, y_train_binary)
+            logging.info(f"  Classifier {i} accuracy: {score:.4f}")
 
-        # 모든 회귀 모델 학습
+        # ===== Optimal Threshold Search (자동 탐색 or 고정값) =====
+        ml_config = self.conf.get('ML', {})
+        auto_search = ml_config.get('CLASSIFIER_THRESHOLD_AUTO_SEARCH', 'Y') == 'Y'
+
+        if auto_search:
+            # 자동 탐색: 대표 분류기 (clsmodel_0) 사용
+            threshold_config = self._find_optimal_threshold(
+                classifier=self.clsmodels[0],
+                x_train=self.x_train,
+                y_train_binary=y_train_binary
+            )
+        else:
+            # 고정값 사용
+            fixed_pct = int(ml_config.get('CLASSIFIER_THRESHOLD_PERCENTILE', 92))
+            y_probs = predict_proba_with_gpu_support(self.clsmodels[0], self.x_train, self.use_gpu_prediction)[:, 1]
+            threshold = np.percentile(y_probs, fixed_pct)
+            mask = y_probs > threshold
+            n_selected = mask.sum()
+
+            logging.info("="*80)
+            logging.info(f"📌 USING FIXED THRESHOLD: Percentile {fixed_pct}")
+            logging.info("="*80)
+            logging.info(f"   Threshold value: {threshold:.3f}")
+            logging.info(f"   Selected stocks: {n_selected:,} ({n_selected / len(y_train_binary) * 100:.1f}%)")
+            logging.info("="*80)
+
+            threshold_config = {
+                'percentile': fixed_pct,
+                'threshold_value': threshold,
+                'n_selected': n_selected,
+                'auto_search': False
+            }
+
+        # Threshold config 저장
+        threshold_config_file = MODEL_SAVE_PATH + 'threshold_config.pkl'
+        joblib.dump(threshold_config, threshold_config_file)
+        logging.info(f"✅ Saved threshold config to {threshold_config_file}")
+        logging.info("")
+
+        # ===== Stage 2: Filter Data by Threshold =====
+        logging.info("="*80)
+        logging.info("🎯 STAGE 2: DATA FILTERING")
+        logging.info("="*80)
+
+        y_probs = predict_proba_with_gpu_support(self.clsmodels[0], self.x_train, self.use_gpu_prediction)[:, 1]
+        threshold = threshold_config['threshold_value']
+        safe_mask = y_probs > threshold
+
+        x_train_filtered = self.x_train[safe_mask]
+        y_train_filtered = self.y_train[safe_mask]
+
+        logging.info(f"   Original training data: {len(self.x_train):,} stocks")
+        logging.info(f"   After filtering: {len(x_train_filtered):,} stocks")
+        logging.info(f"   Removed: {len(self.x_train) - len(x_train_filtered):,} stocks ({(len(self.x_train) - len(x_train_filtered)) / len(self.x_train) * 100:.1f}%)")
+        logging.info("="*80)
+        logging.info("")
+
+        # ===== Stage 3: Train Regressors (필터링된 데이터) =====
+        logging.info("="*80)
+        logging.info("🎯 STAGE 3: REGRESSOR TRAINING (Filtered data)")
+        logging.info("="*80)
+
         for i, model in self.models.items():
-            logging.info("start fitting XGBRegressor")
-            model.fit(self.x_train, self.y_train.values.ravel())
+            logging.info(f"Training regressor {i}...")
+            model.fit(x_train_filtered, y_train_filtered.values.ravel())
             filename = MODEL_SAVE_PATH + 'model_{}.sav'.format(str(i))
             joblib.dump(model, filename)
-            logging.info("model {} score : ".format(str(i)))
-            logging.info(model.score(self.x_train, self.y_train))
+            score = model.score(x_train_filtered, y_train_filtered)
+            logging.info(f"  Regressor {i} R² score: {score:.4f}")
+
+        logging.info("="*80)
+        logging.info("✅ 2-STAGE TRAINING COMPLETE")
+        logging.info("="*80)
+        logging.info("")
 
         # ===== Feature columns 저장 (예측 시 피처 정렬용) =====
+        # 필터링 전 전체 feature 저장 (예측 시에는 전체 데이터 사용)
         feature_columns = self.x_train.columns.tolist()
         feature_columns_file = MODEL_SAVE_PATH + 'feature_columns.pkl'
         joblib.dump(feature_columns, feature_columns_file)
@@ -2010,29 +2246,96 @@ class Regressor:
                 logging.info("="*80)
                 logging.info("")
 
-            # ===== Train sector regressors =====
+            # ===== Train sector regressors (2-stage with filtering) =====
             logging.info("="*80)
-            logging.info("🎯 SECTOR REGRESSORS: Training sector-specific regressors")
+            logging.info("🎯 SECTOR REGRESSORS: Training with 2-stage filtering")
             logging.info("="*80)
+
+            # Store sector threshold configs
+            sector_threshold_configs = {}
+
             for sec_idx, sec in enumerate(self.sector_list):
+                logging.info(f"\n📊 Training regressors for sector: {sec}")
+                logging.info("-" * 60)
+
+                if self.use_classifier:
+                    # ===== Sector-specific threshold search =====
+                    y_cls_sector = self.sector_y_train_cls[sec]
+                    y_train_binary_sector = DataProcessor.create_binary_target(y_cls_sector)
+
+                    if auto_search:
+                        # Use sector-specific classifier (0) for threshold search
+                        sector_threshold_config = self._find_optimal_threshold(
+                            classifier=self.sector_classifiers[(sec, 0)],
+                            x_train=self.sector_x_train[sec],
+                            y_train_binary=y_train_binary_sector
+                        )
+                    else:
+                        # Use same fixed percentile for all sectors
+                        y_probs_sector = predict_proba_with_gpu_support(
+                            self.sector_classifiers[(sec, 0)],
+                            self.sector_x_train[sec],
+                            self.use_gpu_prediction
+                        )[:, 1]
+                        threshold_sector = np.percentile(y_probs_sector, fixed_pct)
+                        mask_sector = y_probs_sector > threshold_sector
+                        n_selected_sector = mask_sector.sum()
+
+                        logging.info(f"  Using fixed threshold: Percentile {fixed_pct}")
+                        logging.info(f"  Selected: {n_selected_sector}/{len(y_train_binary_sector)}")
+
+                        sector_threshold_config = {
+                            'percentile': fixed_pct,
+                            'threshold_value': threshold_sector,
+                            'n_selected': n_selected_sector,
+                            'auto_search': False
+                        }
+
+                    # Save sector threshold config
+                    sector_threshold_configs[sec] = sector_threshold_config
+
+                    # Filter data by threshold
+                    y_probs_sector = predict_proba_with_gpu_support(
+                        self.sector_classifiers[(sec, 0)],
+                        self.sector_x_train[sec],
+                        self.use_gpu_prediction
+                    )[:, 1]
+                    threshold_sector = sector_threshold_config['threshold_value']
+                    safe_mask_sector = y_probs_sector > threshold_sector
+
+                    x_train_sector_filtered = self.sector_x_train[sec][safe_mask_sector]
+                    y_train_sector_filtered = self.sector_y_train[sec][safe_mask_sector]
+
+                    logging.info(f"  Filtered: {len(x_train_sector_filtered)}/{len(self.sector_x_train[sec])} stocks")
+                else:
+                    # No classifier: use all data
+                    x_train_sector_filtered = self.sector_x_train[sec]
+                    y_train_sector_filtered = self.sector_y_train[sec]
+                    logging.info(f"  No classifier: using all {len(x_train_sector_filtered)} stocks")
+
+                # Train 2 regressors on filtered data
                 for i in range(2):
                     k = (sec, i)
                     model = self.sector_models[k]
-                    model.fit(self.sector_x_train[sec], self.sector_y_train[sec].values.ravel())
+                    model.fit(x_train_sector_filtered, y_train_sector_filtered.values.ravel())
                     filename = MODEL_SAVE_PATH + '{}_model_{}.sav'.format(sec, str(i))
-
                     joblib.dump(model, filename)
-                    logging.info("model {} score : ".format(str(i)))
-                    logging.info(model.score(self.sector_x_train[sec], self.sector_y_train[sec]))
-                    logging.info("end fitting per sector XGBRegressor")
 
-                    # 주석 처리됨: 섹터별 특성 중요도 분석
-                    # ftr_importances_values = model.feature_importances_
-                    # ftr_importances = pd.Series(ftr_importances_values,
-                    #                            index=self.sector_x_train[sec].columns)
-                    # ftr_importances.to_csv(MODEL_SAVE_PATH + sec + '_model_importances.csv')
-                    # ftr_top20 = ftr_importances.sort_values(ascending=False)[:20]
-                    # logging.info(ftr_top20)
+                    score = model.score(x_train_sector_filtered, y_train_sector_filtered)
+                    logging.info(f"  Regressor {i} R² score: {score:.4f}")
+
+                logging.info(f"✅ Sector {sec} complete")
+
+            # Save all sector threshold configs
+            if self.use_classifier:
+                sector_threshold_file = MODEL_SAVE_PATH + 'sector_threshold_configs.pkl'
+                joblib.dump(sector_threshold_configs, sector_threshold_file)
+                logging.info(f"\n✅ Saved sector threshold configs to {sector_threshold_file}")
+
+            logging.info("="*80)
+            logging.info(f"✅ All sector regressors complete ({len(self.sector_list)} sectors x 2 regressors)")
+            logging.info("="*80)
+            logging.info("")
 
 
     def evaluation(self) -> None:
@@ -2106,6 +2409,38 @@ class Regressor:
         # 통합 모델 로딩 메서드 사용
         self._load_classifiers(MODEL_SAVE_PATH)
         self._load_regressors(MODEL_SAVE_PATH)
+
+        # ===== Load threshold config (저장된 threshold 설정 로드) =====
+        threshold_config_file = MODEL_SAVE_PATH + 'threshold_config.pkl'
+        try:
+            threshold_config = joblib.load(threshold_config_file)
+            THRESHOLD_PERCENTILE = threshold_config['percentile']
+            logging.info("="*80)
+            logging.info("📂 LOADED THRESHOLD CONFIG")
+            logging.info("="*80)
+            logging.info(f"   Percentile: {THRESHOLD_PERCENTILE}")
+            logging.info(f"   Threshold value: {threshold_config.get('threshold_value', 'N/A'):.3f}" if 'threshold_value' in threshold_config else "")
+            if 'precision' in threshold_config:
+                logging.info(f"   Precision: {threshold_config['precision']:.3f}")
+                logging.info(f"   Selected stocks: {threshold_config['n_selected']:,}")
+            logging.info("="*80)
+            logging.info("")
+        except FileNotFoundError:
+            # Fallback to config or hardcoded value
+            ml_config = self.conf.get('ML', {})
+            THRESHOLD_PERCENTILE = int(ml_config.get('CLASSIFIER_THRESHOLD_PERCENTILE', 92))
+            logging.warning(f"⚠️  Threshold config not found, using default: {THRESHOLD_PERCENTILE}")
+            threshold_config = {'percentile': THRESHOLD_PERCENTILE}
+
+        # ===== Load sector threshold configs (if exists) =====
+        sector_threshold_configs = {}
+        if self.use_sector_model and self.use_classifier:
+            sector_threshold_file = MODEL_SAVE_PATH + 'sector_threshold_configs.pkl'
+            try:
+                sector_threshold_configs = joblib.load(sector_threshold_file)
+                logging.info(f"✅ Loaded sector threshold configs for {len(sector_threshold_configs)} sectors")
+            except FileNotFoundError:
+                logging.warning("⚠️  Sector threshold configs not found, will use global threshold")
 
         # 통합 메서드로 예측 컬럼 이름 생성
         pred_col_list = self._build_prediction_column_names()
@@ -2219,8 +2554,8 @@ class Regressor:
                 y_probs = predict_proba_with_gpu_support(model, x_test, self.use_gpu_prediction)[:, 1]
 
                 # 백분위수 임계값을 사용하여 확률을 이진 예측으로 변환
-                # THRESHOLD=92는 상위 8%가 양성으로 예측됨을 의미
-                threshold = np.percentile(y_probs, THRESHOLD)
+                # 학습 시 자동 탐색된 threshold 사용
+                threshold = np.percentile(y_probs, THRESHOLD_PERCENTILE)
                 y_predict_binary = (y_probs > threshold).astype(int)
 
                 logging.info(f"20% positive threshold == {threshold}")
@@ -2410,7 +2745,14 @@ class Regressor:
                 # 섹터 기반 필터링을 위해 분류기 2 사용 (GLOBAL classifier - use aligned full features!)
                 # GPU 지원으로 device mismatch 워닝 방지
                 y_probs = predict_proba_with_gpu_support(self.clsmodels[2], x_test_full, self.use_gpu_prediction)[:, 1]
-                threshold = np.percentile(y_probs, THRESHOLD)
+
+                # Use sector-specific threshold if available, otherwise use global threshold
+                if sec in sector_threshold_configs:
+                    sector_threshold_pct = sector_threshold_configs[sec]['percentile']
+                    threshold = np.percentile(y_probs, sector_threshold_pct)
+                else:
+                    threshold = np.percentile(y_probs, THRESHOLD_PERCENTILE)
+
                 y_predict_binary = (y_probs > threshold).astype(int)
 
                 # 섹터별 모델 실행 (use sector-specific features!)
@@ -2522,6 +2864,17 @@ class Regressor:
         self.models = dict()
         self._load_classifiers(MODEL_SAVE_PATH)
         self._load_regressors(MODEL_SAVE_PATH)
+
+        # ===== Load threshold config =====
+        threshold_config_file = MODEL_SAVE_PATH + 'threshold_config.pkl'
+        try:
+            threshold_config = joblib.load(threshold_config_file)
+            THRESHOLD_PERCENTILE = threshold_config['percentile']
+            logging.info(f"✅ Loaded threshold config: Percentile {THRESHOLD_PERCENTILE}")
+        except FileNotFoundError:
+            ml_config = self.conf.get('ML', {})
+            THRESHOLD_PERCENTILE = int(ml_config.get('CLASSIFIER_THRESHOLD_PERCENTILE', 92))
+            logging.warning(f"⚠️  Threshold config not found, using default: {THRESHOLD_PERCENTILE}")
 
         aidata_dir = self.root_path + '/processed/ml_data/per_year/'
 
@@ -2684,8 +3037,8 @@ class Regressor:
             pred_col_name = 'clsmodel_' + str(i) + '_prediction'
             # GPU 지원으로 device mismatch 워닝 방지
             y_probs = predict_proba_with_gpu_support(model, input, self.use_gpu_prediction)[:, 1]
-            # 백분위수 임계값을 사용하여 이진으로 변환
-            threshold = np.percentile(y_probs, THRESHOLD)
+            # 백분위수 임계값을 사용하여 이진으로 변환 (학습 시 자동 탐색된 threshold 사용)
+            threshold = np.percentile(y_probs, THRESHOLD_PERCENTILE)
             y_predict_binary = (y_probs > threshold).astype(int)
             logging.info(f"20% positive threshold == {threshold}")
             ldf[pred_col_name] = y_predict_binary
