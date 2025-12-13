@@ -277,6 +277,28 @@ class DataProcessor:
         # Check if any changes were made
         changed_count = sum(1 for orig, norm in zip(original_cols, normalized_cols) if orig != norm)
 
+        # CRITICAL FIX: Handle duplicate normalized names
+        # Different original names can normalize to the same name:
+        # 'feature(a, b)' → 'feature_a_b'
+        # 'feature[a, b]' → 'feature_a_b'  (duplicate!)
+        # Add numeric suffix to duplicates to ensure uniqueness
+        if len(normalized_cols) != len(set(normalized_cols)):
+            seen = {}
+            unique_cols = []
+            for col in normalized_cols:
+                if col not in seen:
+                    seen[col] = 0
+                    unique_cols.append(col)
+                else:
+                    seen[col] += 1
+                    unique_cols.append(f"{col}_{seen[col]}")
+
+            duplicate_count = sum(1 for count in seen.values() if count > 0)
+            if logger:
+                logger.warning(f"⚠️  Found {duplicate_count} duplicate normalized names, added numeric suffixes")
+
+            normalized_cols = unique_cols
+
         if changed_count > 0:
             if logger:
                 logger.info(f"   🔧 Normalized {changed_count} feature names (removed special characters)")
@@ -1668,6 +1690,14 @@ class DataProcessor:
         exclude_cols = exclude_cols or []
         df = df.copy()
 
+        # CRITICAL FIX: Remove duplicate columns first
+        # Duplicate columns cause df[col] to return DataFrame instead of Series
+        # which makes quantile() return Series instead of scalar → ambiguous boolean error
+        if df.columns.duplicated().any():
+            duplicated_cols = df.columns[df.columns.duplicated()].tolist()
+            logging.warning(f"⚠️  Found {len(duplicated_cols)} duplicate columns, keeping first occurrence")
+            df = df.loc[:, ~df.columns.duplicated(keep='first')]
+
         numeric_cols = df.select_dtypes(include=[np.number]).columns
         winsorized_count = 0
 
@@ -1675,17 +1705,28 @@ class DataProcessor:
             if col in exclude_cols:
                 continue
 
-            # Get percentile values
-            lower_val = df[col].quantile(lower_percentile)
-            upper_val = df[col].quantile(upper_percentile)
+            # Get column data (should be Series after duplicate removal)
+            col_data = df[col]
 
-            # Skip if quantile values are NaN (all NaN column)
+            # Skip if not a Series (shouldn't happen after duplicate removal, but defensive)
+            if not isinstance(col_data, pd.Series):
+                logging.warning(f"⚠️  Column '{col}' is not a Series, skipping winsorization")
+                continue
+
+            # Get percentile values (should be scalar)
+            lower_val = col_data.quantile(lower_percentile)
+            upper_val = col_data.quantile(upper_percentile)
+
+            # Skip if quantile values are NaN (all NaN column) or not scalar
+            # Use np.isscalar for safe scalar check
+            if not np.isscalar(lower_val) or not np.isscalar(upper_val):
+                continue
             if pd.isna(lower_val) or pd.isna(upper_val):
                 continue
 
             # Count how many will be winsorized
-            lower_mask = df[col] < lower_val
-            upper_mask = df[col] > upper_val
+            lower_mask = col_data < lower_val
+            upper_mask = col_data > upper_val
 
             # Explicit boolean conversion for safety (handles edge cases)
             has_lower_outliers = bool(lower_mask.any())
