@@ -403,6 +403,132 @@ current_quarter_data['filling_delay_days'] = (
 ⚠️ **통합 필요**:
 - Feature alignment 로직 (현재 regressor.py, ml_backtest.py에 중복)
 
+## 🗂️ 프로젝트 관리 (Project Management)
+
+### Configuration 파일 관리
+
+**conf.yaml vs conf.yaml.template**
+
+- **conf.yaml**: 실제 사용하는 설정 파일 (Git에 포함 안 됨)
+  - API_KEY 등 보안 정보 포함
+  - `.gitignore`에 등록되어 Git 추적 제외
+  - 사용자가 직접 생성하고 관리
+
+- **conf.yaml.template**: 설정 파일 템플릿 (Git에 포함)
+  - API_KEY 자리는 placeholder로 표시
+  - 모든 설정 항목의 기본값 제공
+  - 코드 수정 시 이 파일을 업데이트
+
+**작업 원칙**:
+1. **코드 작성 시**: 사용자가 conf.yaml.template을 복사하여 conf.yaml을 만들었다고 가정
+2. **새 설정 추가**: conf.yaml.template에 추가 (주석과 예시 포함)
+3. **보안 정보**: conf.yaml.template에는 절대 실제 키 입력 금지
+4. **기본값**: 합리적인 기본값 제공 (사용자가 바로 테스트 가능하도록)
+
+**예시**:
+```yaml
+# conf.yaml.template
+DATA:
+  API_KEY: "your_fmp_api_key_here"  # ← placeholder
+
+# 사용자가 만드는 conf.yaml
+DATA:
+  API_KEY: "abc123xyz789real"  # ← 실제 키
+```
+
+### Dependencies 관리 (requirements.txt)
+
+**작업 원칙**:
+1. **새 패키지 설치**: requirements.txt에 반드시 추가
+   ```bash
+   pip install new-package
+   pip freeze | grep new-package >> requirements.txt
+   ```
+
+2. **패키지 제거**: requirements.txt에서도 삭제
+   ```bash
+   pip uninstall old-package
+   # requirements.txt에서 해당 줄 삭제
+   ```
+
+3. **버전 명시**: 주요 패키지는 버전 고정
+   ```
+   pandas==1.5.3  # 고정 버전 (재현성)
+   numpy>=1.24.0  # 최소 버전 (호환성)
+   ```
+
+4. **주석 추가**: 용도가 명확하지 않은 패키지는 주석 작성
+   ```
+   optuna==3.1.0  # Hyperparameter optimization
+   plotly==5.14.0  # Optuna visualization charts
+   ```
+
+**체크리스트**:
+- [ ] 새 import 문 추가 시 requirements.txt 확인
+- [ ] 에러 발생 시 버전 충돌 가능성 확인
+- [ ] 주기적으로 `pip list --outdated` 실행하여 업데이트 검토
+
+### 문서 관리 (README.md)
+
+**업데이트 필요 시점**:
+1. **구조 변경**: 폴더/파일 구조가 크게 바뀐 경우
+   - 새 디렉토리 추가
+   - 주요 파일 이동/이름 변경
+   - 모듈 재구성
+
+2. **주요 기능 추가**: 사용자가 알아야 할 새 기능
+   - 새로운 ML 모델 추가
+   - 백테스트 방식 변경
+   - 설정 옵션 추가
+
+3. **설치 방법 변경**: 의존성이나 설치 절차 변경
+   - 새 필수 패키지
+   - 설정 파일 형식 변경
+   - 환경 요구사항 변경
+
+4. **사용법 변경**: 실행 방법이나 워크플로우 변경
+   - CLI 인터페이스 변경
+   - 입력 데이터 형식 변경
+   - 출력 파일 위치 변경
+
+**README.md 필수 섹션**:
+- **Installation**: requirements.txt 설치 방법
+- **Configuration**: conf.yaml.template 사용법
+- **Project Structure**: 주요 디렉토리 및 파일 설명
+- **Usage**: 실행 예시 및 워크플로우
+- **Development**: 개발자를 위한 가이드
+
+**예시**:
+```markdown
+## Installation
+
+1. Clone repository
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Copy config template:
+   ```bash
+   cp config/conf.yaml.template config/conf.yaml
+   ```
+4. Edit `config/conf.yaml` and add your API key
+```
+
+### 작업 시 체크리스트
+
+**코드 수정 완료 후 반드시 확인**:
+
+- [ ] 새 설정 추가 → `conf.yaml.template` 업데이트
+- [ ] 새 패키지 사용 → `requirements.txt` 추가
+- [ ] 구조 변경 → `README.md` 업데이트
+- [ ] API 키 노출 → `.gitignore` 확인
+- [ ] 커밋 전 → `git status`로 conf.yaml 포함 여부 확인
+
+**자주 하는 실수**:
+- ❌ conf.yaml을 실수로 커밋 (보안 위험!)
+- ❌ requirements.txt 업데이트 없이 새 패키지 사용 (타인이 실행 불가)
+- ❌ README.md 업데이트 없이 구조 변경 (혼란 야기)
+
 ## 🔧 작업 중 발견 시 즉시 조치
 
 ### 이중화 발견 시
