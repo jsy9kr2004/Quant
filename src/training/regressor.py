@@ -2384,62 +2384,25 @@ class Regressor:
                 if len(x_test_full) == 0:
                     continue
 
-                # ===== Feature Alignment for Global Classifier =====
-                # Align x_test_full to match global classifier's expected features
-                # (preprocessing during training may have dropped some columns)
-                if hasattr(self.clsmodels[2], 'get_booster'):
-                    # XGBoost model - get feature names from booster
-                    global_model_features = self.clsmodels[2].get_booster().feature_names
-                    if global_model_features is not None:
-                        logging.info(f"   Global classifier: Aligning features...")
-                        logging.info(f"   Model expects {len(global_model_features)} features")
-                        logging.info(f"   Test data has {len(x_test_full.columns)} features")
+                # ===== Feature Alignment (Unified via DataProcessor) =====
+                # Uses DataProcessor.align_features_to_model() to ensure consistency
+                # with ml_backtest.py and eliminate code duplication
 
-                        # Add missing features with NaN
-                        missing_features = set(global_model_features) - set(x_test_full.columns)
-                        if missing_features:
-                            logging.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with NaN")
-                            for col in missing_features:
-                                x_test_full[col] = np.nan
+                # Align for global classifier
+                logging.info(f"   Global classifier: Aligning features...")
+                x_test_full = DataProcessor.align_features_to_model(
+                    x_test_full,
+                    self.clsmodels[2],
+                    logging.getLogger()
+                )
 
-                        # Remove extra features
-                        extra_features = set(x_test_full.columns) - set(global_model_features)
-                        if extra_features:
-                            logging.info(f"   Removing {len(extra_features)} extra features from test data")
-                            x_test_full = x_test_full.drop(columns=list(extra_features))
-
-                        # Reorder features to match training order (CRITICAL!)
-                        x_test_full = x_test_full[global_model_features]
-                        logging.info(f"   ✅ Global classifier feature alignment complete: {len(x_test_full.columns)} features")
-
-                # ===== Feature Alignment for Sector Models =====
-                # Create sector-specific x_test that matches sector model's expected features
-                x_test_sector = x_test_full.copy()
-                first_sector_model = self.sector_models[(sec, 0)]
-                if hasattr(first_sector_model, 'get_booster'):
-                    # XGBoost model - get feature names from booster
-                    sector_model_features = first_sector_model.get_booster().feature_names
-                    if sector_model_features is not None:
-                        logging.info(f"   Sector {sec}: Aligning features...")
-                        logging.info(f"   Model expects {len(sector_model_features)} features")
-                        logging.info(f"   Test data has {len(x_test_sector.columns)} features")
-
-                        # Add missing features with NaN
-                        missing_features = set(sector_model_features) - set(x_test_sector.columns)
-                        if missing_features:
-                            logging.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with NaN")
-                            for col in missing_features:
-                                x_test_sector[col] = np.nan
-
-                        # Remove extra features
-                        extra_features = set(x_test_sector.columns) - set(sector_model_features)
-                        if extra_features:
-                            logging.info(f"   Removing {len(extra_features)} extra features from test data")
-                            x_test_sector = x_test_sector.drop(columns=list(extra_features))
-
-                        # Reorder features to match training order (CRITICAL!)
-                        x_test_sector = x_test_sector[sector_model_features]
-                        logging.info(f"   ✅ Sector model feature alignment complete: {len(x_test_sector.columns)} features")
+                # Align for sector models
+                logging.info(f"   Sector {sec}: Aligning features...")
+                x_test_sector = DataProcessor.align_features_to_model(
+                    x_test_full.copy(),
+                    self.sector_models[(sec, 0)],
+                    logging.getLogger()
+                )
 
                 sector_preds = np.empty((0, x_test_sector.shape[0]))
                 df['label'] = y_test

@@ -408,6 +408,96 @@ class DataProcessor:
         df.columns = df.columns.str.replace(',', '_', regex=False)
         return df
 
+    @staticmethod
+    def align_features_to_model(
+        X: pd.DataFrame,
+        model: Any,
+        logger: Optional[logging.Logger] = None
+    ) -> pd.DataFrame:
+        """
+        Feature alignment for model prediction
+
+        **Critical for regressor.py and ml_backtest.py consistency**
+
+        This function ensures that test data has the exact features expected by
+        the trained model, in the correct order. This is essential because:
+        1. Training data may have had features dropped during preprocessing
+        2. Test data may be missing features due to data availability
+        3. XGBoost/LightGBM require exact feature match (names + order)
+
+        Parameters:
+        -----------
+        X : pd.DataFrame
+            Test data features (may have different columns than model expects)
+        model : Any
+            Trained model (must have get_booster() method for XGBoost/LightGBM)
+        logger : Optional[logging.Logger]
+            Logger for info/warning messages
+
+        Returns:
+        --------
+        pd.DataFrame
+            Aligned features matching model's expected features
+
+        Process:
+        --------
+        1. Extract expected features from model.get_booster().feature_names
+        2. Add missing features (filled with NaN - XGBoost can handle)
+        3. Remove extra features not in model
+        4. Reorder columns to match training order (CRITICAL!)
+
+        Example:
+        --------
+        >>> # regressor.py
+        >>> x_test_full = DataProcessor.align_features_to_model(
+        ...     x_test_full, self.clsmodels[2], logger
+        ... )
+        >>> y_probs = model.predict_proba(x_test_full)
+
+        >>> # ml_backtest.py
+        >>> X = DataProcessor.align_features_to_model(
+        ...     X, models['classifier'], self.logger
+        ... )
+        >>> y_pred = model.predict(X)
+
+        Notes:
+        ------
+        - This replaces duplicated alignment code in regressor.py and ml_backtest.py
+        - Ensures consistency: bugs fixed here apply to both training and backtesting
+        - Missing features filled with NaN (tree models handle NaN natively)
+        """
+        if logger is None:
+            logger = logging.getLogger('DataProcessor')
+
+        # Extract expected features from model
+        if hasattr(model, 'get_booster'):
+            model_features = model.get_booster().feature_names
+            if model_features is not None:
+                logger.info(f"   Aligning features to model...")
+                logger.info(f"   Model expects {len(model_features)} features")
+                logger.info(f"   Test data has {len(X.columns)} features")
+
+                # Add missing features with NaN
+                missing_features = set(model_features) - set(X.columns)
+                if missing_features:
+                    logger.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with NaN")
+                    for col in missing_features:
+                        X[col] = np.nan
+
+                # Remove extra features
+                extra_features = set(X.columns) - set(model_features)
+                if extra_features:
+                    logger.info(f"   Removing {len(extra_features)} extra features from test data")
+                    X = X.drop(columns=list(extra_features))
+
+                # Reorder features to match training order (CRITICAL!)
+                X = X[model_features]
+                logger.info(f"   ✅ Feature alignment complete: {len(X.columns)} features")
+        else:
+            logger.warning("   Model does not have get_booster() method, skipping alignment")
+
+        return X
+
     # ========================================================================
     # Sparse Data Handling
     # ========================================================================
