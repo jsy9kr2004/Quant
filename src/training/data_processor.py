@@ -1679,11 +1679,19 @@ class DataProcessor:
             lower_val = df[col].quantile(lower_percentile)
             upper_val = df[col].quantile(upper_percentile)
 
+            # Skip if quantile values are NaN (all NaN column)
+            if pd.isna(lower_val) or pd.isna(upper_val):
+                continue
+
             # Count how many will be winsorized
             lower_mask = df[col] < lower_val
             upper_mask = df[col] > upper_val
 
-            if lower_mask.any() or upper_mask.any():
+            # Explicit boolean conversion for safety (handles edge cases)
+            has_lower_outliers = bool(lower_mask.any())
+            has_upper_outliers = bool(upper_mask.any())
+
+            if has_lower_outliers or has_upper_outliers:
                 # Replace extreme values with percentile values
                 df.loc[lower_mask, col] = lower_val
                 df.loc[upper_mask, col] = upper_val
