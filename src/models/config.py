@@ -38,9 +38,9 @@ Usage Example:
 
 Note:
     - All GPU-based configs require CUDA-compatible GPU
-    - tree_method='gpu_hist' is used for XGBoost GPU acceleration
-    - device='gpu' is used for LightGBM GPU acceleration
-    - task_type='GPU' is used for CatBoost GPU acceleration
+    - XGBoost: tree_method='hist' + device='cuda:0' for GPU acceleration
+    - LightGBM: device='gpu' for GPU acceleration
+    - CatBoost: task_type='GPU' for GPU acceleration
 """
 
 from typing import Dict, Any, Tuple

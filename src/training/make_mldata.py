@@ -48,6 +48,9 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 from warnings import simplefilter
 import warnings
 
+# Import DataProcessor for feature name normalization
+from src.training.data_processor import DataProcessor
+
 # Phase 3: Winsorization을 위한 scipy import
 try:
     from scipy.stats.mstats import winsorize
@@ -926,6 +929,14 @@ class AIDataMaker:
 
                     # [무한대 체크 #1] tsfresh 추출 직후
                     self._check_infinite_values(features, base_year_period, "after tsfresh extraction")
+
+                    # ===================================================================
+                    # FEATURE NAME NORMALIZATION (Critical for model training)
+                    # ===================================================================
+                    # Remove special JSON characters from feature names to avoid errors
+                    # in XGBoost, LightGBM, and CatBoost model training
+                    self.logger.info(f"🔧 [{base_year_period}] Normalizing feature names...")
+                    features = DataProcessor.normalize_feature_names(features, logger=self.logger)
 
                     # '_ts_' 마커를 포함하도록 컬럼명 변경
                     features = features.rename(columns=lambda x: f"{x.partition('__')[0]}_ts_{x.partition('__')[2]}")
