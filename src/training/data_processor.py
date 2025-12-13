@@ -203,6 +203,98 @@ class DataProcessor:
         return combined_df
 
     # ========================================================================
+    # Feature Name Normalization (Common Logic)
+    # ========================================================================
+
+    @staticmethod
+    def normalize_feature_names(
+        df: pd.DataFrame,
+        logger: Optional[logging.Logger] = None
+    ) -> pd.DataFrame:
+        """
+        Normalize feature names to remove special JSON characters.
+
+        **Critical for Model Training**: XGBoost, LightGBM, and CatBoost models
+        cannot handle special JSON characters like parentheses (), brackets [],
+        curly braces {}, and commas in feature names.
+
+        This function ensures consistent feature naming across:
+        - make_mldata.py (ML data preparation)
+        - regressor.py (model training)
+        - ml_backtest.py (walk-forward backtesting)
+
+        Common problematic features from tsfresh:
+        - 'feature__param_(value1, value2)' → 'feature__param__value1__value2_'
+        - 'feature[index]' → 'feature_index_'
+        - 'feature{key}' → 'feature_key_'
+
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            DataFrame with potentially problematic feature names
+        logger : Optional[logging.Logger]
+            Logger for tracking normalization
+
+        Returns:
+        --------
+        pd.DataFrame
+            DataFrame with normalized column names
+
+        Example:
+        --------
+        >>> import pandas as pd
+        >>> df = pd.DataFrame({
+        ...     'price_(2, 5)': [1, 2, 3],
+        ...     'volume[0]': [10, 20, 30],
+        ...     'ratio{a}': [0.1, 0.2, 0.3]
+        ... })
+        >>> normalized_df = DataProcessor.normalize_feature_names(df)
+        >>> print(normalized_df.columns.tolist())
+        ['price__2__5_', 'volume_0_', 'ratio_a_']
+        """
+        import re
+
+        original_cols = df.columns.tolist()
+
+        # Replace special JSON characters with underscores
+        # Order matters: do multiple-character replacements first
+        normalized_cols = []
+        for col in original_cols:
+            # Replace parentheses, brackets, curly braces with underscores
+            new_col = re.sub(r'[(),\[\]{}]', '_', col)
+            # Replace spaces with underscores
+            new_col = re.sub(r'\s+', '_', new_col)
+            # Remove consecutive underscores
+            new_col = re.sub(r'_+', '_', new_col)
+            # Remove leading/trailing underscores
+            new_col = new_col.strip('_')
+            normalized_cols.append(new_col)
+
+        # Check if any changes were made
+        changed_count = sum(1 for orig, norm in zip(original_cols, normalized_cols) if orig != norm)
+
+        if changed_count > 0:
+            if logger:
+                logger.info(f"   🔧 Normalized {changed_count} feature names (removed special characters)")
+                # Show a few examples
+                examples = [
+                    f"      - '{orig}' → '{norm}'"
+                    for orig, norm in zip(original_cols, normalized_cols)
+                    if orig != norm
+                ][:3]  # Show first 3 examples
+                if examples:
+                    for example in examples:
+                        logger.info(example)
+                    if changed_count > 3:
+                        logger.info(f"      ... and {changed_count - 3} more")
+
+        # Create new DataFrame with normalized column names
+        df_normalized = df.copy()
+        df_normalized.columns = normalized_cols
+
+        return df_normalized
+
+    # ========================================================================
     # Sector Prediction (Common Logic)
     # ========================================================================
 
@@ -765,6 +857,7 @@ class DataProcessor:
 
         Preprocessing Steps (in order):
         ================================
+        0. Normalize feature names (remove special JSON characters)
         1. Remove infinite values from X and y
         2. Replace remaining infinite with NaN (safety)
         3. Remove rows with infinite in y labels (CRITICAL)
@@ -823,6 +916,13 @@ class DataProcessor:
 
         rows_before = len(X)
         cols_before = len(X.columns)
+
+        # ===== Step 0: Normalize feature names (Critical for model training) =====
+        # Remove special JSON characters from feature names to prevent errors
+        # in XGBoost, LightGBM, and CatBoost
+        if logger:
+            logger.info("Step 0/8: Normalizing feature names...")
+        X = DataProcessor.normalize_feature_names(X, logger=logger)
 
         # ===== Step 1: Remove infinite values from X and y =====
         if logger:
