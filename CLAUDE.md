@@ -1,5 +1,101 @@
 # Claude AI 작업 가이드
 
+## 🌟 시스템 철학 (System Philosophy)
+
+### 목적: "예측이 아닌 선별 (Selection over Prediction)"
+
+이 시스템은 **"미래 가격 맞추기"가 아니라 "상대적 저평가(Mispricing) 종목의 정렬(Ranking)"**을 목표로 합니다.
+
+#### 핵심 개념
+
+1. **펀더멘털 중심 (Fundamental-Anchored)**
+   - 적정가치 계산은 불가능함을 인정
+   - 재무제표 기반의 **안정성 필터링**을 1차 목표로 함
+   - 단기 모멘텀/흥행주는 배제하고, **내재가치 회귀** 가능성이 있는 종목에 집중
+
+2. **선별 전략 (Stock Selection)**
+   - ML 모델의 출력값은 절대적인 가격이 아닌, **상대적인 순위(Score)**로 활용
+   - 비대칭적 기대수익을 가진 후보를 골라내는 것이 목표
+   - Top-K 선정: 상위 종목만 선택하여 포트폴리오 구성
+
+3. **수익률의 다원성 인정**
+   - 수익률은 단일 요인이 아님
+   - 매크로/섹터 변수를 고려하여 **상대적 수익률**을 예측
+   - `price_dev_subavg`: 전체 평균 대비 상대 수익률
+   - `sec_price_dev_subavg`: 섹터 평균 대비 상대 수익률
+
+---
+
+## 🏗️ System Architecture: 2-Stage ML Structure
+
+안정성과 수익성을 동시에 잡기 위해 모델을 **두 단계로 분리**하여 운용합니다.
+
+### Stage 1: Stability Filtering (안정성 필터링)
+
+**목적**: "이 회사는 펀더멘털이 깨져 있지 않다"는 신호만 남기는 **Negative Screening**
+
+**방식**:
+- **분류 모델 (Classification)** 사용
+- 하위 N% 위험 종목 제거 (기본값: `THRESHOLD = 92`, 상위 8%만 선택)
+- 상위 1% 극단적 모멘텀 폭등주 제외 (데이터 왜곡 방지)
+- 결측치, 이상치가 심한 종목 필터링
+
+**모델 구성**:
+```python
+# Global Classifiers (USE_CLASSIFIER=Y인 경우)
+clsmodels[0]: XGBClassifier (Optuna 최적화)
+clsmodels[1]: XGBClassifier (max_depth=9)
+clsmodels[2]: XGBClassifier (max_depth=10)
+clsmodels[3]: LGBMClassifier (max_depth=8)
+
+# Sector Classifiers (USE_SECTOR_MODEL=Y인 경우)
+각 섹터당 4개 분류기 (같은 구조)
+```
+
+### Stage 2: Return Forecast (수익률 예측)
+
+**목적**: 단기적으로 무효화된 가치의 회복 가능성을 통계적으로 점수화
+
+**방식**:
+- **회귀 모델 (Regression)** 사용
+- 다음 분기(Next-Quarter) 상대 수익률 예측
+- Stage 1 통과 종목만 대상으로 스코어링
+- Top-K 선정하여 포트폴리오 구성
+
+**모델 구성**:
+```python
+# Global Regressors
+models[0]: XGBRegressor (max_depth=8)
+models[1]: XGBRegressor (max_depth=10)
+
+# Sector Regressors (USE_SECTOR_MODEL=Y인 경우)
+각 섹터당 2개 회귀기
+```
+
+### Model Ensemble Strategy
+
+**Classifier Ensemble** (4 variants):
+- 다양한 depth로 학습하여 과적합 방지
+- XGBoost + LightGBM 혼합으로 알고리즘 다양성 확보
+- 평균 또는 투표 방식으로 최종 필터링 결정
+
+**Regressor Ensemble** (2 variants):
+- 서로 다른 depth로 학습
+- 평균값을 최종 수익률 예측치로 사용
+
+### Architecture Configurations
+
+설정 파일(`config/conf.yaml`)에서 제어:
+
+| 설정 | 설명 | 모델 구성 |
+|------|------|-----------|
+| `USE_CLASSIFIER: Y`<br>`USE_SECTOR_MODEL: N` | 전역 2-Stage | 4 classifiers + 2 regressors |
+| `USE_CLASSIFIER: Y`<br>`USE_SECTOR_MODEL: Y` | 섹터별 2-Stage | 각 섹터: 4 classifiers + 2 regressors |
+| `USE_CLASSIFIER: N`<br>`USE_SECTOR_MODEL: N` | 전역 Regression만 | 2 regressors |
+| `USE_CLASSIFIER: N`<br>`USE_SECTOR_MODEL: Y` | 섹터별 Regression만 | 각 섹터: 2 regressors |
+
+---
+
 ## 🎯 핵심 원칙: regressor.py ↔ ml_backtest.py 일원화
 
 ### 왜 중요한가?
@@ -27,6 +123,57 @@
 - [ ] 공통 함수로 통합할 수 있는가?
 - [ ] DataProcessor나 별도 유틸리티로 빼야 하는가?
 
+## 🛡️ Data Leakage Prevention (미래 정보 유출 방지)
+
+### 핵심 원칙: filingDate 기준 Cutoff
+
+**문제**: 재무제표 데이터는 **분기 종료일**과 **공시일**이 다릅니다.
+- 예: 2024 Q1 (종료일: 2024-03-31) → 공시일: 2024-05-15
+- 종료일 기준으로 사용하면 미래 정보 유출 발생!
+
+**해결책**: `filingDate` (공시일) 기준으로 엄격하게 cutoff
+
+### 구현 방법 (make_mldata.py)
+
+```python
+# ❌ 나쁜 예: 분기 종료일 기준
+fs_metrics['rebalance_date'] = fs_metrics['report_date']  # Future leakage!
+
+# ✅ 좋은 예: 공시일 기준
+indices = np.searchsorted(date_index, fs_metrics['filingDate'], side='right')
+fs_metrics['rebalance_date'] = [date_index[i] if i < len(date_index) else pd.NaT
+                                  for i in indices]
+```
+
+**작동 원리**:
+1. `filingDate` (공시일)를 기준으로 리밸런싱 날짜 인덱스 검색
+2. `side='right'`: 공시일 **이후**의 첫 번째 리밸런싱 날짜 선택
+3. 해당 리밸런싱 시점에만 해당 재무 데이터 사용 가능
+
+### Validation (검증)
+
+```python
+# 공시 지연 검증: filingDate와 분기 종료일 간격 분석
+current_quarter_data['filling_delay_days'] = (
+    pd.to_datetime(current_quarter_data['filingDate']) -
+    pd.to_datetime(current_quarter_data['report_date'])
+).dt.days
+```
+
+- 일반적으로 공시 지연: 30~90일
+- 이상치 확인: 너무 짧거나 긴 지연은 데이터 오류 가능성
+
+### 체크리스트
+
+데이터 로딩/전처리 시 항상 확인:
+
+- [ ] `filingDate` 컬럼이 존재하는가?
+- [ ] 리밸런싱 날짜 매핑이 `filingDate` 기준인가?
+- [ ] 테스트 데이터가 학습 데이터의 미래 정보를 포함하지 않는가?
+- [ ] Walk-forward 백테스트에서 각 구간이 독립적인가?
+
+---
+
 ## 📂 코드 구조
 
 ### 통합되어야 하는 로직
@@ -40,7 +187,7 @@
   - `prepare_sector_data()` - 섹터 데이터 준비
   - `normalize_feature_names()` - Feature 이름 정규화
   - `winsorize_features()` - Winsorization
-  - `align_features_to_model()` - Feature alignment (추가 필요)
+  - `align_features_to_model()` - Feature alignment ✅ 완료
 
 #### 2. Feature Engineering
 - **위치**: `src/training/make_mldata.py`
@@ -183,15 +330,126 @@ Pull Request 시 확인:
 
 ### 완료된 항목
 - ✅ Feature name normalization (DataProcessor.normalize_feature_names)
+  - tsfresh 특수문자 제거 → XGBoost/LightGBM/CatBoost 호환
 - ✅ Preprocessing pipeline (DataProcessor.preprocess_training_data)
+  - Infinite 제거, NaN 처리, Outlier clipping 통합
 - ✅ Sector data preparation (DataProcessor.prepare_sector_data)
+  - 섹터별 모델 전처리 단일화
+- ✅ Feature alignment (DataProcessor.align_features_to_model)
+  - Missing features NaN fill, 순서 정렬 통합
+  - regressor.py와 ml_backtest.py 중복 제거 완료
 
 ### 진행 중인 항목
-- 🔄 Feature alignment 통합 (현재 중복 코드 상태)
+- 없음
 
 ### 계획된 항목
-- ⏳ Prediction pipeline 통합
+- ⏳ GPU prediction wrapper 통합
+  - 현재 regressor.py에만 `predict_with_gpu_support()` 존재
+  - ml_backtest.py도 동일 함수 사용하도록 통합 필요
 - ⏳ Evaluation metrics 통합
+  - 평가 지표 계산 로직 중복 제거
+- ⏳ Top-K selection 통합
+  - 상위 종목 선정 로직 표준화
+
+---
+
+## 🔄 Development Workflow (개발 워크플로우)
+
+### 전체 파이프라인
+
+```
+1. Data Collection (data_collector/)
+   ↓ FMP API → Parquet files
+
+2. Feature Engineering (make_mldata.py)
+   ↓ tsfresh → ML-ready dataset
+   ↓ filingDate cutoff (leakage prevention)
+
+3. Training (regressor.py)
+   ↓ DataProcessor → Preprocessing
+   ↓ Optuna → Hyperparameter tuning
+   ↓ Stage 1: Classifiers (4 models)
+   ↓ Stage 2: Regressors (2 models)
+   ↓ Save models → {ROOT_PATH}/models/
+
+4. Evaluation (regressor.py)
+   ↓ Prediction accuracy metrics
+   ↓ RMSE, MAE, R², Accuracy, Precision, Recall
+
+5. Backtesting (ml_backtest.py)
+   ↓ Walk-forward validation
+   ↓ DataProcessor → Same preprocessing
+   ↓ Load models → Predict
+   ↓ Top-K selection → Portfolio
+   ↓ Performance metrics: Return, MDD, Sharpe
+
+6. Live Prediction (regressor.py)
+   ↓ Load models → Latest data
+   ↓ DataProcessor → Same preprocessing
+   ↓ Generate rankings
+```
+
+### 일반적인 작업 시나리오
+
+**시나리오 1: 새로운 Feature 추가**
+1. `make_mldata.py`에서 feature 생성 로직 추가
+2. `DataProcessor`에서 전처리 필요 시 추가
+3. regressor.py 학습 실행
+4. ml_backtest.py로 백테스트 검증
+5. 두 결과 함께 평가
+
+**시나리오 2: 모델 파라미터 튜닝**
+1. `config/conf.yaml`에서 `OPTUNA_*` 설정 조정
+2. `USE_OPTUNA: Y`로 설정
+3. regressor.py 학습 실행 (자동 튜닝)
+4. ml_backtest.py로 실전 수익률 검증
+5. 예측도 ↔ 수익률 트레이드오프 분석
+
+**시나리오 3: 버그 수정**
+1. 어디서 발생했는지 파악 (regressor? ml_backtest? 공통?)
+2. 공통 원인 → DataProcessor 수정
+3. 개별 원인 → 해당 파일만 수정 (주석 명시)
+4. 양쪽 모두 테스트 실행
+5. 일관성 확인
+
+**시나리오 4: 성능 개선**
+1. Profiling으로 병목 지점 파악
+2. 공통 로직 → DataProcessor에서 최적화
+3. 개별 로직 → 해당 파일에서 최적화
+4. 벤치마크: 학습 시간, 예측 속도 측정
+5. 정확도 저하 없는지 확인
+
+### 중요한 파일들
+
+| 파일 | 역할 | 수정 빈도 | 주의사항 |
+|------|------|-----------|----------|
+| `CLAUDE.md` | AI 작업 가이드 | 낮음 | 프로젝트 철학 문서화 |
+| `config/conf.yaml` | 전역 설정 | 높음 | 실험마다 변경 |
+| `src/training/data_processor.py` | **통합 전처리** | 중간 | 변경 시 양쪽 영향 |
+| `src/training/make_mldata.py` | Feature 생성 | 중간 | Leakage 주의 |
+| `src/training/regressor.py` | 학습 & 평가 | 높음 | ml_backtest 일관성 |
+| `src/backtest/ml_backtest.py` | 백테스트 | 높음 | regressor 일관성 |
+| `src/models/config.py` | 모델 설정 | 낮음 | Optuna와 연계 |
+
+### 테스트 전략
+
+**Quick Test** (빠른 동작 확인):
+```yaml
+# config/conf.yaml
+TRAIN_START_YEAR: 2020
+TRAIN_END_YEAR: 2021
+OPTUNA_TRIALS: 3
+OPTUNA_CV_FOLDS: 2
+```
+
+**Production Test** (실전 투자):
+```yaml
+# config/conf.yaml
+TRAIN_START_YEAR: 1996
+TRAIN_END_YEAR: 2022
+OPTUNA_TRIALS: 50
+OPTUNA_CV_FOLDS: 5
+```
 
 ---
 
