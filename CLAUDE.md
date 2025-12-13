@@ -34,19 +34,37 @@
 
 **설계 의도**: "이 회사는 펀더멘털이 깨져 있지 않다"는 신호만 남기는 **Negative Screening**
 
-**현재 구현**:
-- **분류 모델 (Classification)** 사용
-- **학습 타겟**: `label_binary = (price_dev > 0)` - 다음 분기 가격 상승/하락
-- **필터링 방식**: 상승 확률 기준 percentile threshold (THRESHOLD = 92)
-  - 상승 확률 상위 8% 종목만 선택 (하위 92% 제거)
-  - regressor.py: 하위 92% 예측값을 -1로 치환 (패널티)
-  - ml_backtest.py: 확률 × 수익률 (down-weighting)
-- 결과적으로 **상승 예측을 proxy로 사용**하여 위험 종목 회피
+#### 학습 시 (Training)
+
+**타겟**: `label_binary = (price_dev > 0)` - 다음 분기 가격 상승/하락
+
+**프로세스**:
+1. 모든 학습 데이터로 분류기 학습
+2. **자동 Threshold 탐색** (CLASSIFIER_THRESHOLD_AUTO_SEARCH=Y):
+   - 학습된 분류기로 학습 데이터 예측 확률 계산
+   - Percentile 85~98 구간 탐색
+   - 각 percentile에서 precision, recall 계산
+   - 최적 threshold 선정:
+     - "precision" 모드: Precision 최대값
+     - "balance" 모드: Min precision 조건 만족하면서 최대 데이터
+   - 결과를 `threshold_config.pkl`로 저장
+3. 또는 **고정 Threshold** 사용 (AUTO_SEARCH=N):
+   - Config에서 지정한 percentile 사용 (기본값: 92)
+
+**결과**: 최적 threshold로 학습 데이터 필터링 → Stage 2로 전달
+
+#### 예측 시 (Evaluation/Backtest)
+
+**프로세스**:
+1. 저장된 `threshold_config.pkl` 로드
+2. 분류기로 예측 확률 계산
+3. 학습 시와 동일한 percentile threshold 적용
+4. ml_backtest.py: 확률 × 수익률 (down-weighting)
 
 **수학적 동등성**:
 - "재무적으로 부실한 기업 제거" (설계 의도)
 - ≈ "상승 확률 낮은 종목 제거" (현재 구현)
-- → Top-K가 8%보다 작으면 두 방식 모두 동일한 결과
+- → Top-K < threshold%이면 두 방식 모두 동일한 결과
 
 **모델 구성**:
 ```python
@@ -64,12 +82,29 @@ clsmodels[3]: LGBMClassifier (max_depth=8)
 
 **목적**: 단기적으로 무효화된 가치의 회복 가능성을 통계적으로 점수화
 
-**방식**:
-- **회귀 모델 (Regression)** 사용
-- **학습 타겟**: `price_dev_subavg` - 다음 분기 상대 수익률
-- 다음 분기(Next-Quarter) 상대 수익률 예측
-- Stage 1 필터링 적용된 종목들 중 스코어링
-- Top-K 선정하여 포트폴리오 구성
+#### 학습 시 (Training)
+
+**타겟**: `price_dev_subavg` - 다음 분기 상대 수익률
+
+**프로세스**:
+1. Stage 1에서 필터링된 "안전한" 종목 데이터만 사용
+2. **회귀 모델 (Regression)** 학습:
+   - 입력: 필터링된 종목들의 재무제표 features
+   - 출력: 다음 분기 상대 수익률 예측
+3. 노이즈(하위 종목)가 제거되어 더 clean한 학습
+
+**장점**:
+- 회귀기가 "안전한" 종목들의 패턴만 학습
+- 하위 종목 노이즈가 회귀기 학습에 방해하지 않음
+- 학습 데이터는 감소하지만 품질 향상
+
+#### 예측 시 (Evaluation/Backtest)
+
+**프로세스**:
+1. 모든 종목에 대해 회귀기로 수익률 예측
+2. Stage 1 필터링 (확률 weighting 또는 threshold cutoff)
+3. 최종 스코어: `ml_score = y_pred_proba × y_pred_return`
+4. Top-K 선정하여 포트폴리오 구성
 
 **모델 구성**:
 ```python
@@ -107,37 +142,87 @@ models[1]: XGBRegressor (max_depth=10)
 
 #### 학습 단계 (Training)
 
-**타겟 생성** (`DataProcessor.create_binary_target`):
+**Step 1: 분류기 학습 (모든 데이터)**
+
+타겟 생성 (`DataProcessor.create_binary_target`):
 ```python
 # 실제 다음 분기 가격 변동 기준
 label_binary = (price_dev > 0).astype(int)
 # 1 = 가격 상승, 0 = 가격 하락
 ```
 
-**의미**:
+의미:
 - 분류기는 "재무제표 → 다음 분기 상승/하락" 패턴을 학습
 - 재무적으로 건전한 기업 ≈ 상승 확률 높음 (간접적 proxy)
 - 4개 분류기 앙상블로 과적합 방지
+
+**Step 2: 최적 Threshold 자동 탐색** (`_find_optimal_threshold()`)
+
+```python
+# 학습된 분류기로 학습 데이터 예측
+y_probs = classifier.predict_proba(x_train)[:, 1]
+
+# 여러 percentile 시도 (85~98)
+for pct in range(85, 99):
+    threshold = np.percentile(y_probs, pct)
+    mask = y_probs > threshold
+
+    # 선택된 종목의 precision 계산
+    precision = precision_score(y_true[mask], y_pred[mask])
+    recall = recall_score(y_true[mask], y_pred[mask])
+
+# 최적 percentile 선택 (balance 모드)
+optimal_pct = max(pct where precision >= 0.65, key=n_selected)
+```
+
+결과 예시:
+```
+Percentile 85: threshold=0.612, selected=15000, precision=0.523
+Percentile 90: threshold=0.701, selected=10000, precision=0.610
+Percentile 93: threshold=0.789, selected=7000,  precision=0.729  ← 선택!
+Percentile 95: threshold=0.854, selected=5000,  precision=0.780
+```
+
+저장:
+- `threshold_config.pkl`: {'percentile': 93, 'threshold_value': 0.789, 'precision': 0.729, ...}
+
+**Step 3: 학습 데이터 필터링**
+
+```python
+# 최적 threshold로 필터링
+threshold = threshold_config['threshold_value']
+safe_mask = y_probs > threshold
+
+x_train_filtered = x_train[safe_mask]  # 상위 7% (93 percentile)
+y_train_filtered = y_train[safe_mask]
+
+# 필터링된 데이터로 회귀기 학습
+regressor.fit(x_train_filtered, y_train_filtered)
+```
+
+효과:
+- 회귀기가 상위 7% "안전한" 종목의 패턴만 학습
+- 하위 93% 노이즈 제거
+- 학습 데이터는 감소하지만 품질 향상
 
 #### 예측 및 필터링 단계 (Prediction & Filtering)
 
 **1. regressor.py (모델 평가)**:
 ```python
-# 상승 확률 예측
-y_probs = classifier.predict_proba(X)[:, 1]  # 0~1 사이 확률
+# 저장된 threshold config 로드
+threshold_config = joblib.load('threshold_config.pkl')
+THRESHOLD_PERCENTILE = threshold_config['percentile']  # 93
 
-# Percentile threshold로 이진화
-threshold = np.percentile(y_probs, THRESHOLD)  # 92
+# 상승 확률 예측
+y_probs = classifier.predict_proba(X)[:, 1]
+
+# 학습 시와 동일한 percentile threshold 적용
+threshold = np.percentile(y_probs, THRESHOLD_PERCENTILE)
 y_predict_binary = (y_probs > threshold).astype(int)
 
-# 하위 92% 패널티 적용
+# 하위 93% 패널티 적용 (평가용)
 prediction_wbinary = np.where(y_predict_binary == 0, -1, y_predict_return)
 ```
-
-**효과**:
-- 상승 확률 상위 8% → 원래 예측값 유지
-- 하위 92% → -1로 치환 (정렬 시 맨 아래)
-- Top-K < 8%이면 실질적으로 하위 92% 제거와 동일
 
 **2. ml_backtest.py (백테스트)**:
 ```python
@@ -147,7 +232,7 @@ y_pred_proba = classifier.predict_proba(X)[:, 1]
 # 수익률 예측
 y_pred_return = regressor.predict(X)
 
-# 최종 스코어: 확률 × 수익률
+# 최종 스코어: 확률 × 수익률 (down-weighting)
 ml_score = y_pred_proba * y_pred_return
 ```
 

@@ -113,6 +113,34 @@ ML:
   USE_CLASSIFIER: Y
 
   # ============================================================================
+  # Classifier Threshold Configuration (분류기 임계값 설정)
+  # ============================================================================
+  # Determines which stocks pass Stage 1 filtering before Stage 2 regression
+
+  # Automatic threshold optimization (recommended)
+  CLASSIFIER_THRESHOLD_AUTO_SEARCH: Y  # Y = Auto-find optimal threshold, N = Use fixed value
+
+  # Fixed threshold (only used when AUTO_SEARCH = N)
+  CLASSIFIER_THRESHOLD_PERCENTILE: 92  # Percentile cutoff (92 = top 8%)
+
+  # Auto-search configuration
+  CLASSIFIER_THRESHOLD_SEARCH_MIN: 85  # Minimum percentile to test (85 = top 15%)
+  CLASSIFIER_THRESHOLD_SEARCH_MAX: 98  # Maximum percentile to test (98 = top 2%)
+
+  # Selection criteria for optimal threshold
+  CLASSIFIER_THRESHOLD_MIN_PRECISION: 0.65  # Minimum precision required (65%)
+  CLASSIFIER_THRESHOLD_MIN_SAMPLES: 30      # Minimum stocks after filtering
+  CLASSIFIER_THRESHOLD_STRATEGY: "balance"  # "precision" (max precision) or "balance" (precision + data size)
+
+  # How auto-search works:
+  # 1. Train classifier on all data
+  # 2. Test percentiles 85-98 to find where classifier is most accurate
+  # 3. Select threshold that meets min_precision with max data (balance mode)
+  #    OR select threshold with highest precision (precision mode)
+  # 4. Use this threshold to filter stocks before training regressor
+  # 5. Save threshold config with model for consistent evaluation
+
+  # ============================================================================
   # Sector-based Model Training (섹터별 모델 학습)
   # ============================================================================
   # Y = Train separate models per sector (each sector gets own classifiers + regressors)
@@ -262,8 +290,8 @@ FEATURES:
 # Logging level (10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR)
 LOG_LVL: 20
 
-# Model selection threshold
-THRESHOLD_PERCENTILE: 92  # Top 8% selection
+# DEPRECATED: Moved to ML.CLASSIFIER_THRESHOLD_PERCENTILE
+# THRESHOLD_PERCENTILE: 92  # Use ML.CLASSIFIER_THRESHOLD_PERCENTILE instead
 
 # ============================================================================
 # USAGE EXAMPLES
