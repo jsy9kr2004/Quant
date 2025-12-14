@@ -2312,6 +2312,74 @@ class DataProcessor:
 
         self.logger.info(f"   Loaded artifacts from {artifact_path}")
 
+    # ========================================================================
+    # Trading Date Utilities
+    # ========================================================================
+
+    @staticmethod
+    def get_trade_date(
+        pdate: pd.Timestamp,
+        price_table: pd.DataFrame,
+        date_column: str = 'date'
+    ) -> Optional[pd.Timestamp]:
+        """
+        달력 날짜를 실제 거래 날짜로 변환합니다.
+
+        월초(1~15일)는 미래 방향, 월말(16일~)은 과거 방향에서 가장 가까운 거래일을 찾습니다.
+        이는 분기 초(1/1, 4/1 등)가 공휴일일 때 같은 분기 내의 거래일을 찾기 위함입니다.
+
+        Parameters:
+        ----------
+        pdate : pd.Timestamp
+            목표 달력 날짜
+        price_table : pd.DataFrame
+            가격 데이터 (date 컬럼 필요)
+        date_column : str
+            날짜 컬럼명 (기본값: 'date')
+
+        Returns:
+        -------
+        pd.Timestamp or None
+            거래 날짜를 찾으면 반환, 그렇지 않으면 None
+
+        Examples:
+        --------
+        >>> # 1998-01-01 (월초) → 1998-01-02 반환 (미래 방향, 같은 분기)
+        >>> # 1998-12-31 (월말) → 1998-12-30 반환 (과거 방향, 같은 분기)
+        >>> trade_date = DataProcessor.get_trade_date(
+        ...     pd.Timestamp('1998-01-01'),
+        ...     price_table
+        ... )
+
+        Notes:
+        -----
+        - 월초/월말 구분: 15일 기준
+        - 월초: pdate 이후 10일 내 첫 거래일
+        - 월말: pdate 이전 10일 내 마지막 거래일
+        - regressor.py와 ml_backtest.py에서 동일하게 사용
+        """
+        from dateutil.relativedelta import relativedelta
+
+        # 월초/월말 구분: 15일 기준
+        is_month_start = pdate.day <= 15
+
+        if is_month_start:
+            # 월초: 날짜 이후 10일 내에서 가장 가까운 거래일 찾기
+            future_date = pdate + relativedelta(days=10)
+            res = price_table.query(f"{date_column} >= @pdate and {date_column} <= @future_date")
+            if res.empty:
+                return None
+            else:
+                return res.iloc[0][date_column]  # 첫 번째 = 가장 가까운 미래 거래일
+        else:
+            # 월말: 날짜 이전 10일 내에서 가장 가까운 거래일 찾기
+            past_date = pdate - relativedelta(days=10)
+            res = price_table.query(f"{date_column} >= @past_date and {date_column} <= @pdate")
+            if res.empty:
+                return None
+            else:
+                return res.iloc[-1][date_column]  # 마지막 = 가장 가까운 과거 거래일
+
 
 if __name__ == "__main__":
     # Self-test
