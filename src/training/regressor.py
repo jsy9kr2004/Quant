@@ -1039,11 +1039,26 @@ class Regressor:
         # PER_SECTOR mode: Split training data by sector
         if self.use_sector_model and 'sector' in self.train_df.columns:
             logging.info("  🔧 Sector model enabled: Splitting training data by sector...")
-            all_sectors = list(self.train_df['sector'].unique())
+
+            # ✅ 섹터 카테고리화 적용 (config 기반)
+            # CATEGORIZATION.ENABLED=Y일 때 원본 섹터를 카테고리로 통합
+            self.train_df = DataProcessor.map_sectors_to_categories(
+                self.train_df,
+                self.conf,
+                sector_column='sector',
+                logger=logging.getLogger()
+            )
+
+            # 카테고리화된 섹터 사용
+            all_sectors = list(self.train_df['sector_category'].unique())
             self.sector_list = [
                 x for x in all_sectors
                 if pd.notna(x) and x is not None and isinstance(x, str) and x.strip()
             ]
+
+            # sector를 sector_category로 교체 (원본은 sector_original로 백업)
+            self.train_df['sector_original'] = self.train_df['sector']
+            self.train_df['sector'] = self.train_df['sector_category']
 
             # Log invalid sectors and affected rows
             invalid_sectors = [
@@ -2924,8 +2939,24 @@ class Regressor:
 
         # Parquet 파일은 인덱스 컬럼 없음 (CSV와 달리)
 
+        # ✅ 섹터 카테고리화 적용 (학습 시와 동일하게)
+        # CATEGORIZATION.ENABLED=Y일 때 원본 섹터를 카테고리로 통합
+        if self.use_sector_model and 'sector' in ldf.columns:
+            ldf = DataProcessor.map_sectors_to_categories(
+                ldf,
+                self.conf,
+                sector_column='sector',
+                logger=logging.getLogger()
+            )
+
+            # sector를 sector_category로 교체 (원본은 sector_original로 백업)
+            ldf['sector_original'] = ldf['sector']
+            ldf['sector'] = ldf['sector_category']
+
         # 섹터 리스트 추출 (NaN, None, 빈 문자열 필터링)
-        all_sectors = list(ldf['sector'].unique())
+        # 카테고리화가 활성화되었다면 카테고리 이름 사용
+        sector_col = 'sector_category' if self.use_sector_model and 'sector_category' in ldf.columns else 'sector'
+        all_sectors = list(ldf[sector_col].unique())
         self.sector_list = [
             x for x in all_sectors
             if pd.notna(x) and x is not None and isinstance(x, str) and x.strip()
@@ -3139,6 +3170,23 @@ class Regressor:
                         preds = top_k_df[col].to_list()
                         for i, sym in enumerate(symbols):
                             all_preds.append([(e-s), sec, col, i, sym, preds[i]])
+
+            # ✅ 원본 섹터 이름 복원 (레포트용)
+            # 카테고리 이름으로 학습/예측했지만, 사용자에게는 원본 섹터 이름 표시
+            if 'sector_original' in ldf.columns:
+                # all_preds의 섹터 이름을 원본으로 매핑
+                category_to_original = {}
+                for cat in ldf['sector_category'].unique():
+                    originals = ldf[ldf['sector_category'] == cat]['sector_original'].unique()
+                    if len(originals) > 0:
+                        # 카테고리에 포함된 원본 섹터들을 쉼표로 구분하여 표시
+                        category_to_original[cat] = ', '.join(sorted(originals))
+
+                # all_preds에서 섹터 이름 변환
+                for pred_row in all_preds:
+                    cat_name = pred_row[1]  # sector는 index 1
+                    if cat_name in category_to_original:
+                        pred_row[1] = category_to_original[cat_name]
 
             # 섹터 기반 요약 저장
             col_name = ['k', 'sector', 'model', 'i', 'symbol', 'pred']
