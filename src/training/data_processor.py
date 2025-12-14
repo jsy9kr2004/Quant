@@ -938,11 +938,21 @@ class DataProcessor:
         - XGBoost/LightGBM benefit from compressed scale (prevents "value too large" errors)
         - Preserves feature names and DataFrame structure
         """
+        # Only transform numeric columns, preserve object/string columns as-is
+        numeric_cols = X.select_dtypes(include=[np.number]).columns
+        object_cols = X.select_dtypes(exclude=[np.number]).columns
+
+        if len(numeric_cols) == 0:
+            # No numeric columns to transform
+            return X.copy()
+
+        X_transformed = X.copy()
+
         if inverse:
             # Inverse: sign(x) * (exp(|x|) - 1)
             # Recovers original scale from log-transformed values
             # ✅ CRITICAL FIX: Skip NaN values (preserve them as-is)
-            X_transformed = X.apply(
+            X_transformed[numeric_cols] = X[numeric_cols].apply(
                 lambda col: np.where(
                     pd.isna(col),
                     np.nan,  # NaN stays NaN
@@ -953,7 +963,7 @@ class DataProcessor:
             # Forward: sign(x) * log(1 + |x|)
             # Compresses extreme values while preserving order
             # ✅ CRITICAL FIX: Skip NaN values (preserve them as-is)
-            X_transformed = X.apply(
+            X_transformed[numeric_cols] = X[numeric_cols].apply(
                 lambda col: np.where(
                     pd.isna(col),
                     np.nan,  # NaN stays NaN (XGBoost will handle it)
@@ -961,6 +971,7 @@ class DataProcessor:
                 )
             )
 
+        # Object columns remain unchanged
         return X_transformed
 
     @staticmethod
@@ -1047,6 +1058,28 @@ class DataProcessor:
             logger.info("Step 0/8: Normalizing feature names...")
         X = DataProcessor.normalize_feature_names(X, logger=logger)
 
+        # ===== DIAGNOSTIC: Check for object/string columns =====
+        # 🚨 CRITICAL: ML models require numeric input only
+        # Object/string columns cause errors in np.isinf(), np.abs(), log transform
+        if logger:
+            object_cols = X.select_dtypes(exclude=[np.number]).columns
+            if len(object_cols) > 0:
+                logger.warning(f"⚠️  Found {len(object_cols)} non-numeric columns (object/string type)")
+                logger.warning(f"   Columns: {list(object_cols[:10])}")
+                if len(object_cols) > 10:
+                    logger.warning(f"   ... and {len(object_cols) - 10} more")
+                # Show sample values to diagnose root cause
+                for col in object_cols[:3]:
+                    sample_vals = X[col].dropna().unique()[:5]
+                    logger.warning(f"   '{col}' sample values: {sample_vals}")
+
+                # 🔧 AUTO-FIX: Remove object columns
+                logger.warning(f"   🔧 Removing {len(object_cols)} object columns...")
+                X = X.select_dtypes(include=[np.number])
+                logger.warning(f"   ✅ Removed. Remaining columns: {len(X.columns)}")
+            else:
+                logger.info("✅ All columns are numeric")
+
         # ===== Step 1: Remove infinite values from X and y =====
         if logger:
             logger.info("Step 1/8: Removing infinite values from X and y...")
@@ -1089,14 +1122,22 @@ class DataProcessor:
         # ===== Step 4: Log transformation =====
         if logger:
             logger.info("Step 4/8: Applying log transformation...")
-            max_before = np.nanmax(np.abs(X_clean.values))
-            logger.info(f"   Before: max abs value = {max_before:.2e}")
+            # Only check numeric columns for max value
+            numeric_cols = X_clean.select_dtypes(include=[np.number]).columns
+            if len(numeric_cols) > 0:
+                max_before = np.nanmax(np.abs(X_clean[numeric_cols].values))
+                logger.info(f"   Before: max abs value = {max_before:.2e}")
+            else:
+                logger.info("   No numeric columns to transform")
 
         X_clean = DataProcessor.log_transform_features(X_clean)
 
         if logger:
-            max_after = np.nanmax(np.abs(X_clean.values))
-            logger.info(f"   After: max abs value = {max_after:.2f}")
+            # Only check numeric columns for max value
+            numeric_cols = X_clean.select_dtypes(include=[np.number]).columns
+            if len(numeric_cols) > 0:
+                max_after = np.nanmax(np.abs(X_clean[numeric_cols].values))
+                logger.info(f"   After: max abs value = {max_after:.2f}")
 
         # ===== Step 5: Remove columns with >50% NaN =====
         if logger:
