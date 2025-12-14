@@ -219,18 +219,19 @@ class MLBacktest:
 
         **Storage Location**: {ROOT_PATH}/models/optuna/ (portable, backup-friendly)
 
+        **Important**: This method ALWAYS attempts to load existing Optuna parameters,
+        regardless of the USE_OPTUNA setting. This allows reusing previously optimized
+        parameters without re-running expensive optimization.
+
         Returns:
         -------
         Optional[Dict[str, Any]]
             Best parameters dictionary, or None if not found
         """
-        if not self.use_optuna:
-            return None
-
-        # ✅ REFACTORED: Use ROOT_PATH/models/optuna/ for portability
+        # ✅ ALWAYS attempt to load existing Optuna parameters (regardless of USE_OPTUNA)
+        # This allows reusing previously optimized parameters
         optuna_dir = Path(self.main_ctx.root_path) / 'models' / 'optuna'
         if not optuna_dir.exists():
-            self.logger.warning(f"⚠️  USE_OPTUNA=Y but {optuna_dir}/ directory not found. Using default params.")
             return None
 
         # Find latest optuna_best_params_clsmodel_0_*.json
@@ -238,8 +239,6 @@ class MLBacktest:
         json_files = glob.glob(pattern)
 
         if not json_files:
-            self.logger.warning(f"⚠️  USE_OPTUNA=Y but no Optuna results found in {optuna_dir}/")
-            self.logger.warning("   Run regressor.py with USE_OPTUNA=Y first to generate parameters.")
             return None
 
         # Get the latest file (by filename timestamp or modification time)
@@ -274,6 +273,10 @@ class MLBacktest:
 
         **Storage Location**: {ROOT_PATH}/models/optuna/ (portable, backup-friendly)
 
+        **Important**: This method ALWAYS attempts to load existing sector-specific
+        Optuna parameters, regardless of USE_OPTUNA or OPTUNA_OPTIMIZE_SECTORS settings.
+        This allows reusing previously optimized parameters.
+
         Parameters:
         ----------
         sectors : List[str]
@@ -287,16 +290,10 @@ class MLBacktest:
         """
         sector_params = {}
 
-        ml_config = self.config.get('ML', {})
-        optuna_optimize_sectors = ml_config.get('OPTUNA_OPTIMIZE_SECTORS', 'N') == 'Y'
-
-        if not self.use_optuna or not optuna_optimize_sectors:
-            return sector_params
-
-        # ✅ REFACTORED: Use ROOT_PATH/models/optuna/ for portability
+        # ✅ ALWAYS attempt to load existing sector-specific Optuna parameters
+        # (regardless of USE_OPTUNA or OPTUNA_OPTIMIZE_SECTORS)
         optuna_dir = Path(self.main_ctx.root_path) / 'models' / 'optuna'
         if not optuna_dir.exists():
-            self.logger.warning(f"⚠️  OPTUNA_OPTIMIZE_SECTORS=Y but {optuna_dir}/ directory not found")
             return sector_params
 
         loaded_count = 0
@@ -329,9 +326,7 @@ class MLBacktest:
 
         if loaded_count > 0:
             self.logger.info(f"✅ Loaded sector Optuna params: {loaded_count}/{len(sectors)} sectors")
-        else:
-            self.logger.warning(f"⚠️  OPTUNA_OPTIMIZE_SECTORS=Y but no sector Optuna results found")
-            self.logger.warning("   Run regressor.py with OPTUNA_OPTIMIZE_SECTORS=Y first")
+        # No warning if no params found - will use SECTOR_CONFIG or default params
 
         return sector_params
 

@@ -1709,6 +1709,29 @@ class Regressor:
         use_optuna = ml_config.get('USE_OPTUNA', False)
         optuna_best_params = None
 
+        # ========== Step 1: 항상 기존 Optuna 파라미터 로드 시도 ==========
+        # USE_OPTUNA 설정과 무관하게, 기존에 최적화한 파라미터가 있으면 로드
+        logging.info("")
+        logging.info("="*80)
+        logging.info("🔍 CHECKING FOR EXISTING OPTUNA PARAMETERS")
+        logging.info("="*80)
+        existing_params = self._load_existing_optuna_params('clsmodel_0')
+
+        if existing_params:
+            optuna_best_params = existing_params
+            logging.info("✅ Found and loaded existing Optuna parameters!")
+            logging.info(f"   Parameters: {existing_params}")
+            logging.info("   These will be used regardless of USE_OPTUNA setting")
+            logging.info("="*80)
+        else:
+            logging.info("📝 No existing Optuna parameters found")
+            if not use_optuna:
+                logging.info("   USE_OPTUNA=N, will use default parameters")
+            else:
+                logging.info("   USE_OPTUNA=Y, will run new optimization")
+            logging.info("="*80)
+
+        # ========== Step 2: USE_OPTUNA=Y이면 새로운 최적화 실행 ==========
         if use_optuna and OPTUNA_AVAILABLE:
             from src.training.optuna_utils import (
                 optimize_xgboost_params,
@@ -1897,6 +1920,34 @@ class Regressor:
         sector_optuna_params = {}
         optuna_optimize_sectors = ml_config.get('OPTUNA_OPTIMIZE_SECTORS', 'N') == 'Y'
 
+        # ========== Step 1: 항상 기존 섹터별 Optuna 파라미터 로드 시도 ==========
+        # USE_OPTUNA 설정과 무관하게, 기존에 최적화한 파라미터가 있으면 로드
+        if self.use_sector_model and len(self.sector_list) > 0:
+            logging.info("")
+            logging.info("="*80)
+            logging.info("🔍 CHECKING FOR EXISTING SECTOR-SPECIFIC OPTUNA PARAMETERS")
+            logging.info("="*80)
+
+            loaded_count = 0
+            for sec in self.sector_list:
+                existing_sector_params = self._load_existing_optuna_params(f'sector_{sec}')
+                if existing_sector_params:
+                    sector_optuna_params[sec] = existing_sector_params
+                    loaded_count += 1
+                    logging.info(f"   ✅ {sec}: Loaded existing parameters")
+
+            if loaded_count > 0:
+                logging.info(f"✅ Loaded {loaded_count}/{len(self.sector_list)} sector-specific Optuna parameters")
+                logging.info("   These will be used regardless of OPTUNA_OPTIMIZE_SECTORS setting")
+            else:
+                logging.info("📝 No existing sector-specific Optuna parameters found")
+                if not (optuna_optimize_sectors and use_optuna):
+                    logging.info("   Will use SECTOR_CONFIG or default parameters")
+                else:
+                    logging.info("   Will run new sector-specific optimization")
+            logging.info("="*80)
+
+        # ========== Step 2: OPTUNA_OPTIMIZE_SECTORS=Y이면 새로운 최적화 실행 ==========
         if self.use_sector_model and optuna_optimize_sectors and use_optuna and OPTUNA_AVAILABLE:
             from src.training.optuna_utils import (
                 optimize_xgboost_params,
@@ -1944,6 +1995,12 @@ class Regressor:
                 logging.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 logging.info(f"🔧 Sector {sec_idx+1}/{len(self.sector_list)}: {sec}")
                 logging.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                # ✅ 이미 Step 1에서 로드된 파라미터가 있으면 스킵
+                if sec in sector_optuna_params:
+                    logging.info(f"  ⏭️  Skipping optimization - parameters already loaded from existing file")
+                    logging.info(f"     Parameters: {sector_optuna_params[sec]}")
+                    continue
 
                 # 섹터별 데이터 필터링
                 sector_mask = x_train_with_sector['sector'] == sec
