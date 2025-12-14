@@ -498,16 +498,29 @@ class MLBacktest:
             self.logger.warning("⚠️ 'sector' column not found! Falling back to unified model.")
             return self._train_model_unified(train_data, cutoff_date)
 
+        # ✅ 섹터 카테고리화 적용 (config 기반)
+        train_data = train_data.copy()  # 원본 보호
+        train_data = DataProcessor.map_sectors_to_categories(
+            train_data,
+            self.config,
+            sector_column='sector',
+            logger=self.logger
+        )
+
+        # sector를 sector_category로 교체 (원본은 sector_original로 백업)
+        train_data['sector_original'] = train_data['sector']
+        train_data['sector'] = train_data['sector_category']
+
         self.logger.info(f"   Training samples: {len(train_data)}")
         self.logger.info("   🔧 Using ModelFactory.create_sector_models() (SAME LOGIC as regressor.py)")
 
         # ✨ REFACTORED: Use DataSchema for column definitions (unified with regressor.py)
         exclude_cols = DataSchema.get_excluded_cols()
 
-        # 각 섹터별로 학습
+        # 각 섹터별로 학습 (카테고리 사용)
         sectors = train_data['sector'].unique()
         sectors = [s for s in sectors if str(s) != 'nan']  # Remove NaN sectors
-        self.logger.info(f"   Sectors found: {list(sectors)}")
+        self.logger.info(f"   Sectors/Categories found: {list(sectors)}")
 
         # ✨ Load Optuna parameters (if USE_OPTUNA=Y)
         optuna_params = self._load_optuna_params()
@@ -748,8 +761,20 @@ class MLBacktest:
             self.logger.warning("⚠️ 'sector' column not found! Cannot use sector models.")
             return test_data.copy()
 
-        sector_models = models['sectors']
+        # ✅ 섹터 카테고리화 적용 (학습 시와 동일하게)
         result = test_data.copy()
+        result = DataProcessor.map_sectors_to_categories(
+            result,
+            self.config,
+            sector_column='sector',
+            logger=None  # 예측 시에는 로깅 생략
+        )
+
+        # sector를 sector_category로 교체 (원본은 sector_original로 백업)
+        result['sector_original'] = result['sector']
+        result['sector'] = result['sector_category']
+
+        sector_models = models['sectors']
 
         # 초기화
         result['pred_up_proba'] = 0.0
@@ -817,64 +842,38 @@ class MLBacktest:
                 self.logger.error(f"   ❌ {sector} prediction failed: {str(e)}")
                 continue
 
+        # ✅ 원본 sector 복원 (레포트용)
+        if 'sector_original' in result.columns:
+            result['sector'] = result['sector_original']
+            result.drop(columns=['sector_original', 'sector_category'], inplace=True, errors='ignore')
+
         return result
 
-    def _select_top_k(self, predictions: pd.DataFrame) -> List[str]:
+    def _select_top_k(self, predictions: pd.DataFrame) -> pd.DataFrame:
         """
         상위 K개 종목 선택
 
         Parameters:
         ----------
         predictions : pd.DataFrame
-            예측 결과
+            예측 결과 (symbol, sector, ml_score 등 포함)
 
         Returns:
         -------
-        List[str]
-            선택된 종목 코드 리스트
+        pd.DataFrame
+            선택된 종목 정보 (symbol, sector 등 포함)
         """
         # ml_score 기준으로 정렬
         sorted_df = predictions.sort_values('ml_score', ascending=False)
 
-        # 상위 K개 선택
+        # 상위 K개 선택 (symbol과 sector 모두 포함)
         top_k_df = sorted_df.head(self.top_k)
 
-        return top_k_df['symbol'].tolist()
-
-    def _get_trade_date(self, pdate: datetime, price_table: pd.DataFrame) -> Optional[datetime]:
-        """
-        Find the nearest trading date for a given date.
-
-        Since markets may be closed on weekends and holidays, this method finds
-        the nearest actual trading date by looking for price data within 10 days
-        before the given date.
-
-        Parameters:
-        ----------
-        pdate : datetime
-            Target date to find trading date for
-        price_table : pd.DataFrame
-            Price data table
-
-        Returns:
-        -------
-        datetime or None
-            Nearest trading date, or None if no trading date found within 10 days
-        """
-        from dateutil.relativedelta import relativedelta
-
-        post_date = pdate - relativedelta(days=10)
-        res = price_table.query("date >= @post_date and date <= @pdate")
-
-        if res.empty:
-            return None
-
-        # 가장 최근 거래일 반환 (pdate에 가장 가까운 날짜)
-        return res['date'].max()
+        return top_k_df[['symbol', 'sector']].copy()
 
     def _calculate_period_return(
         self,
-        selected_symbols: List[str],
+        selected_stocks: pd.DataFrame,
         buy_date: datetime,
         sell_date: datetime,
         price_table: pd.DataFrame
@@ -884,8 +883,8 @@ class MLBacktest:
 
         Parameters:
         ----------
-        selected_symbols : List[str]
-            선택된 종목 리스트
+        selected_stocks : pd.DataFrame
+            선택된 종목 정보 (symbol, sector 컬럼 포함)
         buy_date : datetime
             매수 날짜
         sell_date : datetime
@@ -902,8 +901,9 @@ class MLBacktest:
             }
         """
         # 실제 거래일 찾기 (주말/휴일 처리)
-        actual_buy_date = self._get_trade_date(buy_date, price_table)
-        actual_sell_date = self._get_trade_date(sell_date, price_table)
+        # ✅ 일원화: DataProcessor.get_trade_date() 사용 (make_mldata.py, regressor.py 공통)
+        actual_buy_date = DataProcessor.get_trade_date(pd.Timestamp(buy_date), price_table)
+        actual_sell_date = DataProcessor.get_trade_date(pd.Timestamp(sell_date), price_table)
 
         if actual_buy_date is None or actual_sell_date is None:
             self.logger.warning(
@@ -914,7 +914,11 @@ class MLBacktest:
         returns = []
         details = []
 
-        for symbol in selected_symbols:
+        # ✅ 섹터 정보 포함하여 반복
+        for _, stock in selected_stocks.iterrows():
+            symbol = stock['symbol']
+            sector = stock.get('sector', 'Unknown')  # sector가 없으면 'Unknown'
+
             symbol_prices = price_table[price_table['symbol'] == symbol]
 
             # 매수 가격 (실제 거래일)
@@ -933,9 +937,10 @@ class MLBacktest:
             ret = (sell_price - buy_price) / buy_price
             returns.append(ret)
 
-            # 상세 정보 저장
+            # 상세 정보 저장 (섹터 정보 추가)
             details.append({
                 'symbol': symbol,
+                'sector': sector,  # ✅ 섹터 정보 추가
                 'buy_price': buy_price,
                 'sell_price': sell_price,
                 'return': ret,
@@ -951,6 +956,138 @@ class MLBacktest:
             'actual_buy_date': actual_buy_date,
             'actual_sell_date': actual_sell_date
         }
+
+    def _calculate_benchmark_returns(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        price_table: pd.DataFrame
+    ) -> pd.DataFrame:
+        """
+        벤치마크 Buy-and-Hold 수익률 계산
+
+        Parameters:
+        ----------
+        start_date : datetime
+            백테스트 시작 날짜
+        end_date : datetime
+            백테스트 종료 날짜
+        price_table : pd.DataFrame
+            가격 데이터
+
+        Returns:
+        -------
+        pd.DataFrame
+            벤치마크 결과 (symbol, return, sharpe, mdd 등)
+        """
+        benchmark_config = self.config.get('BENCHMARK', {})
+
+        if not benchmark_config.get('ENABLED', 'N') == 'Y':
+            self.logger.info("📊 Benchmark comparison disabled (BENCHMARK.ENABLED=N)")
+            return pd.DataFrame()
+
+        benchmark_symbols = benchmark_config.get('SYMBOLS', [])
+        if not benchmark_symbols:
+            self.logger.warning("⚠️  No benchmark symbols configured")
+            return pd.DataFrame()
+
+        self.logger.info(f"\n📊 Calculating benchmark returns for {len(benchmark_symbols)} symbols...")
+
+        results = []
+
+        # 실제 거래일 찾기
+        actual_start = DataProcessor.get_trade_date(pd.Timestamp(start_date), price_table)
+        actual_end = DataProcessor.get_trade_date(pd.Timestamp(end_date), price_table)
+
+        if actual_start is None or actual_end is None:
+            self.logger.error(f"❌ Cannot find trading dates for benchmark period")
+            return pd.DataFrame()
+
+        for symbol in benchmark_symbols:
+            try:
+                # 심볼 가격 데이터 가져오기
+                symbol_prices = price_table[price_table['symbol'] == symbol]
+
+                if symbol_prices.empty:
+                    self.logger.warning(f"   ⚠️  {symbol}: No price data found (symbol may not exist or typo)")
+                    continue
+
+                # 시작 가격
+                start_prices = symbol_prices[symbol_prices['date'] == actual_start]
+                if start_prices.empty:
+                    self.logger.warning(f"   ⚠️  {symbol}: No price at start date {actual_start.date()}")
+                    continue
+                start_price = start_prices.iloc[0]['close']
+
+                # 종료 가격
+                end_prices = symbol_prices[symbol_prices['date'] == actual_end]
+                if end_prices.empty:
+                    self.logger.warning(f"   ⚠️  {symbol}: No price at end date {actual_end.date()}")
+                    continue
+                end_price = end_prices.iloc[0]['close']
+
+                # 총 수익률
+                total_return = (end_price - start_price) / start_price
+
+                # 기간 내 모든 가격 데이터 (MDD, Sharpe 계산용)
+                period_prices = symbol_prices[
+                    (symbol_prices['date'] >= actual_start) &
+                    (symbol_prices['date'] <= actual_end)
+                ].sort_values('date')
+
+                if len(period_prices) < 2:
+                    self.logger.warning(f"   ⚠️  {symbol}: Insufficient price data in period")
+                    continue
+
+                # 일별 수익률
+                period_prices = period_prices.copy()
+                period_prices['daily_return'] = period_prices['close'].pct_change()
+
+                # Sharpe Ratio (연율화: √252)
+                daily_returns = period_prices['daily_return'].dropna()
+                if len(daily_returns) > 0:
+                    sharpe = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252) if daily_returns.std() > 0 else 0.0
+                else:
+                    sharpe = 0.0
+
+                # Maximum Drawdown
+                cumulative = (1 + period_prices['daily_return'].fillna(0)).cumprod()
+                running_max = cumulative.expanding().max()
+                drawdown = (cumulative - running_max) / running_max
+                max_drawdown = drawdown.min()
+
+                # Win Rate (상승일 비율)
+                win_rate = (daily_returns > 0).sum() / len(daily_returns) if len(daily_returns) > 0 else 0.0
+
+                # 결과 저장
+                results.append({
+                    'strategy': symbol,
+                    'total_return': total_return,
+                    'total_return_pct': total_return * 100,
+                    'sharpe_ratio': sharpe,
+                    'max_drawdown': max_drawdown,
+                    'max_drawdown_pct': max_drawdown * 100,
+                    'win_rate': win_rate,
+                    'win_rate_pct': win_rate * 100,
+                    'start_price': start_price,
+                    'end_price': end_price,
+                    'num_days': len(period_prices)
+                })
+
+                self.logger.info(
+                    f"   ✅ {symbol}: {total_return*100:+.2f}% | "
+                    f"Sharpe: {sharpe:.2f} | MDD: {max_drawdown*100:.2f}%"
+                )
+
+            except Exception as e:
+                self.logger.warning(f"   ⚠️  {symbol}: Calculation failed - {str(e)}")
+                continue
+
+        if not results:
+            self.logger.warning("⚠️  No valid benchmark results calculated")
+            return pd.DataFrame()
+
+        return pd.DataFrame(results)
 
     def run(self) -> pd.DataFrame:
         """
@@ -1050,7 +1187,37 @@ class MLBacktest:
                 rebalance_dates.append(current)
                 current += relativedelta(months=self.rebalance_period)
 
-        self.logger.info(f"\n📅 Rebalance dates: {len(rebalance_dates)}")
+        # ✅ 거래일 조정 (regressor.py/make_mldata.py와 일원화)
+        # 휴장일(주말, 공휴일)을 실제 거래 가능일로 조정
+        self.logger.info(f"\n📅 Adjusting rebalance dates to actual trading days...")
+        adjusted_dates = []
+
+        for i, target_date in enumerate(rebalance_dates):
+            # DataProcessor.get_trade_date()로 월초/월말 구분하여 거래일 찾기
+            # - 월초(day <= 15): 미래 방향 (같은 분기 유지)
+            # - 월말(day > 15): 과거 방향 (같은 분기 유지)
+            actual_trade_date = DataProcessor.get_trade_date(pd.Timestamp(target_date), price_table)
+
+            if actual_trade_date is None:
+                self.logger.warning(
+                    f"   ⚠️  Skipping {target_date.date()} - no trading day found within 10 days"
+                )
+                continue
+
+            # 조정된 날짜가 원래 날짜와 다르면 로깅
+            if actual_trade_date.date() != target_date.date():
+                self.logger.info(
+                    f"   {target_date.date()} → {actual_trade_date.date()} "
+                    f"(adjusted to nearest trading day)"
+                )
+            else:
+                self.logger.info(f"   {target_date.date()} (already a trading day)")
+
+            # pd.Timestamp를 datetime으로 변환
+            adjusted_dates.append(actual_trade_date.to_pydatetime())
+
+        rebalance_dates = adjusted_dates
+        self.logger.info(f"\n📅 Rebalance dates after adjustment: {len(rebalance_dates)}")
         for date in rebalance_dates:
             self.logger.info(f"   {date.date()}")
 
@@ -1102,15 +1269,15 @@ class MLBacktest:
             # 4. 예측 수행
             predictions = self._predict(current_models, predict_data)
 
-            # 5. 상위 K개 선택
-            selected_symbols = self._select_top_k(predictions)
-            self.logger.info(f"📊 Selected {len(selected_symbols)} stocks")
+            # 5. 상위 K개 선택 (symbol + sector 포함)
+            selected_stocks = self._select_top_k(predictions)
+            self.logger.info(f"📊 Selected {len(selected_stocks)} stocks")
 
             # 6. 수익률 계산 (다음 리밸런싱 날짜까지)
             if i < len(rebalance_dates) - 1:
                 next_rebalance = rebalance_dates[i + 1]
                 period_result = self._calculate_period_return(
-                    selected_symbols,
+                    selected_stocks,  # ✅ DataFrame (symbol, sector 포함)
                     rebalance_date,
                     next_rebalance,
                     price_table
@@ -1124,18 +1291,19 @@ class MLBacktest:
                     'rebalance_date': rebalance_date,
                     'actual_buy_date': period_result['actual_buy_date'],
                     'actual_sell_date': period_result['actual_sell_date'],
-                    'num_stocks': len(selected_symbols),
+                    'num_stocks': len(selected_stocks),  # ✅ DataFrame 길이
                     'avg_return': avg_return,
                     'retrained': should_retrain
                 })
 
-                # 상세 정보 저장 (각 종목별)
+                # 상세 정보 저장 (각 종목별 + 섹터)
                 for detail in period_result['details']:
                     self.detailed_results.append({
                         'rebalance_date': rebalance_date,
                         'actual_buy_date': period_result['actual_buy_date'],
                         'actual_sell_date': period_result['actual_sell_date'],
                         'symbol': detail['symbol'],
+                        'sector': detail.get('sector', 'Unknown'),  # ✅ 섹터 정보 추가
                         'buy_price': detail['buy_price'],
                         'sell_price': detail['sell_price'],
                         'return': detail['return'],
@@ -1146,22 +1314,75 @@ class MLBacktest:
         results_df = pd.DataFrame(self.backtest_results)
         self._print_summary(results_df)
 
-        # 결과 저장
+        # 8. 벤치마크 계산 (전체 백테스트 기간)
+        benchmark_df = pd.DataFrame()
+        if len(rebalance_dates) > 0:
+            backtest_start = rebalance_dates[0]
+            backtest_end = rebalance_dates[-1]
+            benchmark_df = self._calculate_benchmark_returns(backtest_start, backtest_end, price_table)
+
+            # ML 모델 성능 추가 (비교용)
+            if not results_df.empty:
+                total_return = (1 + results_df['avg_return']).prod() - 1
+                avg_return = results_df['avg_return'].mean()
+                std_return = results_df['avg_return'].std()
+                sharpe = (avg_return / std_return) * np.sqrt(4) if std_return > 0 else 0.0  # Quarterly → Annual
+
+                # MDD 계산
+                cumulative_returns = (1 + results_df['avg_return']).cumprod()
+                running_max = cumulative_returns.expanding().max()
+                drawdown = (cumulative_returns - running_max) / running_max
+                max_drawdown = drawdown.min()
+
+                # Win Rate
+                win_rate = (results_df['avg_return'] > 0).sum() / len(results_df)
+
+                ml_model_result = pd.DataFrame([{
+                    'strategy': 'ML Model',
+                    'total_return': total_return,
+                    'total_return_pct': total_return * 100,
+                    'sharpe_ratio': sharpe,
+                    'max_drawdown': max_drawdown,
+                    'max_drawdown_pct': max_drawdown * 100,
+                    'win_rate': win_rate,
+                    'win_rate_pct': win_rate * 100,
+                    'start_price': None,
+                    'end_price': None,
+                    'num_days': len(results_df)
+                }])
+
+                # ML Model을 첫 번째 행으로 추가
+                if not benchmark_df.empty:
+                    benchmark_df = pd.concat([ml_model_result, benchmark_df], ignore_index=True)
+                else:
+                    benchmark_df = ml_model_result
+
+        # 결과 저장 - Excel 통합 레포트
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_dir = Path('outputs/reports')
+        report_dir.mkdir(parents=True, exist_ok=True)
 
-        # 요약 레포트
-        summary_file = Path('outputs/reports') / f'ml_backtest_summary_{timestamp}.csv'
-        summary_file.parent.mkdir(parents=True, exist_ok=True)
-        results_df.to_csv(summary_file, index=False)
-        self.logger.info(f"\n✅ Summary report saved: {summary_file}")
+        excel_file = report_dir / f'ml_backtest_report_{timestamp}.xlsx'
 
-        # 상세 레포트
-        detailed_df = pd.DataFrame(self.detailed_results)
+        # Excel Writer로 여러 시트 저장
+        with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
+            # Sheet 1: Summary (요약)
+            results_df.to_excel(writer, sheet_name='Summary', index=False)
+
+            # Sheet 2: Detailed (상세)
+            detailed_df = pd.DataFrame(self.detailed_results)
+            if not detailed_df.empty:
+                detailed_df.to_excel(writer, sheet_name='Detailed', index=False)
+
+            # Sheet 3: Benchmark (벤치마크 비교)
+            if not benchmark_df.empty:
+                benchmark_df.to_excel(writer, sheet_name='Benchmark', index=False)
+
+        self.logger.info(f"\n✅ Backtest report saved: {excel_file}")
         if not detailed_df.empty:
-            detail_file = Path('outputs/reports') / f'ml_backtest_detailed_{timestamp}.csv'
-            detailed_df.to_csv(detail_file, index=False)
-            self.logger.info(f"✅ Detailed report saved: {detail_file}")
             self.logger.info(f"   Total trades: {len(detailed_df)}")
+        if not benchmark_df.empty:
+            self.logger.info(f"   Benchmark comparisons: {len(benchmark_df)}")
 
         return results_df
 

@@ -2312,6 +2312,168 @@ class DataProcessor:
 
         self.logger.info(f"   Loaded artifacts from {artifact_path}")
 
+    # ========================================================================
+    # Trading Date Utilities
+    # ========================================================================
+
+    @staticmethod
+    def get_trade_date(
+        pdate: pd.Timestamp,
+        price_table: pd.DataFrame,
+        date_column: str = 'date'
+    ) -> Optional[pd.Timestamp]:
+        """
+        달력 날짜를 실제 거래 날짜로 변환합니다.
+
+        월초(1~15일)는 미래 방향, 월말(16일~)은 과거 방향에서 가장 가까운 거래일을 찾습니다.
+        이는 분기 초(1/1, 4/1 등)가 공휴일일 때 같은 분기 내의 거래일을 찾기 위함입니다.
+
+        Parameters:
+        ----------
+        pdate : pd.Timestamp
+            목표 달력 날짜
+        price_table : pd.DataFrame
+            가격 데이터 (date 컬럼 필요)
+        date_column : str
+            날짜 컬럼명 (기본값: 'date')
+
+        Returns:
+        -------
+        pd.Timestamp or None
+            거래 날짜를 찾으면 반환, 그렇지 않으면 None
+
+        Examples:
+        --------
+        >>> # 1998-01-01 (월초) → 1998-01-02 반환 (미래 방향, 같은 분기)
+        >>> # 1998-12-31 (월말) → 1998-12-30 반환 (과거 방향, 같은 분기)
+        >>> trade_date = DataProcessor.get_trade_date(
+        ...     pd.Timestamp('1998-01-01'),
+        ...     price_table
+        ... )
+
+        Notes:
+        -----
+        - 월초/월말 구분: 15일 기준
+        - 월초: pdate 이후 10일 내 첫 거래일
+        - 월말: pdate 이전 10일 내 마지막 거래일
+        - regressor.py와 ml_backtest.py에서 동일하게 사용
+        """
+        from dateutil.relativedelta import relativedelta
+
+        # 월초/월말 구분: 15일 기준
+        is_month_start = pdate.day <= 15
+
+        if is_month_start:
+            # 월초: 날짜 이후 10일 내에서 가장 가까운 거래일 찾기
+            future_date = pdate + relativedelta(days=10)
+            res = price_table.query(f"{date_column} >= @pdate and {date_column} <= @future_date")
+            if res.empty:
+                return None
+            else:
+                return res.iloc[0][date_column]  # 첫 번째 = 가장 가까운 미래 거래일
+        else:
+            # 월말: 날짜 이전 10일 내에서 가장 가까운 거래일 찾기
+            past_date = pdate - relativedelta(days=10)
+            res = price_table.query(f"{date_column} >= @past_date and {date_column} <= @pdate")
+            if res.empty:
+                return None
+            else:
+                return res.iloc[-1][date_column]  # 마지막 = 가장 가까운 과거 거래일
+
+    # ========================================================================
+    # Sector Categorization Utilities
+    # ========================================================================
+
+    @staticmethod
+    def map_sectors_to_categories(
+        df: pd.DataFrame,
+        config: Dict[str, Any],
+        sector_column: str = 'sector',
+        logger: Optional[logging.Logger] = None
+    ) -> pd.DataFrame:
+        """
+        섹터를 카테고리로 매핑합니다.
+
+        작은 섹터들을 경제적 특성에 따라 카테고리로 통합하여 샘플 수 부족 문제를 해결합니다.
+
+        Parameters:
+        ----------
+        df : pd.DataFrame
+            섹터 정보를 포함한 데이터프레임
+        config : Dict[str, Any]
+            전체 설정 딕셔너리 (SECTOR_CATEGORIZATION 섹션 포함)
+        sector_column : str
+            원본 섹터 컬럼명 (기본값: 'sector')
+        logger : Optional[logging.Logger]
+            로거 (선택)
+
+        Returns:
+        -------
+        pd.DataFrame
+            'sector_category' 컬럼이 추가된 데이터프레임
+
+        Examples:
+        --------
+        >>> df_with_category = DataProcessor.map_sectors_to_categories(
+        ...     df, config, sector_column='sector'
+        ... )
+        >>> df_with_category[['sector', 'sector_category']].drop_duplicates()
+           sector                    sector_category
+        0  Financials                Financial
+        1  Real Estate               Financial
+        2  Information Technology    Technology
+        3  Conglomerates             Others
+
+        Notes:
+        -----
+        - ENABLED=N이면 원본 섹터를 그대로 사용 (sector_category = sector)
+        - ENABLED=Y이면 카테고리로 매핑
+        - 정의되지 않은 섹터는 자동으로 "Others" 카테고리에 할당
+        - 원본 sector 컬럼은 유지됨 (백업용)
+        """
+        cat_config = config.get('ML', {}).get('SECTOR_CATEGORIZATION', {})
+
+        # 카테고리화 비활성화 시 원본 섹터 사용
+        if cat_config.get('ENABLED', 'N') != 'Y':
+            if logger:
+                logger.info("📊 Sector categorization disabled (ENABLED=N), using original sectors")
+            df['sector_category'] = df[sector_column]
+            return df
+
+        categories_def = cat_config.get('CATEGORIES', {})
+
+        if not categories_def:
+            if logger:
+                logger.warning("⚠️  No categories defined, using original sectors")
+            df['sector_category'] = df[sector_column]
+            return df
+
+        # 섹터 → 카테고리 매핑 딕셔너리 생성
+        sector_to_category = {}
+        for category_name, category_info in categories_def.items():
+            sectors = category_info.get('sectors', [])
+            for sector in sectors:
+                sector_to_category[sector] = category_name
+
+        # 매핑 적용 (정의되지 않은 섹터는 "Others")
+        df['sector_category'] = df[sector_column].map(sector_to_category).fillna('Others')
+
+        if logger:
+            logger.info("✅ Sector categorization applied")
+            logger.info(f"   Categories defined: {list(categories_def.keys())}")
+
+            # 카테고리별 샘플 수 로깅
+            category_counts = df['sector_category'].value_counts()
+            for cat, count in category_counts.items():
+                logger.info(f"   {cat}: {count} samples")
+
+            # Others에 포함된 섹터 로깅
+            others_sectors = df[df['sector_category'] == 'Others'][sector_column].unique()
+            if len(others_sectors) > 0:
+                logger.info(f"   'Others' category includes: {list(others_sectors)}")
+
+        return df
+
 
 if __name__ == "__main__":
     # Self-test
