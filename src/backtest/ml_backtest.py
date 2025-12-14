@@ -105,7 +105,7 @@ class MLBacktest:
         ml_config = config.get('ML', {})
         self.data_path = Path(main_ctx.root_path) / 'processed' / 'ml_data' / 'per_year'
         self.model_path = Path(main_ctx.root_path) / 'MODELS_WALKFORWARD'
-        self.model_path.mkdir(exist_ok=True)
+        self.model_path.mkdir(parents=True, exist_ok=True)
 
         # 섹터별 모델 사용 여부
         if use_sector_model is None:
@@ -1151,7 +1151,7 @@ class MLBacktest:
 
         # 요약 레포트
         summary_file = Path('outputs/reports') / f'ml_backtest_summary_{timestamp}.csv'
-        summary_file.parent.mkdir(exist_ok=True)
+        summary_file.parent.mkdir(parents=True, exist_ok=True)
         results_df.to_csv(summary_file, index=False)
         self.logger.info(f"\n✅ Summary report saved: {summary_file}")
 
