@@ -10,7 +10,7 @@ DATA:
   END_YEAR: 2025
 
   # 데이터 저장 경로 (하위 디렉토리가 자동 생성됨)
-  ROOT_PATH: /home/user/Quant/data
+  ROOT_PATH: "./data"
 
   # FMP API 설정
   FMP_URL: https://financialmodelingprep.com
@@ -102,7 +102,7 @@ ML:
   MLFLOW_TRACKING_URI: null  # 로컬은 null, 서버는 http://server:5000
 
   # ML 후 종료 (백테스트 실행 안 함)
-  EXIT_AFTER_ML: Y  # Y = ML 후 종료, N = 백테스트 계속
+  EXIT_AFTER_ML: N  # Y = ML 후 종료, N = 백테스트 계속
 
   # ============================================================================
   # Model Architecture (모델 아키텍처)
@@ -302,7 +302,7 @@ BACKTEST:
 
   # 공통 설정
   REBALANCE_PERIOD: 3  # 리밸런싱 주기 (개월)
-  TOP_K_NUM: 20        # 선택할 종목 수 (포트폴리오 크기)
+  TOP_K_NUM: 10        # 선택할 종목 수 (포트폴리오 크기)
 
   # 생성할 리포트 목록
   REPORT_LIST:
