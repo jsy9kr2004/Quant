@@ -138,6 +138,87 @@ models[1]: XGBRegressor (max_depth=10)
 | `USE_CLASSIFIER: N`<br>`USE_SECTOR_MODEL: N` | 전역 Regression만 | 2 regressors |
 | `USE_CLASSIFIER: N`<br>`USE_SECTOR_MODEL: Y` | 섹터별 Regression만 | 각 섹터: 2 regressors |
 
+### 📊 Sector Categorization (섹터 카테고리화)
+
+**목적**: 작은 섹터들을 경제적 특성에 따라 통합하여 샘플 수 부족 문제 해결
+
+#### 문제 상황
+- 일부 섹터는 샘플 수가 너무 적어 과적합 위험 (예: Conglomerates 118개)
+- 섹터별 모델 학습 시 데이터 부족으로 일반화 성능 저하
+
+#### 해결 방법: 계층적 카테고리 통합
+```
+원본 섹터 (11개)          →    카테고리 (5개)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Financials                →    Financial
+Real Estate               ↗
+
+Information Technology    →    Technology
+Communication Services    ↗
+
+Consumer Staples          →    Defensive
+Utilities                 ↗
+Healthcare                ↗
+
+Industrials               →    Cyclical
+Materials                 ↗
+Energy                    ↗
+Consumer Discretionary    ↗
+
+Conglomerates             →    Others
+```
+
+#### 설정 구조
+```yaml
+ML:
+  USE_SECTOR_MODEL: Y  # 섹터별 모델 사용
+
+  # 원본 섹터별 설정 (CATEGORIZATION.ENABLED=N일 때)
+  SECTOR_CONFIG:
+    Financials:  # 원본 섹터 이름
+      model: xgboost
+      n_estimators: 200
+      max_depth: 7
+
+  # 카테고리 통합 설정 (CATEGORIZATION.ENABLED=Y일 때)
+  SECTOR_CATEGORIZATION:
+    ENABLED: N  # Y = 카테고리 사용, N = 원본 섹터 사용
+
+    CATEGORIES:
+      Financial:  # 카테고리 이름
+        sectors: [Financials, Real Estate]
+        description: "이자율 및 신용 주기에 민감"
+        model_config:  # 카테고리별 모델 설정
+          model: xgboost
+          n_estimators: 200
+          max_depth: 7
+          learning_rate: 0.05
+```
+
+#### 동작 방식
+
+**ENABLED=N (기본값)**:
+1. 원본 섹터 이름 사용 (Financials, Healthcare, ...)
+2. `SECTOR_CONFIG`에서 모델 설정 로드
+3. 섹터별로 독립적인 모델 학습
+
+**ENABLED=Y (카테고리화 활성화)**:
+1. 원본 섹터를 카테고리로 매핑 (Financials → Financial)
+2. `SECTOR_CATEGORIZATION.CATEGORIES[].model_config`에서 설정 로드
+3. 카테고리별로 통합 모델 학습
+4. **레포트에는 원본 섹터 이름 표시** (사용자 친화성)
+
+#### 구현 위치
+- **설정**: `config/conf.yaml.template` → `ML.SECTOR_CATEGORIZATION`
+- **매핑 로직**: `src/training/data_processor.py` → `map_sectors_to_categories()`
+- **모델 설정**: `src/models/model_factory.py` → `_extract_category_configs()`
+- **학습/예측**: `src/backtest/ml_backtest.py` → `_train_model_sector()`, `_predict_sector()`
+
+#### 주의사항
+- **설정 일관성**: CATEGORIZATION.ENABLED 변경 시 모델 재학습 필요
+- **샘플 수 검증**: 카테고리별 최소 샘플 수 확인 (MIN_SAMPLES_PER_CATEGORY)
+- **Fallback 전략**: 샘플 부족 시 unified model 사용 또는 skip
+
 ### 🔬 분류기 작동 방식 상세 (Classifier Implementation Details)
 
 #### 학습 단계 (Training)
