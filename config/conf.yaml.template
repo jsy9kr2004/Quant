@@ -93,7 +93,12 @@ ML:
 
   # ===== Optuna 결과 재사용 (Result Reuse) =====
   OPTUNA_REUSE_EXISTING: Y  # Y = 기존 결과 재사용 (있으면), N = 항상 재최적화
-  OPTUNA_REUSE_MAX_AGE_DAYS: 7  # 결과 재사용 가능 최대 일수 (0 = 항상 재사용)
+  OPTUNA_REUSE_MAX_AGE_DAYS: 0  # 결과 재사용 가능 최대 일수 (0 = 무제한 재사용, >0 = 일수 제한)
+
+  # 동작 방식:
+  # - REUSE_EXISTING=Y, MAX_AGE_DAYS=0: 파일 있으면 무조건 재사용 (권장, 기본값)
+  # - REUSE_EXISTING=Y, MAX_AGE_DAYS=7: 7일 이내 파일만 재사용, 이후는 재최적화
+  # - REUSE_EXISTING=N: 항상 재최적화 (파일 무시)
   # 참고: 결과는 {ROOT_PATH}/models/optuna/에 저장되어 이식성 보장
 
   # MLflow 실험 추적
