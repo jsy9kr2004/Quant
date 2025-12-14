@@ -683,8 +683,15 @@ class DataProcessor:
         --------
         X_clean, y_clean = DataProcessor.remove_infinite_values(X, y)
         """
-        # Check for infinite values
-        inf_mask = np.isinf(X)
+        # Check for infinite values (only on numeric columns)
+        # Object/string columns will cause TypeError in np.isinf()
+        numeric_cols = X.select_dtypes(include=[np.number]).columns
+
+        if len(numeric_cols) == 0:
+            # No numeric columns, nothing to check
+            return X, y
+
+        inf_mask = np.isinf(X[numeric_cols])
         rows_with_inf = inf_mask.any(axis=1)
 
         if rows_with_inf.sum() > 0:
