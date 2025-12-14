@@ -498,16 +498,29 @@ class MLBacktest:
             self.logger.warning("⚠️ 'sector' column not found! Falling back to unified model.")
             return self._train_model_unified(train_data, cutoff_date)
 
+        # ✅ 섹터 카테고리화 적용 (config 기반)
+        train_data = train_data.copy()  # 원본 보호
+        train_data = DataProcessor.map_sectors_to_categories(
+            train_data,
+            self.config,
+            sector_column='sector',
+            logger=self.logger
+        )
+
+        # sector를 sector_category로 교체 (원본은 sector_original로 백업)
+        train_data['sector_original'] = train_data['sector']
+        train_data['sector'] = train_data['sector_category']
+
         self.logger.info(f"   Training samples: {len(train_data)}")
         self.logger.info("   🔧 Using ModelFactory.create_sector_models() (SAME LOGIC as regressor.py)")
 
         # ✨ REFACTORED: Use DataSchema for column definitions (unified with regressor.py)
         exclude_cols = DataSchema.get_excluded_cols()
 
-        # 각 섹터별로 학습
+        # 각 섹터별로 학습 (카테고리 사용)
         sectors = train_data['sector'].unique()
         sectors = [s for s in sectors if str(s) != 'nan']  # Remove NaN sectors
-        self.logger.info(f"   Sectors found: {list(sectors)}")
+        self.logger.info(f"   Sectors/Categories found: {list(sectors)}")
 
         # ✨ Load Optuna parameters (if USE_OPTUNA=Y)
         optuna_params = self._load_optuna_params()
@@ -748,8 +761,20 @@ class MLBacktest:
             self.logger.warning("⚠️ 'sector' column not found! Cannot use sector models.")
             return test_data.copy()
 
-        sector_models = models['sectors']
+        # ✅ 섹터 카테고리화 적용 (학습 시와 동일하게)
         result = test_data.copy()
+        result = DataProcessor.map_sectors_to_categories(
+            result,
+            self.config,
+            sector_column='sector',
+            logger=None  # 예측 시에는 로깅 생략
+        )
+
+        # sector를 sector_category로 교체 (원본은 sector_original로 백업)
+        result['sector_original'] = result['sector']
+        result['sector'] = result['sector_category']
+
+        sector_models = models['sectors']
 
         # 초기화
         result['pred_up_proba'] = 0.0
@@ -816,6 +841,11 @@ class MLBacktest:
             except Exception as e:
                 self.logger.error(f"   ❌ {sector} prediction failed: {str(e)}")
                 continue
+
+        # ✅ 원본 sector 복원 (레포트용)
+        if 'sector_original' in result.columns:
+            result['sector'] = result['sector_original']
+            result.drop(columns=['sector_original', 'sector_category'], inplace=True, errors='ignore')
 
         return result
 
