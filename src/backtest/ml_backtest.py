@@ -1050,7 +1050,35 @@ class MLBacktest:
                 rebalance_dates.append(current)
                 current += relativedelta(months=self.rebalance_period)
 
-        self.logger.info(f"\n📅 Rebalance dates: {len(rebalance_dates)}")
+        # ✅ 거래일 조정 (regressor.py와 일원화)
+        # 휴장일(주말, 공휴일)을 실제 거래 가능일로 조정
+        self.logger.info(f"\n📅 Adjusting rebalance dates to actual trading days...")
+        original_dates = rebalance_dates.copy()
+        adjusted_dates = []
+
+        for i, target_date in enumerate(rebalance_dates):
+            # _get_trade_date()는 target_date 이전 10일 내 가장 최근 거래일 반환
+            actual_trade_date = self._get_trade_date(target_date, price_table)
+
+            if actual_trade_date is None:
+                self.logger.warning(
+                    f"   ⚠️  Skipping {target_date.date()} - no trading day found within 10 days before"
+                )
+                continue
+
+            # 조정된 날짜가 원래 날짜와 다르면 로깅
+            if actual_trade_date.date() != target_date.date():
+                self.logger.info(
+                    f"   {target_date.date()} → {actual_trade_date.date()} "
+                    f"(adjusted to nearest trading day)"
+                )
+            else:
+                self.logger.info(f"   {target_date.date()} (already a trading day)")
+
+            adjusted_dates.append(actual_trade_date)
+
+        rebalance_dates = adjusted_dates
+        self.logger.info(f"\n📅 Rebalance dates after adjustment: {len(rebalance_dates)}")
         for date in rebalance_dates:
             self.logger.info(f"   {date.date()}")
 

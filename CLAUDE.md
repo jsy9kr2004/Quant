@@ -314,6 +314,42 @@ ml_score = y_pred_proba * y_pred_return
 - [ ] 공통 함수로 통합할 수 있는가?
 - [ ] DataProcessor나 별도 유틸리티로 빼야 하는가?
 
+### 거래일 조정 (Trading Day Adjustment)
+
+**문제**: 리밸런싱 날짜가 휴장일(주말, 공휴일)일 경우 거래 불가
+- 예: 2025-01-01 (New Year's Day) → 거래 불가 → 0% 수익률
+- regressor.py는 `searchsorted`로 가장 가까운 거래일 사용
+- ml_backtest.py도 동일한 방식으로 조정 필요
+
+**해결책**: `_get_trade_date()` 함수 사용하여 실제 거래일로 조정
+
+**구현** (`src/backtest/ml_backtest.py`):
+```python
+# 리밸런싱 날짜 생성 후
+for target_date in rebalance_dates:
+    # target_date 이전 10일 내 가장 최근 거래일 반환
+    actual_trade_date = self._get_trade_date(target_date, price_table)
+
+    if actual_trade_date is None:
+        # 10일 내 거래일 없으면 스킵
+        continue
+
+    adjusted_dates.append(actual_trade_date)
+
+rebalance_dates = adjusted_dates
+```
+
+**효과**:
+- 2025-01-01 → 2024-12-31 (이전 거래일)
+- 실제 거래 가능한 날짜만 사용
+- regressor.py와 ml_backtest.py 일관성 확보
+- 0% 수익률 문제 해결
+
+**주의사항**:
+- `_get_trade_date()`는 **이전** 거래일을 찾음 (이후 X)
+- 10일 내 거래일 없으면 해당 리밸런싱 스킵
+- 조정 내역은 로그에 기록됨
+
 ## 🛡️ Data Leakage Prevention (미래 정보 유출 방지)
 
 ### 핵심 원칙: filingDate 기준 Cutoff
