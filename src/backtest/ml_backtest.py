@@ -595,26 +595,36 @@ class MLBacktest:
             self.logger.warning("⚠️ No sector models trained! Falling back to unified model.")
             return self._train_model_unified(train_data, cutoff_date)
 
-        # Train unified classifier on all data (same as regressor.py)
-        self.logger.info("   Training unified classifier on all data...")
-        all_features = DataSchema.get_feature_cols(train_data)
-        X_all = train_data[all_features].copy()
-        # ✅ UNIFIED: Use DataFrame for y_all (same structure as regressor.py)
-        y_all = train_data[[DataSchema.REGRESSION_TARGET]].copy()  # DataFrame with column name preserved
+        # Create unified classifier (same as regressor.py)
+        # Use the same factory that created sector models
+        self.logger.info("   Creating unified classifier...")
+        if use_classifier:
+            unified_clf, _ = factory.create_single_models(use_gpu=use_gpu)
+        else:
+            unified_clf = None
+            self.logger.info("   USE_CLASSIFIER=N: Skipping unified classifier")
 
-        # 🎯 UNIFIED PREPROCESSING (SAME method as regressor.py)
-        X_all, y_all, _, _ = DataProcessor.preprocess_training_data(
-            X_all,
-            y_all,
-            y_cls=None,  # No classification for unified classifier
-            config=self.config,
-            logger=self.logger
-        )
+        # Train unified classifier on all data (if USE_CLASSIFIER=Y)
+        if unified_clf is not None:
+            self.logger.info("   Training unified classifier on all data...")
+            all_features = DataSchema.get_feature_cols(train_data)
+            X_all = train_data[all_features].copy()
+            # ✅ UNIFIED: Use DataFrame for y_all (same structure as regressor.py)
+            y_all = train_data[[DataSchema.REGRESSION_TARGET]].copy()  # DataFrame with column name preserved
 
-        y_all_binary = DataProcessor.create_binary_target(y_all)
+            # 🎯 UNIFIED PREPROCESSING (SAME method as regressor.py)
+            X_all, y_all, _, _ = DataProcessor.preprocess_training_data(
+                X_all,
+                y_all,
+                y_cls=None,  # No classification for unified classifier
+                config=self.config,
+                logger=self.logger
+            )
 
-        unified_clf.fit(X_all, y_all_binary)
-        self.logger.info(f"   ✅ Unified classifier trained (Acc={unified_clf.score(X_all, y_all_binary):.4f})")
+            y_all_binary = DataProcessor.create_binary_target(y_all)
+
+            unified_clf.fit(X_all, y_all_binary)
+            self.logger.info(f"   ✅ Unified classifier trained (Acc={unified_clf.score(X_all, y_all_binary):.4f})")
 
         # 모델 저장
         models = {
