@@ -93,7 +93,12 @@ ML:
 
   # ===== Optuna 결과 재사용 (Result Reuse) =====
   OPTUNA_REUSE_EXISTING: Y  # Y = 기존 결과 재사용 (있으면), N = 항상 재최적화
-  OPTUNA_REUSE_MAX_AGE_DAYS: 7  # 결과 재사용 가능 최대 일수 (0 = 항상 재사용)
+  OPTUNA_REUSE_MAX_AGE_DAYS: 0  # 결과 재사용 가능 최대 일수 (0 = 무제한 재사용, >0 = 일수 제한)
+
+  # 동작 방식:
+  # - REUSE_EXISTING=Y, MAX_AGE_DAYS=0: 파일 있으면 무조건 재사용 (권장, 기본값)
+  # - REUSE_EXISTING=Y, MAX_AGE_DAYS=7: 7일 이내 파일만 재사용, 이후는 재최적화
+  # - REUSE_EXISTING=N: 항상 재최적화 (파일 무시)
   # 참고: 결과는 {ROOT_PATH}/models/optuna/에 저장되어 이식성 보장
 
   # MLflow 실험 추적
@@ -215,6 +220,8 @@ ML:
     ENABLED: N  # Y = 섹터를 카테고리로 통합, N = 원본 섹터 사용
 
     # 카테고리 정의 (금융 관점의 경제적 특성 기반)
+    # ENABLED=Y일 때, 각 카테고리별로 model_config 적용
+    # ENABLED=N일 때, SECTOR_CONFIG (원본 섹터별 설정) 적용
     CATEGORIES:
       # 1. 금융 (이자율/신용 민감 섹터)
       Financial:
@@ -222,6 +229,12 @@ ML:
           - Financials
           - Real Estate
         description: "이자율 및 신용 주기에 민감한 금융 관련 섹터"
+        # 카테고리별 모델 설정 (ENABLED=Y일 때만 적용)
+        model_config:
+          model: xgboost
+          n_estimators: 200
+          max_depth: 7
+          learning_rate: 0.05
 
       # 2. 기술 (성장주, 고밸류에이션 섹터)
       Technology:
@@ -229,6 +242,11 @@ ML:
           - Information Technology
           - Communication Services
         description: "혁신 중심의 고성장 기술 기업"
+        model_config:
+          model: xgboost
+          n_estimators: 250
+          max_depth: 8
+          learning_rate: 0.08
 
       # 3. 필수소비재 (경기방어 섹터)
       Defensive:
@@ -237,6 +255,11 @@ ML:
           - Utilities
           - Healthcare
         description: "경기 침체에도 안정적인 수요를 유지하는 방어적 섹터"
+        model_config:
+          model: xgboost
+          n_estimators: 150
+          max_depth: 6
+          learning_rate: 0.05
 
       # 4. 경기민감 (경기순환 섹터)
       Cyclical:
@@ -246,10 +269,23 @@ ML:
           - Energy
           - Consumer Discretionary
         description: "경기 변동에 민감하게 반응하는 순환적 섹터"
+        model_config:
+          model: xgboost
+          n_estimators: 200
+          max_depth: 7
+          learning_rate: 0.1
 
       # 5. 기타 (명시되지 않은 작은 섹터들)
       # Others 카테고리는 자동 생성됨 (위 카테고리에 포함되지 않은 모든 섹터)
       # 예: Conglomerates 등
+      Others:
+        # sectors는 자동 할당 (위에 정의되지 않은 모든 섹터)
+        description: "기타 분류되지 않은 섹터"
+        model_config:
+          model: xgboost
+          n_estimators: 150
+          max_depth: 6
+          learning_rate: 0.1
 
     # 최소 샘플 수 (이 값 미만인 카테고리는 fallback 전략 사용)
     MIN_SAMPLES_PER_CATEGORY: 1000

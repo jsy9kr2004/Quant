@@ -79,7 +79,44 @@ class ModelFactory:
         self.ml_config = config.get('ML', {})
         self.use_classifier = self.ml_config.get('USE_CLASSIFIER', 'Y') == 'Y'
         self.use_sector_model = self.ml_config.get('USE_SECTOR_MODEL', 'N') == 'Y'
+
+        # Load sector configuration (원본 섹터별 설정)
         self.sector_config = self.ml_config.get('SECTOR_CONFIG', {}) if self.use_sector_model else {}
+
+        # Load sector categorization configuration (카테고리 통합 설정)
+        self.sector_categorization = self.ml_config.get('SECTOR_CATEGORIZATION', {})
+        self.use_categorization = self.sector_categorization.get('ENABLED', 'N') == 'Y'
+
+        # Determine which config to use for sector models
+        if self.use_sector_model and self.use_categorization:
+            # ENABLED=Y: Use category-based model configs
+            self.effective_sector_config = self._extract_category_configs()
+            self.logger.info("🔧 Using category-based model configs (CATEGORIZATION.ENABLED=Y)")
+        else:
+            # ENABLED=N: Use original sector-based model configs
+            self.effective_sector_config = self.sector_config
+            if self.use_sector_model:
+                self.logger.info("🔧 Using original sector-based model configs (CATEGORIZATION.ENABLED=N)")
+
+    def _extract_category_configs(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Extract model_config from each category in SECTOR_CATEGORIZATION.
+
+        Returns:
+        -------
+        Dict[str, Dict[str, Any]]
+            Dictionary mapping category name to model_config
+            Example: {'Financial': {'model': 'xgboost', 'n_estimators': 200, ...}, ...}
+        """
+        categories = self.sector_categorization.get('CATEGORIES', {})
+        category_configs = {}
+
+        for category_name, category_info in categories.items():
+            model_config = category_info.get('model_config', {})
+            if model_config:
+                category_configs[category_name] = model_config
+
+        return category_configs
 
     def create_ensemble_models(self) -> Tuple[List[Any], List[Any]]:
         """
@@ -291,8 +328,10 @@ class ModelFactory:
         sector_regressors = {}
 
         for sector in sector_list:
-            # Get sector-specific config if available
-            sector_cfg = self.sector_config.get(sector, {})
+            # Get sector-specific or category-specific config
+            # When CATEGORIZATION.ENABLED=Y: sector = category name (e.g., "Financial")
+            # When CATEGORIZATION.ENABLED=N: sector = original sector name (e.g., "Financials")
+            sector_cfg = self.effective_sector_config.get(sector, {})
 
             # Get Optuna-optimized params if available
             optuna_cfg = sector_optuna_params.get(sector, {}) if sector_optuna_params else {}
