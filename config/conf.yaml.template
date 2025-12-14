@@ -254,6 +254,30 @@ BACKTEST:
     - AI    # AI 예측 리포트
 
 # ============================================================================
+# 벤치마크 설정 (BENCHMARK Configuration)
+# ============================================================================
+BENCHMARK:
+  # 벤치마크 비교 활성화 여부
+  ENABLED: Y  # Y = 벤치마크 계산 및 레포트 생성, N = 건너뛰기
+
+  # 비교할 벤치마크 심볼 리스트
+  # 주의: 심볼 오타나 가격 데이터 없는 경우 자동 스킵됩니다
+  SYMBOLS:
+    - AAPL  # Apple Inc. - 대형주 대표
+    - NVDA  # Nvidia Corp. - 성장주 대표
+    - QQQ   # Invesco QQQ ETF - Nasdaq-100 추종 (기술주 중심)
+    - SPY   # SPDR S&P 500 ETF - S&P 500 추종 (시장 전체)
+
+  # 추가 가능한 벤치마크 예시 (필요시 주석 해제):
+  # - MSFT  # Microsoft
+  # - GOOGL # Alphabet (Google)
+  # - AMZN  # Amazon
+  # - TSLA  # Tesla
+  # - IWM   # Russell 2000 ETF (소형주)
+  # - DIA   # Dow Jones ETF
+  # - VTI   # Total Stock Market ETF
+
+# ============================================================================
 # 피처 엔지니어링 설정 (FEATURE ENGINEERING Configuration)
 # ============================================================================
 FEATURES:

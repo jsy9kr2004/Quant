@@ -927,6 +927,138 @@ class MLBacktest:
             'actual_sell_date': actual_sell_date
         }
 
+    def _calculate_benchmark_returns(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        price_table: pd.DataFrame
+    ) -> pd.DataFrame:
+        """
+        벤치마크 Buy-and-Hold 수익률 계산
+
+        Parameters:
+        ----------
+        start_date : datetime
+            백테스트 시작 날짜
+        end_date : datetime
+            백테스트 종료 날짜
+        price_table : pd.DataFrame
+            가격 데이터
+
+        Returns:
+        -------
+        pd.DataFrame
+            벤치마크 결과 (symbol, return, sharpe, mdd 등)
+        """
+        benchmark_config = self.config.get('BENCHMARK', {})
+
+        if not benchmark_config.get('ENABLED', 'N') == 'Y':
+            self.logger.info("📊 Benchmark comparison disabled (BENCHMARK.ENABLED=N)")
+            return pd.DataFrame()
+
+        benchmark_symbols = benchmark_config.get('SYMBOLS', [])
+        if not benchmark_symbols:
+            self.logger.warning("⚠️  No benchmark symbols configured")
+            return pd.DataFrame()
+
+        self.logger.info(f"\n📊 Calculating benchmark returns for {len(benchmark_symbols)} symbols...")
+
+        results = []
+
+        # 실제 거래일 찾기
+        actual_start = DataProcessor.get_trade_date(pd.Timestamp(start_date), price_table)
+        actual_end = DataProcessor.get_trade_date(pd.Timestamp(end_date), price_table)
+
+        if actual_start is None or actual_end is None:
+            self.logger.error(f"❌ Cannot find trading dates for benchmark period")
+            return pd.DataFrame()
+
+        for symbol in benchmark_symbols:
+            try:
+                # 심볼 가격 데이터 가져오기
+                symbol_prices = price_table[price_table['symbol'] == symbol]
+
+                if symbol_prices.empty:
+                    self.logger.warning(f"   ⚠️  {symbol}: No price data found (symbol may not exist or typo)")
+                    continue
+
+                # 시작 가격
+                start_prices = symbol_prices[symbol_prices['date'] == actual_start]
+                if start_prices.empty:
+                    self.logger.warning(f"   ⚠️  {symbol}: No price at start date {actual_start.date()}")
+                    continue
+                start_price = start_prices.iloc[0]['close']
+
+                # 종료 가격
+                end_prices = symbol_prices[symbol_prices['date'] == actual_end]
+                if end_prices.empty:
+                    self.logger.warning(f"   ⚠️  {symbol}: No price at end date {actual_end.date()}")
+                    continue
+                end_price = end_prices.iloc[0]['close']
+
+                # 총 수익률
+                total_return = (end_price - start_price) / start_price
+
+                # 기간 내 모든 가격 데이터 (MDD, Sharpe 계산용)
+                period_prices = symbol_prices[
+                    (symbol_prices['date'] >= actual_start) &
+                    (symbol_prices['date'] <= actual_end)
+                ].sort_values('date')
+
+                if len(period_prices) < 2:
+                    self.logger.warning(f"   ⚠️  {symbol}: Insufficient price data in period")
+                    continue
+
+                # 일별 수익률
+                period_prices = period_prices.copy()
+                period_prices['daily_return'] = period_prices['close'].pct_change()
+
+                # Sharpe Ratio (연율화: √252)
+                daily_returns = period_prices['daily_return'].dropna()
+                if len(daily_returns) > 0:
+                    sharpe = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252) if daily_returns.std() > 0 else 0.0
+                else:
+                    sharpe = 0.0
+
+                # Maximum Drawdown
+                cumulative = (1 + period_prices['daily_return'].fillna(0)).cumprod()
+                running_max = cumulative.expanding().max()
+                drawdown = (cumulative - running_max) / running_max
+                max_drawdown = drawdown.min()
+
+                # Win Rate (상승일 비율)
+                win_rate = (daily_returns > 0).sum() / len(daily_returns) if len(daily_returns) > 0 else 0.0
+
+                # 결과 저장
+                results.append({
+                    'strategy': symbol,
+                    'total_return': total_return,
+                    'total_return_pct': total_return * 100,
+                    'sharpe_ratio': sharpe,
+                    'max_drawdown': max_drawdown,
+                    'max_drawdown_pct': max_drawdown * 100,
+                    'win_rate': win_rate,
+                    'win_rate_pct': win_rate * 100,
+                    'start_price': start_price,
+                    'end_price': end_price,
+                    'num_days': len(period_prices)
+                })
+
+                self.logger.info(
+                    f"   ✅ {symbol}: {total_return*100:+.2f}% | "
+                    f"Sharpe: {sharpe:.2f} | MDD: {max_drawdown*100:.2f}%"
+                )
+
+            except Exception as e:
+                self.logger.warning(f"   ⚠️  {symbol}: Calculation failed - {str(e)}")
+                continue
+
+        if not results:
+            self.logger.warning("⚠️  No valid benchmark results calculated")
+            return pd.DataFrame()
+
+        return pd.DataFrame(results)
+
     def run(self) -> pd.DataFrame:
         """
         Walk-Forward 백테스트 실행
@@ -1152,6 +1284,49 @@ class MLBacktest:
         results_df = pd.DataFrame(self.backtest_results)
         self._print_summary(results_df)
 
+        # 8. 벤치마크 계산 (전체 백테스트 기간)
+        benchmark_df = pd.DataFrame()
+        if len(rebalance_dates) > 0:
+            backtest_start = rebalance_dates[0]
+            backtest_end = rebalance_dates[-1]
+            benchmark_df = self._calculate_benchmark_returns(backtest_start, backtest_end, price_table)
+
+            # ML 모델 성능 추가 (비교용)
+            if not results_df.empty:
+                total_return = (1 + results_df['avg_return']).prod() - 1
+                avg_return = results_df['avg_return'].mean()
+                std_return = results_df['avg_return'].std()
+                sharpe = (avg_return / std_return) * np.sqrt(4) if std_return > 0 else 0.0  # Quarterly → Annual
+
+                # MDD 계산
+                cumulative_returns = (1 + results_df['avg_return']).cumprod()
+                running_max = cumulative_returns.expanding().max()
+                drawdown = (cumulative_returns - running_max) / running_max
+                max_drawdown = drawdown.min()
+
+                # Win Rate
+                win_rate = (results_df['avg_return'] > 0).sum() / len(results_df)
+
+                ml_model_result = pd.DataFrame([{
+                    'strategy': 'ML Model',
+                    'total_return': total_return,
+                    'total_return_pct': total_return * 100,
+                    'sharpe_ratio': sharpe,
+                    'max_drawdown': max_drawdown,
+                    'max_drawdown_pct': max_drawdown * 100,
+                    'win_rate': win_rate,
+                    'win_rate_pct': win_rate * 100,
+                    'start_price': None,
+                    'end_price': None,
+                    'num_days': len(results_df)
+                }])
+
+                # ML Model을 첫 번째 행으로 추가
+                if not benchmark_df.empty:
+                    benchmark_df = pd.concat([ml_model_result, benchmark_df], ignore_index=True)
+                else:
+                    benchmark_df = ml_model_result
+
         # 결과 저장 - Excel 통합 레포트
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_dir = Path('outputs/reports')
@@ -1169,11 +1344,15 @@ class MLBacktest:
             if not detailed_df.empty:
                 detailed_df.to_excel(writer, sheet_name='Detailed', index=False)
 
-            # TODO: Sheet 3: Benchmark (벤치마크) - 다음 작업에서 추가
+            # Sheet 3: Benchmark (벤치마크 비교)
+            if not benchmark_df.empty:
+                benchmark_df.to_excel(writer, sheet_name='Benchmark', index=False)
 
         self.logger.info(f"\n✅ Backtest report saved: {excel_file}")
         if not detailed_df.empty:
             self.logger.info(f"   Total trades: {len(detailed_df)}")
+        if not benchmark_df.empty:
+            self.logger.info(f"   Benchmark comparisons: {len(benchmark_df)}")
 
         return results_df
 
