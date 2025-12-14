@@ -1058,6 +1058,28 @@ class DataProcessor:
             logger.info("Step 0/8: Normalizing feature names...")
         X = DataProcessor.normalize_feature_names(X, logger=logger)
 
+        # ===== DIAGNOSTIC: Check for object/string columns =====
+        # 🚨 CRITICAL: ML models require numeric input only
+        # Object/string columns cause errors in np.isinf(), np.abs(), log transform
+        if logger:
+            object_cols = X.select_dtypes(exclude=[np.number]).columns
+            if len(object_cols) > 0:
+                logger.warning(f"⚠️  Found {len(object_cols)} non-numeric columns (object/string type)")
+                logger.warning(f"   Columns: {list(object_cols[:10])}")
+                if len(object_cols) > 10:
+                    logger.warning(f"   ... and {len(object_cols) - 10} more")
+                # Show sample values to diagnose root cause
+                for col in object_cols[:3]:
+                    sample_vals = X[col].dropna().unique()[:5]
+                    logger.warning(f"   '{col}' sample values: {sample_vals}")
+
+                # 🔧 AUTO-FIX: Remove object columns
+                logger.warning(f"   🔧 Removing {len(object_cols)} object columns...")
+                X = X.select_dtypes(include=[np.number])
+                logger.warning(f"   ✅ Removed. Remaining columns: {len(X.columns)}")
+            else:
+                logger.info("✅ All columns are numeric")
+
         # ===== Step 1: Remove infinite values from X and y =====
         if logger:
             logger.info("Step 1/8: Removing infinite values from X and y...")
