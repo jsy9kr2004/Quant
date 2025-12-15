@@ -51,6 +51,7 @@ desktop.ini
 *.log
 log.txt
 *.txt.lock
+gitlog_*  # Git log files may contain sensitive info
 
 # Temporary files
 *.tmp
