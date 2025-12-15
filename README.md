@@ -735,7 +735,7 @@ from storage.parquet_converter import Parquet
 ```yaml
 # config/conf.yaml
 DATA:
-  TARGET_API_LIST: data_collector/target_api_list.csv  # 경로 변경
+  TARGET_API_LIST: src/data_collector/target_api_list.csv  # 경로 변경
   STORAGE_TYPE: PARQUET
 
 ML:

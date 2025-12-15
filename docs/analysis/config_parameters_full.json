@@ -59,7 +59,7 @@
     "full_path": "DATA.TARGET_API_LIST",
     "key": "TARGET_API_LIST",
     "type": "str",
-    "value": "data_collector/target_api_list.csv",
+    "value": "src/data_collector/target_api_list.csv",
     "level": 1
   },
   {

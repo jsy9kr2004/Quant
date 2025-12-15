@@ -471,7 +471,7 @@ class MainContext:
         self.fmp_url = data_config.get('FMP_URL', 'https://financialmodelingprep.com')
         self.api_key = data_config.get('API_KEY', '')
         self.ex_symbol = data_config.get('EX_SYMBOL', 'AAPL')  # URL 파싱을 위한 예제 심볼
-        self.target_api_list = data_config.get('TARGET_API_LIST', 'data_collector/target_api_list.csv')
+        self.target_api_list = data_config.get('TARGET_API_LIST', 'src/data_collector/target_api_list.csv')
 
         # Logging configuration
         # 정수 log level을 문자열 이름으로 매핑
