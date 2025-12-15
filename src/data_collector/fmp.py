@@ -154,10 +154,10 @@ class FMP:
         all_symbol = filtered_symbol
 
         # NASDAQ 및 NYSE의 상장폐지 회사와 병합
-        file_list = os.listdir(self.main_ctx.root_path + "/delisted_companies/")
+        file_list = os.listdir(self.main_ctx.root_path + "/fmp_raw/delisted_companies/")
         for file in file_list:
             if os.path.splitext(file)[1] == ".parquet":
-                delisted = pd.read_parquet(self.main_ctx.root_path + "/delisted_companies/" + file)
+                delisted = pd.read_parquet(self.main_ctx.root_path + "/fmp_raw/delisted_companies/" + file)
                 if delisted.empty == True:
                     continue
                 # NASDAQ 및 NYSE 거래소만 필터링
@@ -464,8 +464,8 @@ class FMP:
             os.remove("./allsymbol.csv")
         if os.path.isfile("./current_list.csv"):
             os.remove("./current_list.csv")
-        self.remove_files(self.main_ctx.root_path+"/delisted_companies")
-        self.remove_files(self.main_ctx.root_path+"/stock_list")
+        self.remove_files(self.main_ctx.root_path+"/fmp_raw/delisted_companies")
+        self.remove_files(self.main_ctx.root_path+"/fmp_raw/stock_list")
 
     def remove_second_loop(self) -> None:
         """새로고침된 심볼 리스트를 사용하여 데이터 파일을 제거합니다.
