@@ -47,11 +47,9 @@ Quant-refactoring/outputs/**/*
 Thumbs.db
 desktop.ini
 
-# 로그
-*.log
+# 로그 (시스템 로그만)
 log.txt
 *.txt.lock
-gitlog_*  # Git log files may contain sensitive info
 
 # Temporary files
 *.tmp
