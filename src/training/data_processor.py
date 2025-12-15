@@ -1058,7 +1058,30 @@ class DataProcessor:
             logger.info("Step 0/8: Normalizing feature names...")
         X = DataProcessor.normalize_feature_names(X, logger=logger)
 
-        # ===== DIAGNOSTIC: Check for object/string columns =====
+        # ===== Step 0.5: Remove metadata columns =====
+        # 🚨 CRITICAL: Remove non-feature columns that are used for grouping/filtering
+        # These should never be used as ML features
+        METADATA_COLUMNS = [
+            'sector_category',      # Sector categorization metadata
+            'sector_original',      # Original sector before categorization
+            'sector',               # Sector information (if still present)
+            'symbol',               # Stock ticker
+            'date',                 # Date information
+            'rebalance_date',       # Rebalancing date
+            'report_date',          # Financial report date
+            'filingDate',           # SEC filing date
+        ]
+
+        metadata_found = [col for col in METADATA_COLUMNS if col in X.columns]
+        if metadata_found:
+            if logger:
+                logger.warning(f"⚠️  Found {len(metadata_found)} metadata columns (removing before training)")
+                logger.warning(f"   Columns: {metadata_found}")
+            X = X.drop(columns=metadata_found, errors='ignore')
+            if logger:
+                logger.info(f"   ✅ Removed metadata columns. Remaining: {len(X.columns)} columns")
+
+        # ===== DIAGNOSTIC: Check for remaining object/string columns =====
         # 🚨 CRITICAL: ML models require numeric input only
         # Object/string columns cause errors in np.isinf(), np.abs(), log transform
         if logger:
@@ -1073,7 +1096,7 @@ class DataProcessor:
                     sample_vals = X[col].dropna().unique()[:5]
                     logger.warning(f"   '{col}' sample values: {sample_vals}")
 
-                # 🔧 AUTO-FIX: Remove object columns
+                # 🔧 AUTO-FIX: Remove remaining object columns
                 logger.warning(f"   🔧 Removing {len(object_cols)} object columns...")
                 X = X.select_dtypes(include=[np.number])
                 logger.warning(f"   ✅ Removed. Remaining columns: {len(X.columns)}")
