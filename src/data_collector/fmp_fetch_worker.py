@@ -133,7 +133,9 @@ def __fmp_worker(
     ret = True
     while True:
         try:
-            logger.info(f'Creating File "{file_path}/{safe_symbol+file_postfix}.parquet" <- "{url}" (symbol: {symbol})')
+            # Mask API key in URL for logging
+            masked_url = url.split('apikey=')[0] + 'apikey=***' if 'apikey=' in url else url
+            logger.info(f'Creating File "{file_path}/{safe_symbol+file_postfix}.parquet" <- "{masked_url}" (symbol: {symbol})')
             # Fetch data from API
             url_data = requests.get(url)
         except ValueError:
@@ -141,7 +143,9 @@ def __fmp_worker(
             ret = False
             break
         except urllib.error.HTTPError:
-            logger.warning("HTTP Error 400, API_URL : ", url)
+            # Mask API key in URL for logging
+            masked_url = url.split('apikey=')[0] + 'apikey=***' if 'apikey=' in url else url
+            logger.warning(f"HTTP Error 400, API_URL : {masked_url}")
             ret = False
             break
 

@@ -504,8 +504,8 @@ class Parquet:
 
             # Find all CSV and Parquet files in category directory
             file_list = [
-                self.main_ctx.root_path + "/" + directory + "/" + file
-                for file in os.listdir(self.main_ctx.root_path + "/" + directory)
+                self.main_ctx.root_path + "/fmp_raw/" + directory + "/" + file
+                for file in os.listdir(self.main_ctx.root_path + "/fmp_raw/" + directory)
                 if (file.endswith(".parquet") or file.endswith(".csv"))
             ]
 

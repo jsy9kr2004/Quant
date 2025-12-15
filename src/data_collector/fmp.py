@@ -136,7 +136,7 @@ class FMP:
             FileNotFoundError: stock_list.csv가 존재하지 않는 경우.
         """
         self.logger.info('set symbol list start')
-        path = self.main_ctx.root_path + "/stock_list/stock_list.parquet"
+        path = self.main_ctx.root_path + "/fmp_raw/stock_list/stock_list.parquet"
         if os.path.isfile(path):
             symbol_list = pd.read_parquet(path)
         else:
