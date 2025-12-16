@@ -1723,11 +1723,8 @@ class AIDataMaker:
         original_count = len(df)
         target_series = df[target_col].copy()
 
-        # NaN 제거 (극단값 계산 전)
-        valid_mask = ~target_series.isna()
-        target_series = target_series[valid_mask]
-
-        if len(target_series) == 0:
+        # NaN 체크 (모두 NaN인 경우만 early return)
+        if target_series.isna().all():
             self.logger.warning(f"   ⚠️  All values are NaN in {target_col}, skipping filtering")
             return df
 
@@ -1750,12 +1747,11 @@ class AIDataMaker:
                     return df
 
                 # Robust Z-score 계산 (1.4826 = normalization constant for normal distribution)
+                # NaN은 자동으로 NaN으로 유지됨
                 z_robust = (target_series - median) / (1.4826 * mad)
 
-                # Threshold 적용
-                extreme_mask_series = z_robust.abs() > threshold
-                extreme_mask = pd.Series(False, index=df.index)
-                extreme_mask[valid_mask] = extreme_mask_series
+                # Threshold 적용 (NaN은 extreme이 아닌 것으로 처리)
+                extreme_mask = (z_robust.abs() > threshold).fillna(False)
 
                 self.logger.info(f"      Method: Robust Z-score (median={median:.4f}, MAD={mad:.4f})")
 
@@ -1769,12 +1765,14 @@ class AIDataMaker:
                 threshold = 0.025
 
             if method == 'zscore':
-                z_scores = stats.zscore(target_series, nan_policy='omit')
+                # Z-score 계산 (NaN은 자동으로 NaN으로 유지됨)
+                z_scores = pd.Series(
+                    stats.zscore(target_series, nan_policy='omit'),
+                    index=target_series.index
+                )
 
-                # Threshold 적용
-                extreme_mask_series = np.abs(z_scores) > threshold
-                extreme_mask = pd.Series(False, index=df.index)
-                extreme_mask[valid_mask] = extreme_mask_series
+                # Threshold 적용 (NaN은 extreme이 아닌 것으로 처리)
+                extreme_mask = (np.abs(z_scores) > threshold).fillna(False)
 
                 mean = target_series.mean()
                 std = target_series.std()
@@ -1788,10 +1786,8 @@ class AIDataMaker:
             upper_bound = target_series.quantile(upper_pct)
             lower_bound = target_series.quantile(lower_pct)
 
-            # Threshold 적용
-            extreme_mask_series = (target_series > upper_bound) | (target_series < lower_bound)
-            extreme_mask = pd.Series(False, index=df.index)
-            extreme_mask[valid_mask] = extreme_mask_series
+            # Threshold 적용 (NaN은 extreme이 아닌 것으로 처리)
+            extreme_mask = ((target_series > upper_bound) | (target_series < lower_bound)).fillna(False)
 
             self.logger.info(f"      Method: Percentile cut (lower={lower_pct*100:.1f}%, upper={upper_pct*100:.1f}%)")
             self.logger.info(f"      Bounds: [{lower_bound:.4f}, {upper_bound:.4f}]")
