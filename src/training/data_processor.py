@@ -948,28 +948,36 @@ class DataProcessor:
 
         X_transformed = X.copy()
 
+        # Memory-efficient processing: Process in chunks to avoid memory explosion
+        # With 10,972 features, processing all at once requires 12+ GB
+        chunk_size = 500  # Process 500 columns at a time
+
         if inverse:
             # Inverse: sign(x) * (exp(|x|) - 1)
             # Recovers original scale from log-transformed values
             # ✅ CRITICAL FIX: Skip NaN values (preserve them as-is)
-            X_transformed[numeric_cols] = X[numeric_cols].apply(
-                lambda col: np.where(
-                    pd.isna(col),
-                    np.nan,  # NaN stays NaN
-                    np.sign(col) * (np.exp(np.abs(col)) - 1)
+            for i in range(0, len(numeric_cols), chunk_size):
+                chunk_cols = numeric_cols[i:i+chunk_size]
+                X_transformed[chunk_cols] = X[chunk_cols].apply(
+                    lambda col: np.where(
+                        pd.isna(col),
+                        np.nan,  # NaN stays NaN
+                        np.sign(col) * (np.exp(np.abs(col)) - 1)
+                    )
                 )
-            )
         else:
             # Forward: sign(x) * log(1 + |x|)
             # Compresses extreme values while preserving order
             # ✅ CRITICAL FIX: Skip NaN values (preserve them as-is)
-            X_transformed[numeric_cols] = X[numeric_cols].apply(
-                lambda col: np.where(
-                    pd.isna(col),
-                    np.nan,  # NaN stays NaN (XGBoost will handle it)
-                    np.sign(col) * np.log1p(np.abs(col))
+            for i in range(0, len(numeric_cols), chunk_size):
+                chunk_cols = numeric_cols[i:i+chunk_size]
+                X_transformed[chunk_cols] = X[chunk_cols].apply(
+                    lambda col: np.where(
+                        pd.isna(col),
+                        np.nan,  # NaN stays NaN (XGBoost will handle it)
+                        np.sign(col) * np.log1p(np.abs(col))
+                    )
                 )
-            )
 
         # Object columns remain unchanged
         return X_transformed
