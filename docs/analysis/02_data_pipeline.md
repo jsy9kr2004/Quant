@@ -478,26 +478,445 @@ def rebuild_table_view_chunked(self, chunk_size=100):
 
 ### 문제 2: Feature 수 과다
 
-**현재**:
-- tsfresh: 수백 개 Feature
+**현재 상황**:
+- tsfresh: 수백 개 Feature (시계열 통계량)
 - 재무 비율: 수십 개
 - 총: 500~1000개
+- **문제점**:
+  - 과적합 위험 (샘플 수 대비 feature 수 과다)
+  - 학습 시간 증가
+  - 노이즈 feature가 유의미한 신호 희석
+  - Curse of Dimensionality
 
-**개선안**:
+---
+
+## Feature Selection 방법론 종합
+
+### 1. Filter Methods (통계 기반 - 가장 빠름)
+
+**1.1 Variance Threshold**
 ```python
-# Feature Importance 기반 선택
+from sklearn.feature_selection import VarianceThreshold
+
+# 분산이 거의 없는 feature 제거 (상수에 가까운 feature)
+selector = VarianceThreshold(threshold=0.01)
+X_reduced = selector.fit_transform(X)
+
+print(f"Features removed: {X.shape[1] - X_reduced.shape[1]}")
+```
+
+**장점**: 매우 빠름, 계산 간단
+**단점**: 타겟과의 관계 무시
+**추천**: 전처리 단계에서 1차 필터링용
+
+---
+
+**1.2 Correlation-Based Selection**
+```python
+# 타겟과의 상관관계 기반
+correlations = X.corrwith(y).abs()
+top_50_features = correlations.nlargest(50).index
+
+X_reduced = X[top_50_features]
+```
+
+**장점**: 직관적, 빠름
+**단점**:
+- 선형 관계만 포착
+- Feature 간 상호작용 무시
+- 중복 feature 제거 안 됨
+
+---
+
+**1.3 Mutual Information (비선형 관계 포착)**
+```python
+from sklearn.feature_selection import mutual_info_regression
+
+# 비선형 관계도 포착 가능
+mi_scores = mutual_info_regression(X, y)
+mi_scores = pd.Series(mi_scores, index=X.columns)
+
+top_50_features = mi_scores.nlargest(50).index
+X_reduced = X[top_50_features]
+```
+
+**장점**: 비선형 관계 포착, 엔트로피 기반
+**단점**: 계산 비용 높음, Feature 간 중복 미고려
+**추천**: Correlation과 함께 사용하여 보완
+
+---
+
+### 2. Wrapper Methods (모델 기반 반복 - 정확하지만 느림)
+
+**2.1 Recursive Feature Elimination (RFE)**
+```python
+from sklearn.feature_selection import RFE
+from xgboost import XGBRegressor
+
+# 재귀적으로 feature 제거
+estimator = XGBRegressor(max_depth=6)
+selector = RFE(estimator, n_features_to_select=50, step=10)
+selector.fit(X_train, y_train)
+
+X_reduced = X_train[:, selector.support_]
+feature_ranking = pd.Series(selector.ranking_, index=X.columns)
+```
+
+**장점**:
+- 모델 성능 직접 최적화
+- Feature 간 상호작용 고려
+**단점**:
+- 매우 느림 (많은 재학습 필요)
+- 과적합 위험
+**추천**: 최종 fine-tuning 단계에서 사용
+
+---
+
+**2.2 Sequential Feature Selection**
+```python
+from sklearn.feature_selection import SequentialFeatureSelector
+
+# Forward Selection (50개까지 추가)
+sfs = SequentialFeatureSelector(
+    estimator=XGBRegressor(),
+    n_features_to_select=50,
+    direction='forward',
+    cv=5
+)
+sfs.fit(X_train, y_train)
+```
+
+**장점**: CV 기반으로 일반화 성능 최적화
+**단점**: RFE보다 더 느림
+**추천**: 소규모 feature set (< 100개)에서만 사용
+
+---
+
+### 3. Embedded Methods (모델 내장 - **추천 ⭐**)
+
+**3.1 Tree-Based Feature Importance (XGBoost/LightGBM)**
+```python
+from xgboost import XGBRegressor
+from lightgbm import LGBMRegressor
+
+# XGBoost Feature Importance
+xgb = XGBRegressor(max_depth=8, n_estimators=100)
+xgb.fit(X_train, y_train)
+
+importances = pd.Series(xgb.feature_importances_, index=X.columns)
+top_50_features = importances.nlargest(50).index
+
+X_reduced = X_train[top_50_features]
+
+# 중요도 플롯 저장
+import matplotlib.pyplot as plt
+importances.nlargest(30).plot(kind='barh', figsize=(10, 8))
+plt.title('Top 30 Feature Importances')
+plt.tight_layout()
+plt.savefig('feature_importance.png')
+```
+
+**장점**:
+- 현재 사용 중인 XGBoost/LGBM과 일관성
+- 빠르고 정확
+- 비선형 관계 포착
+- Feature 간 상호작용 자동 고려
+**단점**:
+- 트리 깊이에 민감
+- Ensemble해야 안정적
+**추천**: **1차 추천 방법** ⭐
+
+---
+
+**3.2 L1 Regularization (Lasso)**
+```python
+from sklearn.linear_model import LassoCV
+
+# Cross-validation으로 최적 alpha 자동 탐색
+lasso = LassoCV(cv=5, alphas=np.logspace(-4, 1, 50))
+lasso.fit(X_train, y_train)
+
+# 0이 아닌 계수를 가진 feature 선택
+selected_features = X.columns[lasso.coef_ != 0]
+X_reduced = X_train[selected_features]
+
+print(f"Features selected: {len(selected_features)}")
+print(f"Optimal alpha: {lasso.alpha_}")
+```
+
+**장점**:
+- 자동으로 feature selection (계수 → 0)
+- 다중공선성 처리
+- Sparse solution
+**단점**:
+- 선형 관계 가정
+- 상관관계 높은 feature 중 하나만 선택
+**추천**: Tree-based와 교차 검증용
+
+---
+
+### 4. Advanced Methods (통계적 엄밀성 - **추천 ⭐**)
+
+**4.1 Boruta Algorithm (통계적 유의성 검증)**
+```python
+from boruta import BorutaPy
 from sklearn.ensemble import RandomForestRegressor
 
-rf = RandomForestRegressor()
-rf.fit(X_train, y_train)
+# Shadow feature와 비교하여 통계적으로 유의미한 feature만 선택
+rf = RandomForestRegressor(n_jobs=-1, max_depth=7)
+boruta = BorutaPy(
+    estimator=rf,
+    n_estimators='auto',
+    max_iter=100,
+    random_state=42
+)
+boruta.fit(X_train.values, y_train.values)
 
-importances = rf.feature_importances_
-top_50_idx = np.argsort(importances)[-50:]
-X_train_reduced = X_train[:, top_50_idx]
+# 확정 feature + 잠정 feature
+selected_features = X.columns[boruta.support_]  # 확정
+tentative_features = X.columns[boruta.support_weak_]  # 잠정
 
-print(f"Feature reduced: {X_train.shape[1]} → {X_train_reduced.shape[1]}")
-# Feature reduced: 532 → 50
+X_reduced = X_train[selected_features]
+
+print(f"Confirmed: {len(selected_features)}")
+print(f"Tentative: {len(tentative_features)}")
+print(f"Rejected: {(~boruta.support_).sum()}")
 ```
+
+**장점**:
+- 통계적으로 유의미한 feature만 선택
+- False positive 최소화
+- 모든 유의미한 feature 보존 (사용자 지정 개수 X)
+**단점**:
+- 느림 (100+ iterations)
+- Feature 개수를 사전 지정할 수 없음
+**추천**: **과학적 정당성이 중요한 경우 추천** ⭐
+
+---
+
+**4.2 SHAP Feature Selection**
+```python
+import shap
+
+# XGBoost 학습
+xgb = XGBRegressor()
+xgb.fit(X_train, y_train)
+
+# SHAP values 계산
+explainer = shap.TreeExplainer(xgb)
+shap_values = explainer.shap_values(X_train)
+
+# 평균 절대 SHAP value로 중요도 측정
+shap_importance = np.abs(shap_values).mean(axis=0)
+shap_df = pd.DataFrame({
+    'feature': X.columns,
+    'shap_importance': shap_importance
+}).sort_values('shap_importance', ascending=False)
+
+# Top 50 선택
+top_50_features = shap_df.head(50)['feature'].tolist()
+X_reduced = X_train[top_50_features]
+
+# SHAP Summary Plot
+shap.summary_plot(shap_values, X_train, show=False)
+plt.tight_layout()
+plt.savefig('shap_summary.png')
+```
+
+**장점**:
+- 해석 가능성 최고 (Shapley value 기반)
+- Feature 간 상호작용 고려
+- 글로벌/로컬 설명 가능
+**단점**:
+- 계산 비용 높음
+- 대규모 데이터에서 느림
+**추천**: 최종 모델 해석 및 검증용
+
+---
+
+### 5. Ensemble Feature Selection (다수결 투표)
+
+```python
+# 여러 방법론의 결과를 종합
+def ensemble_feature_selection(X, y, top_k=50):
+    results = {}
+
+    # 1. XGBoost Importance
+    xgb = XGBRegressor()
+    xgb.fit(X, y)
+    results['xgb'] = pd.Series(xgb.feature_importances_, index=X.columns)
+
+    # 2. LightGBM Importance
+    lgbm = LGBMRegressor()
+    lgbm.fit(X, y)
+    results['lgbm'] = pd.Series(lgbm.feature_importances_, index=X.columns)
+
+    # 3. Mutual Information
+    mi = mutual_info_regression(X, y)
+    results['mi'] = pd.Series(mi, index=X.columns)
+
+    # 4. Lasso
+    lasso = LassoCV(cv=5)
+    lasso.fit(X, y)
+    results['lasso'] = pd.Series(np.abs(lasso.coef_), index=X.columns)
+
+    # 각 방법론에서 Top-K 투표
+    votes = pd.Series(0, index=X.columns)
+    for method, scores in results.items():
+        top_features = scores.nlargest(top_k).index
+        votes[top_features] += 1
+
+    # 2개 이상 방법론에서 선택된 feature
+    selected_features = votes[votes >= 2].sort_values(ascending=False).index
+
+    return selected_features, votes
+
+selected_features, votes = ensemble_feature_selection(X_train, y_train, top_k=50)
+X_reduced = X_train[selected_features]
+
+print(f"Features selected by ensemble: {len(selected_features)}")
+print(f"\nVote distribution:")
+print(votes.value_counts().sort_index(ascending=False))
+# 4 votes: 25 features
+# 3 votes: 30 features
+# 2 votes: 45 features
+```
+
+**장점**:
+- 여러 관점에서 검증
+- 노이즈 feature 제거
+- Robust
+**단점**:
+- 계산 비용 높음
+- 복잡함
+**추천**: **Production 환경에서 추천** ⭐
+
+---
+
+## 추천 워크플로우 (3-Stage Pipeline)
+
+```python
+# ===== Stage 1: Fast Filter (1분) =====
+# 명백한 노이즈 제거
+from sklearn.feature_selection import VarianceThreshold
+
+# 1.1 분산 거의 없는 feature 제거
+selector = VarianceThreshold(threshold=0.01)
+X_stage1 = selector.fit_transform(X)
+
+# 1.2 타겟과 상관관계 거의 없는 feature 제거
+correlations = pd.DataFrame(X_stage1).corrwith(y).abs()
+X_stage1 = X_stage1[:, correlations > 0.01]
+
+print(f"Stage 1: {X.shape[1]} → {X_stage1.shape[1]} features")
+# Stage 1: 532 → 320 features
+
+# ===== Stage 2: Tree-Based Selection (10분) =====
+# XGBoost + LightGBM 앙상블
+
+xgb = XGBRegressor(max_depth=8, n_estimators=100)
+xgb.fit(X_stage1, y)
+xgb_imp = pd.Series(xgb.feature_importances_, index=range(X_stage1.shape[1]))
+
+lgbm = LGBMRegressor(max_depth=8, n_estimators=100)
+lgbm.fit(X_stage1, y)
+lgbm_imp = pd.Series(lgbm.feature_importances_, index=range(X_stage1.shape[1]))
+
+# 두 모델 중요도 평균
+avg_importance = (xgb_imp + lgbm_imp) / 2
+top_100_idx = avg_importance.nlargest(100).index
+X_stage2 = X_stage1[:, top_100_idx]
+
+print(f"Stage 2: {X_stage1.shape[1]} → {X_stage2.shape[1]} features")
+# Stage 2: 320 → 100 features
+
+# ===== Stage 3: Boruta Validation (30분) =====
+# 통계적으로 유의미한 feature만 최종 선택
+
+from boruta import BorutaPy
+
+rf = RandomForestRegressor(n_jobs=-1, max_depth=7)
+boruta = BorutaPy(rf, n_estimators='auto', max_iter=100)
+boruta.fit(X_stage2, y)
+
+X_final = X_stage2[:, boruta.support_]
+
+print(f"Stage 3: {X_stage2.shape[1]} → {X_final.shape[1]} features")
+# Stage 3: 100 → 45 features
+
+print(f"\n=== Final Result ===")
+print(f"Total reduction: {X.shape[1]} → {X_final.shape[1]} ({X_final.shape[1]/X.shape[1]*100:.1f}%)")
+# Total reduction: 532 → 45 (8.5%)
+```
+
+---
+
+## 최종 추천안 ⭐
+
+### 방법 A: 빠르고 실용적 (Production 추천)
+```python
+# XGBoost + LightGBM 앙상블 (10분)
+# → 현재 모델과 일관성 유지
+# → 빠르고 효과적
+# → 즉시 적용 가능
+```
+
+**Target**: 532 → 50~80 features
+**소요 시간**: ~10분
+**장점**:
+- 현재 파이프라인과 완벽한 일관성
+- 즉시 적용 가능
+- 빠른 실험 iteration
+
+### 방법 B: 과학적으로 엄밀 (학술/검증 추천)
+```python
+# 3-Stage Pipeline (Variance → Tree → Boruta)
+# → 통계적 정당성 확보
+# → False positive 최소화
+# → 논문/보고서에 사용 가능
+```
+
+**Target**: 532 → 30~60 features (데이터 의존적)
+**소요 시간**: ~40분
+**장점**:
+- 통계적으로 검증된 feature만 선택
+- 과적합 최소화
+- 해석 가능성 높음
+
+### 방법 C: 하이브리드 (최고 성능 추구)
+```python
+# Ensemble Voting (4가지 방법론)
+# → 여러 관점에서 검증
+# → 가장 robust
+# → 성능 최우선
+```
+
+**Target**: 532 → 60~100 features
+**소요 시간**: ~20분
+**장점**:
+- 다양한 관점에서 검증
+- Noise 최소화
+- 안정적
+
+---
+
+## 구현 우선순위
+
+1. **Week 1**: 방법 A (XGBoost+LightGBM) 구현 및 백테스트
+2. **Week 2**: 방법 B (3-Stage) 구현 및 성능 비교
+3. **Week 3**: SHAP 기반 해석성 분석
+4. **Week 4**: 최종 방법 선정 및 Production 배포
+
+---
+
+## 성능 검증 체크리스트
+
+Feature selection 후 반드시 확인:
+- [ ] 학습 데이터 RMSE 유지 또는 소폭 상승 (과적합 감소)
+- [ ] 검증 데이터 RMSE **감소** (일반화 성능 개선)
+- [ ] 백테스트 Sharpe Ratio 개선
+- [ ] 학습 시간 단축 (50% 이상)
+- [ ] 선택된 feature의 경제적 해석 가능성
 
 ### 문제 3: 증분 업데이트 미지원
 
