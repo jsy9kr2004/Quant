@@ -2892,7 +2892,7 @@ class Regressor:
                        'model0_pred_wbinary_2', 'model1_pred_wbinary_2']
             pred_df = pd.DataFrame(sector_model_eval_hist, columns=col_name)
             print(pred_df)
-            pred_df.to_csv(MODEL_SAVE_PATH+'allsector_pred_df.csv'.format(sec), index=False)
+            pred_df.to_csv(MODEL_SAVE_PATH+'allsector_pred_df.csv', index=False)
 
 
     def latest_prediction(self) -> None:
