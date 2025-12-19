@@ -3237,7 +3237,12 @@ class Regressor:
                     originals = ldf[ldf['sector_category'] == cat]['sector_original'].unique()
                     if len(originals) > 0:
                         # 카테고리에 포함된 원본 섹터들을 쉼표로 구분하여 표시
-                        category_to_original[cat] = ', '.join(sorted(originals))
+                        # None 값 필터링 (섹터 정보가 없는 종목 제외)
+                        valid_originals = [o for o in originals if o is not None]
+                        if valid_originals:
+                            category_to_original[cat] = ', '.join(sorted(valid_originals))
+                        else:
+                            category_to_original[cat] = 'Unknown'
 
                 # all_preds에서 섹터 이름 변환
                 for pred_row in all_preds:
