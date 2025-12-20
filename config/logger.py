@@ -313,6 +313,7 @@ def setup_logging(
         - 디버깅을 위한 프로세스 이름 추적
         - 자동 queue 기반 multiprocessing 지원
         - 프로그램 종료 시 우아한 종료
+        - Python warnings 통합 (sklearn, pandas 등의 warning이 log 파일에 기록)
 
     Args:
         log_level (str, optional): Logging 레벨 이름. 다음 중 하나여야 합니다:
@@ -455,6 +456,10 @@ def setup_logging(
             root_logger.addHandler(handler)
 
     _initialized = True
+
+    # Python warnings를 logging 시스템으로 통합
+    # (sklearn, pandas 등의 warning이 log 파일에 기록됨)
+    logging.captureWarnings(True)
 
     # 성공적인 초기화 로깅
     logger = logging.getLogger('logger')
