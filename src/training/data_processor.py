@@ -1582,7 +1582,11 @@ class DataProcessor:
     @staticmethod
     def create_binary_target(
         y: Union[pd.Series, pd.DataFrame],
-        threshold: float = 0.0
+        mode: str = "positive_screen",
+        threshold: float = 0.0,
+        config: Optional[Dict] = None,
+        logger: Optional[logging.Logger] = None,
+        analyze: bool = False
     ) -> Union[pd.Series, pd.DataFrame]:
         """
         Convert regression target to binary classification target.
@@ -1592,35 +1596,145 @@ class DataProcessor:
 
         Args:
             y: Regression target values (price_dev or price_dev_subavg)
-            threshold: Threshold for binary classification
-                      - Default: 0.0 (strict profit/loss boundary)
-                      - Values > threshold are classified as 1 (up)
-                      - Values <= threshold are classified as 0 (down)
-                      - Alternative: -0.02 for 2% loss tolerance
+            mode: Classification mode
+                  - "negative_screen": Identify BAD stocks (extreme losses)
+                    → 1 = BAD (should avoid), 0 = OK (safe to consider)
+                  - "positive_screen": Identify GOOD stocks (gains)
+                    → 1 = GOOD (likely gain), 0 = LOSS (likely loss)
+            threshold: Threshold value
+                      - For negative_screen: loss threshold (e.g., -0.3 = -30% loss)
+                      - For positive_screen: gain threshold (e.g., 0.0 = breakeven)
+            config: Optional config dict to read mode/threshold from
+            logger: Optional logger for distribution analysis
+            analyze: If True, print distribution analysis for multiple thresholds
 
         Returns:
-            Binary target (1 for above threshold, 0 otherwise)
+            Binary target (1d Series)
 
-        Example:
+        Example (Negative Screening):
+            >>> y = pd.Series([0.05, -0.10, -0.35, 0.02, -0.45])
+            >>> binary = DataProcessor.create_binary_target(
+            ...     y, mode="negative_screen", threshold=-0.3
+            ... )
+            >>> # Result: [0, 0, 1, 0, 1]  (1 = BAD: -35%, -45%)
+            >>> # Meaning: Remove stocks with >30% loss
+
+        Example (Positive Screening):
             >>> y = pd.Series([0.05, -0.01, -0.03, 0.02])
-            >>> binary = DataProcessor.create_binary_target(y)  # threshold=0
-            >>> # Result: [1, 0, 0, 1]
-            >>>
-            >>> # With tolerance
-            >>> binary = DataProcessor.create_binary_target(y, threshold=-0.02)
-            >>> # Result: [1, 1, 0, 1] (-0.01 > -0.02, so it's 1)
+            >>> binary = DataProcessor.create_binary_target(
+            ...     y, mode="positive_screen", threshold=0.0
+            ... )
+            >>> # Result: [1, 0, 0, 1]  (1 = GOOD: +5%, +2%)
 
         Note:
-            - threshold=0.0: Strict boundary (default, refactored version)
-            - threshold=-0.02: 2% loss tolerance (old version)
-            - Use threshold parameter to experiment with different strategies
+            Negative screening is more robust:
+            - Easier to identify "obvious losers" (bankruptcy, extreme losses)
+            - Conservative strategy: avoid bad > find good
+            - Uses more training data (remove bottom 5~10%, keep rest 90~95%)
         """
+        if logger is None:
+            logger = logging.getLogger('DataProcessor')
+
+        # Extract Series from DataFrame
         if isinstance(y, pd.DataFrame):
-            # If DataFrame, apply to first column and return as Series (1d)
-            # sklearn classifiers expect 1d arrays, not DataFrames
-            return (y.iloc[:, 0] > threshold).astype(int)
+            y_values = y.iloc[:, 0]
         else:
-            return (y > threshold).astype(int)
+            y_values = y
+
+        # Read mode and threshold from config if provided
+        if config is not None:
+            ml_config = config.get('ML', {})
+            mode = ml_config.get('CLASSIFIER_MODE', mode)
+
+            if mode == "negative_screen":
+                neg_config = ml_config.get('NEGATIVE_SCREEN', {})
+                threshold = neg_config.get('LOSS_THRESHOLD', threshold)
+
+                # Analyze threshold candidates if requested
+                if analyze and neg_config.get('ANALYZE_THRESHOLDS', False):
+                    candidates = neg_config.get('THRESHOLD_CANDIDATES', [-0.2, -0.3, -0.4, -0.5])
+                    DataProcessor._analyze_threshold_candidates(y_values, candidates, logger)
+
+        # Create binary target based on mode
+        if mode == "negative_screen":
+            # 1 = BAD (extreme loss), 0 = OK
+            binary = (y_values < threshold).astype(int)
+
+            bad_count = binary.sum()
+            bad_pct = bad_count / len(binary) * 100
+            avg_bad_loss = y_values[binary == 1].mean() if bad_count > 0 else 0
+            avg_ok_return = y_values[binary == 0].mean() if len(binary) - bad_count > 0 else 0
+
+            logger.info("")
+            logger.info("="*80)
+            logger.info("📊 NEGATIVE SCREENING: Binary Target Distribution")
+            logger.info("="*80)
+            logger.info(f"   Mode: {mode}")
+            logger.info(f"   Threshold: {threshold:.2f} ({threshold*100:.0f}% loss)")
+            logger.info(f"   BAD stocks (label=1): {bad_count:,} ({bad_pct:.1f}%)")
+            logger.info(f"   OK stocks (label=0): {len(binary) - bad_count:,} ({100-bad_pct:.1f}%)")
+            logger.info(f"   Avg loss of BAD stocks: {avg_bad_loss:.4f} ({avg_bad_loss*100:.1f}%)")
+            logger.info(f"   Avg return of OK stocks: {avg_ok_return:.4f} ({avg_ok_return*100:.1f}%)")
+            logger.info("="*80)
+            logger.info("")
+
+        else:  # positive_screen
+            # 1 = GOOD (gain), 0 = LOSS
+            binary = (y_values > threshold).astype(int)
+
+            good_count = binary.sum()
+            good_pct = good_count / len(binary) * 100
+
+            logger.info(f"   Positive screening: {good_count:,} GOOD ({good_pct:.1f}%), "
+                       f"{len(binary) - good_count:,} LOSS ({100-good_pct:.1f}%)")
+
+        return binary
+
+    @staticmethod
+    def _analyze_threshold_candidates(
+        y: pd.Series,
+        candidates: List[float],
+        logger: logging.Logger
+    ) -> None:
+        """
+        Analyze distribution for multiple threshold candidates.
+
+        Helps find the optimal threshold by showing:
+        - How many stocks are labeled as BAD
+        - Average loss of BAD stocks
+        - Average return of OK stocks
+        """
+        logger.info("")
+        logger.info("="*80)
+        logger.info("🔍 THRESHOLD ANALYSIS: Finding Optimal Negative Screening Threshold")
+        logger.info("="*80)
+        logger.info(f"   Total stocks: {len(y):,}")
+        logger.info(f"   Avg return: {y.mean():.4f} ({y.mean()*100:.1f}%)")
+        logger.info(f"   Std dev: {y.std():.4f}")
+        logger.info("")
+        logger.info("   Candidate thresholds:")
+        logger.info("   " + "-"*76)
+        logger.info(f"   {'Threshold':<12} {'BAD Count':<12} {'BAD %':<10} {'Avg BAD Loss':<15} {'Avg OK Return':<15}")
+        logger.info("   " + "-"*76)
+
+        for threshold in sorted(candidates):
+            is_bad = y < threshold
+            bad_count = is_bad.sum()
+            bad_pct = bad_count / len(y) * 100
+            avg_bad_loss = y[is_bad].mean() if bad_count > 0 else 0
+            avg_ok_return = y[~is_bad].mean() if len(y) - bad_count > 0 else 0
+
+            logger.info(f"   {threshold:>10.2f}   {bad_count:>10,}   {bad_pct:>8.1f}%   "
+                       f"{avg_bad_loss:>13.4f}   {avg_ok_return:>13.4f}")
+
+        logger.info("   " + "-"*76)
+        logger.info("")
+        logger.info("   💡 Recommendation:")
+        logger.info("      - Lower threshold (e.g., -0.5): Very conservative (remove only extreme cases)")
+        logger.info("      - Higher threshold (e.g., -0.2): More aggressive (remove more risky stocks)")
+        logger.info("      - Sweet spot: Usually -0.3 to -0.4 (5~10% of stocks)")
+        logger.info("="*80)
+        logger.info("")
 
     @staticmethod
     def fit_outlier_clipper(
