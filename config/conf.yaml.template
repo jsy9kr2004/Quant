@@ -118,9 +118,47 @@ ML:
   USE_CLASSIFIER: Y
 
   # ============================================================================
+  # 분류기 모드 설정 (Classifier Mode Configuration)
+  # ============================================================================
+  # Classifier의 학습 목표를 정의
+
+  # CLASSIFIER_MODE 옵션:
+  # - "negative_screen": 명백히 나쁜 종목을 식별 (하위 n% 제거)
+  #   → 목표: "이 재무제표는 무조건 떨어진다" 종목 걸러내기
+  #   → Conservative 전략: 나쁜 거 피하기
+  #   → 학습 데이터: 하위 n% 제거 후 나머지 80~95%로 회귀 학습
+  #
+  # - "positive_screen": 좋은 종목을 식별 (상위 n% 선택)
+  #   → 목표: "이 재무제표는 무조건 오른다" 종목 찾기
+  #   → Aggressive 전략: 좋은 거 찾기
+  #   → 학습 데이터: 상위 n% 선택해서 회귀 학습
+  CLASSIFIER_MODE: "negative_screen"  # "negative_screen" or "positive_screen"
+
+  # Negative Screening 설정 (CLASSIFIER_MODE = "negative_screen"일 때)
+  NEGATIVE_SCREEN:
+    # 절대 손실 threshold: 이 값 이하면 "명백히 나쁜" 종목으로 간주
+    # 예: -0.3 = 30% 이상 손실
+    #     -0.4 = 40% 이상 손실
+    #     -0.5 = 50% 이상 손실
+    LOSS_THRESHOLD: -0.3  # 기본값: -30% 이상 손실 = BAD
+
+    # Threshold 후보 자동 탐색 (로그 출력용)
+    # 학습 시 여러 threshold 후보의 분포를 출력하여 적절한 값 찾기
+    ANALYZE_THRESHOLDS: Y  # Y = 분포 분석 출력, N = 건너뛰기
+    THRESHOLD_CANDIDATES:  # 탐색할 threshold 후보들
+      - -0.2  # 20% 손실
+      - -0.3  # 30% 손실
+      - -0.4  # 40% 손실
+      - -0.5  # 50% 손실
+
+  # ============================================================================
   # 분류기 임계값 설정 (Classifier Threshold Configuration)
   # ============================================================================
   # Stage 1 필터링 후 Stage 2 회귀로 넘어갈 종목을 결정
+  #
+  # 주의: CLASSIFIER_MODE에 따라 의미가 다릅니다
+  # - negative_screen: 나쁜 종목일 확률이 높은 종목 제거
+  # - positive_screen: 좋은 종목일 확률이 낮은 종목 제거
 
   # 자동 임계값 최적화 (권장)
   CLASSIFIER_THRESHOLD_AUTO_SEARCH: Y  # Y = 최적 임계값 자동 탐색, N = 고정값 사용

@@ -1788,7 +1788,7 @@ class Regressor:
             logging.info(f"  Search space: {search_space}")
 
             # ✅ REFACTORED: Binary label generation using DataProcessor (for Optuna)
-            y_train_binary_optuna = DataProcessor.create_binary_target(self.y_train_cls)
+            y_train_binary_optuna = DataProcessor.create_binary_target(self.y_train_cls, config=self.conf, logger=logging.getLogger())
 
             # ========== Phase 1 & 2: 극단값 진단 및 클리핑 ==========
             # Optuna CV 실행 전에 데이터 품질 확인 및 처리
@@ -2146,7 +2146,13 @@ class Regressor:
 
         # ✅ Create binary target for classification after preprocessing
         # (preprocessing may change indices, so recreate after)
-        y_train_binary = DataProcessor.create_binary_target(self.y_train_cls)
+        # analyze=True: Show threshold analysis on first training
+        y_train_binary = DataProcessor.create_binary_target(
+            self.y_train_cls,
+            config=self.conf,
+            logger=logging.getLogger(),
+            analyze=True  # Analyze threshold candidates
+        )
 
         # ===== Stage 1: Train Classifiers (모든 데이터) =====
         logging.info("="*80)
@@ -2294,7 +2300,7 @@ class Regressor:
 
                     # Get preprocessed classification target and create binary target
                     y_cls_sector = self.sector_y_train_cls[sec]
-                    y_train_binary = DataProcessor.create_binary_target(y_cls_sector)
+                    y_train_binary = DataProcessor.create_binary_target(y_cls_sector, config=self.conf, logger=logging.getLogger())
 
                     # Train all 4 classifiers for this sector
                     for i in range(4):
@@ -2339,7 +2345,7 @@ class Regressor:
                 if self.use_classifier:
                     # ===== Sector-specific threshold search =====
                     y_cls_sector = self.sector_y_train_cls[sec]
-                    y_train_binary_sector = DataProcessor.create_binary_target(y_cls_sector)
+                    y_train_binary_sector = DataProcessor.create_binary_target(y_cls_sector, config=self.conf, logger=logging.getLogger())
 
                     if auto_search:
                         # Use sector-specific classifier (0) for threshold search
@@ -2542,7 +2548,7 @@ class Regressor:
             y_test = df[['price_dev_subavg']]
             y_test_cls = df[['price_dev']]
             # ✅ REFACTORED: Use DataProcessor for binary target
-            y_test_binary = DataProcessor.create_binary_target(y_test_cls)
+            y_test_binary = DataProcessor.create_binary_target(y_test_cls, config=self.conf, logger=logging.getLogger())
 
             df['label'] = y_test  # 실제 가격 변동
             df['label_binary'] = y_test_binary  # 실제 이진 레이블

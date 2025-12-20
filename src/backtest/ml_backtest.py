@@ -418,7 +418,7 @@ class MLBacktest:
             self.selected_features_unified = None
 
         # ✅ Create binary target for classifier after preprocessing
-        y_binary = DataProcessor.create_binary_target(y)
+        y_binary = DataProcessor.create_binary_target(y, config=self.config, logger=self.logger)
 
         # ✨ Load Optuna parameters (if USE_OPTUNA=Y)
         # This ensures ml_backtest.py uses SAME parameters as regressor.py!
@@ -572,7 +572,7 @@ class MLBacktest:
 
                 # Train sector classifiers (if USE_CLASSIFIER=Y)
                 if use_classifier and y_cls_clean is not None:
-                    y_binary = DataProcessor.create_binary_target(y_cls_clean)
+                    y_binary = DataProcessor.create_binary_target(y_cls_clean, config=self.config, logger=self.logger)
                     for clf_idx in range(4):
                         clf = sector_classifiers[(sector, clf_idx)]
                         clf.fit(X, y_binary)
@@ -629,7 +629,7 @@ class MLBacktest:
                 logger=self.logger
             )
 
-            y_all_binary = DataProcessor.create_binary_target(y_all)
+            y_all_binary = DataProcessor.create_binary_target(y_all, config=self.config, logger=self.logger)
 
             unified_clf.fit(X_all, y_all_binary)
             self.logger.info(f"   ✅ Unified classifier trained (Acc={unified_clf.score(X_all, y_all_binary):.4f})")
