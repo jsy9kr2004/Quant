@@ -495,6 +495,9 @@ class DataProcessor:
         if logger is None:
             logger = logging.getLogger('DataProcessor')
 
+        # 명시적 복사로 SettingWithCopyWarning 방지
+        X = X.copy()
+
         # Extract expected features from model
         if hasattr(model, 'get_booster'):
             model_features = model.get_booster().feature_names
