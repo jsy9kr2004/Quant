@@ -231,12 +231,12 @@ def predict_proba_with_gpu_support(model, X, use_gpu: bool):
         # GPU 지원 확률 예측
         y_proba = predict_proba_with_gpu_support(model, X_test, use_gpu=True)
         y_proba_class1 = y_proba[:, 1]  # 클래스 1의 확률
-    """
-    # sklearn feature names warning 억제 (LGBMClassifier 예측 시)
-    # 학습 시 DataFrame으로 학습했지만 예측 시 numpy array 전달해도 정상 작동
-    import warnings
-    warnings.filterwarnings('ignore', message='X does not have valid feature names')
 
+    Note:
+        sklearn feature names warning may appear if LGBMClassifier was trained
+        with DataFrame but prediction uses numpy array (required for GPU).
+        This is expected behavior - prediction works correctly despite the warning.
+    """
     if use_gpu:
         try:
             import cupy as cp
