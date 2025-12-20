@@ -205,8 +205,8 @@ def predict_with_gpu_support(model, X, use_gpu: bool):
             X_values = X.values if hasattr(X, 'values') else X
             X_gpu = cp.asarray(X_values)
             y_pred = model.predict(X_gpu)
-            # 결과를 CPU로 다시 변환
-            return cp.asnumpy(y_pred)
+            # 결과를 CPU로 다시 변환 (.get() 사용 - CuPy 권장 방식)
+            return y_pred.get() if hasattr(y_pred, 'get') else cp.asnumpy(y_pred)
         except Exception as e:
             # GPU 예측 실패 시 CPU로 fallback
             logging.debug(f"GPU prediction failed, using CPU fallback: {e}")
@@ -231,6 +231,11 @@ def predict_proba_with_gpu_support(model, X, use_gpu: bool):
         # GPU 지원 확률 예측
         y_proba = predict_proba_with_gpu_support(model, X_test, use_gpu=True)
         y_proba_class1 = y_proba[:, 1]  # 클래스 1의 확률
+
+    Note:
+        sklearn feature names warning may appear if LGBMClassifier was trained
+        with DataFrame but prediction uses numpy array (required for GPU).
+        This is expected behavior - prediction works correctly despite the warning.
     """
     if use_gpu:
         try:
@@ -244,7 +249,8 @@ def predict_proba_with_gpu_support(model, X, use_gpu: bool):
             X_values = X.values if hasattr(X, 'values') else X
             X_gpu = cp.asarray(X_values)
             y_proba = model.predict_proba(X_gpu)
-            return cp.asnumpy(y_proba)
+            # 결과를 CPU로 다시 변환 (.get() 사용 - CuPy 권장 방식)
+            return y_proba.get() if hasattr(y_proba, 'get') else cp.asnumpy(y_proba)
         except Exception as e:
             logging.warning(f"GPU prediction failed, using CPU fallback: {e}")
             return model.predict_proba(X)
