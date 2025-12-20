@@ -1616,8 +1616,9 @@ class DataProcessor:
             - Use threshold parameter to experiment with different strategies
         """
         if isinstance(y, pd.DataFrame):
-            # If DataFrame, apply to first column (typically the target column)
-            return (y.iloc[:, 0] > threshold).astype(int).to_frame(name=y.columns[0])
+            # If DataFrame, apply to first column and return as Series (1d)
+            # sklearn classifiers expect 1d arrays, not DataFrames
+            return (y.iloc[:, 0] > threshold).astype(int)
         else:
             return (y > threshold).astype(int)
 
