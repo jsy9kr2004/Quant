@@ -27,19 +27,86 @@ DATA:
   # Debug mode removed: SAVE_DEBUG_CSV not used in codebase
 
 # ============================================================================
+# 평가 설정 (EVALUATION Configuration - regressor & backtest 통합)
+# ============================================================================
+EVALUATION:
+  # Walk-Forward 평가 활성화
+  # Y = walk-forward 방식 (각 리밸런싱마다 재학습, 실전 백테스트)
+  # N = 단순 train/test split (legacy, 빠른 실험용)
+  USE_WALK_FORWARD: Y
+
+  # 학습 데이터 시작 연도 (전체 히스토리)
+  # Walk-Forward 시 이 연도부터 cutoff_date까지 expanding window로 학습
+  TRAIN_START_YEAR: 1996
+
+  # Walk-Forward 평가 구간 (여러 구간 지원)
+  # 각 구간은 독립적으로 평가되며, 최종 레포트에 통합됨
+  PERIODS:
+    # 구간 1: 팬데믹 충격과 유동성 주도 장세
+    - START_YEAR: 2020
+      END_YEAR: 2021
+      START_MONTH: 1
+      START_DATE: 1
+
+    # 구간 2: 금리 급등기와 AI 중심 회복 장세
+    - START_YEAR: 2022
+      END_YEAR: 2023
+      START_MONTH: 1
+      START_DATE: 1
+
+    # 추가 예시: 2024-2025년 백테스트
+    # - START_YEAR: 2024
+    #   END_YEAR: 2025
+    #   START_MONTH: 1
+    #   START_DATE: 1
+
+  # 리밸런싱 주기 (개월)
+  REBALANCE_PERIOD: 3  # 분기별 (3개월)
+
+  # 선택할 종목 수 (포트폴리오 크기)
+  TOP_K_NUM: 10
+
+  # Walk-Forward 학습 윈도우 타입
+  # "expanding": 시작~현재 (점점 증가, 권장)
+  # "rolling": 최근 N년만 (고정 크기)
+  WINDOW_TYPE: "expanding"
+
+  # Rolling window 사용 시 윈도우 크기 (년)
+  # WINDOW_TYPE="rolling"일 때만 적용
+  WINDOW_SIZE: 3
+
+  # 모델 재학습 빈도
+  # "every": 매 리밸런싱마다 재학습 (가장 정확, 느림)
+  # "quarterly": 분기마다 재학습 (권장)
+  # "yearly": 연도마다 재학습
+  # "once": 한 번만 학습 (빠름, 부정확)
+  RETRAIN_FREQUENCY: "quarterly"
+
+  # regressor 예측 결과 재사용 (ml_backtest 속도 향상)
+  # Y = regressor.py 결과 재사용 (빠름, 일관성 보장)
+  # N = ml_backtest에서 재예측 (느림)
+  USE_CACHED_PREDICTIONS: Y
+
+  # 예측 결과 캐시 파일 위치
+  # {ROOT_PATH}/MODELS/ 하위에 저장됨
+  PREDICTIONS_CACHE_FILE: "regressor_predictions.pkl"
+
+# ============================================================================
 # 머신러닝 설정 (ML Configuration)
 # ============================================================================
 ML:
   # ML 학습 실행 여부
   RUN_REGRESSION: Y  # Y = 모델 학습, N = 건너뛰기
 
-  # 연도별 학습/테스트 데이터 분할
-  # 다양한 시장 상황을 학습하기 위해 최대한 긴 히스토리 데이터로 학습
-  TRAIN_START_YEAR: 1996
-  TRAIN_END_YEAR: 2022
-  # 최근 3년 데이터로 테스트하여 최신 시장 트렌드 반영 여부 검증
-  TEST_START_YEAR: 2023
-  TEST_END_YEAR: 2025
+  # ⚠️  DEPRECATED: 아래 설정들은 EVALUATION 섹션으로 이동됨
+  # TRAIN_START_YEAR, TRAIN_END_YEAR, TEST_START_YEAR, TEST_END_YEAR는
+  # 더 이상 사용되지 않습니다. EVALUATION.PERIODS를 사용하세요.
+  #
+  # 하위 호환성을 위해 EVALUATION.USE_WALK_FORWARD=N인 경우에만 사용됨:
+  # TRAIN_START_YEAR: 1996
+  # TRAIN_END_YEAR: 2022
+  # TEST_START_YEAR: 2023
+  # TEST_END_YEAR: 2025
 
   # NaN 제거 진단 (초기 데이터 품질 확인용)
   EXPORT_NAN_REMOVAL_DETAILS: Y  # Y = 제거된 NaN 데이터를 CSV로 저장, N = 로그만 출력
@@ -346,37 +413,16 @@ BACKTEST:
   # 백테스트 실행 여부
   RUN_BACKTEST: Y  # Y = 백테스트 실행, N = 건너뛰기
 
-  # ===== 옵션 1: 여러 구간 백테스트 (권장) =====
-  # 서로 다른 시기의 성과를 별도로 측정
-  PERIODS:
-    # 구간 1: 팬데믹 충격과 유동성 주도 장세
-    - START_YEAR: 2020
-      END_YEAR: 2021  # 2021.12.31까지 백테스트
-      START_MONTH: 1
-      START_DATE: 1
-
-    # 구간 2: 금리 급등기와 AI 중심 회복 장세
-    - START_YEAR: 2022
-      END_YEAR: 2023  # 2023.12.31까지 백테스트
-      START_MONTH: 1
-      START_DATE: 1
-
-    # 추가 예시: 2024-2025년 백테스트
-    # - START_YEAR: 2024
-    #   END_YEAR: 2025
-    #   START_MONTH: 1
-    #   START_DATE: 1
-
-  # ===== 옵션 2: 단일 구간 백테스트 =====
-  # PERIODS를 주석 처리하고 아래 사용
-  # START_YEAR: 2023
-  # END_YEAR: 2024
-  # START_MONTH: 3
-  # START_DATE: 13
-
-  # 공통 설정
-  REBALANCE_PERIOD: 3  # 리밸런싱 주기 (개월)
-  TOP_K_NUM: 10        # 선택할 종목 수 (포트폴리오 크기)
+  # ⚠️  DEPRECATED: PERIODS, REBALANCE_PERIOD, TOP_K_NUM은 EVALUATION 섹션으로 이동됨
+  # 백테스트 구간 및 설정은 EVALUATION 섹션에서 통합 관리됩니다:
+  # - EVALUATION.PERIODS: 백테스트 구간
+  # - EVALUATION.REBALANCE_PERIOD: 리밸런싱 주기
+  # - EVALUATION.TOP_K_NUM: 선택 종목 수
+  #
+  # 하위 호환성을 위해 EVALUATION 섹션이 없으면 아래 설정 사용:
+  # PERIODS: [...]
+  # REBALANCE_PERIOD: 3
+  # TOP_K_NUM: 10
 
   # 생성할 리포트 목록
   REPORT_LIST:
