@@ -688,7 +688,9 @@ class DataProcessor:
         """
         # Check for infinite values (only on numeric columns)
         # Object/string columns will cause TypeError in np.isinf()
-        numeric_cols = X.select_dtypes(include=[np.number]).columns
+        # Memory-efficient: avoid select_dtypes which causes memory spike on large data
+        numeric_cols = [col for col in X.columns
+                       if pd.api.types.is_numeric_dtype(X[col])]
 
         if len(numeric_cols) == 0:
             # No numeric columns, nothing to check
@@ -942,8 +944,11 @@ class DataProcessor:
         - Preserves feature names and DataFrame structure
         """
         # Only transform numeric columns, preserve object/string columns as-is
-        numeric_cols = X.select_dtypes(include=[np.number]).columns
-        object_cols = X.select_dtypes(exclude=[np.number]).columns
+        # Memory-efficient: avoid select_dtypes which causes memory spike on large data
+        numeric_cols = [col for col in X.columns
+                       if pd.api.types.is_numeric_dtype(X[col])]
+        object_cols = [col for col in X.columns
+                      if not pd.api.types.is_numeric_dtype(X[col])]
 
         if len(numeric_cols) == 0:
             # No numeric columns to transform
@@ -1096,7 +1101,9 @@ class DataProcessor:
         # 🚨 CRITICAL: ML models require numeric input only
         # Object/string columns cause errors in np.isinf(), np.abs(), log transform
         if logger:
-            object_cols = X.select_dtypes(exclude=[np.number]).columns
+            # Memory-efficient check: avoid select_dtypes which causes 10GB memory spike
+            object_cols = [col for col in X.columns
+                          if not pd.api.types.is_numeric_dtype(X[col])]
             if len(object_cols) > 0:
                 logger.warning(f"⚠️  Found {len(object_cols)} non-numeric columns (object/string type)")
                 logger.warning(f"   Columns: {list(object_cols[:10])}")
@@ -1109,7 +1116,8 @@ class DataProcessor:
 
                 # 🔧 AUTO-FIX: Remove remaining object columns
                 logger.warning(f"   🔧 Removing {len(object_cols)} object columns...")
-                X = X.select_dtypes(include=[np.number])
+                # Memory-efficient drop: avoid select_dtypes
+                X = X.drop(columns=object_cols)
                 logger.warning(f"   ✅ Removed. Remaining columns: {len(X.columns)}")
             else:
                 logger.info("✅ All columns are numeric")
@@ -1157,7 +1165,9 @@ class DataProcessor:
         if logger:
             logger.info("Step 4/8: Applying log transformation...")
             # Only check numeric columns for max value
-            numeric_cols = X_clean.select_dtypes(include=[np.number]).columns
+            # Memory-efficient: avoid select_dtypes which causes 10GB memory spike
+            numeric_cols = [col for col in X_clean.columns
+                           if pd.api.types.is_numeric_dtype(X_clean[col])]
             if len(numeric_cols) > 0:
                 max_before = np.nanmax(np.abs(X_clean[numeric_cols].values))
                 logger.info(f"   Before: max abs value = {max_before:.2e}")
@@ -1168,7 +1178,9 @@ class DataProcessor:
 
         if logger:
             # Only check numeric columns for max value
-            numeric_cols = X_clean.select_dtypes(include=[np.number]).columns
+            # Memory-efficient: avoid select_dtypes which causes 10GB memory spike
+            numeric_cols = [col for col in X_clean.columns
+                           if pd.api.types.is_numeric_dtype(X_clean[col])]
             if len(numeric_cols) > 0:
                 max_after = np.nanmax(np.abs(X_clean[numeric_cols].values))
                 logger.info(f"   After: max abs value = {max_after:.2f}")
@@ -1774,7 +1786,9 @@ class DataProcessor:
         exclude_cols = exclude_cols or []
         clip_bounds = {}
 
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        # Memory-efficient: avoid select_dtypes which causes memory spike on large data
+        numeric_cols = [col for col in df.columns
+                       if pd.api.types.is_numeric_dtype(df[col])]
 
         for col in numeric_cols:
             if col in exclude_cols:
@@ -1895,7 +1909,9 @@ class DataProcessor:
             logging.warning(f"⚠️  Found {len(duplicated_cols)} duplicate columns, keeping first occurrence")
             df = df.loc[:, ~df.columns.duplicated(keep='first')]
 
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        # Memory-efficient: avoid select_dtypes which causes memory spike on large data
+        numeric_cols = [col for col in df.columns
+                       if pd.api.types.is_numeric_dtype(df[col])]
         winsorized_count = 0
 
         for col in numeric_cols:
@@ -2149,7 +2165,9 @@ class DataProcessor:
             replacement = np.finfo(np.float32).max
 
         df = df.copy()
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        # Memory-efficient: avoid select_dtypes which causes memory spike on large data
+        numeric_cols = [col for col in df.columns
+                       if pd.api.types.is_numeric_dtype(df[col])]
 
         clipped_cols = 0
         for col in numeric_cols:
