@@ -125,6 +125,26 @@ class MLBacktest:
         self.detailed_results = []  # 각 종목별 상세 거래 내역
         self.predictions_history = []
 
+        # Phase 4: 캐시된 예측 사용 설정
+        eval_config = config.get('EVALUATION', {})
+        self.use_cached_predictions = eval_config.get('USE_CACHED_PREDICTIONS', 'N') == 'Y'
+        self.predictions_cache = None
+
+        if self.use_cached_predictions:
+            cache_file = eval_config.get('PREDICTIONS_CACHE_FILE', 'regressor_predictions.pkl')
+            cache_path = Path(main_ctx.root_path) / 'MODELS' / cache_file
+
+            if cache_path.exists():
+                import joblib
+                self.predictions_cache = joblib.load(cache_path)
+                self.logger.info(f"✅ Loaded predictions cache: {cache_path}")
+                self.logger.info(f"   Available periods: {len(self.predictions_cache)}")
+                self.logger.info(f"   Dates: {list(self.predictions_cache.keys())}")
+            else:
+                self.logger.warning(f"⚠️  USE_CACHED_PREDICTIONS=Y but cache not found: {cache_path}")
+                self.logger.warning(f"   Falling back to normal training/prediction mode")
+                self.use_cached_predictions = False
+
     def _get_available_data_until(self, cutoff_date: datetime) -> pd.DataFrame:
         """
         특정 날짜까지 사용 가능한 데이터 로드 (Filing Date 고려)
@@ -1232,37 +1252,61 @@ class MLBacktest:
                 self.logger.warning(f"⚠️ {e}, skipping this period")
                 continue
 
-            # 2. 모델 재학습 필요 여부 판단
-            should_retrain = self._should_retrain(rebalance_date, last_train_date)
+            # 2. 캐시 사용 여부 확인 (Phase 4)
+            cache_key = rebalance_date.strftime('%Y-%m-%d')
+            use_cache_for_this_period = (
+                self.use_cached_predictions and
+                self.predictions_cache is not None and
+                cache_key in self.predictions_cache
+            )
 
-            if should_retrain:
-                # Window 타입에 따라 학습 데이터 필터링
-                if self.window_type == 'rolling' and self.window_size:
-                    # Rolling: 최근 N년만
-                    cutoff = rebalance_date - relativedelta(years=self.window_size)
-                    train_data = available_data[
-                        pd.to_datetime(available_data.get('fillingDate', available_data.index)) >= cutoff
-                    ]
+            if use_cache_for_this_period:
+                # 캐시에서 예측 로드
+                self.logger.info(f"📦 Using cached predictions from regressor.py")
+                cached_data = self.predictions_cache[cache_key]
+                predictions = cached_data['predictions_df']
+
+                if predictions is None or predictions.empty:
+                    self.logger.warning(f"⚠️ Cache exists but predictions_df is empty, falling back to training")
+                    use_cache_for_this_period = False
+
+                if use_cache_for_this_period:
+                    self.logger.info(f"   Loaded {len(predictions)} predictions from cache")
+                    self.logger.info(f"   Top-K selected: {len(cached_data['top_k_selected'])} stocks")
+
+            if not use_cache_for_this_period:
+                # Normal training/prediction mode
+                # 2. 모델 재학습 필요 여부 판단
+                should_retrain = self._should_retrain(rebalance_date, last_train_date)
+
+                if should_retrain:
+                    # Window 타입에 따라 학습 데이터 필터링
+                    if self.window_type == 'rolling' and self.window_size:
+                        # Rolling: 최근 N년만
+                        cutoff = rebalance_date - relativedelta(years=self.window_size)
+                        train_data = available_data[
+                            pd.to_datetime(available_data.get('fillingDate', available_data.index)) >= cutoff
+                        ]
+                    else:
+                        # Expanding: 전체
+                        train_data = available_data
+
+                    # 모델 학습
+                    current_models = self._train_model(train_data, rebalance_date)
+                    last_train_date = rebalance_date
                 else:
-                    # Expanding: 전체
-                    train_data = available_data
+                    self.logger.info(f"📦 Reusing existing model from {last_train_date.date()}")
 
-                # 모델 학습
-                current_models = self._train_model(train_data, rebalance_date)
-                last_train_date = rebalance_date
-            else:
-                self.logger.info(f"📦 Reusing existing model from {last_train_date.date()}")
+                # 3. 예측용 데이터 로드 (현재 시점의 최신 데이터)
+                predict_file = self.data_path / f'rnorm_fs_{rebalance_date.year}_Q{(rebalance_date.month-1)//3 + 1}.parquet'
+                if not predict_file.exists():
+                    self.logger.warning(f"⚠️ Prediction file not found: {predict_file}")
+                    continue
 
-            # 3. 예측용 데이터 로드 (현재 시점의 최신 데이터)
-            predict_file = self.data_path / f'rnorm_fs_{rebalance_date.year}_Q{(rebalance_date.month-1)//3 + 1}.parquet'
-            if not predict_file.exists():
-                self.logger.warning(f"⚠️ Prediction file not found: {predict_file}")
-                continue
+                predict_data = pd.read_parquet(predict_file)
 
-            predict_data = pd.read_parquet(predict_file)
-
-            # 4. 예측 수행
-            predictions = self._predict(current_models, predict_data)
+                # 4. 예측 수행
+                predictions = self._predict(current_models, predict_data)
 
             # 5. 상위 K개 선택 (symbol + sector 포함)
             selected_stocks = self._select_top_k(predictions)
