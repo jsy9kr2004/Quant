@@ -1786,6 +1786,23 @@ class Regressor:
         # print(search.best_params_)
         # exit()
 
+        # ========================================================================
+        # Walk-Forward Mode: Train models for each period
+        # ========================================================================
+        if self.use_walk_forward:
+            logging.info("="*80)
+            logging.info("🔄 WALK-FORWARD TRAINING")
+            logging.info("="*80)
+            self._train_walk_forward()
+            return  # Skip traditional training
+
+        # ========================================================================
+        # Traditional Mode: Train models once on all training data
+        # ========================================================================
+        logging.info("="*80)
+        logging.info("📊 TRADITIONAL TRAINING (single train/test split)")
+        logging.info("="*80)
+
         # 모델 저장 경로 설정
         MODEL_SAVE_PATH = self.root_path + '/MODELS/'
 
@@ -2505,6 +2522,458 @@ class Regressor:
             logging.info("="*80)
             logging.info("")
 
+    def _train_walk_forward(self) -> None:
+        """
+        Walk-Forward training: Train and predict for each cutoff period.
+
+        This method implements walk-forward analysis by:
+        1. For each cutoff_date:
+           a. Load data up to cutoff_date (expanding/rolling window)
+           b. Train models
+           c. Load next period data
+           d. Make predictions
+           e. Store predictions in self.predictions_cache
+
+        The predictions_cache will be saved to pkl for use by:
+        - evaluation() method (accuracy metrics)
+        - ml_backtest.py (if USE_CACHED_PREDICTIONS=Y)
+        """
+        from src.training.data_processor import DataProcessor
+
+        MODEL_SAVE_PATH = self.root_path + '/MODELS/'
+        if not os.path.exists(MODEL_SAVE_PATH):
+            os.makedirs(MODEL_SAVE_PATH)
+
+        eval_config = self.conf.get('EVALUATION', {})
+        top_k = eval_config.get('TOP_K_NUM', 10)
+
+        logging.info(f"\n🔄 Walk-Forward Training: {len(self.walk_forward_periods)} periods")
+        logging.info(f"🎯 Top-K Selection: {top_k}")
+        logging.info("="*80)
+
+        # Initialize predictions cache
+        self.predictions_cache = {}
+
+        for idx, period_info in enumerate(self.walk_forward_periods, 1):
+            cutoff_date = period_info['cutoff_date']
+            train_start_year = period_info['train_start_year']
+            period_name = period_info['period_name']
+
+            logging.info(f"\n{'='*80}")
+            logging.info(f"📅 Period {idx}/{len(self.walk_forward_periods)}: {cutoff_date.strftime('%Y-%m-%d')} ({period_name})")
+            logging.info(f"{'='*80}")
+
+            # Step 1: Load training data until cutoff_date
+            logging.info(f"📂 Loading training data: {train_start_year} ~ {cutoff_date.strftime('%Y-%m-%d')}")
+            train_df = self._load_data_until_cutoff(train_start_year, cutoff_date)
+
+            if train_df.empty:
+                logging.warning(f"⚠️  No training data available for {cutoff_date}, skipping...")
+                continue
+
+            logging.info(f"✅ Loaded {len(train_df)} training samples")
+
+            # Step 2: Train models on this data
+            logging.info("🔧 Training models...")
+            models_info = self._train_models_for_period(train_df)
+
+            # Step 3: Load prediction data (stocks at cutoff_date)
+            logging.info(f"📂 Loading prediction data for {cutoff_date.strftime('%Y-%m-%d')}")
+            pred_df = self._load_data_for_prediction(cutoff_date)
+
+            if pred_df.empty:
+                logging.warning(f"⚠️  No prediction data available for {cutoff_date}, skipping...")
+                continue
+
+            logging.info(f"✅ Loaded {len(pred_df)} stocks for prediction")
+
+            # Step 4: Generate predictions
+            logging.info("🔮 Generating predictions...")
+            predictions_df = self._generate_predictions_for_period(pred_df, models_info)
+
+            # Step 5: Top-K selection and ranking
+            logging.info(f"🎯 Selecting Top-{top_k} stocks...")
+            predictions_df = self._rank_and_select_top_k(predictions_df, top_k)
+
+            # Store in cache
+            cache_key = cutoff_date.strftime('%Y-%m-%d')
+            top_k_mask = predictions_df[DataSchema.SELECTED]
+            self.predictions_cache[cache_key] = {
+                'predictions_df': predictions_df,
+                'top_k_selected': predictions_df[top_k_mask]['symbol'].tolist(),
+                'top_k_details': predictions_df[top_k_mask].copy(),
+                'models_used': models_info,
+                'train_samples': len(train_df),
+                'predict_samples': len(pred_df)
+            }
+
+            logging.info(f"✅ Top-{top_k}: {self.predictions_cache[cache_key]['top_k_selected']}")
+
+        # Save predictions cache to pkl
+        cache_file = MODEL_SAVE_PATH + eval_config.get('PREDICTIONS_CACHE_FILE', 'regressor_predictions.pkl')
+        logging.info(f"\n💾 Saving predictions cache to {cache_file}")
+        joblib.dump(self.predictions_cache, cache_file)
+        logging.info(f"✅ Walk-forward training completed! {len(self.predictions_cache)} periods saved.")
+
+    def _load_data_until_cutoff(self, train_start_year: int, cutoff_date: datetime) -> pd.DataFrame:
+        """
+        Load training data from train_start_year until cutoff_date.
+
+        This implements the expanding window approach where each iteration
+        uses all data from the start until the current cutoff date.
+
+        Parameters:
+        -----------
+        train_start_year : int
+            Starting year for training data
+        cutoff_date : datetime
+            Cutoff date (exclusive) - data before this date is used for training
+
+        Returns:
+        --------
+        pd.DataFrame
+            Training data with all features and targets
+        """
+        from src.training.data_processor import DataProcessor
+
+        # Load all quarterly data files from train_start_year onwards
+        all_train_data = []
+        current_year = train_start_year
+
+        while current_year <= cutoff_date.year:
+            file_pattern = f"{self.root_path}/data/train/{current_year}_*.parquet"
+            year_files = glob.glob(file_pattern)
+
+            for file_path in sorted(year_files):
+                try:
+                    df = pd.read_parquet(file_path)
+                    if 'rebalance_date' in df.columns:
+                        df['rebalance_date'] = pd.to_datetime(df['rebalance_date'])
+                        # Only include data before cutoff_date
+                        df = df[df['rebalance_date'] < cutoff_date]
+                        if not df.empty:
+                            all_train_data.append(df)
+                except Exception as e:
+                    logging.warning(f"⚠️  Failed to load {file_path}: {e}")
+
+            current_year += 1
+
+        if not all_train_data:
+            return pd.DataFrame()
+
+        # Combine all data
+        combined_df = pd.concat(all_train_data, ignore_index=True)
+        logging.info(f"   Loaded {len(combined_df)} samples from {len(all_train_data)} files")
+
+        return combined_df
+
+    def _load_data_for_prediction(self, cutoff_date: datetime) -> pd.DataFrame:
+        """
+        Load data for prediction at the specific cutoff_date.
+
+        This loads the stocks available at cutoff_date for making predictions.
+
+        Parameters:
+        -----------
+        cutoff_date : datetime
+            The rebalancing date for which to make predictions
+
+        Returns:
+        --------
+        pd.DataFrame
+            Prediction data with all features
+        """
+        # Load data files that might contain the cutoff_date
+        year = cutoff_date.year
+        file_pattern = f"{self.root_path}/data/train/{year}_*.parquet"
+        year_files = glob.glob(file_pattern)
+
+        pred_data = []
+        for file_path in sorted(year_files):
+            try:
+                df = pd.read_parquet(file_path)
+                if 'rebalance_date' in df.columns:
+                    df['rebalance_date'] = pd.to_datetime(df['rebalance_date'])
+                    # Only select stocks at exactly this cutoff_date
+                    df = df[df['rebalance_date'] == cutoff_date]
+                    if not df.empty:
+                        pred_data.append(df)
+            except Exception as e:
+                logging.warning(f"⚠️  Failed to load {file_path}: {e}")
+
+        if not pred_data:
+            return pd.DataFrame()
+
+        # Combine all prediction data
+        combined_df = pd.concat(pred_data, ignore_index=True)
+        logging.info(f"   Found {len(combined_df)} stocks at {cutoff_date.strftime('%Y-%m-%d')}")
+
+        return combined_df
+
+    def _train_models_for_period(self, train_df: pd.DataFrame) -> dict:
+        """
+        Train all models (classifiers + regressors) for a specific period.
+
+        This method trains models in-memory without saving to disk.
+        The trained models are returned in a dict for immediate use in prediction.
+
+        Parameters:
+        -----------
+        train_df : pd.DataFrame
+            Training data for this period
+
+        Returns:
+        --------
+        dict
+            Dictionary containing trained models:
+            {
+                'use_classifier': bool,
+                'use_sector': bool,
+                'classifiers': {...},  # Global classifiers (if use_classifier=Y)
+                'regressors': {...},   # Global regressors
+                'sector_classifiers': {...},  # Sector classifiers (if use_sector=Y)
+                'sector_regressors': {...}    # Sector regressors (if use_sector=Y)
+            }
+        """
+        from src.training.data_processor import DataProcessor
+
+        models_info = {
+            'use_classifier': self.use_classifier,
+            'use_sector': self.use_sector_model,
+            'classifiers': {},
+            'regressors': {},
+            'sector_classifiers': {},
+            'sector_regressors': {}
+        }
+
+        # Preprocess training data
+        train_df = DataProcessor.preprocess_training_data(train_df, self.logger)
+
+        # Get target column
+        target_col = DataSchema.REGRESSION_TARGET
+        if target_col not in train_df.columns:
+            logging.error(f"❌ Target column '{target_col}' not found in training data")
+            return models_info
+
+        # Get feature columns
+        feature_cols = DataSchema.get_feature_cols(train_df)
+        X_train = train_df[feature_cols]
+        y_train = train_df[target_col]
+
+        # Train global models
+        if self.use_sector_model:
+            logging.info("   Training sector-specific models...")
+            # Train sector models
+            for sector in train_df['sector'].unique():
+                sector_data = train_df[train_df['sector'] == sector]
+                if len(sector_data) < 50:  # Skip sectors with too few samples
+                    continue
+
+                X_sector = sector_data[feature_cols]
+                y_sector = sector_data[target_col]
+
+                # Train sector classifiers
+                if self.use_classifier:
+                    sector_clfs = self._train_sector_classifiers_inline(X_sector, sector_data)
+                    models_info['sector_classifiers'][sector] = sector_clfs
+
+                # Train sector regressors
+                sector_regs = self._train_sector_regressors_inline(X_sector, y_sector)
+                models_info['sector_regressors'][sector] = sector_regs
+
+            logging.info(f"   ✅ Trained models for {len(models_info['sector_regressors'])} sectors")
+        else:
+            logging.info("   Training global models...")
+            # Train global classifiers
+            if self.use_classifier:
+                global_clfs = self._train_global_classifiers_inline(X_train, train_df)
+                models_info['classifiers'] = global_clfs
+
+            # Train global regressors
+            global_regs = self._train_global_regressors_inline(X_train, y_train)
+            models_info['regressors'] = global_regs
+
+            logging.info(f"   ✅ Trained {len(models_info['classifiers'])} classifiers + {len(models_info['regressors'])} regressors")
+
+        return models_info
+
+    def _generate_predictions_for_period(self, pred_df: pd.DataFrame, models_info: dict) -> pd.DataFrame:
+        """
+        Generate predictions for all stocks in pred_df using trained models.
+
+        Parameters:
+        -----------
+        pred_df : pd.DataFrame
+            DataFrame containing stocks to predict (with features)
+        models_info : dict
+            Dictionary containing trained models from _train_models_for_period()
+
+        Returns:
+        --------
+        pd.DataFrame
+            Predictions with columns: symbol, sector, pred_return, pred_proba, ml_score
+        """
+        from src.training.data_processor import DataProcessor
+
+        # Preprocess prediction data
+        pred_df = DataProcessor.preprocess_training_data(pred_df, self.logger)
+
+        # Get feature columns
+        feature_cols = DataSchema.get_feature_cols(pred_df)
+        X_pred = pred_df[feature_cols]
+
+        # Initialize prediction columns
+        pred_df[DataSchema.PRED_RETURN] = 0.0
+        pred_df[DataSchema.PRED_PROBA] = 1.0  # Default to 1.0 if no classifier
+
+        # Generate predictions based on model type
+        if models_info['use_sector']:
+            # Sector-specific predictions
+            for sector in pred_df['sector'].unique():
+                sector_mask = pred_df['sector'] == sector
+                X_sector = pred_df.loc[sector_mask, feature_cols]
+
+                if sector not in models_info['sector_regressors']:
+                    continue  # Skip if no model for this sector
+
+                # Predict returns
+                sector_regs = models_info['sector_regressors'][sector]
+                y_pred_return = np.mean([reg.predict(X_sector) for reg in sector_regs.values()], axis=0)
+                pred_df.loc[sector_mask, DataSchema.PRED_RETURN] = y_pred_return
+
+                # Predict probabilities (if classifier enabled)
+                if models_info['use_classifier'] and sector in models_info['sector_classifiers']:
+                    sector_clfs = models_info['sector_classifiers'][sector]
+                    y_pred_proba = np.mean([clf.predict_proba(X_sector)[:, 1] for clf in sector_clfs.values()], axis=0)
+                    pred_df.loc[sector_mask, DataSchema.PRED_PROBA] = y_pred_proba
+        else:
+            # Global predictions
+            # Predict returns
+            global_regs = models_info['regressors']
+            y_pred_return = np.mean([reg.predict(X_pred) for reg in global_regs.values()], axis=0)
+            pred_df[DataSchema.PRED_RETURN] = y_pred_return
+
+            # Predict probabilities (if classifier enabled)
+            if models_info['use_classifier']:
+                global_clfs = models_info['classifiers']
+                y_pred_proba = np.mean([clf.predict_proba(X_pred)[:, 1] for clf in global_clfs.values()], axis=0)
+                pred_df[DataSchema.PRED_PROBA] = y_pred_proba
+
+        # Calculate ML score
+        pred_df[DataSchema.ML_SCORE] = pred_df[DataSchema.PRED_PROBA] * pred_df[DataSchema.PRED_RETURN]
+
+        # Select relevant columns for output
+        output_cols = ['symbol', 'sector', DataSchema.PRED_RETURN, DataSchema.PRED_PROBA, DataSchema.ML_SCORE]
+        # Add company_name if available
+        if DataSchema.COMPANY_NAME in pred_df.columns:
+            output_cols.insert(2, DataSchema.COMPANY_NAME)
+
+        predictions_df = pred_df[output_cols].copy()
+
+        return predictions_df
+
+    def _rank_and_select_top_k(self, predictions_df: pd.DataFrame, top_k: int) -> pd.DataFrame:
+        """
+        Rank stocks by ml_score and select top K.
+
+        Parameters:
+        -----------
+        predictions_df : pd.DataFrame
+            DataFrame with predictions (must contain ml_score column)
+        top_k : int
+            Number of top stocks to select
+
+        Returns:
+        --------
+        pd.DataFrame
+            Predictions with added columns: rank, selected
+        """
+        # Sort by ml_score descending
+        predictions_df = predictions_df.sort_values(DataSchema.ML_SCORE, ascending=False).reset_index(drop=True)
+
+        # Add rank (1-indexed)
+        predictions_df[DataSchema.RANK] = range(1, len(predictions_df) + 1)
+
+        # Select top K
+        predictions_df[DataSchema.SELECTED] = predictions_df[DataSchema.RANK] <= top_k
+
+        logging.info(f"   Ranked {len(predictions_df)} stocks, selected top {top_k}")
+
+        return predictions_df
+
+    def _train_global_classifiers_inline(self, X_train: pd.DataFrame, train_df: pd.DataFrame) -> dict:
+        """Train global classifiers without saving to disk."""
+        classifiers = {}
+
+        # Create binary target
+        if DataSchema.CLASSIFICATION_TARGET in train_df.columns:
+            y_binary = train_df[DataSchema.CLASSIFICATION_TARGET]
+        else:
+            y_binary = (train_df[DataSchema.REGRESSION_TARGET] > 0).astype(int)
+
+        # Train 4 classifiers (similar to existing logic)
+        from xgboost import XGBClassifier
+        from lightgbm import LGBMClassifier
+
+        classifiers[0] = XGBClassifier(max_depth=8, n_estimators=100, random_state=42)
+        classifiers[1] = XGBClassifier(max_depth=9, n_estimators=100, random_state=42)
+        classifiers[2] = XGBClassifier(max_depth=10, n_estimators=100, random_state=42)
+        classifiers[3] = LGBMClassifier(max_depth=8, n_estimators=100, random_state=42)
+
+        for idx, clf in classifiers.items():
+            clf.fit(X_train, y_binary)
+
+        return classifiers
+
+    def _train_global_regressors_inline(self, X_train: pd.DataFrame, y_train: pd.Series) -> dict:
+        """Train global regressors without saving to disk."""
+        regressors = {}
+
+        from xgboost import XGBRegressor
+
+        regressors[0] = XGBRegressor(max_depth=8, n_estimators=100, random_state=42)
+        regressors[1] = XGBRegressor(max_depth=10, n_estimators=100, random_state=42)
+
+        for idx, reg in regressors.items():
+            reg.fit(X_train, y_train)
+
+        return regressors
+
+    def _train_sector_classifiers_inline(self, X_sector: pd.DataFrame, sector_df: pd.DataFrame) -> dict:
+        """Train sector classifiers without saving to disk."""
+        classifiers = {}
+
+        if DataSchema.CLASSIFICATION_TARGET in sector_df.columns:
+            y_binary = sector_df[DataSchema.CLASSIFICATION_TARGET]
+        else:
+            y_binary = (sector_df[DataSchema.REGRESSION_TARGET] > 0).astype(int)
+
+        from xgboost import XGBClassifier
+        from lightgbm import LGBMClassifier
+
+        classifiers[0] = XGBClassifier(max_depth=8, n_estimators=100, random_state=42)
+        classifiers[1] = XGBClassifier(max_depth=9, n_estimators=100, random_state=42)
+        classifiers[2] = XGBClassifier(max_depth=10, n_estimators=100, random_state=42)
+        classifiers[3] = LGBMClassifier(max_depth=8, n_estimators=100, random_state=42)
+
+        for idx, clf in classifiers.items():
+            clf.fit(X_sector, y_binary)
+
+        return classifiers
+
+    def _train_sector_regressors_inline(self, X_sector: pd.DataFrame, y_sector: pd.Series) -> dict:
+        """Train sector regressors without saving to disk."""
+        regressors = {}
+
+        from xgboost import XGBRegressor
+
+        regressors[0] = XGBRegressor(max_depth=8, n_estimators=100, random_state=42)
+        regressors[1] = XGBRegressor(max_depth=10, n_estimators=100, random_state=42)
+
+        for idx, reg in regressors.items():
+            reg.fit(X_sector, y_sector)
+
+        return regressors
 
     def evaluation(self) -> None:
         """학습된 모델을 테스트 데이터로 평가하고 종합 보고서를 생성합니다.
