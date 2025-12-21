@@ -382,6 +382,21 @@ class Regressor:
         # Top K 설정 (ml_backtest.py와 동일한 방식)
         self.top_k_num = int(backtest_config.get('TOP_K_NUM', 20))
 
+        # ========================================================================
+        # Walk-Forward Evaluation Settings (Phase 3: New Feature)
+        # ========================================================================
+        eval_config = conf.get('EVALUATION', {})
+        self.use_walk_forward = eval_config.get('USE_WALK_FORWARD', 'N') == 'Y'
+        self.walk_forward_periods = []  # Will be populated in dataload()
+        self.predictions_cache = {}  # Store predictions for each cutoff_date
+
+        if self.use_walk_forward:
+            logging.info("🔄 Walk-Forward mode ENABLED")
+            logging.info(f"   Window type: {eval_config.get('WINDOW_TYPE', 'expanding')}")
+            logging.info(f"   Retrain frequency: {eval_config.get('RETRAIN_FREQUENCY', 'quarterly')}")
+        else:
+            logging.info("📊 Traditional train/test split mode (legacy)")
+
         aidata_dir = self.root_path + '/processed/ml_data/per_year/'
         print("aidata path : " + aidata_dir)
         if not os.path.exists(aidata_dir):
@@ -878,6 +893,20 @@ class Regressor:
         logging.info("=" * 80)
         logging.info("📂 DATALOAD: Loading and preprocessing training/test data")
         logging.info("=" * 80)
+
+        # ========================================================================
+        # Walk-Forward Mode: Generate periods and skip traditional loading
+        # ========================================================================
+        if self.use_walk_forward:
+            logging.info("🔄 Walk-Forward mode: Generating evaluation periods...")
+            self._generate_walk_forward_periods()
+            logging.info(f"✅ Generated {len(self.walk_forward_periods)} walk-forward periods")
+            return  # Skip traditional data loading
+
+        # ========================================================================
+        # Traditional Mode: Load all training/test files
+        # ========================================================================
+        logging.info("📊 Traditional mode: Loading train/test files...")
 
         # ========================================================================
         # STEP 1: Load all training files from parquet
@@ -1637,6 +1666,61 @@ class Regressor:
             'n_selected': results[optimal_pct]['n_selected'],
             'all_results': results  # 디버깅용
         }
+
+    def _generate_walk_forward_periods(self) -> None:
+        """
+        Generate walk-forward evaluation periods from EVALUATION.PERIODS config.
+
+        This method creates a list of cutoff dates for walk-forward training,
+        similar to ml_backtest.py but for regressor evaluation.
+
+        Populates:
+        ----------
+        self.walk_forward_periods : List[Dict]
+            List of period information dicts with keys:
+            - cutoff_date: datetime
+            - train_start_year: int
+            - period_name: str
+        """
+        from datetime import datetime
+        from dateutil.relativedelta import relativedelta
+
+        eval_config = self.conf.get('EVALUATION', {})
+        periods = eval_config.get('PERIODS', [])
+        train_start_year = eval_config.get('TRAIN_START_YEAR', 1996)
+        rebalance_period = eval_config.get('REBALANCE_PERIOD', 3)
+
+        if not periods:
+            logging.warning("⚠️  No EVALUATION.PERIODS configured, walk-forward mode disabled")
+            self.use_walk_forward = False
+            return
+
+        self.walk_forward_periods = []
+
+        for period_config in periods:
+            start_year = period_config['START_YEAR']
+            end_year = period_config['END_YEAR']
+            start_month = period_config.get('START_MONTH', 1)
+            start_date = period_config.get('START_DATE', 1)
+
+            start_dt = datetime(start_year, start_month, start_date)
+            end_dt = datetime(end_year, 12, 31)
+
+            # Generate rebalancing dates for this period
+            current = start_dt
+            while current <= end_dt:
+                self.walk_forward_periods.append({
+                    'cutoff_date': current,
+                    'train_start_year': train_start_year,
+                    'period_name': f"{start_year}-{end_year}"
+                })
+                current += relativedelta(months=rebalance_period)
+
+        logging.info(f"  Generated {len(self.walk_forward_periods)} cutoff dates:")
+        for i, period in enumerate(self.walk_forward_periods[:5]):  # Log first 5
+            logging.info(f"    {i+1}. {period['cutoff_date'].date()}")
+        if len(self.walk_forward_periods) > 5:
+            logging.info(f"    ... and {len(self.walk_forward_periods) - 5} more")
 
     def train(self) -> None:
         """모든 분류 및 회귀 모델을 학습하고 디스크에 저장합니다.
