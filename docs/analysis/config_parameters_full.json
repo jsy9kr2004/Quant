@@ -49,13 +49,6 @@
     "level": 1
   },
   {
-    "full_path": "DATA.TARGET_STOCK_LIST",
-    "key": "TARGET_STOCK_LIST",
-    "type": "str",
-    "value": "/home/user/Quant/stocks.csv",
-    "level": 1
-  },
-  {
     "full_path": "DATA.TARGET_API_LIST",
     "key": "TARGET_API_LIST",
     "type": "str",

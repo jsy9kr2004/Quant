@@ -16,7 +16,6 @@ DATA:
   FMP_URL: https://financialmodelingprep.com
   API_KEY: YOUR_FMP_API_KEY_HERE  # https://site.financialmodelingprep.com/ 에서 발급
   EX_SYMBOL: AAPL  # URL 파싱용 예제 심볼 (보통 변경 불필요)
-  TARGET_STOCK_LIST: /home/user/Quant/stocks.csv
   TARGET_API_LIST: src/data_collector/target_api_list.csv
 
   # 데이터 수집
