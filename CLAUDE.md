@@ -585,6 +585,61 @@ DATA:
 - [ ] 에러 발생 시 버전 충돌 가능성 확인
 - [ ] 주기적으로 `pip list --outdated` 실행하여 업데이트 검토
 
+### 루트 디렉토리 관리
+
+**원칙**: 루트 디렉토리는 깨끗하게 유지합니다.
+
+**루트에 허용되는 파일**:
+- ✅ `README.md` - 프로젝트 메인 문서
+- ✅ `CLAUDE.md` - AI 작업 가이드 (이 문서)
+- ✅ `.gitignore`, `.gitattributes` - Git 설정
+- ✅ `requirements.txt` - Python 의존성
+- ✅ `main.py` - 메인 실행 파일
+- ✅ 기타 설정 파일 (`.env`, `pyproject.toml` 등)
+
+**루트에서 제외할 파일**:
+- ❌ 문서 파일 (`.md`) - `docs/` 디렉토리로 이동
+  - 예: `TROUBLESHOOTING.md` → `docs/TROUBLESHOOTING.md`
+  - 예: `API_GUIDE.md` → `docs/API_REFERENCE.md`
+- ❌ 임시 파일, 테스트 파일
+- ❌ 개인 메모, 실험 스크립트
+
+**문서 배치 규칙**:
+```
+프로젝트 루트/
+├── README.md              ✅ 프로젝트 소개
+├── CLAUDE.md              ✅ AI 작업 가이드
+├── requirements.txt       ✅ 의존성
+├── main.py                ✅ 실행 파일
+├── docs/                  📁 모든 문서 파일
+│   ├── TROUBLESHOOTING.md
+│   ├── QUICK_START.md
+│   ├── API_REFERENCE.md
+│   └── ...
+├── src/                   📁 소스 코드
+└── config/                📁 설정 파일
+```
+
+**작업 시 체크리스트**:
+- [ ] 새 문서 작성 시 `docs/` 디렉토리에 생성
+- [ ] 루트에 파일 생성 시 반드시 필요한지 확인
+- [ ] 커밋 전 `ls -la` 또는 `git status`로 루트 확인
+- [ ] 불필요한 파일 발견 시 즉시 제거 또는 이동
+
+**잘못된 예**:
+```bash
+# ❌ 나쁜 예: 루트에 문서 생성
+touch TROUBLESHOOTING.md
+touch OPTIMIZATION_GUIDE.md
+```
+
+**올바른 예**:
+```bash
+# ✅ 좋은 예: docs/ 하위에 생성
+touch docs/TROUBLESHOOTING.md
+touch docs/OPTIMIZATION_GUIDE.md
+```
+
 ### 문서 관리 (README.md)
 
 **업데이트 필요 시점**:
