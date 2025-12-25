@@ -1127,21 +1127,18 @@ class MLBacktest:
         price_table['date'] = pd.to_datetime(price_table['date'])
 
         # 리밸런싱 날짜 생성
-        # BACKTEST 섹션에서만 설정 읽기
+        # 우선순위: EVALUATION > BACKTEST (하위 호환성)
+        eval_config = self.config.get('EVALUATION', {})
         backtest_config = self.config.get('BACKTEST', {})
 
-        if not backtest_config:
-            raise ValueError(
-                "BACKTEST section not found in config/conf.yaml!\n"
-                "Please add BACKTEST section to config/conf.yaml"
-            )
-
-        # 여러 구간 지원: PERIODS 리스트 또는 단일 START_YEAR/END_YEAR
-        periods = backtest_config.get('PERIODS', [])
+        # PERIODS 읽기 (EVALUATION 우선, BACKTEST 폴백)
+        periods = eval_config.get('PERIODS', backtest_config.get('PERIODS', []))
 
         if periods:
             # 여러 구간 모드
             self.logger.info(f"📅 Multiple backtest periods configured: {len(periods)} periods")
+            source = "EVALUATION" if eval_config.get('PERIODS') else "BACKTEST"
+            self.logger.info(f"   Config source: {source}.PERIODS")
             all_rebalance_dates = []
 
             for i, period in enumerate(periods):
@@ -1178,9 +1175,20 @@ class MLBacktest:
 
             if not start_year or not end_year:
                 raise ValueError(
-                    "BACKTEST section must have either:\n"
-                    "  - PERIODS: list of period configurations, or\n"
-                    "  - START_YEAR and END_YEAR for single period"
+                    "Backtest period configuration not found!\n\n"
+                    "Please configure in one of these ways:\n"
+                    "  Option 1 (Recommended): Use EVALUATION section\n"
+                    "    EVALUATION:\n"
+                    "      PERIODS:\n"
+                    "        - START_YEAR: 2020\n"
+                    "          END_YEAR: 2023\n"
+                    "\n"
+                    "  Option 2 (Legacy): Use BACKTEST section\n"
+                    "    BACKTEST:\n"
+                    "      START_YEAR: 2020\n"
+                    "      END_YEAR: 2023\n"
+                    "\n"
+                    "See config/conf.yaml.template for examples."
                 )
 
             if isinstance(start_year, str):
@@ -1192,6 +1200,7 @@ class MLBacktest:
             start_date_day = backtest_config.get('START_DATE', 13)
 
             self.logger.info(f"📅 Single backtest period: {start_year}/{start_month}/{start_date_day} ~ {end_year}/12/31")
+            self.logger.info(f"   Config source: BACKTEST (legacy mode)")
 
             start_date = datetime(start_year, start_month, start_date_day)
             end_date = datetime(end_year, 12, 31)
