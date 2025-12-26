@@ -268,6 +268,345 @@ y_col_list = DataSchema.get_excluded_cols()
 # Backward compatibility: Keep old variable name for existing code
 # TODO: Gradually replace all `y_col_list` references with `DataSchema.get_excluded_cols()`
 
+# ==============================================================================
+# Parallel Training Support (Ray)
+# ==============================================================================
+try:
+    import ray
+    RAY_AVAILABLE = True
+except ImportError:
+    RAY_AVAILABLE = False
+    logging.warning("⚠️  Ray not installed. Parallel training will be disabled.")
+
+
+@ray.remote
+def train_single_period_remote(
+    period_info: dict,
+    root_path: str,
+    use_classifier: bool,
+    use_sector_model: bool,
+    top_k: int,
+    logger_level: int = logging.INFO
+) -> Tuple[str, Optional[dict]]:
+    """
+    Ray remote function to train models for a single walk-forward period.
+
+    This function is designed to run in parallel across multiple periods.
+    Each worker independently:
+    1. Loads training data until cutoff_date
+    2. Trains models (classifiers + regressors)
+    3. Loads prediction data at cutoff_date
+    4. Generates predictions
+    5. Selects top-K stocks
+
+    Parameters:
+    -----------
+    period_info : dict
+        Period configuration with keys:
+        - cutoff_date: datetime
+        - train_start_year: int
+        - period_name: str
+    root_path : str
+        Root path for data files
+    use_classifier : bool
+        Whether to use classifiers
+    use_sector_model : bool
+        Whether to use sector-specific models
+    top_k : int
+        Number of top stocks to select
+    logger_level : int
+        Logging level for this worker
+
+    Returns:
+    --------
+    Tuple[str, Optional[dict]]
+        - cache_key: str (date string 'YYYY-MM-DD')
+        - cache_entry: dict or None (predictions and metadata)
+    """
+    # Configure logging for this worker
+    logging.basicConfig(
+        level=logger_level,
+        format='[Worker] %(levelname)s: %(message)s'
+    )
+
+    from src.training.data_processor import DataProcessor
+    from xgboost import XGBClassifier, XGBRegressor
+    from lightgbm import LGBMClassifier
+
+    cutoff_date = period_info['cutoff_date']
+    train_start_year = period_info['train_start_year']
+    period_name = period_info['period_name']
+    cache_key = cutoff_date.strftime('%Y-%m-%d')
+
+    try:
+        logging.info(f"📅 Processing period: {cache_key} ({period_name})")
+
+        # Step 1: Load training data
+        logging.info(f"📂 Loading training data: {train_start_year} ~ {cache_key}")
+        train_df = _load_data_until_cutoff_standalone(root_path, train_start_year, cutoff_date)
+
+        if train_df.empty:
+            logging.warning(f"⚠️  No training data for {cache_key}")
+            return cache_key, None
+
+        logging.info(f"✅ Loaded {len(train_df)} training samples")
+
+        # Step 2: Train models
+        logging.info("🔧 Training models...")
+        models_info = _train_models_for_period_standalone(
+            train_df, use_classifier, use_sector_model
+        )
+
+        # Step 3: Load prediction data
+        logging.info(f"📂 Loading prediction data for {cache_key}")
+        pred_df = _load_data_for_prediction_standalone(root_path, cutoff_date)
+
+        if pred_df.empty:
+            logging.warning(f"⚠️  No prediction data for {cache_key}")
+            return cache_key, None
+
+        logging.info(f"✅ Loaded {len(pred_df)} stocks for prediction")
+
+        # Step 4: Generate predictions
+        logging.info("🔮 Generating predictions...")
+        predictions_df = _generate_predictions_for_period_standalone(
+            pred_df, models_info
+        )
+
+        # Step 5: Top-K selection
+        logging.info(f"🎯 Selecting Top-{top_k} stocks...")
+        predictions_df = _rank_and_select_top_k_standalone(predictions_df, top_k)
+
+        # Build cache entry
+        top_k_mask = predictions_df[DataSchema.SELECTED]
+        cache_entry = {
+            'predictions_df': predictions_df,
+            'top_k_selected': predictions_df[top_k_mask]['symbol'].tolist(),
+            'top_k_details': predictions_df[top_k_mask].copy(),
+            'models_used': models_info,
+            'train_samples': len(train_df),
+            'predict_samples': len(pred_df)
+        }
+
+        logging.info(f"✅ Top-{top_k}: {cache_entry['top_k_selected']}")
+
+        return cache_key, cache_entry
+
+    except Exception as e:
+        logging.error(f"❌ Error processing period {cache_key}: {e}")
+        import traceback
+        traceback.print_exc()
+        return cache_key, None
+
+
+# ==============================================================================
+# Standalone Helper Functions for Ray Remote Workers
+# ==============================================================================
+
+def _load_data_until_cutoff_standalone(root_path: str, train_start_year: int, cutoff_date: datetime.datetime) -> pd.DataFrame:
+    """Standalone version of _load_data_until_cutoff for Ray workers."""
+    all_train_data = []
+    current_year = train_start_year
+
+    while current_year <= cutoff_date.year:
+        file_pattern = f"{root_path}/data/train/{current_year}_*.parquet"
+        year_files = glob.glob(file_pattern)
+
+        for file_path in sorted(year_files):
+            try:
+                df = pd.read_parquet(file_path)
+                if 'rebalance_date' in df.columns:
+                    df['rebalance_date'] = pd.to_datetime(df['rebalance_date'])
+                    df = df[df['rebalance_date'] < cutoff_date]
+                    if not df.empty:
+                        all_train_data.append(df)
+            except Exception as e:
+                logging.warning(f"⚠️  Failed to load {file_path}: {e}")
+
+        current_year += 1
+
+    if not all_train_data:
+        return pd.DataFrame()
+
+    combined_df = pd.concat(all_train_data, ignore_index=True)
+    return combined_df
+
+
+def _load_data_for_prediction_standalone(root_path: str, cutoff_date: datetime.datetime) -> pd.DataFrame:
+    """Standalone version of _load_data_for_prediction for Ray workers."""
+    year = cutoff_date.year
+    file_pattern = f"{root_path}/data/train/{year}_*.parquet"
+    year_files = glob.glob(file_pattern)
+
+    pred_data = []
+    for file_path in sorted(year_files):
+        try:
+            df = pd.read_parquet(file_path)
+            if 'rebalance_date' in df.columns:
+                df['rebalance_date'] = pd.to_datetime(df['rebalance_date'])
+                df = df[df['rebalance_date'] == cutoff_date]
+                if not df.empty:
+                    pred_data.append(df)
+        except Exception as e:
+            logging.warning(f"⚠️  Failed to load {file_path}: {e}")
+
+    if not pred_data:
+        return pd.DataFrame()
+
+    return pd.concat(pred_data, ignore_index=True)
+
+
+def _train_models_for_period_standalone(
+    train_df: pd.DataFrame,
+    use_classifier: bool,
+    use_sector_model: bool
+) -> dict:
+    """Standalone version of _train_models_for_period for Ray workers."""
+    from src.training.data_processor import DataProcessor
+    from xgboost import XGBClassifier, XGBRegressor
+    from lightgbm import LGBMClassifier
+
+    models_info = {
+        'use_classifier': use_classifier,
+        'use_sector': use_sector_model,
+        'classifiers': {},
+        'regressors': {},
+        'sector_classifiers': {},
+        'sector_regressors': {}
+    }
+
+    # Preprocess
+    train_df = DataProcessor.preprocess_training_data(train_df, None)
+
+    target_col = DataSchema.REGRESSION_TARGET
+    if target_col not in train_df.columns:
+        return models_info
+
+    feature_cols = DataSchema.get_feature_cols(train_df)
+    X_train = train_df[feature_cols]
+    y_train = train_df[target_col]
+
+    if use_sector_model:
+        for sector in train_df['sector'].unique():
+            sector_data = train_df[train_df['sector'] == sector]
+            if len(sector_data) < 50:
+                continue
+
+            X_sector = sector_data[feature_cols]
+            y_sector = sector_data[target_col]
+
+            # Train sector classifiers
+            if use_classifier:
+                y_binary = (sector_data[target_col] > 0).astype(int)
+                sector_clfs = {
+                    0: XGBClassifier(max_depth=8, n_estimators=100, random_state=42),
+                    1: XGBClassifier(max_depth=9, n_estimators=100, random_state=42),
+                    2: XGBClassifier(max_depth=10, n_estimators=100, random_state=42),
+                    3: LGBMClassifier(max_depth=8, n_estimators=100, random_state=42)
+                }
+                for clf in sector_clfs.values():
+                    clf.fit(X_sector, y_binary)
+                models_info['sector_classifiers'][sector] = sector_clfs
+
+            # Train sector regressors
+            sector_regs = {
+                0: XGBRegressor(max_depth=8, n_estimators=100, random_state=42),
+                1: XGBRegressor(max_depth=10, n_estimators=100, random_state=42)
+            }
+            for reg in sector_regs.values():
+                reg.fit(X_sector, y_sector)
+            models_info['sector_regressors'][sector] = sector_regs
+    else:
+        # Train global classifiers
+        if use_classifier:
+            y_binary = (train_df[target_col] > 0).astype(int)
+            global_clfs = {
+                0: XGBClassifier(max_depth=8, n_estimators=100, random_state=42),
+                1: XGBClassifier(max_depth=9, n_estimators=100, random_state=42),
+                2: XGBClassifier(max_depth=10, n_estimators=100, random_state=42),
+                3: LGBMClassifier(max_depth=8, n_estimators=100, random_state=42)
+            }
+            for clf in global_clfs.values():
+                clf.fit(X_train, y_binary)
+            models_info['classifiers'] = global_clfs
+
+        # Train global regressors
+        global_regs = {
+            0: XGBRegressor(max_depth=8, n_estimators=100, random_state=42),
+            1: XGBRegressor(max_depth=10, n_estimators=100, random_state=42)
+        }
+        for reg in global_regs.values():
+            reg.fit(X_train, y_train)
+        models_info['regressors'] = global_regs
+
+    return models_info
+
+
+def _generate_predictions_for_period_standalone(
+    pred_df: pd.DataFrame,
+    models_info: dict
+) -> pd.DataFrame:
+    """Standalone version of _generate_predictions_for_period for Ray workers."""
+    from src.training.data_processor import DataProcessor
+
+    # Preprocess
+    pred_df = DataProcessor.preprocess_training_data(pred_df, None)
+
+    feature_cols = DataSchema.get_feature_cols(pred_df)
+    X_pred = pred_df[feature_cols]
+
+    pred_df[DataSchema.PRED_RETURN] = 0.0
+    pred_df[DataSchema.PRED_PROBA] = 1.0
+
+    if models_info['use_sector']:
+        for sector in pred_df['sector'].unique():
+            sector_mask = pred_df['sector'] == sector
+            X_sector = pred_df.loc[sector_mask, feature_cols]
+
+            if sector not in models_info['sector_regressors']:
+                continue
+
+            # Predict returns
+            sector_regs = models_info['sector_regressors'][sector]
+            y_pred_return = np.mean([reg.predict(X_sector) for reg in sector_regs.values()], axis=0)
+            pred_df.loc[sector_mask, DataSchema.PRED_RETURN] = y_pred_return
+
+            # Predict probabilities
+            if models_info['use_classifier'] and sector in models_info['sector_classifiers']:
+                sector_clfs = models_info['sector_classifiers'][sector]
+                y_pred_proba = np.mean([clf.predict_proba(X_sector)[:, 1] for clf in sector_clfs.values()], axis=0)
+                pred_df.loc[sector_mask, DataSchema.PRED_PROBA] = y_pred_proba
+    else:
+        # Global predictions
+        global_regs = models_info['regressors']
+        y_pred_return = np.mean([reg.predict(X_pred) for reg in global_regs.values()], axis=0)
+        pred_df[DataSchema.PRED_RETURN] = y_pred_return
+
+        if models_info['use_classifier']:
+            global_clfs = models_info['classifiers']
+            y_pred_proba = np.mean([clf.predict_proba(X_pred)[:, 1] for clf in global_clfs.values()], axis=0)
+            pred_df[DataSchema.PRED_PROBA] = y_pred_proba
+
+    # Calculate ML score
+    pred_df[DataSchema.ML_SCORE] = pred_df[DataSchema.PRED_PROBA] * pred_df[DataSchema.PRED_RETURN]
+
+    return pred_df
+
+
+def _rank_and_select_top_k_standalone(predictions_df: pd.DataFrame, top_k: int) -> pd.DataFrame:
+    """Standalone version of _rank_and_select_top_k for Ray workers."""
+    # Sort by ML score descending
+    predictions_df = predictions_df.sort_values(by=DataSchema.ML_SCORE, ascending=False)
+
+    # Add rank
+    predictions_df[DataSchema.RANK] = range(1, len(predictions_df) + 1)
+
+    # Mark top-K as selected
+    predictions_df[DataSchema.SELECTED] = False
+    predictions_df.loc[predictions_df.index[:top_k], DataSchema.SELECTED] = True
+
+    return predictions_df
+
 
 class Regressor:
     """분류와 회귀를 사용하는 2단계 주식 가격 예측 모델입니다.
@@ -2526,8 +2865,9 @@ class Regressor:
         """
         Walk-Forward training: Train and predict for each cutoff period.
 
-        This method implements walk-forward analysis by:
-        1. For each cutoff_date:
+        This method implements walk-forward analysis with optional parallel execution:
+        1. Determine optimal number of workers (using MemoryProfiler)
+        2. For each cutoff_date (in parallel or sequential):
            a. Load data up to cutoff_date (expanding/rolling window)
            b. Train models
            c. Load next period data
@@ -2537,8 +2877,14 @@ class Regressor:
         The predictions_cache will be saved to pkl for use by:
         - evaluation() method (accuracy metrics)
         - ml_backtest.py (if USE_CACHED_PREDICTIONS=Y)
+
+        Parallel execution:
+        - Uses Ray to train multiple periods in parallel
+        - MemoryProfiler auto-learns optimal worker count
+        - Handles OOM by invalidating profile and retrying conservatively
         """
         from src.training.data_processor import DataProcessor
+        from src.utils.memory_profiler import MemoryProfiler
 
         MODEL_SAVE_PATH = self.root_path + '/MODELS/'
         if not os.path.exists(MODEL_SAVE_PATH):
@@ -2547,8 +2893,32 @@ class Regressor:
         eval_config = self.conf.get('EVALUATION', {})
         top_k = eval_config.get('TOP_K_NUM', 10)
 
+        # Parallel training configuration
+        parallel_enabled = eval_config.get('PARALLEL_TRAINING', 'N') == 'Y'
+        num_workers_config = eval_config.get('NUM_WORKERS', 'auto')
+        profile_file = self.root_path + '/config/' + eval_config.get('MEMORY_PROFILE_FILE', 'memory_profile.json')
+
         logging.info(f"\n🔄 Walk-Forward Training: {len(self.walk_forward_periods)} periods")
         logging.info(f"🎯 Top-K Selection: {top_k}")
+        logging.info(f"⚡ Parallel Training: {'Enabled' if parallel_enabled else 'Disabled'}")
+
+        # Determine execution mode
+        use_parallel = parallel_enabled and RAY_AVAILABLE and len(self.walk_forward_periods) > 1
+
+        if parallel_enabled and not RAY_AVAILABLE:
+            logging.warning("⚠️  Parallel training requested but Ray not available. Using sequential mode.")
+
+        if use_parallel:
+            self._train_walk_forward_parallel(MODEL_SAVE_PATH, top_k, num_workers_config, profile_file)
+        else:
+            self._train_walk_forward_sequential(MODEL_SAVE_PATH, top_k)
+
+    def _train_walk_forward_sequential(self, model_save_path: str, top_k: int) -> None:
+        """Sequential walk-forward training (original implementation)."""
+        from src.training.data_processor import DataProcessor
+
+        logging.info("="*80)
+        logging.info("🔁 Sequential Mode")
         logging.info("="*80)
 
         # Initialize predictions cache
@@ -2610,10 +2980,139 @@ class Regressor:
             logging.info(f"✅ Top-{top_k}: {self.predictions_cache[cache_key]['top_k_selected']}")
 
         # Save predictions cache to pkl
-        cache_file = MODEL_SAVE_PATH + eval_config.get('PREDICTIONS_CACHE_FILE', 'regressor_predictions.pkl')
+        eval_config = self.conf.get('EVALUATION', {})
+        cache_file = model_save_path + eval_config.get('PREDICTIONS_CACHE_FILE', 'regressor_predictions.pkl')
         logging.info(f"\n💾 Saving predictions cache to {cache_file}")
         joblib.dump(self.predictions_cache, cache_file)
         logging.info(f"✅ Walk-forward training completed! {len(self.predictions_cache)} periods saved.")
+
+    def _train_walk_forward_parallel(self, model_save_path: str, top_k: int, num_workers_config: str, profile_file: str) -> None:
+        """Parallel walk-forward training using Ray and MemoryProfiler."""
+        from src.utils.memory_profiler import MemoryProfiler
+
+        logging.info("="*80)
+        logging.info("⚡ Parallel Mode (Ray)")
+        logging.info("="*80)
+
+        # Initialize MemoryProfiler
+        profiler = MemoryProfiler(profile_path=profile_file)
+
+        # Build config for profiler
+        profiler_config = {
+            'train_start_year': self.conf.get('EVALUATION', {}).get('TRAIN_START_YEAR'),
+            'num_periods': len(self.walk_forward_periods),
+            'use_sector': self.use_sector_model,
+            'use_classifier': self.use_classifier,
+            'top_k': top_k
+        }
+
+        # Determine number of workers
+        if num_workers_config == 'auto':
+            worker_info = profiler.get_optimal_workers(profiler_config)
+            num_workers = worker_info['recommended_workers']
+            confidence = worker_info['confidence']
+            reason = worker_info['reason']
+
+            logging.info(f"🤖 Auto-determined workers: {num_workers}")
+            logging.info(f"   Confidence: {confidence}")
+            logging.info(f"   Reason: {reason}")
+        else:
+            try:
+                num_workers = int(num_workers_config)
+                logging.info(f"👤 Manual workers: {num_workers}")
+            except ValueError:
+                logging.warning(f"⚠️  Invalid NUM_WORKERS value '{num_workers_config}', defaulting to 1")
+                num_workers = 1
+
+        # Cap workers at number of periods
+        num_workers = min(num_workers, len(self.walk_forward_periods))
+
+        logging.info(f"🚀 Starting parallel training with {num_workers} workers...")
+
+        # Start profiling
+        profiler.start_run(profiler_config, num_workers)
+
+        try:
+            # Initialize Ray
+            if not ray.is_initialized():
+                ray.init(ignore_reinit_error=True, log_to_driver=False)
+                logging.info("✅ Ray initialized")
+
+            # Submit all periods as Ray tasks
+            logging.info(f"📤 Submitting {len(self.walk_forward_periods)} tasks to Ray...")
+            futures = []
+            for idx, period_info in enumerate(self.walk_forward_periods):
+                future = train_single_period_remote.remote(
+                    period_info=period_info,
+                    root_path=self.root_path,
+                    use_classifier=self.use_classifier,
+                    use_sector_model=self.use_sector_model,
+                    top_k=top_k,
+                    logger_level=logging.INFO
+                )
+                futures.append(future)
+
+                # Sample memory for first few periods
+                if idx < 3:
+                    import time
+                    time.sleep(2)  # Give worker time to start
+                    train_samples = len(self._load_data_until_cutoff(
+                        period_info['train_start_year'],
+                        period_info['cutoff_date']
+                    ))
+                    profiler.record_period_memory(idx, train_samples)
+
+            # Wait for all results
+            logging.info(f"⏳ Waiting for {len(futures)} tasks to complete...")
+            results = ray.get(futures)
+
+            # Build predictions cache from results
+            self.predictions_cache = {}
+            for cache_key, cache_entry in results:
+                if cache_entry is not None:
+                    self.predictions_cache[cache_key] = cache_entry
+                    logging.info(f"✅ Period {cache_key}: {len(cache_entry['top_k_selected'])} stocks selected")
+                else:
+                    logging.warning(f"⚠️  Period {cache_key}: No results (empty data or error)")
+
+            # Save predictions cache
+            eval_config = self.conf.get('EVALUATION', {})
+            cache_file = model_save_path + eval_config.get('PREDICTIONS_CACHE_FILE', 'regressor_predictions.pkl')
+            logging.info(f"\n💾 Saving predictions cache to {cache_file}")
+            joblib.dump(self.predictions_cache, cache_file)
+            logging.info(f"✅ Parallel walk-forward training completed! {len(self.predictions_cache)} periods saved.")
+
+            # End profiling (success)
+            profiler.end_run(success=True)
+
+        except ray.exceptions.OutOfMemoryError as e:
+            logging.error(f"❌ Out of Memory Error: {e}")
+            logging.error("🔧 Profile will be invalidated. Next run will use conservative settings.")
+
+            # End profiling (OOM failure)
+            profiler.end_run(success=False, error="OutOfMemoryError")
+
+            # Fall back to sequential mode
+            logging.info("⚠️  Falling back to sequential mode...")
+            self._train_walk_forward_sequential(model_save_path, top_k)
+
+        except Exception as e:
+            logging.error(f"❌ Parallel training failed: {e}")
+            import traceback
+            traceback.print_exc()
+
+            # End profiling (failure)
+            profiler.end_run(success=False, error=str(e))
+
+            # Fall back to sequential mode
+            logging.info("⚠️  Falling back to sequential mode...")
+            self._train_walk_forward_sequential(model_save_path, top_k)
+
+        finally:
+            # Cleanup Ray resources
+            if ray.is_initialized():
+                ray.shutdown()
+                logging.info("🧹 Ray shutdown")
 
     def _load_data_until_cutoff(self, train_start_year: int, cutoff_date: datetime) -> pd.DataFrame:
         """

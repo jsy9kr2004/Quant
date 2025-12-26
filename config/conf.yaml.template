@@ -91,6 +91,20 @@ EVALUATION:
   # {ROOT_PATH}/MODELS/ 하위에 저장됨
   PREDICTIONS_CACHE_FILE: "regressor_predictions.pkl"
 
+  # 병렬 학습 설정 (Parallel Training)
+  # Walk-forward 구간별로 병렬 학습하여 속도 향상
+  PARALLEL_TRAINING: Y  # Y = 병렬 학습, N = 순차 학습
+
+  # 병렬 워커 수
+  # "auto": 메모리 프로파일 기반 자동 결정 (권장)
+  # 1-8: 지정된 워커 수 (수동 설정)
+  NUM_WORKERS: "auto"
+
+  # 메모리 프로파일 저장 위치
+  # {ROOT_PATH}/config/ 하위에 저장됨
+  # 자동으로 메모리 사용량을 학습하여 최적 워커 수 결정
+  MEMORY_PROFILE_FILE: "memory_profile.json"
+
 # ============================================================================
 # 머신러닝 설정 (ML Configuration)
 # ============================================================================
