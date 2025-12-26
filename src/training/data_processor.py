@@ -392,10 +392,11 @@ class DataProcessor:
         if hasattr(sector_model, 'get_booster'):
             model_features = sector_model.get_booster().feature_names
             if model_features is not None:
-                # 누락된 피처는 NaN으로 채우기
+                # ✅ FIX: Ensure X is a copy to avoid SettingWithCopyWarning
+                # Direct assignment handles copy internally if needed
                 missing_features = set(model_features) - set(X.columns)
                 for col in missing_features:
-                    X.loc[:, col] = np.nan
+                    X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
 
                 # 모델 피처만 선택 (순서 맞춤)
                 X = X[model_features]
