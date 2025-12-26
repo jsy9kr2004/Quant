@@ -3122,7 +3122,7 @@ class Regressor:
                 if missing_features:
                     logging.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with NaN")
                     for col in missing_features:
-                        x_test[col] = np.nan
+                        x_test.loc[:, col] = np.nan
 
                 # 추가 피처는 제거
                 extra_features = set(x_test.columns) - set(train_feature_columns)
@@ -3645,7 +3645,7 @@ class Regressor:
                         logging.warning(f"      - {col}")
                     logging.warning(f"      ... and {len(missing_features)-10} more")
                 for col in missing_features:
-                    input[col] = np.nan
+                    input.loc[:, col] = np.nan
 
             # 추가 피처는 제거
             extra_features = set(input.columns) - set(train_feature_columns)

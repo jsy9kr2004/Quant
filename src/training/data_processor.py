@@ -395,7 +395,7 @@ class DataProcessor:
                 # 누락된 피처는 NaN으로 채우기
                 missing_features = set(model_features) - set(X.columns)
                 for col in missing_features:
-                    X[col] = np.nan
+                    X.loc[:, col] = np.nan
 
                 # 모델 피처만 선택 (순서 맞춤)
                 X = X[model_features]
@@ -511,7 +511,7 @@ class DataProcessor:
                 if missing_features:
                     logger.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with NaN")
                     for col in missing_features:
-                        X[col] = np.nan
+                        X.loc[:, col] = np.nan
 
                 # Remove extra features
                 extra_features = set(X.columns) - set(model_features)
