@@ -3443,6 +3443,23 @@ class Regressor:
         X = X.reset_index(drop=True)
         y = y.reset_index(drop=True)
 
+        # ✅ FIX: Remove NaN values in target before splitting
+        # NaN in target means no future price data (delisting, bankruptcy, etc.)
+        # XGBoost/LightGBM cannot handle NaN in labels
+        nan_mask = y.isna()
+        if nan_mask.any():
+            n_nan = nan_mask.sum()
+            n_total = len(y)
+            pct_nan = (n_nan / n_total) * 100
+            logging.warning(f"   ⚠️  Found {n_nan} NaN in target ({pct_nan:.2f}%) - removing these rows")
+
+            # Remove rows with NaN in target
+            valid_mask = ~nan_mask
+            X = X[valid_mask].reset_index(drop=True)
+            y = y[valid_mask].reset_index(drop=True)
+
+            logging.info(f"   After NaN removal: {len(y)} samples ({n_total - n_nan} valid)")
+
         split_idx = int(len(X) * (1 - val_ratio))
 
         X_train_split = X.iloc[:split_idx]
