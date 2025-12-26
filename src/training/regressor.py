@@ -3458,11 +3458,10 @@ class Regressor:
         """Train global classifiers with early stopping validation."""
         classifiers = {}
 
-        # Create binary target
-        if DataSchema.CLASSIFICATION_TARGET in train_df.columns:
-            y_binary = train_df[DataSchema.CLASSIFICATION_TARGET]
-        else:
-            y_binary = (train_df[DataSchema.REGRESSION_TARGET] > 0).astype(int)
+        # ✅ FIX: Always create binary target from regression target
+        # DataSchema.CLASSIFICATION_TARGET points to "price_dev" which contains regression values!
+        # We must always create binary (0/1) from regression target
+        y_binary = (train_df[DataSchema.REGRESSION_TARGET] > 0).astype(int)
 
         # ✅ ADD: Temporal train/val split for early stopping
         X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_train, y_binary, val_ratio=0.2)
@@ -3524,10 +3523,10 @@ class Regressor:
         """Train sector classifiers with early stopping validation."""
         classifiers = {}
 
-        if DataSchema.CLASSIFICATION_TARGET in sector_df.columns:
-            y_binary = sector_df[DataSchema.CLASSIFICATION_TARGET]
-        else:
-            y_binary = (sector_df[DataSchema.REGRESSION_TARGET] > 0).astype(int)
+        # ✅ FIX: Always create binary target from regression target
+        # DataSchema.CLASSIFICATION_TARGET points to "price_dev" which contains regression values!
+        # We must always create binary (0/1) from regression target
+        y_binary = (sector_df[DataSchema.REGRESSION_TARGET] > 0).astype(int)
 
         # ✅ ADD: Temporal train/val split for early stopping
         X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_sector, y_binary, val_ratio=0.2)
