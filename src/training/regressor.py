@@ -408,8 +408,12 @@ def _load_data_until_cutoff_standalone(root_path: str, train_start_year: int, cu
     all_train_data = []
     current_year = train_start_year
 
+    # ✅ FIX: Use correct path where make_mldata.py saves training data
+    ml_data_dir = f"{root_path}/processed/ml_data/per_year"
+
     while current_year <= cutoff_date.year:
-        file_pattern = f"{root_path}/data/train/{current_year}_*.parquet"
+        # ✅ FIX: Use correct file pattern - rnorm_ml_YYYY_QN.parquet
+        file_pattern = f"{ml_data_dir}/rnorm_ml_{current_year}_Q*.parquet"
         year_files = glob.glob(file_pattern)
 
         for file_path in sorted(year_files):
@@ -435,7 +439,11 @@ def _load_data_until_cutoff_standalone(root_path: str, train_start_year: int, cu
 def _load_data_for_prediction_standalone(root_path: str, cutoff_date: datetime.datetime) -> pd.DataFrame:
     """Standalone version of _load_data_for_prediction for Ray workers."""
     year = cutoff_date.year
-    file_pattern = f"{root_path}/data/train/{year}_*.parquet"
+
+    # ✅ FIX: Use correct path and file pattern
+    ml_data_dir = f"{root_path}/processed/ml_data/per_year"
+    # rnorm_fs_ files contain features only (no targets, for prediction)
+    file_pattern = f"{ml_data_dir}/rnorm_fs_{year}_Q*.parquet"
     year_files = glob.glob(file_pattern)
 
     pred_data = []
@@ -3139,8 +3147,13 @@ class Regressor:
         all_train_data = []
         current_year = train_start_year
 
+        # ✅ FIX: Use correct path where make_mldata.py saves training data
+        ml_data_dir = f"{self.root_path}/processed/ml_data/per_year"
+
         while current_year <= cutoff_date.year:
-            file_pattern = f"{self.root_path}/data/train/{current_year}_*.parquet"
+            # ✅ FIX: Use correct file pattern - rnorm_ml_YYYY_QN.parquet
+            # rnorm_ml_ files contain features + targets (for training)
+            file_pattern = f"{ml_data_dir}/rnorm_ml_{current_year}_Q*.parquet"
             year_files = glob.glob(file_pattern)
 
             for file_path in sorted(year_files):
@@ -3184,7 +3197,11 @@ class Regressor:
         """
         # Load data files that might contain the cutoff_date
         year = cutoff_date.year
-        file_pattern = f"{self.root_path}/data/train/{year}_*.parquet"
+
+        # ✅ FIX: Use correct path and file pattern
+        ml_data_dir = f"{self.root_path}/processed/ml_data/per_year"
+        # rnorm_fs_ files contain features only (no targets, for prediction)
+        file_pattern = f"{ml_data_dir}/rnorm_fs_{year}_Q*.parquet"
         year_files = glob.glob(file_pattern)
 
         pred_data = []
