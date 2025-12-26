@@ -3436,6 +3436,13 @@ class Regressor:
         Returns:
             Tuple of (X_train, X_val, y_train, y_val)
         """
+        # ✅ FIX: Reset indices to ensure .iloc works correctly
+        # When X and y come from filtered DataFrames (e.g., sector filtering),
+        # their indices might be non-contiguous (e.g., [100, 200, 300, ...])
+        # .iloc uses positional indexing, so we need 0-based contiguous indices
+        X = X.reset_index(drop=True)
+        y = y.reset_index(drop=True)
+
         split_idx = int(len(X) * (1 - val_ratio))
 
         X_train_split = X.iloc[:split_idx]
