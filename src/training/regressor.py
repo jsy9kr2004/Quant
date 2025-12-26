@@ -3417,8 +3417,34 @@ class Regressor:
 
         return predictions_df
 
+    def _temporal_train_val_split(self, X: pd.DataFrame, y: pd.Series, val_ratio: float = 0.2) -> tuple:
+        """
+        Split data into train/validation sets based on temporal order.
+
+        For time series data, we use the last val_ratio of data as validation
+        to simulate forward testing (training on past, validating on future).
+
+        Args:
+            X: Feature DataFrame
+            y: Target Series
+            val_ratio: Proportion of data to use for validation (default: 0.2)
+
+        Returns:
+            Tuple of (X_train, X_val, y_train, y_val)
+        """
+        split_idx = int(len(X) * (1 - val_ratio))
+
+        X_train_split = X.iloc[:split_idx]
+        X_val_split = X.iloc[split_idx:]
+        y_train_split = y.iloc[:split_idx]
+        y_val_split = y.iloc[split_idx:]
+
+        self.logger.info(f"   Temporal split: Train={len(X_train_split)}, Val={len(X_val_split)}")
+
+        return X_train_split, X_val_split, y_train_split, y_val_split
+
     def _train_global_classifiers_inline(self, X_train: pd.DataFrame, train_df: pd.DataFrame) -> dict:
-        """Train global classifiers without saving to disk."""
+        """Train global classifiers with early stopping validation."""
         classifiers = {}
 
         # Create binary target
@@ -3427,36 +3453,64 @@ class Regressor:
         else:
             y_binary = (train_df[DataSchema.REGRESSION_TARGET] > 0).astype(int)
 
-        # Train 4 classifiers (similar to existing logic)
+        # ✅ ADD: Temporal train/val split for early stopping
+        X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_train, y_binary, val_ratio=0.2)
+
+        # Train 4 classifiers with early stopping
         from xgboost import XGBClassifier
         from lightgbm import LGBMClassifier
 
-        classifiers[0] = XGBClassifier(max_depth=8, n_estimators=100, random_state=42)
-        classifiers[1] = XGBClassifier(max_depth=9, n_estimators=100, random_state=42)
-        classifiers[2] = XGBClassifier(max_depth=10, n_estimators=100, random_state=42)
-        classifiers[3] = LGBMClassifier(max_depth=8, n_estimators=100, random_state=42)
+        # ✅ CHANGE: Increase n_estimators, add early_stopping_rounds
+        classifiers[0] = XGBClassifier(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        classifiers[1] = XGBClassifier(max_depth=9, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        classifiers[2] = XGBClassifier(max_depth=10, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        classifiers[3] = LGBMClassifier(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
 
         for idx, clf in classifiers.items():
-            clf.fit(X_train, y_binary)
+            # ✅ ADD: Fit with validation set for early stopping
+            if isinstance(clf, LGBMClassifier):
+                clf.fit(X_tr, y_tr,
+                       eval_set=[(X_val, y_val)],
+                       callbacks=[lgb.early_stopping(50, verbose=False)])
+                best_iter = clf.best_iteration_ if hasattr(clf, 'best_iteration_') else len(clf.evals_result_['valid_0']['binary_logloss'])
+                val_score = clf.evals_result_['valid_0']['binary_logloss'][best_iter - 1]
+                self.logger.info(f"   Classifier {idx} (LGBM): best_iter={best_iter}, val_logloss={val_score:.4f}")
+            else:  # XGBoost
+                clf.fit(X_tr, y_tr,
+                       eval_set=[(X_val, y_val)],
+                       verbose=False)
+                best_iter = clf.best_iteration
+                val_score = clf.evals_result()['validation_0']['logloss'][best_iter]
+                self.logger.info(f"   Classifier {idx} (XGB): best_iter={best_iter}, val_logloss={val_score:.4f}")
 
         return classifiers
 
     def _train_global_regressors_inline(self, X_train: pd.DataFrame, y_train: pd.Series) -> dict:
-        """Train global regressors without saving to disk."""
+        """Train global regressors with early stopping validation."""
         regressors = {}
+
+        # ✅ ADD: Temporal train/val split for early stopping
+        X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_train, y_train, val_ratio=0.2)
 
         from xgboost import XGBRegressor
 
-        regressors[0] = XGBRegressor(max_depth=8, n_estimators=100, random_state=42)
-        regressors[1] = XGBRegressor(max_depth=10, n_estimators=100, random_state=42)
+        # ✅ CHANGE: Increase n_estimators, add early_stopping_rounds
+        regressors[0] = XGBRegressor(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        regressors[1] = XGBRegressor(max_depth=10, n_estimators=500, random_state=42, early_stopping_rounds=50)
 
         for idx, reg in regressors.items():
-            reg.fit(X_train, y_train)
+            # ✅ ADD: Fit with validation set for early stopping
+            reg.fit(X_tr, y_tr,
+                   eval_set=[(X_val, y_val)],
+                   verbose=False)
+            best_iter = reg.best_iteration
+            val_score = reg.evals_result()['validation_0']['rmse'][best_iter]
+            self.logger.info(f"   Regressor {idx} (XGB): best_iter={best_iter}, val_rmse={val_score:.4f}")
 
         return regressors
 
     def _train_sector_classifiers_inline(self, X_sector: pd.DataFrame, sector_df: pd.DataFrame) -> dict:
-        """Train sector classifiers without saving to disk."""
+        """Train sector classifiers with early stopping validation."""
         classifiers = {}
 
         if DataSchema.CLASSIFICATION_TARGET in sector_df.columns:
@@ -3464,30 +3518,58 @@ class Regressor:
         else:
             y_binary = (sector_df[DataSchema.REGRESSION_TARGET] > 0).astype(int)
 
+        # ✅ ADD: Temporal train/val split for early stopping
+        X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_sector, y_binary, val_ratio=0.2)
+
         from xgboost import XGBClassifier
         from lightgbm import LGBMClassifier
 
-        classifiers[0] = XGBClassifier(max_depth=8, n_estimators=100, random_state=42)
-        classifiers[1] = XGBClassifier(max_depth=9, n_estimators=100, random_state=42)
-        classifiers[2] = XGBClassifier(max_depth=10, n_estimators=100, random_state=42)
-        classifiers[3] = LGBMClassifier(max_depth=8, n_estimators=100, random_state=42)
+        # ✅ CHANGE: Increase n_estimators, add early_stopping_rounds
+        classifiers[0] = XGBClassifier(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        classifiers[1] = XGBClassifier(max_depth=9, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        classifiers[2] = XGBClassifier(max_depth=10, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        classifiers[3] = LGBMClassifier(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
 
         for idx, clf in classifiers.items():
-            clf.fit(X_sector, y_binary)
+            # ✅ ADD: Fit with validation set for early stopping
+            if isinstance(clf, LGBMClassifier):
+                clf.fit(X_tr, y_tr,
+                       eval_set=[(X_val, y_val)],
+                       callbacks=[lgb.early_stopping(50, verbose=False)])
+                best_iter = clf.best_iteration_ if hasattr(clf, 'best_iteration_') else len(clf.evals_result_['valid_0']['binary_logloss'])
+                val_score = clf.evals_result_['valid_0']['binary_logloss'][best_iter - 1]
+                self.logger.info(f"   Sector Classifier {idx} (LGBM): best_iter={best_iter}, val_logloss={val_score:.4f}")
+            else:  # XGBoost
+                clf.fit(X_tr, y_tr,
+                       eval_set=[(X_val, y_val)],
+                       verbose=False)
+                best_iter = clf.best_iteration
+                val_score = clf.evals_result()['validation_0']['logloss'][best_iter]
+                self.logger.info(f"   Sector Classifier {idx} (XGB): best_iter={best_iter}, val_logloss={val_score:.4f}")
 
         return classifiers
 
     def _train_sector_regressors_inline(self, X_sector: pd.DataFrame, y_sector: pd.Series) -> dict:
-        """Train sector regressors without saving to disk."""
+        """Train sector regressors with early stopping validation."""
         regressors = {}
+
+        # ✅ ADD: Temporal train/val split for early stopping
+        X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_sector, y_sector, val_ratio=0.2)
 
         from xgboost import XGBRegressor
 
-        regressors[0] = XGBRegressor(max_depth=8, n_estimators=100, random_state=42)
-        regressors[1] = XGBRegressor(max_depth=10, n_estimators=100, random_state=42)
+        # ✅ CHANGE: Increase n_estimators, add early_stopping_rounds
+        regressors[0] = XGBRegressor(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        regressors[1] = XGBRegressor(max_depth=10, n_estimators=500, random_state=42, early_stopping_rounds=50)
 
         for idx, reg in regressors.items():
-            reg.fit(X_sector, y_sector)
+            # ✅ ADD: Fit with validation set for early stopping
+            reg.fit(X_tr, y_tr,
+                   eval_set=[(X_val, y_val)],
+                   verbose=False)
+            best_iter = reg.best_iteration
+            val_score = reg.evals_result()['validation_0']['rmse'][best_iter]
+            self.logger.info(f"   Sector Regressor {idx} (XGB): best_iter={best_iter}, val_rmse={val_score:.4f}")
 
         return regressors
 
