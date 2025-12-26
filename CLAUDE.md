@@ -26,6 +26,190 @@
 
 ---
 
+## ⚠️ 데이터 처리 핵심 원칙 (Critical Data Handling Principles)
+
+### 원칙 1: NaN ≠ 0 (Missing vs Zero)
+
+**절대 동일시하지 말 것!**
+
+#### NaN (Not a Number) - Missing Data
+**의미**: 재무제표 항목 자체가 존재하지 않음
+
+**발생 원인**:
+- 산업별 특성: 은행의 대출이자율 (제조업에는 없음)
+- 기업 성장 단계: 스타트업의 영업이익 (아직 발생하지 않음)
+- 회계 시점: 상장 전 분기 데이터
+- 상장폐지/파산: 미래 가격 데이터 없음
+
+**올바른 처리**:
+```python
+# ✅ CORRECT
+# 1. 타겟 변수의 NaN: 완전히 제거
+if y.isna().any():
+    valid_mask = ~y.isna()
+    X = X[valid_mask]
+    y = y[valid_mask]
+
+# 2. Feature의 NaN: 컨텍스트 고려하여 imputation
+# - 업종별/규모별 중앙값
+# - 또는 "결측" 자체를 정보로 활용 (별도 indicator)
+```
+
+**잘못된 처리**:
+```python
+# ❌ WRONG
+df.fillna(0)  # "데이터 없음" = "실제로 0" (완전히 다른 의미!)
+→ 모델이 "영업이익 항목 없는 회사 = 영업이익 0인 회사"로 잘못 학습
+```
+
+#### 0 (Zero) - Actual Zero Value
+**의미**: 재무제표 항목이 존재하지만 실제 값이 0
+
+**발생 원인**:
+- 손익분기점: 영업이익 0원
+- 경영 전략: 무차입 경영 (부채 0원), 무배당 정책 (배당 0원)
+- 사업 특성: 계절성 매출 (비수기 매출 0원)
+
+**올바른 처리**:
+```python
+# ✅ CORRECT
+# 0은 유효한 데이터로 학습에 사용
+model.fit(X, y)  # y에 0이 포함되어 있어도 OK
+```
+
+#### 실전 예시
+
+**시나리오**: 두 기업의 영업이익
+
+| 기업 | 영업이익 | 의미 |
+|------|----------|------|
+| A사 | 0 | 손익분기점 (사업은 하지만 이익 없음) |
+| B사 | NaN | 스타트업 (아직 본격 영업 전) |
+
+**잘못된 처리**:
+```python
+df['operating_income'].fillna(0)
+→ A사와 B사를 동일하게 취급 (완전히 다른 상황인데!)
+```
+
+**올바른 처리**:
+```python
+# B사(NaN) 제거 또는 별도 그룹으로 분리
+# A사(0)는 유효한 데이터로 학습
+```
+
+---
+
+### 원칙 2: inf ≠ too large (Infinity vs Overflow)
+
+**절대 동일시하지 말 것!**
+
+#### inf (Infinity) - Mathematical Error
+**의미**: 수학적 무한대 (계산 오류)
+
+**발생 원인**:
+- Division by zero: `PER = 주가 / EPS`, EPS = 0 → inf
+- Logarithm of zero: `log(0)` → -inf
+- 계산 오류: `ROE = 순이익 / 자본`, 자본 = 0 → inf
+
+**올바른 처리**:
+```python
+# ✅ CORRECT - inf는 계산 오류이므로 제거
+df = df[~np.isinf(df).any(axis=1)]
+
+# 또는 계산 방식 수정
+# PER = 주가 / max(EPS, 0.01)  # 0 방지
+```
+
+#### too large (Overflow) - Valid but Out of Range
+**의미**: 유효한 값이지만 데이터 타입의 표현 한계 초과
+
+**발생 원인**:
+- **현대 기업의 거대화**:
+  - 2000년대: 시가총액 억 단위
+  - 2020년대: 조 단위 (Apple 3조 달러)
+  - 1000배 증가!
+- 중간 계산값 overflow:
+  - `market_cap × revenue × assets`
+  - 각각 10^12 수준이면 곱하면 10^36
+  - float64 최대값(~10^308)은 괜찮지만, 계산 중 overflow 가능
+
+**올바른 처리**:
+```python
+# ✅ CORRECT - 큰 값을 적절히 처리
+
+# 방법 1: Log scaling (곱셈 → 덧셈)
+df['log_market_cap'] = np.log1p(df['market_cap'])
+
+# 방법 2: 업종별 상대값 정규화
+df['market_cap_rank_in_sector'] = df.groupby('sector')['market_cap'].rank(pct=True)
+
+# 방법 3: Robust scaling
+from sklearn.preprocessing import RobustScaler
+scaler = RobustScaler()
+df['market_cap_scaled'] = scaler.fit_transform(df[['market_cap']])
+
+# 방법 4: 데이터 타입 업그레이드 (필요시)
+import decimal
+df['market_cap'] = df['market_cap'].astype('float128')  # 또는 Decimal
+```
+
+**잘못된 처리**:
+```python
+# ❌ WRONG - 큰 값을 무시
+df[df > 1e15] = np.nan  # 대형 기업 데이터를 NaN으로!
+df = df.clip(upper=1e12)  # 대형 기업을 중형으로 축소!
+
+→ 모델이 "대형 기업 = 없음" 또는 "대형 기업 = 중형 기업"으로 잘못 학습
+→ Apple, Microsoft 같은 초대형주를 제대로 평가 못 함
+```
+
+#### 실전 예시
+
+**시나리오**: PER 계산
+
+```python
+# Case 1: EPS = 0 (손실) → PER = inf (수학적 오류)
+# Case 2: EPS = 0.000001 (미미한 이익) → PER = 10,000,000 (유효하지만 매우 큼)
+```
+
+**잘못된 처리**:
+```python
+# ❌ WRONG
+df['PER'] = df['price'] / df['EPS']
+df[df['PER'] > 1000] = np.nan  # Case 2도 제거됨!
+```
+
+**올바른 처리**:
+```python
+# ✅ CORRECT
+# inf 제거 (수학적 오류)
+df = df[~np.isinf(df['PER'])]
+
+# 큰 값은 유지하되 log scaling
+df['log_PER'] = np.log1p(df['PER'].clip(lower=0))
+```
+
+---
+
+### 체크리스트
+
+**모든 데이터 전처리 시 확인**:
+
+- [ ] `fillna(0)` 사용? → ❌ NaN과 0의 의미 확인 필수!
+- [ ] `df[df == np.inf] = np.nan` 사용? → ❌ inf(오류)와 large(유효) 구분!
+- [ ] `clip(upper=threshold)` 사용? → ⚠️ 큰 값이 유효한 데이터인지 확인!
+- [ ] 타겟 변수의 NaN? → ✅ 반드시 제거 (학습 불가)
+- [ ] Feature의 NaN? → ⚠️ 컨텍스트 고려하여 처리 (제거 또는 imputation)
+
+**원칙 요약**:
+1. **NaN = Missing**: 제거 또는 의미 있는 imputation
+2. **0 = Zero**: 유효한 데이터로 학습
+3. **inf = Error**: 제거 또는 계산 수정
+4. **too large = Valid**: Log scaling, normalization, 상대값 변환
+
+---
+
 ## 🏗️ System Architecture: 2-Stage ML Structure
 
 안정성과 수익성을 동시에 잡기 위해 모델을 **두 단계로 분리**하여 운용합니다.
