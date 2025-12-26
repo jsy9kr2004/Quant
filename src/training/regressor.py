@@ -3475,10 +3475,21 @@ class Regressor:
         """Train global classifiers with early stopping validation."""
         classifiers = {}
 
-        # ✅ FIX: Always create binary target from regression target
-        # DataSchema.CLASSIFICATION_TARGET points to "price_dev" which contains regression values!
-        # We must always create binary (0/1) from regression target
-        y_binary = (train_df[DataSchema.REGRESSION_TARGET] > 0).astype(int)
+        # ✅ FIX: Remove NaN BEFORE converting to binary
+        # NaN in regression target means no future data (delisting, bankruptcy)
+        # NaN ≠ 0 (decline) - completely different meanings!
+        # Wrong: NaN > 0 → False → 0 (treats delisting as decline)
+        # Right: Remove NaN rows first, then convert to binary
+        y_regression = train_df[DataSchema.REGRESSION_TARGET]
+        nan_mask = y_regression.isna()
+        if nan_mask.any():
+            valid_mask = ~nan_mask
+            X_train = X_train[valid_mask].reset_index(drop=True)
+            y_regression = y_regression[valid_mask].reset_index(drop=True)
+            logging.info(f"   Removed {nan_mask.sum()} NaN rows before binary conversion")
+
+        # Now convert clean data to binary (0/1)
+        y_binary = (y_regression > 0).astype(int)
 
         # ✅ ADD: Temporal train/val split for early stopping
         X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_train, y_binary, val_ratio=0.2)
@@ -3540,10 +3551,21 @@ class Regressor:
         """Train sector classifiers with early stopping validation."""
         classifiers = {}
 
-        # ✅ FIX: Always create binary target from regression target
-        # DataSchema.CLASSIFICATION_TARGET points to "price_dev" which contains regression values!
-        # We must always create binary (0/1) from regression target
-        y_binary = (sector_df[DataSchema.REGRESSION_TARGET] > 0).astype(int)
+        # ✅ FIX: Remove NaN BEFORE converting to binary
+        # NaN in regression target means no future data (delisting, bankruptcy)
+        # NaN ≠ 0 (decline) - completely different meanings!
+        # Wrong: NaN > 0 → False → 0 (treats delisting as decline)
+        # Right: Remove NaN rows first, then convert to binary
+        y_regression = sector_df[DataSchema.REGRESSION_TARGET]
+        nan_mask = y_regression.isna()
+        if nan_mask.any():
+            valid_mask = ~nan_mask
+            X_sector = X_sector[valid_mask].reset_index(drop=True)
+            y_regression = y_regression[valid_mask].reset_index(drop=True)
+            logging.info(f"   Removed {nan_mask.sum()} NaN rows before binary conversion")
+
+        # Now convert clean data to binary (0/1)
+        y_binary = (y_regression > 0).astype(int)
 
         # ✅ ADD: Temporal train/val split for early stopping
         X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_sector, y_binary, val_ratio=0.2)
