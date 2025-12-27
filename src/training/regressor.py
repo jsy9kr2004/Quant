@@ -3298,7 +3298,7 @@ class Regressor:
                         X_sector.copy(),
                         y_sector.to_frame(),  # Convert Series to DataFrame
                         y_cls=None,
-                        config=self.config,
+                        config=self.conf,  # ✅ Use self.conf (not self.config)
                         logger=logging
                     )
 
@@ -3329,7 +3329,7 @@ class Regressor:
                     X_train.copy(),
                     y_train.to_frame(),  # Convert Series to DataFrame
                     y_cls=None,
-                    config=self.config,
+                    config=self.conf,  # ✅ Use self.conf (not self.config)
                     logger=logging
                 )
 
