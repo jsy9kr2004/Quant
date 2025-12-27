@@ -1,0 +1,239 @@
+[2025-12-27 04:43:53,890][INFO    ][MainProcess] ✅ Logging system initialized (level=INFO, file=log.txt) (logger:466)
+[2025-12-27 04:43:53,891][INFO    ][MainProcess] ================================================================================ (MainContext:498)
+[2025-12-27 04:43:53,892][INFO    ][MainProcess] Quant Trading System - Refactored (MainContext:499)
+[2025-12-27 04:43:53,892][INFO    ][MainProcess] ================================================================================ (MainContext:500)
+[2025-12-27 04:43:53,892][INFO    ][MainProcess] Data period: 1996 - 2025 (MainContext:501)
+[2025-12-27 04:43:53,892][INFO    ][MainProcess] Root path: ./data_parquet (MainContext:502)
+[2025-12-27 04:43:53,892][INFO    ][MainProcess] ================================================================================ (MainContext:503)
+[2025-12-27 04:43:53,892][INFO    ][MainProcess] ✅ Configuration validated (config_check:372)
+[2025-12-27 04:43:53,893][INFO    ][MainProcess] ================================================================================ (main:577)
+[2025-12-27 04:43:53,893][INFO    ][MainProcess] Step 2: ML Pipeline (main:578)
+[2025-12-27 04:43:53,893][INFO    ][MainProcess] ================================================================================ (main:579)
+[2025-12-27 04:43:53,893][INFO    ][MainProcess] Preparing ML training data... (main:582)
+[2025-12-27 04:43:55,432][WARNING ][MainProcess] Financial statement file not found, skipping: ./data_parquet/processed/views/financial_statement_1993.parquet (AIDataMaker:230)
+[2025-12-27 04:43:55,433][WARNING ][MainProcess] Financial statement file not found, skipping: ./data_parquet/processed/views/financial_statement_1994.parquet (AIDataMaker:230)
+[2025-12-27 04:44:00,669][WARNING ][MainProcess] Metrics file not found, skipping: ./data_parquet/processed/views/metrics_1993.parquet (AIDataMaker:256)
+[2025-12-27 04:44:00,669][WARNING ][MainProcess] Metrics file not found, skipping: ./data_parquet/processed/views/metrics_1994.parquet (AIDataMaker:256)
+[2025-12-27 04:44:03,893][WARNING ][MainProcess] ⚠️  Cannot find tradable date for 1993-01-01 (AIDataMaker:344)
+[2025-12-27 04:44:03,893][WARNING ][MainProcess]    Price data range: 1996-01-02 to 2025-12-15 (AIDataMaker:345)
+[2025-12-27 04:44:03,893][WARNING ][MainProcess]    Skipping dates before price data is available... (AIDataMaker:346)
+[2025-12-27 04:44:04,146][WARNING ][MainProcess] ⚠️  Cannot find tradable date for 1993-04-01 (AIDataMaker:344)
+[2025-12-27 04:44:04,146][WARNING ][MainProcess]    Price data range: 1996-01-02 to 2025-12-15 (AIDataMaker:345)
+[2025-12-27 04:44:04,146][WARNING ][MainProcess]    Skipping dates before price data is available... (AIDataMaker:346)
+[2025-12-27 04:44:04,399][WARNING ][MainProcess] ⚠️  Cannot find tradable date for 1993-07-01 (AIDataMaker:344)
+[2025-12-27 04:44:04,399][WARNING ][MainProcess]    Price data range: 1996-01-02 to 2025-12-15 (AIDataMaker:345)
+[2025-12-27 04:44:04,399][WARNING ][MainProcess]    Skipping dates before price data is available... (AIDataMaker:346)
+[2025-12-27 04:44:04,654][WARNING ][MainProcess] ⚠️  Cannot find tradable date for 1993-10-01 (AIDataMaker:344)
+[2025-12-27 04:44:04,655][WARNING ][MainProcess]    Price data range: 1996-01-02 to 2025-12-15 (AIDataMaker:345)
+[2025-12-27 04:44:04,655][WARNING ][MainProcess]    Skipping dates before price data is available... (AIDataMaker:346)
+[2025-12-27 04:44:04,934][WARNING ][MainProcess] ⚠️  Cannot find tradable date for 1994-01-01 (AIDataMaker:344)
+[2025-12-27 04:44:04,934][WARNING ][MainProcess]    Price data range: 1996-01-02 to 2025-12-15 (AIDataMaker:345)
+[2025-12-27 04:44:04,934][WARNING ][MainProcess]    Skipping dates before price data is available... (AIDataMaker:346)
+[2025-12-27 04:44:05,212][WARNING ][MainProcess] ⚠️  Cannot find tradable date for 1994-04-01 (AIDataMaker:344)
+[2025-12-27 04:44:05,213][WARNING ][MainProcess]    Price data range: 1996-01-02 to 2025-12-15 (AIDataMaker:345)
+[2025-12-27 04:44:05,213][WARNING ][MainProcess]    Skipping dates before price data is available... (AIDataMaker:346)
+[2025-12-27 04:44:05,498][WARNING ][MainProcess] ⚠️  Cannot find tradable date for 1994-07-01 (AIDataMaker:344)
+[2025-12-27 04:44:05,499][WARNING ][MainProcess]    Price data range: 1996-01-02 to 2025-12-15 (AIDataMaker:345)
+[2025-12-27 04:44:05,499][WARNING ][MainProcess]    Skipping dates before price data is available... (AIDataMaker:346)
+[2025-12-27 04:44:05,778][WARNING ][MainProcess] ⚠️  Cannot find tradable date for 1994-10-01 (AIDataMaker:344)
+[2025-12-27 04:44:05,778][WARNING ][MainProcess]    Price data range: 1996-01-02 to 2025-12-15 (AIDataMaker:345)
+[2025-12-27 04:44:05,779][WARNING ][MainProcess]    Skipping dates before price data is available... (AIDataMaker:346)
+[2025-12-27 04:44:06,061][WARNING ][MainProcess] ⚠️  Cannot find tradable date for 1995-01-01 (AIDataMaker:344)
+[2025-12-27 04:44:06,061][WARNING ][MainProcess]    Price data range: 1996-01-02 to 2025-12-15 (AIDataMaker:345)
+[2025-12-27 04:44:06,061][WARNING ][MainProcess]    Skipping dates before price data is available... (AIDataMaker:346)
+[2025-12-27 04:44:06,322][WARNING ][MainProcess] ⚠️  Cannot find tradable date for 1995-04-01 (AIDataMaker:344)
+[2025-12-27 04:44:06,323][WARNING ][MainProcess]    Price data range: 1996-01-02 to 2025-12-15 (AIDataMaker:345)
+[2025-12-27 04:44:06,323][WARNING ][MainProcess]    Skipping dates before price data is available... (AIDataMaker:346)
+[2025-12-27 04:44:06,581][WARNING ][MainProcess] ⚠️  Cannot find tradable date for 1995-07-01 (AIDataMaker:344)
+[2025-12-27 04:44:06,582][WARNING ][MainProcess]    Price data range: 1996-01-02 to 2025-12-15 (AIDataMaker:345)
+[2025-12-27 04:44:06,582][WARNING ][MainProcess]    Skipping dates before price data is available... (AIDataMaker:346)
+[2025-12-27 04:44:06,858][WARNING ][MainProcess] ⚠️  Cannot find tradable date for 1995-10-01 (AIDataMaker:344)
+[2025-12-27 04:44:06,858][WARNING ][MainProcess]    Price data range: 1996-01-02 to 2025-12-15 (AIDataMaker:345)
+[2025-12-27 04:44:06,858][WARNING ][MainProcess]    Skipping dates before price data is available... (AIDataMaker:346)
+[2025-12-27 04:44:39,476][INFO    ][MainProcess] ✅ Found 120 valid trading dates (AIDataMaker:356)
+[2025-12-27 04:44:40,280][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 1514 → 1362 stocks (152 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:44:41,727][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:44:46,633][WARNING ][MainProcess] No symbols with sufficient data (12+ rows) for 1996_Q1. Skipping... (AIDataMaker:752)
+[2025-12-27 04:44:50,138][WARNING ][MainProcess] No symbols with sufficient data (12+ rows) for 1996_Q2. Skipping... (AIDataMaker:752)
+[2025-12-27 04:44:53,833][WARNING ][MainProcess] No symbols with sufficient data (12+ rows) for 1996_Q3. Skipping... (AIDataMaker:752)
+[2025-12-27 04:44:57,649][WARNING ][MainProcess] No symbols with sufficient data (12+ rows) for 1996_Q4. Skipping... (AIDataMaker:752)
+[2025-12-27 04:44:57,686][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 1626 → 1463 stocks (163 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:44:59,126][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:04,361][WARNING ][MainProcess] No symbols with sufficient data (12+ rows) for 1997_Q1. Skipping... (AIDataMaker:752)
+[2025-12-27 04:45:04,400][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 1713 → 1541 stocks (172 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:45:05,920][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:07,398][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 1843 → 1658 stocks (185 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:45:08,933][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:10,597][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 1947 → 1752 stocks (195 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:45:12,144][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:13,733][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 2006 → 1805 stocks (201 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:45:15,449][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:17,242][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 2077 → 1869 stocks (208 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:45:18,869][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:20,681][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 2409 → 2168 stocks (241 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:45:22,346][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:24,340][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 2540 → 2286 stocks (254 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:45:26,061][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:28,304][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 2670 → 2403 stocks (267 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:45:30,005][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:32,229][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 2816 → 2534 stocks (282 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:45:33,967][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:36,432][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 2964 → 2667 stocks (297 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:45:38,260][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:40,812][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 3049 → 2744 stocks (305 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:45:42,608][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:45,332][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 3126 → 2813 stocks (313 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:45:47,174][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:49,778][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 3263 → 2936 stocks (327 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:45:51,643][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:54,500][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 3383 → 3044 stocks (339 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:45:56,426][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:45:59,379][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 3547 → 3192 stocks (355 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:46:01,299][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:46:04,402][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 3803 → 3422 stocks (381 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:46:06,381][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:46:09,637][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 4126 → 3713 stocks (413 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:46:11,673][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:46:15,149][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 4386 → 3947 stocks (439 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:46:17,316][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:46:21,004][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 4613 → 4151 stocks (462 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:46:23,252][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:46:27,558][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 4958 → 4462 stocks (496 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:46:29,774][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:46:33,975][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 5375 → 4837 stocks (538 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:46:36,226][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:46:40,934][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 5821 → 5239 stocks (582 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:46:43,271][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:46:48,222][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 6748 → 6073 stocks (675 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:46:50,559][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:46:55,856][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 8939 → 8045 stocks (894 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:46:58,408][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:47:05,531][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 9503 → 8552 stocks (951 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:47:08,186][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:47:15,666][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 9787 → 8808 stocks (979 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:47:18,446][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:47:26,269][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 10316 → 9284 stocks (1032 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:47:29,028][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:47:36,802][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 10877 → 9789 stocks (1088 low-liquidity stocks removed) (AIDataMaker:595)
+[2025-12-27 04:47:39,537][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:637)
+[2025-12-27 04:47:48,362][INFO    ][MainProcess] Training models... (main:586)
+[2025-12-27 04:47:48,367][INFO    ][MainProcess] 🔄 Walk-Forward mode ENABLED (root:741)
+[2025-12-27 04:47:48,367][INFO    ][MainProcess]    Window type: expanding (root:742)
+[2025-12-27 04:47:48,367][INFO    ][MainProcess]    Retrain frequency: quarterly (root:743)
+[2025-12-27 04:47:49,652][WARNING ][MainProcess] C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\cupy\_environment.py:596: UserWarning: 
+--------------------------------------------------------------------------------
+
+  CuPy may not function correctly because multiple CuPy packages are installed
+  in your environment:
+
+    cupy-cuda11x, cupy-cuda12x
+
+  Follow these steps to resolve this issue:
+
+    1. For all packages listed above, run the following command to remove all
+       existing CuPy installations:
+
+         $ pip uninstall <package_name>
+
+      If you previously installed CuPy via conda, also run the following:
+
+         $ conda uninstall cupy
+
+    2. Install the appropriate CuPy package.
+       Refer to the Installation Guide for detailed instructions.
+
+         https://docs.cupy.dev/en/stable/install.html
+
+--------------------------------------------------------------------------------
+
+  warnings.warn(f'''
+ (py.warnings:109)
+[2025-12-27 04:47:51,083][INFO    ][MainProcess] 🎮 GPU detected (via CuPy): Using CUDA acceleration (root:140)
+[2025-12-27 04:47:51,084][INFO    ][MainProcess] ============================================================ (root:806)
+[2025-12-27 04:47:51,084][INFO    ][MainProcess] XGBoost Device Configuration (root:807)
+[2025-12-27 04:47:51,084][INFO    ][MainProcess] ============================================================ (root:808)
+[2025-12-27 04:47:51,084][INFO    ][MainProcess] Device: cuda:0 (root:809)
+[2025-12-27 04:47:51,084][INFO    ][MainProcess] CuPy available: True (root:810)
+[2025-12-27 04:47:51,085][INFO    ][MainProcess] GPU prediction enabled: True (root:811)
+[2025-12-27 04:47:51,085][INFO    ][MainProcess] ============================================================ (root:812)
+[2025-12-27 04:47:51,085][INFO    ][MainProcess] ================================================================================ (root:1240)
+[2025-12-27 04:47:51,085][INFO    ][MainProcess] 📂 DATALOAD: Loading and preprocessing training/test data (root:1241)
+[2025-12-27 04:47:51,085][INFO    ][MainProcess] ================================================================================ (root:1242)
+[2025-12-27 04:47:51,085][INFO    ][MainProcess] 🔄 Walk-Forward mode: Generating evaluation periods... (root:1248)
+[2025-12-27 04:47:51,086][INFO    ][MainProcess]   Generated 20 cutoff dates: (root:2066)
+[2025-12-27 04:47:51,086][INFO    ][MainProcess]     1. 2020-01-01 (root:2068)
+[2025-12-27 04:47:51,086][INFO    ][MainProcess]     2. 2020-04-01 (root:2068)
+[2025-12-27 04:47:51,086][INFO    ][MainProcess]     3. 2020-07-01 (root:2068)
+[2025-12-27 04:47:51,086][INFO    ][MainProcess]     4. 2020-10-01 (root:2068)
+[2025-12-27 04:47:51,087][INFO    ][MainProcess]     5. 2021-01-01 (root:2068)
+[2025-12-27 04:47:51,087][INFO    ][MainProcess]     ... and 15 more (root:2070)
+[2025-12-27 04:47:51,087][INFO    ][MainProcess] ✅ Generated 20 walk-forward periods (root:1250)
+[2025-12-27 04:47:51,087][INFO    ][MainProcess] ================================================================================ (root:2140)
+[2025-12-27 04:47:51,087][INFO    ][MainProcess] 🔄 WALK-FORWARD TRAINING (root:2141)
+[2025-12-27 04:47:51,088][INFO    ][MainProcess] ================================================================================ (root:2142)
+[2025-12-27 04:47:51,090][INFO    ][MainProcess] 
+🔄 Walk-Forward Training: 20 periods (root:2909)
+[2025-12-27 04:47:51,090][INFO    ][MainProcess] 🎯 Top-K Selection: 5 (root:2910)
+[2025-12-27 04:47:51,091][INFO    ][MainProcess] ⚡ Parallel Training: Disabled (root:2911)
+[2025-12-27 04:47:51,091][INFO    ][MainProcess] ================================================================================ (root:2928)
+[2025-12-27 04:47:51,091][INFO    ][MainProcess] 🔁 Sequential Mode (root:2929)
+[2025-12-27 04:47:51,091][INFO    ][MainProcess] ================================================================================ (root:2930)
+[2025-12-27 04:47:51,091][INFO    ][MainProcess] 
+================================================================================ (root:2940)
+[2025-12-27 04:47:51,091][INFO    ][MainProcess] 📅 Period 1/20: 2020-01-01 (2020-2021) (root:2941)
+[2025-12-27 04:47:51,092][INFO    ][MainProcess] ================================================================================ (root:2942)
+[2025-12-27 04:47:51,092][INFO    ][MainProcess] 📂 Loading training data: 1996 ~ 2020-01-01 (root:2945)
+[2025-12-27 04:48:51,076][INFO    ][MainProcess]    Loaded 176055 samples from 91 files (root:3178)
+[2025-12-27 04:48:51,588][INFO    ][MainProcess] ✅ Loaded 176055 training samples (root:2952)
+[2025-12-27 04:48:51,589][INFO    ][MainProcess] 🔧 Training models... (root:2955)
+[2025-12-27 04:48:54,655][INFO    ][MainProcess]    Training sector-specific models... (root:3283)
+[2025-12-27 04:48:57,871][INFO    ][MainProcess]    Removed 49 NaN rows before binary conversion (root:3565)
+[2025-12-27 04:48:58,056][INFO    ][MainProcess]    Temporal split: Train=16688, Val=4172 (root:3470)
+[2025-12-27 04:50:00,376][INFO    ][MainProcess]    Sector Classifier 0 (XGB): best_iter=5, val_logloss=0.6408 (root:3597)
+[2025-12-27 04:51:15,602][INFO    ][MainProcess]    Sector Classifier 1 (XGB): best_iter=6, val_logloss=0.6507 (root:3597)
+[2025-12-27 04:52:38,729][INFO    ][MainProcess]    Sector Classifier 2 (XGB): best_iter=3, val_logloss=0.6552 (root:3597)
+[2025-12-27 04:52:59,303][INFO    ][MainProcess]    Sector Classifier 3 (LGBM): best_iter=31, val_logloss=0.6235 (root:3590)
+[2025-12-27 04:53:00,216][WARNING ][MainProcess]    ⚠️  Found 49 NaN in target (0.23%) - removing these rows (root:3454)
+[2025-12-27 04:53:00,588][INFO    ][MainProcess]    After NaN removal: 20860 samples (20860 valid) (root:3461)
+[2025-12-27 04:53:00,589][INFO    ][MainProcess]    Temporal split: Train=16688, Val=4172 (root:3470)
+[2025-12-27 04:53:51,495][INFO    ][MainProcess]    Sector Regressor 0 (XGB): best_iter=0, val_rmse=5163.6915 (root:3621)
+[2025-12-27 04:55:19,611][INFO    ][MainProcess]    Sector Regressor 1 (XGB): best_iter=0, val_rmse=5163.6914 (root:3621)
+[2025-12-27 04:55:27,385][INFO    ][MainProcess]    Removed 35 NaN rows before binary conversion (root:3565)
+[2025-12-27 04:55:27,503][INFO    ][MainProcess]    Temporal split: Train=17646, Val=4412 (root:3470)
+[2025-12-27 04:55:35,307][ERROR   ][MainProcess] 
+
+❌ Fatal error: [04:55:35] C:\actions-runner\_work\xgboost\xgboost\src\data\gradient_index.h:100: Check failed: valid: Input data contains `inf` or a value too large, while `missing` is not set to `inf`
+Traceback (most recent call last):
+  File "C:\Users\jsy9k\PycharmProjects\Quant\main.py", line 651, in <module>
+    main()
+  File "C:\Users\jsy9k\PycharmProjects\Quant\main.py", line 595, in main
+    regressor.train()
+  File "C:\Users\jsy9k\PycharmProjects\Quant\main.py", line 170, in train
+    self.legacy_regressor.train()
+  File "C:\Users\jsy9k\PycharmProjects\Quant\src\training\regressor.py", line 2143, in train
+    self._train_walk_forward()
+  File "C:\Users\jsy9k\PycharmProjects\Quant\src\training\regressor.py", line 2922, in _train_walk_forward
+    self._train_walk_forward_sequential(MODEL_SAVE_PATH, top_k)
+  File "C:\Users\jsy9k\PycharmProjects\Quant\src\training\regressor.py", line 2956, in _train_walk_forward_sequential
+    models_info = self._train_models_for_period(train_df)
+  File "C:\Users\jsy9k\PycharmProjects\Quant\src\training\regressor.py", line 3295, in _train_models_for_period
+    sector_clfs = self._train_sector_classifiers_inline(X_sector, sector_data)
+  File "C:\Users\jsy9k\PycharmProjects\Quant\src\training\regressor.py", line 3592, in _train_sector_classifiers_inline
+    clf.fit(X_tr, y_tr,
+  File "C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\xgboost\core.py", line 774, in inner_f
+    return func(**kwargs)
+  File "C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\xgboost\sklearn.py", line 1784, in fit
+    train_dmatrix, evals = _wrap_evaluation_matrices(
+  File "C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\xgboost\sklearn.py", line 758, in _wrap_evaluation_matrices
+    m = create_dmatrix(
+  File "C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\xgboost\sklearn.py", line 1254, in _create_dmatrix
+    return QuantileDMatrix(
+  File "C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\xgboost\core.py", line 774, in inner_f
+    return func(**kwargs)
+  File "C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\xgboost\core.py", line 1768, in __init__
+    self._init(
+  File "C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\xgboost\core.py", line 1834, in _init
+    _check_call(ret)
+  File "C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\xgboost\core.py", line 323, in _check_call
+    raise XGBoostError(py_str(_LIB.XGBGetLastError()))
+xgboost.core.XGBoostError: [04:55:35] C:\actions-runner\_work\xgboost\xgboost\src\data\gradient_index.h:100: Check failed: valid: Input data contains `inf` or a value too large, while `missing` is not set to `inf` (main:658)
