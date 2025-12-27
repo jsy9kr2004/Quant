@@ -3290,25 +3290,63 @@ class Regressor:
                 X_sector = sector_data[feature_cols]
                 y_sector = sector_data[target_col]
 
+                # ✅ CRITICAL FIX: Preprocess sector data BEFORE training
+                # This removes inf/NaN and applies winsorization
+                # Without this, XGBoost fails with "Input data contains inf or value too large"
+                try:
+                    X_sector_clean, y_sector_clean, _, _ = DataProcessor.preprocess_training_data(
+                        X_sector.copy(),
+                        y_sector.to_frame(),  # Convert Series to DataFrame
+                        y_cls=None,
+                        config=self.config,
+                        logger=logging
+                    )
+
+                    # Convert y back to Series (preprocess_training_data returns DataFrame)
+                    y_sector_clean = y_sector_clean.iloc[:, 0]
+
+                except Exception as e:
+                    logging.error(f"   ❌ {sector}: Preprocessing failed - {str(e)}")
+                    continue
+
                 # Train sector classifiers
                 if self.use_classifier:
-                    sector_clfs = self._train_sector_classifiers_inline(X_sector, sector_data)
+                    sector_clfs = self._train_sector_classifiers_inline(X_sector_clean, y_sector_clean)
                     models_info['sector_classifiers'][sector] = sector_clfs
 
                 # Train sector regressors
-                sector_regs = self._train_sector_regressors_inline(X_sector, y_sector)
+                sector_regs = self._train_sector_regressors_inline(X_sector_clean, y_sector_clean)
                 models_info['sector_regressors'][sector] = sector_regs
 
             logging.info(f"   ✅ Trained models for {len(models_info['sector_regressors'])} sectors")
         else:
             logging.info("   Training global models...")
+
+            # ✅ CRITICAL FIX: Preprocess global data BEFORE training
+            # This removes inf/NaN and applies winsorization
+            try:
+                X_train_clean, y_train_clean, _, _ = DataProcessor.preprocess_training_data(
+                    X_train.copy(),
+                    y_train.to_frame(),  # Convert Series to DataFrame
+                    y_cls=None,
+                    config=self.config,
+                    logger=logging
+                )
+
+                # Convert y back to Series
+                y_train_clean = y_train_clean.iloc[:, 0]
+
+            except Exception as e:
+                logging.error(f"   ❌ Global model preprocessing failed - {str(e)}")
+                return models_info
+
             # Train global classifiers
             if self.use_classifier:
-                global_clfs = self._train_global_classifiers_inline(X_train, train_df)
+                global_clfs = self._train_global_classifiers_inline(X_train_clean, y_train_clean)
                 models_info['classifiers'] = global_clfs
 
             # Train global regressors
-            global_regs = self._train_global_regressors_inline(X_train, y_train)
+            global_regs = self._train_global_regressors_inline(X_train_clean, y_train_clean)
             models_info['regressors'] = global_regs
 
             logging.info(f"   ✅ Trained {len(models_info['classifiers'])} classifiers + {len(models_info['regressors'])} regressors")
@@ -3471,24 +3509,27 @@ class Regressor:
 
         return X_train_split, X_val_split, y_train_split, y_val_split
 
-    def _train_global_classifiers_inline(self, X_train: pd.DataFrame, train_df: pd.DataFrame) -> dict:
-        """Train global classifiers with early stopping validation."""
+    def _train_global_classifiers_inline(self, X_train: pd.DataFrame, y_train: pd.Series) -> dict:
+        """Train global classifiers with early stopping validation.
+
+        Parameters:
+        -----------
+        X_train : pd.DataFrame
+            Preprocessed feature data (inf/NaN already removed by DataProcessor)
+        y_train : pd.Series
+            Preprocessed target data (inf/NaN already removed by DataProcessor)
+        """
         classifiers = {}
 
-        # ✅ FIX: Remove NaN BEFORE converting to binary
-        # NaN in regression target means no future data (delisting, bankruptcy)
-        # NaN ≠ 0 (decline) - completely different meanings!
-        # Wrong: NaN > 0 → False → 0 (treats delisting as decline)
-        # Right: Remove NaN rows first, then convert to binary
-        y_regression = train_df[DataSchema.REGRESSION_TARGET]
-        nan_mask = y_regression.isna()
-        if nan_mask.any():
-            valid_mask = ~nan_mask
-            X_train = X_train[valid_mask].reset_index(drop=True)
-            y_regression = y_regression[valid_mask].reset_index(drop=True)
-            logging.info(f"   Removed {nan_mask.sum()} NaN rows before binary conversion")
+        # ✅ Data is already preprocessed by DataProcessor.preprocess_training_data()
+        # - inf removed
+        # - NaN removed
+        # - Winsorization applied
+        # Just need to convert to binary (0/1)
+        y_regression = y_train
 
-        # Now convert clean data to binary (0/1)
+        # Convert clean data to binary (0/1)
+        # No need to check NaN again - already removed in preprocessing
         y_binary = (y_regression > 0).astype(int)
 
         # ✅ ADD: Temporal train/val split for early stopping
@@ -3547,24 +3588,27 @@ class Regressor:
 
         return regressors
 
-    def _train_sector_classifiers_inline(self, X_sector: pd.DataFrame, sector_df: pd.DataFrame) -> dict:
-        """Train sector classifiers with early stopping validation."""
+    def _train_sector_classifiers_inline(self, X_sector: pd.DataFrame, y_sector: pd.Series) -> dict:
+        """Train sector classifiers with early stopping validation.
+
+        Parameters:
+        -----------
+        X_sector : pd.DataFrame
+            Preprocessed feature data (inf/NaN already removed by DataProcessor)
+        y_sector : pd.Series
+            Preprocessed target data (inf/NaN already removed by DataProcessor)
+        """
         classifiers = {}
 
-        # ✅ FIX: Remove NaN BEFORE converting to binary
-        # NaN in regression target means no future data (delisting, bankruptcy)
-        # NaN ≠ 0 (decline) - completely different meanings!
-        # Wrong: NaN > 0 → False → 0 (treats delisting as decline)
-        # Right: Remove NaN rows first, then convert to binary
-        y_regression = sector_df[DataSchema.REGRESSION_TARGET]
-        nan_mask = y_regression.isna()
-        if nan_mask.any():
-            valid_mask = ~nan_mask
-            X_sector = X_sector[valid_mask].reset_index(drop=True)
-            y_regression = y_regression[valid_mask].reset_index(drop=True)
-            logging.info(f"   Removed {nan_mask.sum()} NaN rows before binary conversion")
+        # ✅ Data is already preprocessed by DataProcessor.preprocess_training_data()
+        # - inf removed
+        # - NaN removed
+        # - Winsorization applied
+        # Just need to convert to binary (0/1)
+        y_regression = y_sector
 
-        # Now convert clean data to binary (0/1)
+        # Convert clean data to binary (0/1)
+        # No need to check NaN again - already removed in preprocessing
         y_binary = (y_regression > 0).astype(int)
 
         # ✅ ADD: Temporal train/val split for early stopping
