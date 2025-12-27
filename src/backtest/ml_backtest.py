@@ -939,27 +939,39 @@ class MLBacktest:
             # 매수 가격 (실제 거래일)
             buy_price_rows = symbol_prices[symbol_prices['date'] == actual_buy_date]
             if buy_price_rows.empty:
+                # 매수일에 가격 없음 = 데이터 오류 (거래 불가능)
+                self.logger.warning(f"   ⚠️  {symbol}: No price at buy date {actual_buy_date.date()} - skipping")
                 continue
             buy_price = buy_price_rows.iloc[0]['close']
 
             # 매도 가격 (실제 거래일)
             sell_price_rows = symbol_prices[symbol_prices['date'] == actual_sell_date]
             if sell_price_rows.empty:
-                continue
-            sell_price = sell_price_rows.iloc[0]['close']
+                # ✅ 상장폐지: -100% 수익률로 처리
+                ret = -1.0
+                sell_price = 0.0
+                is_delisted = True
+                self.logger.warning(
+                    f"   ⚠️  {symbol}: DELISTED (no price at {actual_sell_date.date()}) "
+                    f"→ -100% return"
+                )
+            else:
+                sell_price = sell_price_rows.iloc[0]['close']
+                ret = (sell_price - buy_price) / buy_price
+                is_delisted = False
 
-            # 수익률
-            ret = (sell_price - buy_price) / buy_price
+            # 수익률 리스트에 추가 (상장폐지 포함)
             returns.append(ret)
 
-            # 상세 정보 저장 (섹터 정보 추가)
+            # 상세 정보 저장 (섹터 정보 + 상장폐지 여부)
             details.append({
                 'symbol': symbol,
                 'sector': sector,  # ✅ 섹터 정보 추가
                 'buy_price': buy_price,
                 'sell_price': sell_price,
                 'return': ret,
-                'return_pct': ret * 100
+                'return_pct': ret * 100,
+                'delisted': is_delisted  # ✅ 상장폐지 여부 추가
             })
 
         if not returns:
