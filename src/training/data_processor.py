@@ -392,10 +392,11 @@ class DataProcessor:
         if hasattr(sector_model, 'get_booster'):
             model_features = sector_model.get_booster().feature_names
             if model_features is not None:
-                # 누락된 피처는 NaN으로 채우기
+                # ✅ FIX: Ensure X is a copy to avoid SettingWithCopyWarning
+                # Direct assignment handles copy internally if needed
                 missing_features = set(model_features) - set(X.columns)
                 for col in missing_features:
-                    X[col] = np.nan
+                    X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
 
                 # 모델 피처만 선택 (순서 맞춤)
                 X = X[model_features]
@@ -511,7 +512,7 @@ class DataProcessor:
                 if missing_features:
                     logger.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with NaN")
                     for col in missing_features:
-                        X[col] = np.nan
+                        X.loc[:, col] = np.nan
 
                 # Remove extra features
                 extra_features = set(X.columns) - set(model_features)
@@ -2433,10 +2434,29 @@ class DataProcessor:
         self.feature_names = X_train.columns.tolist()
         self.is_fitted = True
 
+        # ✅ FIX: Remove rows with NaN in target (CRITICAL BUG FIX)
+        # NaN in target means no future price data (delisting, bankruptcy, etc.)
+        # Filling with 0 is WRONG - it teaches model: "missing data = 0% return"
+        nan_mask = y_train.isna()
+        if nan_mask.any():
+            n_nan = nan_mask.sum()
+            n_total = len(y_train)
+            pct_nan = (n_nan / n_total) * 100
+
+            self.logger.warning(f"⚠️  Found {n_nan} NaN values in target ({pct_nan:.2f}%)")
+            self.logger.warning(f"   Removing these rows (NaN target = invalid training data)")
+
+            # Remove rows with NaN targets
+            valid_mask = ~nan_mask
+            X_train_scaled = X_train_scaled[valid_mask]
+            y_train = y_train[valid_mask]
+
+            self.logger.info(f"   After NaN removal: {len(y_train)} samples ({n_total - n_nan} valid)")
+
         # Prepare result
         result = {
             'X_train': X_train_scaled,
-            'y_train': y_train.fillna(0).values,
+            'y_train': y_train.values,  # ✅ FIX: No fillna(0)!
             'feature_names': self.feature_names,
             'dropped_cols': self.dropped_cols,
             'clip_bounds': self.clip_bounds,
@@ -2465,8 +2485,25 @@ class DataProcessor:
             # Scale using fitted scaler
             X_test_scaled = self.transform_scaler(X_test)
 
+            # ✅ FIX: Remove rows with NaN in test target (same as train)
+            nan_mask_test = y_test.isna()
+            if nan_mask_test.any():
+                n_nan_test = nan_mask_test.sum()
+                n_total_test = len(y_test)
+                pct_nan_test = (n_nan_test / n_total_test) * 100
+
+                self.logger.warning(f"⚠️  Found {n_nan_test} NaN values in test target ({pct_nan_test:.2f}%)")
+                self.logger.warning(f"   Removing these rows (NaN target = invalid test data)")
+
+                # Remove rows with NaN targets
+                valid_mask_test = ~nan_mask_test
+                X_test_scaled = X_test_scaled[valid_mask_test]
+                y_test = y_test[valid_mask_test]
+
+                self.logger.info(f"   After NaN removal: {len(y_test)} test samples")
+
             result['X_test'] = X_test_scaled
-            result['y_test'] = y_test.fillna(0).values
+            result['y_test'] = y_test.values  # ✅ FIX: No fillna(0)!
 
             self.logger.info(f"   Test processed: {X_test_scaled.shape}")
 

@@ -179,6 +179,86 @@ deactivate
 ```
 </details>
 
+### 2-3. Ray 설치 실패 (Python 3.13 호환성)
+
+**에러 메시지:**
+```
+ModuleNotFoundError: No module named 'ray'
+```
+
+**원인**: Python 3.13은 2024년 10월 출시된 최신 버전으로, 일부 패키지(특히 Ray)가 아직 공식 지원하지 않을 수 있습니다.
+
+**해결 방법 (우선순위 순):**
+
+<details>
+<summary><b>방법 1: Python 3.11/3.12 사용 (권장)</b></summary>
+
+가장 안정적인 방법입니다:
+
+```bash
+# Python 3.11 또는 3.12로 가상환경 생성
+python3.11 -m venv venv
+# 또는 Windows에서
+py -3.11 -m venv venv
+
+# 가상환경 활성화
+venv\Scripts\activate  # Windows
+source venv/bin/activate  # Linux/macOS
+
+# 패키지 재설치
+pip install -r requirements.txt
+```
+
+**권장 Python 버전**:
+- Production: Python 3.11.x (가장 안정적)
+- Development: Python 3.11.9 또는 3.12.x
+</details>
+
+<details>
+<summary><b>방법 2: Ray 강제 설치</b></summary>
+
+Python 3.13을 계속 사용하고 싶은 경우:
+
+```bash
+# 최신 버전 설치 시도
+pip install ray --upgrade
+
+# 실패하면 pre-release 버전 설치
+pip install ray --pre
+
+# 또는 nightly build (Windows)
+pip install -U "ray[default] @ https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-3.0.0.dev0-cp313-cp313-win_amd64.whl"
+```
+</details>
+
+<details>
+<summary><b>방법 3: Ray 없이 실행 (임시)</b></summary>
+
+급하게 테스트만 하고 싶은 경우, Ray 없이 순차 처리 모드로 실행 가능:
+
+1. `src/data_collector/fmp_fetch_worker.py` 수정:
+```python
+# import ray 부분을 optional로 변경
+try:
+    import ray
+    HAS_RAY = True
+except ImportError:
+    HAS_RAY = False
+    print("⚠️  Ray not available, using sequential processing")
+```
+
+2. 데이터 수집이 느려지지만 작동은 가능합니다.
+</details>
+
+**설치 확인:**
+```bash
+# Ray 설치 확인
+pip show ray
+
+# Ray 작동 테스트
+python -c "import ray; ray.init(); print('Ray works!'); ray.shutdown()"
+```
+
 ---
 
 ## 3. 실행 문제

@@ -99,6 +99,38 @@ class DataSchema:
     SECTOR_REGRESSION_TARGET = "sec_price_dev_subavg"  # Sector-specific target
 
     # ========================================================================
+    # Prediction Columns (ML Model Outputs)
+    # ========================================================================
+    PRED_RETURN = 'pred_return'           # Predicted return (regressor output)
+    PRED_PROBA = 'pred_proba'             # Predicted probability (classifier output, 0~1)
+    ML_SCORE = 'ml_score'                 # Final score (pred_proba × pred_return)
+    RANK = 'rank'                         # Ranking by ml_score (1, 2, 3, ...)
+    SELECTED = 'selected'                 # Top-K selection flag (True/False)
+    PRED_LABEL = 'pred_label'             # Predicted label (UP/DOWN)
+
+    # ========================================================================
+    # Backtest Columns (Actual Trading Results)
+    # ========================================================================
+    ACTUAL_RETURN = 'actual_return'       # Actual return ((sell-buy)/buy)
+    BUY_PRICE = 'buy_price'               # Buy price at entry
+    SELL_PRICE = 'sell_price'             # Sell price at exit
+    BUY_DATE = 'buy_date'                 # Actual buy date (trade-day adjusted)
+    SELL_DATE = 'sell_date'               # Actual sell date (trade-day adjusted)
+    HOLDING_DAYS = 'holding_days'         # Holding period in days
+
+    # ========================================================================
+    # Evaluation Columns (Prediction vs Actual)
+    # ========================================================================
+    PREDICTION_ERROR = 'prediction_error' # abs(pred_return - actual_return)
+    DIRECTION_CORRECT = 'direction_correct'  # Direction prediction correct (True/False)
+    ACTUAL_LABEL = 'actual_label'         # Actual label (UP/DOWN)
+
+    # ========================================================================
+    # Additional Info Columns
+    # ========================================================================
+    COMPANY_NAME = 'company_name'         # Company name (user-friendly display)
+
+    # ========================================================================
     # Class Methods
     # ========================================================================
 
@@ -235,6 +267,53 @@ class DataSchema:
             )
 
     @classmethod
+    def get_detailed_trades_columns(cls) -> List[str]:
+        """
+        Get column order for Detailed Trades report sheet.
+
+        This defines the canonical column order for the integrated report's
+        "Detailed Trades" sheet, combining regressor predictions with
+        backtest actual results.
+
+        Returns:
+        --------
+        List[str]
+            Ordered list of column names for Detailed Trades sheet
+
+        Usage:
+        ------
+        detailed_df = detailed_df[DataSchema.get_detailed_trades_columns()]
+        """
+        return [
+            # Basic Info
+            'rebalance_date',
+            'symbol',
+            'company_name',
+            'sector',
+
+            # Selection Info
+            'rank',
+            'selected',
+
+            # Predictions (from regressor)
+            'pred_return',
+            'pred_proba',
+            'ml_score',
+
+            # Actuals (from backtest)
+            'actual_return',
+            'buy_price',
+            'sell_price',
+            'buy_date',
+            'sell_date',
+            'holding_days',
+
+            # Evaluation
+            'prediction_error',
+            'direction_correct'
+        ]
+
+    @classmethod
     def summary(cls) -> str:
         """
         Get a summary of the data schema.
@@ -257,6 +336,8 @@ Primary Targets:
 - Regression: {cls.REGRESSION_TARGET}
 - Classification: {cls.CLASSIFICATION_TARGET}
 - Sector Regression: {cls.SECTOR_REGRESSION_TARGET}
+
+Detailed Trades Columns: {len(cls.get_detailed_trades_columns())}
 """
 
 

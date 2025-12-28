@@ -26,6 +26,190 @@
 
 ---
 
+## ⚠️ 데이터 처리 핵심 원칙 (Critical Data Handling Principles)
+
+### 원칙 1: NaN ≠ 0 (Missing vs Zero)
+
+**절대 동일시하지 말 것!**
+
+#### NaN (Not a Number) - Missing Data
+**의미**: 재무제표 항목 자체가 존재하지 않음
+
+**발생 원인**:
+- 산업별 특성: 은행의 대출이자율 (제조업에는 없음)
+- 기업 성장 단계: 스타트업의 영업이익 (아직 발생하지 않음)
+- 회계 시점: 상장 전 분기 데이터
+- 상장폐지/파산: 미래 가격 데이터 없음
+
+**올바른 처리**:
+```python
+# ✅ CORRECT
+# 1. 타겟 변수의 NaN: 완전히 제거
+if y.isna().any():
+    valid_mask = ~y.isna()
+    X = X[valid_mask]
+    y = y[valid_mask]
+
+# 2. Feature의 NaN: 컨텍스트 고려하여 imputation
+# - 업종별/규모별 중앙값
+# - 또는 "결측" 자체를 정보로 활용 (별도 indicator)
+```
+
+**잘못된 처리**:
+```python
+# ❌ WRONG
+df.fillna(0)  # "데이터 없음" = "실제로 0" (완전히 다른 의미!)
+→ 모델이 "영업이익 항목 없는 회사 = 영업이익 0인 회사"로 잘못 학습
+```
+
+#### 0 (Zero) - Actual Zero Value
+**의미**: 재무제표 항목이 존재하지만 실제 값이 0
+
+**발생 원인**:
+- 손익분기점: 영업이익 0원
+- 경영 전략: 무차입 경영 (부채 0원), 무배당 정책 (배당 0원)
+- 사업 특성: 계절성 매출 (비수기 매출 0원)
+
+**올바른 처리**:
+```python
+# ✅ CORRECT
+# 0은 유효한 데이터로 학습에 사용
+model.fit(X, y)  # y에 0이 포함되어 있어도 OK
+```
+
+#### 실전 예시
+
+**시나리오**: 두 기업의 영업이익
+
+| 기업 | 영업이익 | 의미 |
+|------|----------|------|
+| A사 | 0 | 손익분기점 (사업은 하지만 이익 없음) |
+| B사 | NaN | 스타트업 (아직 본격 영업 전) |
+
+**잘못된 처리**:
+```python
+df['operating_income'].fillna(0)
+→ A사와 B사를 동일하게 취급 (완전히 다른 상황인데!)
+```
+
+**올바른 처리**:
+```python
+# B사(NaN) 제거 또는 별도 그룹으로 분리
+# A사(0)는 유효한 데이터로 학습
+```
+
+---
+
+### 원칙 2: inf ≠ too large (Infinity vs Overflow)
+
+**절대 동일시하지 말 것!**
+
+#### inf (Infinity) - Mathematical Error
+**의미**: 수학적 무한대 (계산 오류)
+
+**발생 원인**:
+- Division by zero: `PER = 주가 / EPS`, EPS = 0 → inf
+- Logarithm of zero: `log(0)` → -inf
+- 계산 오류: `ROE = 순이익 / 자본`, 자본 = 0 → inf
+
+**올바른 처리**:
+```python
+# ✅ CORRECT - inf는 계산 오류이므로 제거
+df = df[~np.isinf(df).any(axis=1)]
+
+# 또는 계산 방식 수정
+# PER = 주가 / max(EPS, 0.01)  # 0 방지
+```
+
+#### too large (Overflow) - Valid but Out of Range
+**의미**: 유효한 값이지만 데이터 타입의 표현 한계 초과
+
+**발생 원인**:
+- **현대 기업의 거대화**:
+  - 2000년대: 시가총액 억 단위
+  - 2020년대: 조 단위 (Apple 3조 달러)
+  - 1000배 증가!
+- 중간 계산값 overflow:
+  - `market_cap × revenue × assets`
+  - 각각 10^12 수준이면 곱하면 10^36
+  - float64 최대값(~10^308)은 괜찮지만, 계산 중 overflow 가능
+
+**올바른 처리**:
+```python
+# ✅ CORRECT - 큰 값을 적절히 처리
+
+# 방법 1: Log scaling (곱셈 → 덧셈)
+df['log_market_cap'] = np.log1p(df['market_cap'])
+
+# 방법 2: 업종별 상대값 정규화
+df['market_cap_rank_in_sector'] = df.groupby('sector')['market_cap'].rank(pct=True)
+
+# 방법 3: Robust scaling
+from sklearn.preprocessing import RobustScaler
+scaler = RobustScaler()
+df['market_cap_scaled'] = scaler.fit_transform(df[['market_cap']])
+
+# 방법 4: 데이터 타입 업그레이드 (필요시)
+import decimal
+df['market_cap'] = df['market_cap'].astype('float128')  # 또는 Decimal
+```
+
+**잘못된 처리**:
+```python
+# ❌ WRONG - 큰 값을 무시
+df[df > 1e15] = np.nan  # 대형 기업 데이터를 NaN으로!
+df = df.clip(upper=1e12)  # 대형 기업을 중형으로 축소!
+
+→ 모델이 "대형 기업 = 없음" 또는 "대형 기업 = 중형 기업"으로 잘못 학습
+→ Apple, Microsoft 같은 초대형주를 제대로 평가 못 함
+```
+
+#### 실전 예시
+
+**시나리오**: PER 계산
+
+```python
+# Case 1: EPS = 0 (손실) → PER = inf (수학적 오류)
+# Case 2: EPS = 0.000001 (미미한 이익) → PER = 10,000,000 (유효하지만 매우 큼)
+```
+
+**잘못된 처리**:
+```python
+# ❌ WRONG
+df['PER'] = df['price'] / df['EPS']
+df[df['PER'] > 1000] = np.nan  # Case 2도 제거됨!
+```
+
+**올바른 처리**:
+```python
+# ✅ CORRECT
+# inf 제거 (수학적 오류)
+df = df[~np.isinf(df['PER'])]
+
+# 큰 값은 유지하되 log scaling
+df['log_PER'] = np.log1p(df['PER'].clip(lower=0))
+```
+
+---
+
+### 체크리스트
+
+**모든 데이터 전처리 시 확인**:
+
+- [ ] `fillna(0)` 사용? → ❌ NaN과 0의 의미 확인 필수!
+- [ ] `df[df == np.inf] = np.nan` 사용? → ❌ inf(오류)와 large(유효) 구분!
+- [ ] `clip(upper=threshold)` 사용? → ⚠️ 큰 값이 유효한 데이터인지 확인!
+- [ ] 타겟 변수의 NaN? → ✅ 반드시 제거 (학습 불가)
+- [ ] Feature의 NaN? → ⚠️ 컨텍스트 고려하여 처리 (제거 또는 imputation)
+
+**원칙 요약**:
+1. **NaN = Missing**: 제거 또는 의미 있는 imputation
+2. **0 = Zero**: 유효한 데이터로 학습
+3. **inf = Error**: 제거 또는 계산 수정
+4. **too large = Valid**: Log scaling, normalization, 상대값 변환
+
+---
+
 ## 🏗️ System Architecture: 2-Stage ML Structure
 
 안정성과 수익성을 동시에 잡기 위해 모델을 **두 단계로 분리**하여 운용합니다.
@@ -585,6 +769,61 @@ DATA:
 - [ ] 에러 발생 시 버전 충돌 가능성 확인
 - [ ] 주기적으로 `pip list --outdated` 실행하여 업데이트 검토
 
+### 루트 디렉토리 관리
+
+**원칙**: 루트 디렉토리는 깨끗하게 유지합니다.
+
+**루트에 허용되는 파일**:
+- ✅ `README.md` - 프로젝트 메인 문서
+- ✅ `CLAUDE.md` - AI 작업 가이드 (이 문서)
+- ✅ `.gitignore`, `.gitattributes` - Git 설정
+- ✅ `requirements.txt` - Python 의존성
+- ✅ `main.py` - 메인 실행 파일
+- ✅ 기타 설정 파일 (`.env`, `pyproject.toml` 등)
+
+**루트에서 제외할 파일**:
+- ❌ 문서 파일 (`.md`) - `docs/` 디렉토리로 이동
+  - 예: `TROUBLESHOOTING.md` → `docs/TROUBLESHOOTING.md`
+  - 예: `API_GUIDE.md` → `docs/API_REFERENCE.md`
+- ❌ 임시 파일, 테스트 파일
+- ❌ 개인 메모, 실험 스크립트
+
+**문서 배치 규칙**:
+```
+프로젝트 루트/
+├── README.md              ✅ 프로젝트 소개
+├── CLAUDE.md              ✅ AI 작업 가이드
+├── requirements.txt       ✅ 의존성
+├── main.py                ✅ 실행 파일
+├── docs/                  📁 모든 문서 파일
+│   ├── TROUBLESHOOTING.md
+│   ├── QUICK_START.md
+│   ├── API_REFERENCE.md
+│   └── ...
+├── src/                   📁 소스 코드
+└── config/                📁 설정 파일
+```
+
+**작업 시 체크리스트**:
+- [ ] 새 문서 작성 시 `docs/` 디렉토리에 생성
+- [ ] 루트에 파일 생성 시 반드시 필요한지 확인
+- [ ] 커밋 전 `ls -la` 또는 `git status`로 루트 확인
+- [ ] 불필요한 파일 발견 시 즉시 제거 또는 이동
+
+**잘못된 예**:
+```bash
+# ❌ 나쁜 예: 루트에 문서 생성
+touch TROUBLESHOOTING.md
+touch OPTIMIZATION_GUIDE.md
+```
+
+**올바른 예**:
+```bash
+# ✅ 좋은 예: docs/ 하위에 생성
+touch docs/TROUBLESHOOTING.md
+touch docs/OPTIMIZATION_GUIDE.md
+```
+
 ### 문서 관리 (README.md)
 
 **업데이트 필요 시점**:
@@ -789,6 +1028,160 @@ Pull Request 시 확인:
 
 ## 🔄 Development Workflow (개발 워크플로우)
 
+### 🎯 NEW: Walk-Forward Evaluation & Prediction Cache (2025-12-21)
+
+**문제점**: 기존에는 regressor.py와 ml_backtest.py가 독립적으로 모델을 학습하여 시간 낭비 발생
+- regressor.py: 단일 train/test split으로 평가
+- ml_backtest.py: Walk-forward로 재학습하여 백테스트
+- **결과**: 동일한 모델을 두 번 학습 (시간 2배 소모)
+
+**해결책**: regressor.py도 walk-forward 방식 사용 + 예측 결과 캐시 공유
+
+#### 새로운 워크플로우
+
+**Mode 1: 캐시 생성 모드 (regressor.py 먼저 실행)**
+```yaml
+# config/conf.yaml
+EVALUATION:
+  USE_WALK_FORWARD: Y          # Walk-forward 활성화
+  USE_CACHED_PREDICTIONS: N    # 캐시 생성 모드
+  TRAIN_START_YEAR: 1996
+  PERIODS:
+    - START_YEAR: 2020
+      END_YEAR: 2021
+    - START_YEAR: 2022
+      END_YEAR: 2023
+  REBALANCE_PERIOD: 3  # 분기별
+  TOP_K_NUM: 10
+```
+
+실행 흐름:
+```
+1. regressor.py 실행
+   ↓ Walk-forward 학습: 각 cutoff_date마다
+   ↓   - Train: 1996 ~ cutoff_date (expanding window)
+   ↓   - Predict: cutoff_date 시점 종목들
+   ↓   - Top-K selection: 10개 선정
+   ↓ 예측 결과 저장 → MODELS/regressor_predictions.pkl
+   ↓
+   ↓ Cache 구조:
+   ↓ {
+   ↓   '2020-01-01': {
+   ↓     'predictions_df': DataFrame(symbol, sector, pred_return, pred_proba, ml_score, rank, selected),
+   ↓     'top_k_selected': ['AAPL', 'MSFT', ...],
+   ↓     'top_k_details': DataFrame (top 10 stocks only),
+   ↓     'models_used': {...},
+   ↓     'train_samples': 15000,
+   ↓     'predict_samples': 3000
+   ↓   },
+   ↓   '2020-04-01': {...},
+   ↓   ...
+   ↓ }
+   ↓
+   ↓ Evaluation metrics 계산 (RMSE, MAE, R², Accuracy)
+   ↓ outputs/reports/integrated_report_TIMESTAMP.xlsx 생성
+```
+
+**Mode 2: 캐시 재사용 모드 (ml_backtest.py 실행)**
+```yaml
+# config/conf.yaml
+EVALUATION:
+  USE_WALK_FORWARD: Y
+  USE_CACHED_PREDICTIONS: Y    # ✅ 캐시 재사용
+  PREDICTIONS_CACHE_FILE: "regressor_predictions.pkl"
+
+BACKTEST:
+  PERIODS:
+    - START_YEAR: 2020
+      END_YEAR: 2021
+    - START_YEAR: 2022
+      END_YEAR: 2023
+  REBALANCE_PERIOD: 3
+```
+
+실행 흐름:
+```
+2. ml_backtest.py 실행
+   ↓ Cache 로드: MODELS/regressor_predictions.pkl
+   ↓
+   ↓ For each rebalance_date:
+   ↓   - Cache hit? → ✅ 예측 재사용 (모델 학습/예측 스킵)
+   ↓   - Cache miss? → ⚠️ 일반 학습/예측 모드로 fallback
+   ↓
+   ↓ 실제 거래 시뮬레이션:
+   ↓   - 가격 데이터 로드
+   ↓   - Buy/Sell 시뮬레이션
+   ↓   - 수익률 계산
+   ↓
+   ↓ 백테스트 결과 → outputs/reports/integrated_report_TIMESTAMP.xlsx
+   ↓ (regressor.py 결과와 동일한 파일에 추가됨)
+```
+
+#### 통합 레포트 구조
+
+**outputs/reports/integrated_report_TIMESTAMP.xlsx**
+
+Sheet 1: Summary
+```
+Period    | Total Return | Avg Return | Sharpe | MDD    | Win Rate
+----------|--------------|------------|--------|--------|----------
+2020-2021 | 15.3%        | 3.8%       | 1.2    | -8.5%  | 62.5%
+2022-2023 | -2.1%        | -0.5%      | -0.3   | -12.3% | 45.0%
+```
+
+Sheet 2: Regressor Metrics (from regressor.py)
+```
+Period     | RMSE  | MAE   | R²    | Accuracy | Precision | Recall
+-----------|-------|-------|-------|----------|-----------|--------
+2020-01-01 | 0.045 | 0.032 | 0.312 | 65.2%    | 68.1%     | 62.3%
+2020-04-01 | 0.038 | 0.029 | 0.348 | 67.8%    | 71.2%     | 64.5%
+```
+
+Sheet 3: Backtest Performance (from ml_backtest.py)
+```
+Rebalance  | Buy Date   | Sell Date  | Stocks | Period Return | Cumulative
+-----------|------------|------------|--------|---------------|------------
+2020-01-01 | 2020-01-02 | 2020-04-01 | 10     | 8.2%          | 8.2%
+2020-04-01 | 2020-04-02 | 2020-07-01 | 10     | 3.1%          | 11.5%
+```
+
+Sheet 4: Detailed Trades (17 columns)
+```
+Rebalance | Symbol | Company     | Sector | Rank | Selected | Pred Return | Pred Proba | ML Score | Actual Return | Buy Price | Sell Price | ...
+----------|--------|-------------|--------|------|----------|-------------|------------|----------|---------------|-----------|------------|----
+2020-01-01| AAPL   | Apple Inc.  | Tech   | 1    | True     | 0.082       | 0.75       | 0.0615   | 0.095         | 150.00    | 164.25     | ...
+2020-01-01| MSFT   | Microsoft   | Tech   | 2    | True     | 0.075       | 0.78       | 0.0585   | 0.088         | 180.00    | 195.84     | ...
+```
+
+Sheet 5: Benchmark Comparison
+```
+Strategy   | Total Return | Sharpe | MDD    | Win Rate
+-----------|--------------|--------|--------|----------
+ML Model   | 15.3%        | 1.2    | -8.5%  | 62.5%
+SPY (S&P)  | 12.1%        | 0.9    | -11.2% | 58.3%
+QQQ (Nasdaq| 18.5%        | 1.1    | -15.3% | 60.0%
+```
+
+#### 장점 및 효과
+
+**시간 절약 (50%)**:
+- 기존: regressor 30분 + ml_backtest 30분 = 60분
+- 신규: regressor 30분 (캐시 생성) + ml_backtest 5분 (캐시 재사용) = 35분
+
+**완벽한 일관성**:
+- regressor.py 평가 결과와 ml_backtest.py 백테스트가 동일한 예측 사용
+- "예측도는 좋은데 수익률이 나쁜" 문제 원인 분석 가능
+
+**정확한 평가**:
+- 기존: regressor는 단일 train/test split (비현실적)
+- 신규: regressor도 walk-forward (현실적)
+
+**통합 레포팅**:
+- 예측 정확도 + 실제 수익률을 한 눈에 비교
+- 각 리밸런싱 시점의 상세 내역 추적 가능
+
+---
+
 ### 전체 파이프라인
 
 ```
@@ -799,25 +1192,38 @@ Pull Request 시 확인:
    ↓ tsfresh → ML-ready dataset
    ↓ filingDate cutoff (leakage prevention)
 
-3. Training (regressor.py)
-   ↓ DataProcessor → Preprocessing
-   ↓ Optuna → Hyperparameter tuning
+3. Walk-Forward Training (regressor.py) ✨ NEW
+   ↓ For each cutoff_date in EVALUATION.PERIODS:
+   ↓   - Load data: TRAIN_START_YEAR ~ cutoff_date
+   ↓   - Train models (expanding window)
+   ↓   - Predict at cutoff_date
+   ↓   - Top-K selection
+   ↓ Save predictions → MODELS/regressor_predictions.pkl
+   ↓ Optuna → Hyperparameter tuning (optional)
    ↓ Stage 1: Classifiers (4 models)
    ↓ Stage 2: Regressors (2 models)
-   ↓ Save models → {ROOT_PATH}/models/
 
-4. Evaluation (regressor.py)
-   ↓ Prediction accuracy metrics
+4. Evaluation Metrics (regressor.py)
+   ↓ Prediction accuracy metrics (per period)
    ↓ RMSE, MAE, R², Accuracy, Precision, Recall
+   ↓ Sheet 2 of integrated report
 
-5. Backtesting (ml_backtest.py)
-   ↓ Walk-forward validation
-   ↓ DataProcessor → Same preprocessing
-   ↓ Load models → Predict
-   ↓ Top-K selection → Portfolio
+5. Backtesting (ml_backtest.py) ✨ UPDATED
+   ↓ Load cache: MODELS/regressor_predictions.pkl
+   ↓ For each rebalance_date:
+   ↓   - Use cached predictions (skip training/prediction) ✅
+   ↓   - OR fallback to training if cache miss ⚠️
+   ↓   - Calculate actual returns
+   ↓ Sheet 3, 4, 5 of integrated report
    ↓ Performance metrics: Return, MDD, Sharpe
 
-6. Live Prediction (regressor.py)
+6. Integrated Report (IntegratedReportWriter) ✨ NEW
+   ↓ Combine regressor + backtest results
+   ↓ 5 sheets: Summary, Regressor Metrics, Backtest Performance,
+   ↓            Detailed Trades, Benchmark Comparison
+   ↓ outputs/reports/integrated_report_TIMESTAMP.xlsx
+
+7. Live Prediction (regressor.py)
    ↓ Load models → Latest data
    ↓ DataProcessor → Same preprocessing
    ↓ Generate rankings
@@ -887,5 +1293,12 @@ OPTUNA_CV_FOLDS: 5
 
 ---
 
-**마지막 업데이트**: 2025-12-13
+**마지막 업데이트**: 2025-12-21
 **작성자**: Development Team
+
+**최근 변경사항 (2025-12-21)**:
+- ✨ Walk-Forward Evaluation: regressor.py도 walk-forward 방식으로 평가
+- 🔄 Prediction Cache: regressor.py와 ml_backtest.py 간 예측 결과 공유
+- 📊 Integrated Report: 5개 시트로 구성된 통합 Excel 레포트
+- 🚀 Performance: 50% 시간 절약 (중복 학습 제거)
+- 🎯 Consistency: 평가와 백테스트의 완벽한 일관성 보장

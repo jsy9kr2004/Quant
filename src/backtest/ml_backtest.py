@@ -125,6 +125,26 @@ class MLBacktest:
         self.detailed_results = []  # 각 종목별 상세 거래 내역
         self.predictions_history = []
 
+        # Phase 4: 캐시된 예측 사용 설정
+        eval_config = config.get('EVALUATION', {})
+        self.use_cached_predictions = eval_config.get('USE_CACHED_PREDICTIONS', 'N') == 'Y'
+        self.predictions_cache = None
+
+        if self.use_cached_predictions:
+            cache_file = eval_config.get('PREDICTIONS_CACHE_FILE', 'regressor_predictions.pkl')
+            cache_path = Path(main_ctx.root_path) / 'MODELS' / cache_file
+
+            if cache_path.exists():
+                import joblib
+                self.predictions_cache = joblib.load(cache_path)
+                self.logger.info(f"✅ Loaded predictions cache: {cache_path}")
+                self.logger.info(f"   Available periods: {len(self.predictions_cache)}")
+                self.logger.info(f"   Dates: {list(self.predictions_cache.keys())}")
+            else:
+                self.logger.warning(f"⚠️  USE_CACHED_PREDICTIONS=Y but cache not found: {cache_path}")
+                self.logger.warning(f"   Falling back to normal training/prediction mode")
+                self.use_cached_predictions = False
+
     def _get_available_data_until(self, cutoff_date: datetime) -> pd.DataFrame:
         """
         특정 날짜까지 사용 가능한 데이터 로드 (Filing Date 고려)
@@ -919,27 +939,39 @@ class MLBacktest:
             # 매수 가격 (실제 거래일)
             buy_price_rows = symbol_prices[symbol_prices['date'] == actual_buy_date]
             if buy_price_rows.empty:
+                # 매수일에 가격 없음 = 데이터 오류 (거래 불가능)
+                self.logger.warning(f"   ⚠️  {symbol}: No price at buy date {actual_buy_date.date()} - skipping")
                 continue
             buy_price = buy_price_rows.iloc[0]['close']
 
             # 매도 가격 (실제 거래일)
             sell_price_rows = symbol_prices[symbol_prices['date'] == actual_sell_date]
             if sell_price_rows.empty:
-                continue
-            sell_price = sell_price_rows.iloc[0]['close']
+                # ✅ 상장폐지: -100% 수익률로 처리
+                ret = -1.0
+                sell_price = 0.0
+                is_delisted = True
+                self.logger.warning(
+                    f"   ⚠️  {symbol}: DELISTED (no price at {actual_sell_date.date()}) "
+                    f"→ -100% return"
+                )
+            else:
+                sell_price = sell_price_rows.iloc[0]['close']
+                ret = (sell_price - buy_price) / buy_price
+                is_delisted = False
 
-            # 수익률
-            ret = (sell_price - buy_price) / buy_price
+            # 수익률 리스트에 추가 (상장폐지 포함)
             returns.append(ret)
 
-            # 상세 정보 저장 (섹터 정보 추가)
+            # 상세 정보 저장 (섹터 정보 + 상장폐지 여부)
             details.append({
                 'symbol': symbol,
                 'sector': sector,  # ✅ 섹터 정보 추가
                 'buy_price': buy_price,
                 'sell_price': sell_price,
                 'return': ret,
-                'return_pct': ret * 100
+                'return_pct': ret * 100,
+                'delisted': is_delisted  # ✅ 상장폐지 여부 추가
             })
 
         if not returns:
@@ -1107,21 +1139,18 @@ class MLBacktest:
         price_table['date'] = pd.to_datetime(price_table['date'])
 
         # 리밸런싱 날짜 생성
-        # BACKTEST 섹션에서만 설정 읽기
+        # 우선순위: EVALUATION > BACKTEST (하위 호환성)
+        eval_config = self.config.get('EVALUATION', {})
         backtest_config = self.config.get('BACKTEST', {})
 
-        if not backtest_config:
-            raise ValueError(
-                "BACKTEST section not found in config/conf.yaml!\n"
-                "Please add BACKTEST section to config/conf.yaml"
-            )
-
-        # 여러 구간 지원: PERIODS 리스트 또는 단일 START_YEAR/END_YEAR
-        periods = backtest_config.get('PERIODS', [])
+        # PERIODS 읽기 (EVALUATION 우선, BACKTEST 폴백)
+        periods = eval_config.get('PERIODS', backtest_config.get('PERIODS', []))
 
         if periods:
             # 여러 구간 모드
             self.logger.info(f"📅 Multiple backtest periods configured: {len(periods)} periods")
+            source = "EVALUATION" if eval_config.get('PERIODS') else "BACKTEST"
+            self.logger.info(f"   Config source: {source}.PERIODS")
             all_rebalance_dates = []
 
             for i, period in enumerate(periods):
@@ -1163,9 +1192,20 @@ class MLBacktest:
 
             if not start_year or not end_year:
                 raise ValueError(
-                    "BACKTEST section must have either:\n"
-                    "  - PERIODS: list of period configurations, or\n"
-                    "  - START_YEAR and END_YEAR for single period"
+                    "Backtest period configuration not found!\n\n"
+                    "Please configure in one of these ways:\n"
+                    "  Option 1 (Recommended): Use EVALUATION section\n"
+                    "    EVALUATION:\n"
+                    "      PERIODS:\n"
+                    "        - START_YEAR: 2020\n"
+                    "          END_YEAR: 2023\n"
+                    "\n"
+                    "  Option 2 (Legacy): Use BACKTEST section\n"
+                    "    BACKTEST:\n"
+                    "      START_YEAR: 2020\n"
+                    "      END_YEAR: 2023\n"
+                    "\n"
+                    "See config/conf.yaml.template for examples."
                 )
 
             if isinstance(start_year, str):
@@ -1177,6 +1217,7 @@ class MLBacktest:
             start_date_day = int(backtest_config.get('START_DATE', self.config.get('START_DATE', 13)))
 
             self.logger.info(f"📅 Single backtest period: {start_year}/{start_month}/{start_date_day} ~ {end_year}/12/31")
+            self.logger.info(f"   Config source: BACKTEST (legacy mode)")
 
             start_date = datetime(start_year, start_month, start_date_day)
             end_date = datetime(end_year, 12, 31)
@@ -1237,37 +1278,61 @@ class MLBacktest:
                 self.logger.warning(f"⚠️ {e}, skipping this period")
                 continue
 
-            # 2. 모델 재학습 필요 여부 판단
-            should_retrain = self._should_retrain(rebalance_date, last_train_date)
+            # 2. 캐시 사용 여부 확인 (Phase 4)
+            cache_key = rebalance_date.strftime('%Y-%m-%d')
+            use_cache_for_this_period = (
+                self.use_cached_predictions and
+                self.predictions_cache is not None and
+                cache_key in self.predictions_cache
+            )
 
-            if should_retrain:
-                # Window 타입에 따라 학습 데이터 필터링
-                if self.window_type == 'rolling' and self.window_size:
-                    # Rolling: 최근 N년만
-                    cutoff = rebalance_date - relativedelta(years=self.window_size)
-                    train_data = available_data[
-                        pd.to_datetime(available_data.get('fillingDate', available_data.index)) >= cutoff
-                    ]
+            if use_cache_for_this_period:
+                # 캐시에서 예측 로드
+                self.logger.info(f"📦 Using cached predictions from regressor.py")
+                cached_data = self.predictions_cache[cache_key]
+                predictions = cached_data['predictions_df']
+
+                if predictions is None or predictions.empty:
+                    self.logger.warning(f"⚠️ Cache exists but predictions_df is empty, falling back to training")
+                    use_cache_for_this_period = False
+
+                if use_cache_for_this_period:
+                    self.logger.info(f"   Loaded {len(predictions)} predictions from cache")
+                    self.logger.info(f"   Top-K selected: {len(cached_data['top_k_selected'])} stocks")
+
+            if not use_cache_for_this_period:
+                # Normal training/prediction mode
+                # 2. 모델 재학습 필요 여부 판단
+                should_retrain = self._should_retrain(rebalance_date, last_train_date)
+
+                if should_retrain:
+                    # Window 타입에 따라 학습 데이터 필터링
+                    if self.window_type == 'rolling' and self.window_size:
+                        # Rolling: 최근 N년만
+                        cutoff = rebalance_date - relativedelta(years=self.window_size)
+                        train_data = available_data[
+                            pd.to_datetime(available_data.get('fillingDate', available_data.index)) >= cutoff
+                        ]
+                    else:
+                        # Expanding: 전체
+                        train_data = available_data
+
+                    # 모델 학습
+                    current_models = self._train_model(train_data, rebalance_date)
+                    last_train_date = rebalance_date
                 else:
-                    # Expanding: 전체
-                    train_data = available_data
+                    self.logger.info(f"📦 Reusing existing model from {last_train_date.date()}")
 
-                # 모델 학습
-                current_models = self._train_model(train_data, rebalance_date)
-                last_train_date = rebalance_date
-            else:
-                self.logger.info(f"📦 Reusing existing model from {last_train_date.date()}")
+                # 3. 예측용 데이터 로드 (현재 시점의 최신 데이터)
+                predict_file = self.data_path / f'rnorm_fs_{rebalance_date.year}_Q{(rebalance_date.month-1)//3 + 1}.parquet'
+                if not predict_file.exists():
+                    self.logger.warning(f"⚠️ Prediction file not found: {predict_file}")
+                    continue
 
-            # 3. 예측용 데이터 로드 (현재 시점의 최신 데이터)
-            predict_file = self.data_path / f'rnorm_fs_{rebalance_date.year}_Q{(rebalance_date.month-1)//3 + 1}.parquet'
-            if not predict_file.exists():
-                self.logger.warning(f"⚠️ Prediction file not found: {predict_file}")
-                continue
+                predict_data = pd.read_parquet(predict_file)
 
-            predict_data = pd.read_parquet(predict_file)
-
-            # 4. 예측 수행
-            predictions = self._predict(current_models, predict_data)
+                # 4. 예측 수행
+                predictions = self._predict(current_models, predict_data)
 
             # 5. 상위 K개 선택 (symbol + sector 포함)
             selected_stocks = self._select_top_k(predictions)

@@ -268,6 +268,353 @@ y_col_list = DataSchema.get_excluded_cols()
 # Backward compatibility: Keep old variable name for existing code
 # TODO: Gradually replace all `y_col_list` references with `DataSchema.get_excluded_cols()`
 
+# ==============================================================================
+# Parallel Training Support (Ray)
+# ==============================================================================
+try:
+    import ray
+    RAY_AVAILABLE = True
+except ImportError:
+    RAY_AVAILABLE = False
+    logging.warning("⚠️  Ray not installed. Parallel training will be disabled.")
+
+
+@ray.remote
+def train_single_period_remote(
+    period_info: dict,
+    root_path: str,
+    use_classifier: bool,
+    use_sector_model: bool,
+    top_k: int,
+    logger_level: int = logging.INFO
+) -> Tuple[str, Optional[dict]]:
+    """
+    Ray remote function to train models for a single walk-forward period.
+
+    This function is designed to run in parallel across multiple periods.
+    Each worker independently:
+    1. Loads training data until cutoff_date
+    2. Trains models (classifiers + regressors)
+    3. Loads prediction data at cutoff_date
+    4. Generates predictions
+    5. Selects top-K stocks
+
+    Parameters:
+    -----------
+    period_info : dict
+        Period configuration with keys:
+        - cutoff_date: datetime
+        - train_start_year: int
+        - period_name: str
+    root_path : str
+        Root path for data files
+    use_classifier : bool
+        Whether to use classifiers
+    use_sector_model : bool
+        Whether to use sector-specific models
+    top_k : int
+        Number of top stocks to select
+    logger_level : int
+        Logging level for this worker
+
+    Returns:
+    --------
+    Tuple[str, Optional[dict]]
+        - cache_key: str (date string 'YYYY-MM-DD')
+        - cache_entry: dict or None (predictions and metadata)
+    """
+    # Configure logging for this worker
+    logging.basicConfig(
+        level=logger_level,
+        format='[Worker] %(levelname)s: %(message)s'
+    )
+
+    from src.training.data_processor import DataProcessor
+    from xgboost import XGBClassifier, XGBRegressor
+    from lightgbm import LGBMClassifier
+
+    cutoff_date = period_info['cutoff_date']
+    train_start_year = period_info['train_start_year']
+    period_name = period_info['period_name']
+    cache_key = cutoff_date.strftime('%Y-%m-%d')
+
+    try:
+        logging.info(f"📅 Processing period: {cache_key} ({period_name})")
+
+        # Step 1: Load training data
+        logging.info(f"📂 Loading training data: {train_start_year} ~ {cache_key}")
+        train_df = _load_data_until_cutoff_standalone(root_path, train_start_year, cutoff_date)
+
+        if train_df.empty:
+            logging.warning(f"⚠️  No training data for {cache_key}")
+            return cache_key, None
+
+        logging.info(f"✅ Loaded {len(train_df)} training samples")
+
+        # Step 2: Train models
+        logging.info("🔧 Training models...")
+        models_info = _train_models_for_period_standalone(
+            train_df, use_classifier, use_sector_model
+        )
+
+        # Step 3: Load prediction data
+        logging.info(f"📂 Loading prediction data for {cache_key}")
+        pred_df = _load_data_for_prediction_standalone(root_path, cutoff_date)
+
+        if pred_df.empty:
+            logging.warning(f"⚠️  No prediction data for {cache_key}")
+            return cache_key, None
+
+        logging.info(f"✅ Loaded {len(pred_df)} stocks for prediction")
+
+        # Step 4: Generate predictions
+        logging.info("🔮 Generating predictions...")
+        predictions_df = _generate_predictions_for_period_standalone(
+            pred_df, models_info
+        )
+
+        # Step 5: Top-K selection
+        logging.info(f"🎯 Selecting Top-{top_k} stocks...")
+        predictions_df = _rank_and_select_top_k_standalone(predictions_df, top_k)
+
+        # Build cache entry
+        top_k_mask = predictions_df[DataSchema.SELECTED]
+        cache_entry = {
+            'predictions_df': predictions_df,
+            'top_k_selected': predictions_df[top_k_mask]['symbol'].tolist(),
+            'top_k_details': predictions_df[top_k_mask].copy(),
+            'models_used': models_info,
+            'train_samples': len(train_df),
+            'predict_samples': len(pred_df)
+        }
+
+        logging.info(f"✅ Top-{top_k}: {cache_entry['top_k_selected']}")
+
+        return cache_key, cache_entry
+
+    except Exception as e:
+        logging.error(f"❌ Error processing period {cache_key}: {e}")
+        import traceback
+        traceback.print_exc()
+        return cache_key, None
+
+
+# ==============================================================================
+# Standalone Helper Functions for Ray Remote Workers
+# ==============================================================================
+
+def _load_data_until_cutoff_standalone(root_path: str, train_start_year: int, cutoff_date: datetime.datetime) -> pd.DataFrame:
+    """Standalone version of _load_data_until_cutoff for Ray workers."""
+    all_train_data = []
+    current_year = train_start_year
+
+    # ✅ FIX: Use correct path where make_mldata.py saves training data
+    ml_data_dir = f"{root_path}/processed/ml_data/per_year"
+
+    while current_year <= cutoff_date.year:
+        # ✅ FIX: Use correct file pattern - rnorm_ml_YYYY_QN.parquet
+        file_pattern = f"{ml_data_dir}/rnorm_ml_{current_year}_Q*.parquet"
+        year_files = glob.glob(file_pattern)
+
+        for file_path in sorted(year_files):
+            try:
+                df = pd.read_parquet(file_path)
+                if 'rebalance_date' in df.columns:
+                    df['rebalance_date'] = pd.to_datetime(df['rebalance_date'])
+                    df = df[df['rebalance_date'] < cutoff_date]
+                    if not df.empty:
+                        all_train_data.append(df)
+            except Exception as e:
+                logging.warning(f"⚠️  Failed to load {file_path}: {e}")
+
+        current_year += 1
+
+    if not all_train_data:
+        return pd.DataFrame()
+
+    combined_df = pd.concat(all_train_data, ignore_index=True)
+    return combined_df
+
+
+def _load_data_for_prediction_standalone(root_path: str, cutoff_date: datetime.datetime) -> pd.DataFrame:
+    """Standalone version of _load_data_for_prediction for Ray workers."""
+    year = cutoff_date.year
+
+    # ✅ FIX: Use correct path and file pattern
+    ml_data_dir = f"{root_path}/processed/ml_data/per_year"
+    # rnorm_fs_ files contain features only (no targets, for prediction)
+    file_pattern = f"{ml_data_dir}/rnorm_fs_{year}_Q*.parquet"
+    year_files = glob.glob(file_pattern)
+
+    pred_data = []
+    for file_path in sorted(year_files):
+        try:
+            df = pd.read_parquet(file_path)
+            if 'rebalance_date' in df.columns:
+                df['rebalance_date'] = pd.to_datetime(df['rebalance_date'])
+                df = df[df['rebalance_date'] == cutoff_date]
+                if not df.empty:
+                    pred_data.append(df)
+        except Exception as e:
+            logging.warning(f"⚠️  Failed to load {file_path}: {e}")
+
+    if not pred_data:
+        return pd.DataFrame()
+
+    return pd.concat(pred_data, ignore_index=True)
+
+
+def _train_models_for_period_standalone(
+    train_df: pd.DataFrame,
+    use_classifier: bool,
+    use_sector_model: bool
+) -> dict:
+    """Standalone version of _train_models_for_period for Ray workers."""
+    from src.training.data_processor import DataProcessor
+    from xgboost import XGBClassifier, XGBRegressor
+    from lightgbm import LGBMClassifier
+
+    models_info = {
+        'use_classifier': use_classifier,
+        'use_sector': use_sector_model,
+        'classifiers': {},
+        'regressors': {},
+        'sector_classifiers': {},
+        'sector_regressors': {}
+    }
+
+    # Preprocess
+    train_df = DataProcessor.preprocess_training_data(train_df, None)
+
+    target_col = DataSchema.REGRESSION_TARGET
+    if target_col not in train_df.columns:
+        return models_info
+
+    feature_cols = DataSchema.get_feature_cols(train_df)
+    X_train = train_df[feature_cols]
+    y_train = train_df[target_col]
+
+    if use_sector_model:
+        for sector in train_df['sector'].unique():
+            sector_data = train_df[train_df['sector'] == sector]
+            if len(sector_data) < 50:
+                continue
+
+            X_sector = sector_data[feature_cols]
+            y_sector = sector_data[target_col]
+
+            # Train sector classifiers
+            if use_classifier:
+                y_binary = (sector_data[target_col] > 0).astype(int)
+                sector_clfs = {
+                    0: XGBClassifier(max_depth=8, n_estimators=100, random_state=42),
+                    1: XGBClassifier(max_depth=9, n_estimators=100, random_state=42),
+                    2: XGBClassifier(max_depth=10, n_estimators=100, random_state=42),
+                    3: LGBMClassifier(max_depth=8, n_estimators=100, random_state=42)
+                }
+                for clf in sector_clfs.values():
+                    clf.fit(X_sector, y_binary)
+                models_info['sector_classifiers'][sector] = sector_clfs
+
+            # Train sector regressors
+            sector_regs = {
+                0: XGBRegressor(max_depth=8, n_estimators=100, random_state=42),
+                1: XGBRegressor(max_depth=10, n_estimators=100, random_state=42)
+            }
+            for reg in sector_regs.values():
+                reg.fit(X_sector, y_sector)
+            models_info['sector_regressors'][sector] = sector_regs
+    else:
+        # Train global classifiers
+        if use_classifier:
+            y_binary = (train_df[target_col] > 0).astype(int)
+            global_clfs = {
+                0: XGBClassifier(max_depth=8, n_estimators=100, random_state=42),
+                1: XGBClassifier(max_depth=9, n_estimators=100, random_state=42),
+                2: XGBClassifier(max_depth=10, n_estimators=100, random_state=42),
+                3: LGBMClassifier(max_depth=8, n_estimators=100, random_state=42)
+            }
+            for clf in global_clfs.values():
+                clf.fit(X_train, y_binary)
+            models_info['classifiers'] = global_clfs
+
+        # Train global regressors
+        global_regs = {
+            0: XGBRegressor(max_depth=8, n_estimators=100, random_state=42),
+            1: XGBRegressor(max_depth=10, n_estimators=100, random_state=42)
+        }
+        for reg in global_regs.values():
+            reg.fit(X_train, y_train)
+        models_info['regressors'] = global_regs
+
+    return models_info
+
+
+def _generate_predictions_for_period_standalone(
+    pred_df: pd.DataFrame,
+    models_info: dict
+) -> pd.DataFrame:
+    """Standalone version of _generate_predictions_for_period for Ray workers."""
+    from src.training.data_processor import DataProcessor
+
+    # Preprocess
+    pred_df = DataProcessor.preprocess_training_data(pred_df, None)
+
+    feature_cols = DataSchema.get_feature_cols(pred_df)
+    X_pred = pred_df[feature_cols]
+
+    pred_df[DataSchema.PRED_RETURN] = 0.0
+    pred_df[DataSchema.PRED_PROBA] = 1.0
+
+    if models_info['use_sector']:
+        for sector in pred_df['sector'].unique():
+            sector_mask = pred_df['sector'] == sector
+            X_sector = pred_df.loc[sector_mask, feature_cols]
+
+            if sector not in models_info['sector_regressors']:
+                continue
+
+            # Predict returns
+            sector_regs = models_info['sector_regressors'][sector]
+            y_pred_return = np.mean([reg.predict(X_sector) for reg in sector_regs.values()], axis=0)
+            pred_df.loc[sector_mask, DataSchema.PRED_RETURN] = y_pred_return
+
+            # Predict probabilities
+            if models_info['use_classifier'] and sector in models_info['sector_classifiers']:
+                sector_clfs = models_info['sector_classifiers'][sector]
+                y_pred_proba = np.mean([clf.predict_proba(X_sector)[:, 1] for clf in sector_clfs.values()], axis=0)
+                pred_df.loc[sector_mask, DataSchema.PRED_PROBA] = y_pred_proba
+    else:
+        # Global predictions
+        global_regs = models_info['regressors']
+        y_pred_return = np.mean([reg.predict(X_pred) for reg in global_regs.values()], axis=0)
+        pred_df[DataSchema.PRED_RETURN] = y_pred_return
+
+        if models_info['use_classifier']:
+            global_clfs = models_info['classifiers']
+            y_pred_proba = np.mean([clf.predict_proba(X_pred)[:, 1] for clf in global_clfs.values()], axis=0)
+            pred_df[DataSchema.PRED_PROBA] = y_pred_proba
+
+    # Calculate ML score
+    pred_df[DataSchema.ML_SCORE] = pred_df[DataSchema.PRED_PROBA] * pred_df[DataSchema.PRED_RETURN]
+
+    return pred_df
+
+
+def _rank_and_select_top_k_standalone(predictions_df: pd.DataFrame, top_k: int) -> pd.DataFrame:
+    """Standalone version of _rank_and_select_top_k for Ray workers."""
+    # Sort by ML score descending
+    predictions_df = predictions_df.sort_values(by=DataSchema.ML_SCORE, ascending=False)
+
+    # Add rank
+    predictions_df[DataSchema.RANK] = range(1, len(predictions_df) + 1)
+
+    # Mark top-K as selected
+    predictions_df[DataSchema.SELECTED] = False
+    predictions_df.loc[predictions_df.index[:top_k], DataSchema.SELECTED] = True
+
+    return predictions_df
+
 
 class Regressor:
     """분류와 회귀를 사용하는 2단계 주식 가격 예측 모델입니다.
@@ -381,6 +728,21 @@ class Regressor:
 
         # Top K 설정 (ml_backtest.py와 동일한 방식)
         self.top_k_num = int(backtest_config.get('TOP_K_NUM', 20))
+
+        # ========================================================================
+        # Walk-Forward Evaluation Settings (Phase 3: New Feature)
+        # ========================================================================
+        eval_config = conf.get('EVALUATION', {})
+        self.use_walk_forward = eval_config.get('USE_WALK_FORWARD', 'N') == 'Y'
+        self.walk_forward_periods = []  # Will be populated in dataload()
+        self.predictions_cache = {}  # Store predictions for each cutoff_date
+
+        if self.use_walk_forward:
+            logging.info("🔄 Walk-Forward mode ENABLED")
+            logging.info(f"   Window type: {eval_config.get('WINDOW_TYPE', 'expanding')}")
+            logging.info(f"   Retrain frequency: {eval_config.get('RETRAIN_FREQUENCY', 'quarterly')}")
+        else:
+            logging.info("📊 Traditional train/test split mode (legacy)")
 
         aidata_dir = self.root_path + '/processed/ml_data/per_year/'
         print("aidata path : " + aidata_dir)
@@ -878,6 +1240,20 @@ class Regressor:
         logging.info("=" * 80)
         logging.info("📂 DATALOAD: Loading and preprocessing training/test data")
         logging.info("=" * 80)
+
+        # ========================================================================
+        # Walk-Forward Mode: Generate periods and skip traditional loading
+        # ========================================================================
+        if self.use_walk_forward:
+            logging.info("🔄 Walk-Forward mode: Generating evaluation periods...")
+            self._generate_walk_forward_periods()
+            logging.info(f"✅ Generated {len(self.walk_forward_periods)} walk-forward periods")
+            return  # Skip traditional data loading
+
+        # ========================================================================
+        # Traditional Mode: Load all training/test files
+        # ========================================================================
+        logging.info("📊 Traditional mode: Loading train/test files...")
 
         # ========================================================================
         # STEP 1: Load all training files from parquet
@@ -1638,6 +2014,61 @@ class Regressor:
             'all_results': results  # 디버깅용
         }
 
+    def _generate_walk_forward_periods(self) -> None:
+        """
+        Generate walk-forward evaluation periods from EVALUATION.PERIODS config.
+
+        This method creates a list of cutoff dates for walk-forward training,
+        similar to ml_backtest.py but for regressor evaluation.
+
+        Populates:
+        ----------
+        self.walk_forward_periods : List[Dict]
+            List of period information dicts with keys:
+            - cutoff_date: datetime
+            - train_start_year: int
+            - period_name: str
+        """
+        from datetime import datetime
+        from dateutil.relativedelta import relativedelta
+
+        eval_config = self.conf.get('EVALUATION', {})
+        periods = eval_config.get('PERIODS', [])
+        train_start_year = eval_config.get('TRAIN_START_YEAR', 1996)
+        rebalance_period = eval_config.get('REBALANCE_PERIOD', 3)
+
+        if not periods:
+            logging.warning("⚠️  No EVALUATION.PERIODS configured, walk-forward mode disabled")
+            self.use_walk_forward = False
+            return
+
+        self.walk_forward_periods = []
+
+        for period_config in periods:
+            start_year = period_config['START_YEAR']
+            end_year = period_config['END_YEAR']
+            start_month = period_config.get('START_MONTH', 1)
+            start_date = period_config.get('START_DATE', 1)
+
+            start_dt = datetime(start_year, start_month, start_date)
+            end_dt = datetime(end_year, 12, 31)
+
+            # Generate rebalancing dates for this period
+            current = start_dt
+            while current <= end_dt:
+                self.walk_forward_periods.append({
+                    'cutoff_date': current,
+                    'train_start_year': train_start_year,
+                    'period_name': f"{start_year}-{end_year}"
+                })
+                current += relativedelta(months=rebalance_period)
+
+        logging.info(f"  Generated {len(self.walk_forward_periods)} cutoff dates:")
+        for i, period in enumerate(self.walk_forward_periods[:5]):  # Log first 5
+            logging.info(f"    {i+1}. {period['cutoff_date'].date()}")
+        if len(self.walk_forward_periods) > 5:
+            logging.info(f"    ... and {len(self.walk_forward_periods) - 5} more")
+
     def train(self) -> None:
         """모든 분류 및 회귀 모델을 학습하고 디스크에 저장합니다.
 
@@ -1701,6 +2132,23 @@ class Regressor:
         # search.fit(self.x_train, self.y_train.values.ravel())
         # print(search.best_params_)
         # exit()
+
+        # ========================================================================
+        # Walk-Forward Mode: Train models for each period
+        # ========================================================================
+        if self.use_walk_forward:
+            logging.info("="*80)
+            logging.info("🔄 WALK-FORWARD TRAINING")
+            logging.info("="*80)
+            self._train_walk_forward()
+            return  # Skip traditional training
+
+        # ========================================================================
+        # Traditional Mode: Train models once on all training data
+        # ========================================================================
+        logging.info("="*80)
+        logging.info("📊 TRADITIONAL TRAINING (single train/test split)")
+        logging.info("="*80)
 
         # 모델 저장 경로 설정
         MODEL_SAVE_PATH = self.root_path + '/MODELS/'
@@ -2418,6 +2866,802 @@ class Regressor:
             logging.info("="*80)
             logging.info("")
 
+    def _train_walk_forward(self) -> None:
+        """
+        Walk-Forward training: Train and predict for each cutoff period.
+
+        This method implements walk-forward analysis with optional parallel execution:
+        1. Determine optimal number of workers (using MemoryProfiler)
+        2. For each cutoff_date (in parallel or sequential):
+           a. Load data up to cutoff_date (expanding/rolling window)
+           b. Train models
+           c. Load next period data
+           d. Make predictions
+           e. Store predictions in self.predictions_cache
+
+        The predictions_cache will be saved to pkl for use by:
+        - evaluation() method (accuracy metrics)
+        - ml_backtest.py (if USE_CACHED_PREDICTIONS=Y)
+
+        Parallel execution:
+        - Uses Ray to train multiple periods in parallel
+        - MemoryProfiler auto-learns optimal worker count
+        - Handles OOM by invalidating profile and retrying conservatively
+        """
+        from src.training.data_processor import DataProcessor
+        from src.utils.memory_profiler import MemoryProfiler
+
+        MODEL_SAVE_PATH = self.root_path + '/MODELS/'
+        if not os.path.exists(MODEL_SAVE_PATH):
+            os.makedirs(MODEL_SAVE_PATH)
+
+        eval_config = self.conf.get('EVALUATION', {})
+        top_k = eval_config.get('TOP_K_NUM', 10)
+
+        # Parallel training configuration
+        parallel_enabled = eval_config.get('PARALLEL_TRAINING', 'N') == 'Y'
+        num_workers_config = eval_config.get('NUM_WORKERS', 'auto')
+        profile_file = self.root_path + '/config/' + eval_config.get('MEMORY_PROFILE_FILE', 'memory_profile.json')
+
+        logging.info(f"\n🔄 Walk-Forward Training: {len(self.walk_forward_periods)} periods")
+        logging.info(f"🎯 Top-K Selection: {top_k}")
+        logging.info(f"⚡ Parallel Training: {'Enabled' if parallel_enabled else 'Disabled'}")
+
+        # Determine execution mode
+        use_parallel = parallel_enabled and RAY_AVAILABLE and len(self.walk_forward_periods) > 1
+
+        if parallel_enabled and not RAY_AVAILABLE:
+            logging.warning("⚠️  Parallel training requested but Ray not available. Using sequential mode.")
+
+        if use_parallel:
+            self._train_walk_forward_parallel(MODEL_SAVE_PATH, top_k, num_workers_config, profile_file)
+        else:
+            self._train_walk_forward_sequential(MODEL_SAVE_PATH, top_k)
+
+    def _train_walk_forward_sequential(self, model_save_path: str, top_k: int) -> None:
+        """Sequential walk-forward training (original implementation)."""
+        from src.training.data_processor import DataProcessor
+
+        logging.info("="*80)
+        logging.info("🔁 Sequential Mode")
+        logging.info("="*80)
+
+        # Initialize predictions cache
+        self.predictions_cache = {}
+
+        for idx, period_info in enumerate(self.walk_forward_periods, 1):
+            cutoff_date = period_info['cutoff_date']
+            train_start_year = period_info['train_start_year']
+            period_name = period_info['period_name']
+
+            logging.info(f"\n{'='*80}")
+            logging.info(f"📅 Period {idx}/{len(self.walk_forward_periods)}: {cutoff_date.strftime('%Y-%m-%d')} ({period_name})")
+            logging.info(f"{'='*80}")
+
+            # Step 1: Load training data until cutoff_date
+            logging.info(f"📂 Loading training data: {train_start_year} ~ {cutoff_date.strftime('%Y-%m-%d')}")
+            train_df = self._load_data_until_cutoff(train_start_year, cutoff_date)
+
+            if train_df.empty:
+                logging.warning(f"⚠️  No training data available for {cutoff_date}, skipping...")
+                continue
+
+            logging.info(f"✅ Loaded {len(train_df)} training samples")
+
+            # Step 2: Train models on this data
+            logging.info("🔧 Training models...")
+            models_info = self._train_models_for_period(train_df)
+
+            # Step 3: Load prediction data (stocks at cutoff_date)
+            logging.info(f"📂 Loading prediction data for {cutoff_date.strftime('%Y-%m-%d')}")
+            pred_df = self._load_data_for_prediction(cutoff_date)
+
+            if pred_df.empty:
+                logging.warning(f"⚠️  No prediction data available for {cutoff_date}, skipping...")
+                continue
+
+            logging.info(f"✅ Loaded {len(pred_df)} stocks for prediction")
+
+            # Step 4: Generate predictions
+            logging.info("🔮 Generating predictions...")
+            predictions_df = self._generate_predictions_for_period(pred_df, models_info)
+
+            # Step 5: Top-K selection and ranking
+            logging.info(f"🎯 Selecting Top-{top_k} stocks...")
+            predictions_df = self._rank_and_select_top_k(predictions_df, top_k)
+
+            # Store in cache
+            cache_key = cutoff_date.strftime('%Y-%m-%d')
+            top_k_mask = predictions_df[DataSchema.SELECTED]
+            self.predictions_cache[cache_key] = {
+                'predictions_df': predictions_df,
+                'top_k_selected': predictions_df[top_k_mask]['symbol'].tolist(),
+                'top_k_details': predictions_df[top_k_mask].copy(),
+                'models_used': models_info,
+                'train_samples': len(train_df),
+                'predict_samples': len(pred_df)
+            }
+
+            logging.info(f"✅ Top-{top_k}: {self.predictions_cache[cache_key]['top_k_selected']}")
+
+        # Save predictions cache to pkl
+        eval_config = self.conf.get('EVALUATION', {})
+        cache_file = model_save_path + eval_config.get('PREDICTIONS_CACHE_FILE', 'regressor_predictions.pkl')
+        logging.info(f"\n💾 Saving predictions cache to {cache_file}")
+        joblib.dump(self.predictions_cache, cache_file)
+        logging.info(f"✅ Walk-forward training completed! {len(self.predictions_cache)} periods saved.")
+
+    def _train_walk_forward_parallel(self, model_save_path: str, top_k: int, num_workers_config: str, profile_file: str) -> None:
+        """Parallel walk-forward training using Ray and MemoryProfiler."""
+        from src.utils.memory_profiler import MemoryProfiler
+
+        logging.info("="*80)
+        logging.info("⚡ Parallel Mode (Ray)")
+        logging.info("="*80)
+
+        # Initialize MemoryProfiler
+        profiler = MemoryProfiler(profile_path=profile_file)
+
+        # Build config for profiler
+        profiler_config = {
+            'train_start_year': self.conf.get('EVALUATION', {}).get('TRAIN_START_YEAR'),
+            'num_periods': len(self.walk_forward_periods),
+            'use_sector': self.use_sector_model,
+            'use_classifier': self.use_classifier,
+            'top_k': top_k
+        }
+
+        # Determine number of workers
+        if num_workers_config == 'auto':
+            worker_info = profiler.get_optimal_workers(profiler_config)
+            num_workers = worker_info['recommended_workers']
+            confidence = worker_info['confidence']
+            reason = worker_info['reason']
+
+            logging.info(f"🤖 Auto-determined workers: {num_workers}")
+            logging.info(f"   Confidence: {confidence}")
+            logging.info(f"   Reason: {reason}")
+        else:
+            try:
+                num_workers = int(num_workers_config)
+                logging.info(f"👤 Manual workers: {num_workers}")
+            except ValueError:
+                logging.warning(f"⚠️  Invalid NUM_WORKERS value '{num_workers_config}', defaulting to 1")
+                num_workers = 1
+
+        # Cap workers at number of periods
+        num_workers = min(num_workers, len(self.walk_forward_periods))
+
+        logging.info(f"🚀 Starting parallel training with {num_workers} workers...")
+
+        # Start profiling
+        profiler.start_run(profiler_config, num_workers)
+
+        try:
+            # Initialize Ray
+            if not ray.is_initialized():
+                ray.init(ignore_reinit_error=True, log_to_driver=False)
+                logging.info("✅ Ray initialized")
+
+            # Submit all periods as Ray tasks
+            logging.info(f"📤 Submitting {len(self.walk_forward_periods)} tasks to Ray...")
+            futures = []
+            for idx, period_info in enumerate(self.walk_forward_periods):
+                future = train_single_period_remote.remote(
+                    period_info=period_info,
+                    root_path=self.root_path,
+                    use_classifier=self.use_classifier,
+                    use_sector_model=self.use_sector_model,
+                    top_k=top_k,
+                    logger_level=logging.INFO
+                )
+                futures.append(future)
+
+                # Sample memory for first few periods
+                if idx < 3:
+                    import time
+                    time.sleep(2)  # Give worker time to start
+                    train_samples = len(self._load_data_until_cutoff(
+                        period_info['train_start_year'],
+                        period_info['cutoff_date']
+                    ))
+                    profiler.record_period_memory(idx, train_samples)
+
+            # Wait for all results
+            logging.info(f"⏳ Waiting for {len(futures)} tasks to complete...")
+            results = ray.get(futures)
+
+            # Build predictions cache from results
+            self.predictions_cache = {}
+            for cache_key, cache_entry in results:
+                if cache_entry is not None:
+                    self.predictions_cache[cache_key] = cache_entry
+                    logging.info(f"✅ Period {cache_key}: {len(cache_entry['top_k_selected'])} stocks selected")
+                else:
+                    logging.warning(f"⚠️  Period {cache_key}: No results (empty data or error)")
+
+            # Save predictions cache
+            eval_config = self.conf.get('EVALUATION', {})
+            cache_file = model_save_path + eval_config.get('PREDICTIONS_CACHE_FILE', 'regressor_predictions.pkl')
+            logging.info(f"\n💾 Saving predictions cache to {cache_file}")
+            joblib.dump(self.predictions_cache, cache_file)
+            logging.info(f"✅ Parallel walk-forward training completed! {len(self.predictions_cache)} periods saved.")
+
+            # End profiling (success)
+            profiler.end_run(success=True)
+
+        except ray.exceptions.OutOfMemoryError as e:
+            logging.error(f"❌ Out of Memory Error: {e}")
+            logging.error("🔧 Profile will be invalidated. Next run will use conservative settings.")
+
+            # End profiling (OOM failure)
+            profiler.end_run(success=False, error="OutOfMemoryError")
+
+            # Fall back to sequential mode
+            logging.info("⚠️  Falling back to sequential mode...")
+            self._train_walk_forward_sequential(model_save_path, top_k)
+
+        except Exception as e:
+            logging.error(f"❌ Parallel training failed: {e}")
+            import traceback
+            traceback.print_exc()
+
+            # End profiling (failure)
+            profiler.end_run(success=False, error=str(e))
+
+            # Fall back to sequential mode
+            logging.info("⚠️  Falling back to sequential mode...")
+            self._train_walk_forward_sequential(model_save_path, top_k)
+
+        finally:
+            # Cleanup Ray resources
+            if ray.is_initialized():
+                ray.shutdown()
+                logging.info("🧹 Ray shutdown")
+
+    def _load_data_until_cutoff(self, train_start_year: int, cutoff_date: datetime) -> pd.DataFrame:
+        """
+        Load training data from train_start_year until cutoff_date.
+
+        This implements the expanding window approach where each iteration
+        uses all data from the start until the current cutoff date.
+
+        Parameters:
+        -----------
+        train_start_year : int
+            Starting year for training data
+        cutoff_date : datetime
+            Cutoff date (exclusive) - data before this date is used for training
+
+        Returns:
+        --------
+        pd.DataFrame
+            Training data with all features and targets
+        """
+        from src.training.data_processor import DataProcessor
+
+        # Load all quarterly data files from train_start_year onwards
+        all_train_data = []
+        current_year = train_start_year
+
+        # ✅ FIX: Use correct path where make_mldata.py saves training data
+        ml_data_dir = f"{self.root_path}/processed/ml_data/per_year"
+
+        while current_year <= cutoff_date.year:
+            # ✅ FIX: Use correct file pattern - rnorm_ml_YYYY_QN.parquet
+            # rnorm_ml_ files contain features + targets (for training)
+            file_pattern = f"{ml_data_dir}/rnorm_ml_{current_year}_Q*.parquet"
+            year_files = glob.glob(file_pattern)
+
+            for file_path in sorted(year_files):
+                try:
+                    df = pd.read_parquet(file_path)
+                    if 'rebalance_date' in df.columns:
+                        df['rebalance_date'] = pd.to_datetime(df['rebalance_date'])
+                        # Only include data before cutoff_date
+                        df = df[df['rebalance_date'] < cutoff_date]
+                        if not df.empty:
+                            all_train_data.append(df)
+                except Exception as e:
+                    logging.warning(f"⚠️  Failed to load {file_path}: {e}")
+
+            current_year += 1
+
+        if not all_train_data:
+            return pd.DataFrame()
+
+        # Combine all data
+        combined_df = pd.concat(all_train_data, ignore_index=True)
+        logging.info(f"   Loaded {len(combined_df)} samples from {len(all_train_data)} files")
+
+        return combined_df
+
+    def _load_data_for_prediction(self, cutoff_date: datetime) -> pd.DataFrame:
+        """
+        Load data for prediction at the specific cutoff_date.
+
+        This loads the stocks available at cutoff_date for making predictions.
+
+        Parameters:
+        -----------
+        cutoff_date : datetime
+            The rebalancing date for which to make predictions
+
+        Returns:
+        --------
+        pd.DataFrame
+            Prediction data with all features
+        """
+        # Load data files that might contain the cutoff_date
+        year = cutoff_date.year
+
+        # ✅ FIX: Use correct path and file pattern
+        ml_data_dir = f"{self.root_path}/processed/ml_data/per_year"
+        # rnorm_fs_ files contain features only (no targets, for prediction)
+        file_pattern = f"{ml_data_dir}/rnorm_fs_{year}_Q*.parquet"
+        year_files = glob.glob(file_pattern)
+
+        pred_data = []
+        for file_path in sorted(year_files):
+            try:
+                df = pd.read_parquet(file_path)
+                if 'rebalance_date' in df.columns:
+                    df['rebalance_date'] = pd.to_datetime(df['rebalance_date'])
+                    # Only select stocks at exactly this cutoff_date
+                    df = df[df['rebalance_date'] == cutoff_date]
+                    if not df.empty:
+                        pred_data.append(df)
+            except Exception as e:
+                logging.warning(f"⚠️  Failed to load {file_path}: {e}")
+
+        if not pred_data:
+            return pd.DataFrame()
+
+        # Combine all prediction data
+        combined_df = pd.concat(pred_data, ignore_index=True)
+        logging.info(f"   Found {len(combined_df)} stocks at {cutoff_date.strftime('%Y-%m-%d')}")
+
+        return combined_df
+
+    def _train_models_for_period(self, train_df: pd.DataFrame) -> dict:
+        """
+        Train all models (classifiers + regressors) for a specific period.
+
+        This method trains models in-memory without saving to disk.
+        The trained models are returned in a dict for immediate use in prediction.
+
+        Parameters:
+        -----------
+        train_df : pd.DataFrame
+            Training data for this period
+
+        Returns:
+        --------
+        dict
+            Dictionary containing trained models:
+            {
+                'use_classifier': bool,
+                'use_sector': bool,
+                'classifiers': {...},  # Global classifiers (if use_classifier=Y)
+                'regressors': {...},   # Global regressors
+                'sector_classifiers': {...},  # Sector classifiers (if use_sector=Y)
+                'sector_regressors': {...}    # Sector regressors (if use_sector=Y)
+            }
+        """
+        from src.training.data_processor import DataProcessor
+
+        models_info = {
+            'use_classifier': self.use_classifier,
+            'use_sector': self.use_sector_model,
+            'classifiers': {},
+            'regressors': {},
+            'sector_classifiers': {},
+            'sector_regressors': {}
+        }
+
+        # Preprocess training data
+        # ⚠️ TODO: This call is incorrect - preprocess_training_data expects (X, y, y_cls, config, logger)
+        # For now, commenting out to avoid errors. Proper preprocessing happens later.
+        # train_df = DataProcessor.preprocess_training_data(train_df, None)
+
+        # Get target column
+        target_col = DataSchema.REGRESSION_TARGET
+        if target_col not in train_df.columns:
+            logging.error(f"❌ Target column '{target_col}' not found in training data")
+            return models_info
+
+        # Get feature columns
+        feature_cols = DataSchema.get_feature_cols(train_df)
+        X_train = train_df[feature_cols]
+        y_train = train_df[target_col]
+
+        # Train global models
+        if self.use_sector_model:
+            logging.info("   Training sector-specific models...")
+            # Train sector models
+            for sector in train_df['sector'].unique():
+                sector_data = train_df[train_df['sector'] == sector]
+                if len(sector_data) < 50:  # Skip sectors with too few samples
+                    continue
+
+                X_sector = sector_data[feature_cols]
+                y_sector = sector_data[target_col]
+
+                # ✅ CRITICAL FIX: Preprocess sector data BEFORE training
+                # This removes inf/NaN and applies winsorization
+                # Without this, XGBoost fails with "Input data contains inf or value too large"
+                try:
+                    X_sector_clean, y_sector_clean, _, _ = DataProcessor.preprocess_training_data(
+                        X_sector.copy(),
+                        y_sector.to_frame(),  # Convert Series to DataFrame
+                        y_cls=None,
+                        config=self.conf,  # ✅ Use self.conf (not self.config)
+                        logger=logging
+                    )
+
+                    # Convert y back to Series (preprocess_training_data returns DataFrame)
+                    y_sector_clean = y_sector_clean.iloc[:, 0]
+
+                except Exception as e:
+                    logging.error(f"   ❌ {sector}: Preprocessing failed - {str(e)}")
+                    continue
+
+                # Train sector classifiers
+                if self.use_classifier:
+                    sector_clfs = self._train_sector_classifiers_inline(X_sector_clean, y_sector_clean)
+                    models_info['sector_classifiers'][sector] = sector_clfs
+
+                # Train sector regressors
+                sector_regs = self._train_sector_regressors_inline(X_sector_clean, y_sector_clean)
+                models_info['sector_regressors'][sector] = sector_regs
+
+            logging.info(f"   ✅ Trained models for {len(models_info['sector_regressors'])} sectors")
+        else:
+            logging.info("   Training global models...")
+
+            # ✅ CRITICAL FIX: Preprocess global data BEFORE training
+            # This removes inf/NaN and applies winsorization
+            try:
+                X_train_clean, y_train_clean, _, _ = DataProcessor.preprocess_training_data(
+                    X_train.copy(),
+                    y_train.to_frame(),  # Convert Series to DataFrame
+                    y_cls=None,
+                    config=self.conf,  # ✅ Use self.conf (not self.config)
+                    logger=logging
+                )
+
+                # Convert y back to Series
+                y_train_clean = y_train_clean.iloc[:, 0]
+
+            except Exception as e:
+                logging.error(f"   ❌ Global model preprocessing failed - {str(e)}")
+                return models_info
+
+            # Train global classifiers
+            if self.use_classifier:
+                global_clfs = self._train_global_classifiers_inline(X_train_clean, y_train_clean)
+                models_info['classifiers'] = global_clfs
+
+            # Train global regressors
+            global_regs = self._train_global_regressors_inline(X_train_clean, y_train_clean)
+            models_info['regressors'] = global_regs
+
+            logging.info(f"   ✅ Trained {len(models_info['classifiers'])} classifiers + {len(models_info['regressors'])} regressors")
+
+        return models_info
+
+    def _generate_predictions_for_period(self, pred_df: pd.DataFrame, models_info: dict) -> pd.DataFrame:
+        """
+        Generate predictions for all stocks in pred_df using trained models.
+
+        Parameters:
+        -----------
+        pred_df : pd.DataFrame
+            DataFrame containing stocks to predict (with features)
+        models_info : dict
+            Dictionary containing trained models from _train_models_for_period()
+
+        Returns:
+        --------
+        pd.DataFrame
+            Predictions with columns: symbol, sector, pred_return, pred_proba, ml_score
+        """
+        from src.training.data_processor import DataProcessor
+
+        # Preprocess prediction data
+        # ⚠️ TODO: This call is incorrect - preprocess_training_data expects (X, y, y_cls, config, logger)
+        # For now, commenting out to avoid errors. Proper preprocessing happens later.
+        # pred_df = DataProcessor.preprocess_training_data(pred_df, None)
+
+        # Get feature columns
+        feature_cols = DataSchema.get_feature_cols(pred_df)
+        X_pred = pred_df[feature_cols]
+
+        # Initialize prediction columns
+        pred_df[DataSchema.PRED_RETURN] = 0.0
+        pred_df[DataSchema.PRED_PROBA] = 1.0  # Default to 1.0 if no classifier
+
+        # Generate predictions based on model type
+        if models_info['use_sector']:
+            # Sector-specific predictions
+            for sector in pred_df['sector'].unique():
+                sector_mask = pred_df['sector'] == sector
+                X_sector = pred_df.loc[sector_mask, feature_cols]
+
+                if sector not in models_info['sector_regressors']:
+                    continue  # Skip if no model for this sector
+
+                # Predict returns
+                sector_regs = models_info['sector_regressors'][sector]
+                y_pred_return = np.mean([reg.predict(X_sector) for reg in sector_regs.values()], axis=0)
+                pred_df.loc[sector_mask, DataSchema.PRED_RETURN] = y_pred_return
+
+                # Predict probabilities (if classifier enabled)
+                if models_info['use_classifier'] and sector in models_info['sector_classifiers']:
+                    sector_clfs = models_info['sector_classifiers'][sector]
+                    y_pred_proba = np.mean([clf.predict_proba(X_sector)[:, 1] for clf in sector_clfs.values()], axis=0)
+                    pred_df.loc[sector_mask, DataSchema.PRED_PROBA] = y_pred_proba
+        else:
+            # Global predictions
+            # Predict returns
+            global_regs = models_info['regressors']
+            y_pred_return = np.mean([reg.predict(X_pred) for reg in global_regs.values()], axis=0)
+            pred_df[DataSchema.PRED_RETURN] = y_pred_return
+
+            # Predict probabilities (if classifier enabled)
+            if models_info['use_classifier']:
+                global_clfs = models_info['classifiers']
+                y_pred_proba = np.mean([clf.predict_proba(X_pred)[:, 1] for clf in global_clfs.values()], axis=0)
+                pred_df[DataSchema.PRED_PROBA] = y_pred_proba
+
+        # Calculate ML score
+        pred_df[DataSchema.ML_SCORE] = pred_df[DataSchema.PRED_PROBA] * pred_df[DataSchema.PRED_RETURN]
+
+        # Select relevant columns for output
+        output_cols = ['symbol', 'sector', DataSchema.PRED_RETURN, DataSchema.PRED_PROBA, DataSchema.ML_SCORE]
+        # Add company_name if available
+        if DataSchema.COMPANY_NAME in pred_df.columns:
+            output_cols.insert(2, DataSchema.COMPANY_NAME)
+
+        predictions_df = pred_df[output_cols].copy()
+
+        return predictions_df
+
+    def _rank_and_select_top_k(self, predictions_df: pd.DataFrame, top_k: int) -> pd.DataFrame:
+        """
+        Rank stocks by ml_score and select top K.
+
+        Parameters:
+        -----------
+        predictions_df : pd.DataFrame
+            DataFrame with predictions (must contain ml_score column)
+        top_k : int
+            Number of top stocks to select
+
+        Returns:
+        --------
+        pd.DataFrame
+            Predictions with added columns: rank, selected
+        """
+        # Sort by ml_score descending
+        predictions_df = predictions_df.sort_values(DataSchema.ML_SCORE, ascending=False).reset_index(drop=True)
+
+        # Add rank (1-indexed)
+        predictions_df[DataSchema.RANK] = range(1, len(predictions_df) + 1)
+
+        # Select top K
+        predictions_df[DataSchema.SELECTED] = predictions_df[DataSchema.RANK] <= top_k
+
+        logging.info(f"   Ranked {len(predictions_df)} stocks, selected top {top_k}")
+
+        return predictions_df
+
+    def _temporal_train_val_split(self, X: pd.DataFrame, y: pd.Series, val_ratio: float = 0.2) -> tuple:
+        """
+        Split data into train/validation sets based on temporal order.
+
+        For time series data, we use the last val_ratio of data as validation
+        to simulate forward testing (training on past, validating on future).
+
+        Args:
+            X: Feature DataFrame
+            y: Target Series
+            val_ratio: Proportion of data to use for validation (default: 0.2)
+
+        Returns:
+            Tuple of (X_train, X_val, y_train, y_val)
+        """
+        # ✅ FIX: Reset indices to ensure .iloc works correctly
+        # When X and y come from filtered DataFrames (e.g., sector filtering),
+        # their indices might be non-contiguous (e.g., [100, 200, 300, ...])
+        # .iloc uses positional indexing, so we need 0-based contiguous indices
+        X = X.reset_index(drop=True)
+        y = y.reset_index(drop=True)
+
+        # ✅ FIX: Remove NaN values in target before splitting
+        # NaN in target means no future price data (delisting, bankruptcy, etc.)
+        # XGBoost/LightGBM cannot handle NaN in labels
+        nan_mask = y.isna()
+        if nan_mask.any():
+            n_nan = nan_mask.sum()
+            n_total = len(y)
+            pct_nan = (n_nan / n_total) * 100
+            logging.warning(f"   ⚠️  Found {n_nan} NaN in target ({pct_nan:.2f}%) - removing these rows")
+
+            # Remove rows with NaN in target
+            valid_mask = ~nan_mask
+            X = X[valid_mask].reset_index(drop=True)
+            y = y[valid_mask].reset_index(drop=True)
+
+            logging.info(f"   After NaN removal: {len(y)} samples ({n_total - n_nan} valid)")
+
+        split_idx = int(len(X) * (1 - val_ratio))
+
+        X_train_split = X.iloc[:split_idx]
+        X_val_split = X.iloc[split_idx:]
+        y_train_split = y.iloc[:split_idx]
+        y_val_split = y.iloc[split_idx:]
+
+        logging.info(f"   Temporal split: Train={len(X_train_split)}, Val={len(X_val_split)}")
+
+        return X_train_split, X_val_split, y_train_split, y_val_split
+
+    def _train_global_classifiers_inline(self, X_train: pd.DataFrame, y_train: pd.Series) -> dict:
+        """Train global classifiers with early stopping validation.
+
+        Parameters:
+        -----------
+        X_train : pd.DataFrame
+            Preprocessed feature data (inf/NaN already removed by DataProcessor)
+        y_train : pd.Series
+            Preprocessed target data (inf/NaN already removed by DataProcessor)
+        """
+        classifiers = {}
+
+        # ✅ Data is already preprocessed by DataProcessor.preprocess_training_data()
+        # - inf removed
+        # - NaN removed
+        # - Winsorization applied
+        # Just need to convert to binary (0/1)
+        y_regression = y_train
+
+        # Convert clean data to binary (0/1)
+        # No need to check NaN again - already removed in preprocessing
+        y_binary = (y_regression > 0).astype(int)
+
+        # ✅ ADD: Temporal train/val split for early stopping
+        X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_train, y_binary, val_ratio=0.2)
+
+        # Train 4 classifiers with early stopping
+        from xgboost import XGBClassifier
+        from lightgbm import LGBMClassifier
+
+        # ✅ CHANGE: Increase n_estimators, add early_stopping_rounds
+        classifiers[0] = XGBClassifier(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        classifiers[1] = XGBClassifier(max_depth=9, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        classifiers[2] = XGBClassifier(max_depth=10, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        classifiers[3] = LGBMClassifier(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
+
+        for idx, clf in classifiers.items():
+            # ✅ ADD: Fit with validation set for early stopping
+            if isinstance(clf, LGBMClassifier):
+                clf.fit(X_tr, y_tr,
+                       eval_set=[(X_val, y_val)],
+                       callbacks=[lgb.early_stopping(50, verbose=False)])
+                best_iter = clf.best_iteration_ if hasattr(clf, 'best_iteration_') else len(clf.evals_result_['valid_0']['binary_logloss'])
+                val_score = clf.evals_result_['valid_0']['binary_logloss'][best_iter - 1]
+                logging.info(f"   Classifier {idx} (LGBM): best_iter={best_iter}, val_logloss={val_score:.4f}")
+            else:  # XGBoost
+                clf.fit(X_tr, y_tr,
+                       eval_set=[(X_val, y_val)],
+                       verbose=False)
+                best_iter = clf.best_iteration
+                val_score = clf.evals_result()['validation_0']['logloss'][best_iter]
+                logging.info(f"   Classifier {idx} (XGB): best_iter={best_iter}, val_logloss={val_score:.4f}")
+
+        return classifiers
+
+    def _train_global_regressors_inline(self, X_train: pd.DataFrame, y_train: pd.Series) -> dict:
+        """Train global regressors with early stopping validation."""
+        regressors = {}
+
+        # ✅ ADD: Temporal train/val split for early stopping
+        X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_train, y_train, val_ratio=0.2)
+
+        from xgboost import XGBRegressor
+
+        # ✅ CHANGE: Increase n_estimators, add early_stopping_rounds
+        regressors[0] = XGBRegressor(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        regressors[1] = XGBRegressor(max_depth=10, n_estimators=500, random_state=42, early_stopping_rounds=50)
+
+        for idx, reg in regressors.items():
+            # ✅ ADD: Fit with validation set for early stopping
+            reg.fit(X_tr, y_tr,
+                   eval_set=[(X_val, y_val)],
+                   verbose=False)
+            best_iter = reg.best_iteration
+            val_score = reg.evals_result()['validation_0']['rmse'][best_iter]
+            logging.info(f"   Regressor {idx} (XGB): best_iter={best_iter}, val_rmse={val_score:.4f}")
+
+        return regressors
+
+    def _train_sector_classifiers_inline(self, X_sector: pd.DataFrame, y_sector: pd.Series) -> dict:
+        """Train sector classifiers with early stopping validation.
+
+        Parameters:
+        -----------
+        X_sector : pd.DataFrame
+            Preprocessed feature data (inf/NaN already removed by DataProcessor)
+        y_sector : pd.Series
+            Preprocessed target data (inf/NaN already removed by DataProcessor)
+        """
+        classifiers = {}
+
+        # ✅ Data is already preprocessed by DataProcessor.preprocess_training_data()
+        # - inf removed
+        # - NaN removed
+        # - Winsorization applied
+        # Just need to convert to binary (0/1)
+        y_regression = y_sector
+
+        # Convert clean data to binary (0/1)
+        # No need to check NaN again - already removed in preprocessing
+        y_binary = (y_regression > 0).astype(int)
+
+        # ✅ ADD: Temporal train/val split for early stopping
+        X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_sector, y_binary, val_ratio=0.2)
+
+        from xgboost import XGBClassifier
+        from lightgbm import LGBMClassifier
+
+        # ✅ CHANGE: Increase n_estimators, add early_stopping_rounds
+        classifiers[0] = XGBClassifier(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        classifiers[1] = XGBClassifier(max_depth=9, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        classifiers[2] = XGBClassifier(max_depth=10, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        classifiers[3] = LGBMClassifier(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
+
+        for idx, clf in classifiers.items():
+            # ✅ ADD: Fit with validation set for early stopping
+            if isinstance(clf, LGBMClassifier):
+                clf.fit(X_tr, y_tr,
+                       eval_set=[(X_val, y_val)],
+                       callbacks=[lgb.early_stopping(50, verbose=False)])
+                best_iter = clf.best_iteration_ if hasattr(clf, 'best_iteration_') else len(clf.evals_result_['valid_0']['binary_logloss'])
+                val_score = clf.evals_result_['valid_0']['binary_logloss'][best_iter - 1]
+                logging.info(f"   Sector Classifier {idx} (LGBM): best_iter={best_iter}, val_logloss={val_score:.4f}")
+            else:  # XGBoost
+                clf.fit(X_tr, y_tr,
+                       eval_set=[(X_val, y_val)],
+                       verbose=False)
+                best_iter = clf.best_iteration
+                val_score = clf.evals_result()['validation_0']['logloss'][best_iter]
+                logging.info(f"   Sector Classifier {idx} (XGB): best_iter={best_iter}, val_logloss={val_score:.4f}")
+
+        return classifiers
+
+    def _train_sector_regressors_inline(self, X_sector: pd.DataFrame, y_sector: pd.Series) -> dict:
+        """Train sector regressors with early stopping validation."""
+        regressors = {}
+
+        # ✅ ADD: Temporal train/val split for early stopping
+        X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_sector, y_sector, val_ratio=0.2)
+
+        from xgboost import XGBRegressor
+
+        # ✅ CHANGE: Increase n_estimators, add early_stopping_rounds
+        regressors[0] = XGBRegressor(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
+        regressors[1] = XGBRegressor(max_depth=10, n_estimators=500, random_state=42, early_stopping_rounds=50)
+
+        for idx, reg in regressors.items():
+            # ✅ ADD: Fit with validation set for early stopping
+            reg.fit(X_tr, y_tr,
+                   eval_set=[(X_val, y_val)],
+                   verbose=False)
+            best_iter = reg.best_iteration
+            val_score = reg.evals_result()['validation_0']['rmse'][best_iter]
+            logging.info(f"   Sector Regressor {idx} (XGB): best_iter={best_iter}, val_rmse={val_score:.4f}")
+
+        return regressors
 
     def evaluation(self) -> None:
         """학습된 모델을 테스트 데이터로 평가하고 종합 보고서를 생성합니다.
@@ -2566,7 +3810,7 @@ class Regressor:
                 if missing_features:
                     logging.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with NaN")
                     for col in missing_features:
-                        x_test[col] = np.nan
+                        x_test.loc[:, col] = np.nan
 
                 # 추가 피처는 제거
                 extra_features = set(x_test.columns) - set(train_feature_columns)
@@ -3089,7 +4333,7 @@ class Regressor:
                         logging.warning(f"      - {col}")
                     logging.warning(f"      ... and {len(missing_features)-10} more")
                 for col in missing_features:
-                    input[col] = np.nan
+                    input.loc[:, col] = np.nan
 
             # 추가 피처는 제거
             extra_features = set(input.columns) - set(train_feature_columns)

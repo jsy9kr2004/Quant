@@ -883,13 +883,16 @@ class AIDataMaker:
                         self.logger.info(f"   No NaN values found, skipping dropna")
 
                     # tsfresh로 특성 추출
+                    # ✅ FIX: Use MinimalFCParameters to reduce overfitting
+                    # EfficientFCParameters → 794 features (too many, causes overfitting)
+                    # MinimalFCParameters → 20-30 features (reduces overfitting + 2-3x faster)
                     self.logger.info(f"🔄 [{base_year_period}] Running tsfresh feature extraction...")
                     features = extract_features(df_for_extract_feature,
                                                column_id='id',
                                                column_kind='kind',
                                                column_sort='time',
                                                column_value='value',
-                                               default_fc_parameters=EfficientFCParameters())
+                                               default_fc_parameters=MinimalFCParameters())
 
                     self.logger.info(f"   Extracted features shape: {features.shape}")
                     self.logger.info(f"   Unique symbols in features: {len(features.index)}")
