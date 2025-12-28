@@ -1127,8 +1127,13 @@ class MLBacktest:
             for i, period in enumerate(periods):
                 start_year = period.get('START_YEAR')
                 end_year = period.get('END_YEAR')
-                start_month = period.get('START_MONTH', backtest_config.get('START_MONTH', 3))
-                start_date_day = period.get('START_DATE', backtest_config.get('START_DATE', 13))
+                # 우선순위:
+                # 1) PERIODS[*].START_MONTH/START_DATE
+                # 2) BACKTEST.START_MONTH/START_DATE
+                # 3) 최상위 START_MONTH/START_DATE (레거시 호환 앵커)
+                # 4) 기본값 3/13
+                start_month = int(period.get('START_MONTH', backtest_config.get('START_MONTH', self.config.get('START_MONTH', 3))))
+                start_date_day = int(period.get('START_DATE', backtest_config.get('START_DATE', self.config.get('START_DATE', 13))))
 
                 if not start_year or not end_year:
                     raise ValueError(f"Period {i+1} missing START_YEAR or END_YEAR")
@@ -1168,8 +1173,8 @@ class MLBacktest:
             if isinstance(end_year, str):
                 end_year = int(end_year)
 
-            start_month = backtest_config.get('START_MONTH', 3)
-            start_date_day = backtest_config.get('START_DATE', 13)
+            start_month = int(backtest_config.get('START_MONTH', self.config.get('START_MONTH', 3)))
+            start_date_day = int(backtest_config.get('START_DATE', self.config.get('START_DATE', 13)))
 
             self.logger.info(f"📅 Single backtest period: {start_year}/{start_month}/{start_date_day} ~ {end_year}/12/31")
 

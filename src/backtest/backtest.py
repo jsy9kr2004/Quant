@@ -194,7 +194,15 @@ class Backtest:
         date_handler는 다수 만들어지며 생성 주체는 backtest이며 생성 후
         backtest에서 본인에게 mapping되어 있는 plan_handler에게 달아줌.
         """
-        date = datetime.datetime(self.main_ctx.start_year, self.conf['START_MONTH'], self.conf['START_DATE'])
+        # 설정에서 시작 월/일 가져오기
+        # 우선순위:
+        # 1) 최상위 START_MONTH/START_DATE (레거시 포맷)
+        # 2) BACKTEST.START_MONTH/START_DATE (현 conf.yaml 포맷과의 호환)
+        # 3) 기본값 1/1
+        backtest_config = self.conf.get('BACKTEST', {})
+        start_month = int(self.conf.get('START_MONTH', backtest_config.get('START_MONTH', 1)))
+        start_date = int(self.conf.get('START_DATE', backtest_config.get('START_DATE', 1)))
+        date = datetime.datetime(self.main_ctx.start_year, start_month, start_date)
         recent_date = self.price_table["date"].max()
         end_date = datetime.datetime(self.main_ctx.end_year, 12, 31)
         if end_date > recent_date:

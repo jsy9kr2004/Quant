@@ -681,7 +681,7 @@ class Regressor:
             return
 
         for sec in sector_list:
-            for i in range(4):  # 4 classifiers per sector (XGB depth 8/9/10 + LGBM)
+            for i in range(4):  # 4 classifiers per sector (XGB depth 8/9/10 + CatBoost)
                 k = (sec, i)
                 filename = f"{model_save_path}{sec}_clsmodel_{i}.sav"
                 self.sector_classifiers[k] = joblib.load(filename)
@@ -1232,11 +1232,11 @@ class Regressor:
             - clsmodels[0]: XGBClassifier, Optuna 최적화 or max_depth=8
             - clsmodels[1]: XGBClassifier, max_depth=9
             - clsmodels[2]: XGBClassifier, max_depth=10
-            - clsmodels[3]: LGBMClassifier, max_depth=8
+            - clsmodels[3]: CatBoostClassifier, depth=7
 
         회귀 모델 (2개 변형):
             - models[0]: XGBRegressor, max_depth=8
-            - models[1]: XGBRegressor, max_depth=10
+            - models[1]: CatBoostRegressor, depth=7
 
         Args:
             optuna_params: Optuna로 찾은 최적 파라미터 (clsmodel_0에 적용)
@@ -2234,7 +2234,7 @@ class Regressor:
             model.fit(x_train_filtered, y_train_filtered.values.ravel())
             filename = MODEL_SAVE_PATH + 'model_{}.sav'.format(str(i))
             joblib.dump(model, filename)
-            score = model.score(x_train_filtered, y_train_filtered)
+            score = model.score(x_train_filtered, y_train_filtered.values.ravel())
             logging.info(f"  Regressor {i} R² score: {score:.4f}")
 
         logging.info("="*80)
@@ -2308,19 +2308,16 @@ class Regressor:
                         model = self.sector_classifiers[k]
                         logging.info(f"  Training sector classifier {i} for {sec}...")
 
-                        # LightGBM (classifier 3) doesn't support special characters in feature names
-                        # Convert DataFrame to numpy array for LightGBM to avoid JSON character errors
-                        if i == 3:  # LightGBM classifier
-                            X_train = self.sector_x_train[sec].values
-                        else:  # XGBoost classifiers (0, 1, 2)
-                            X_train = self.sector_x_train[sec]
+                        # Use numpy arrays for consistent sklearn API behavior across model families
+                        # (CatBoost/XGBoost both support DataFrame too, but numpy avoids edge cases)
+                        X_train = self.sector_x_train[sec].values
 
                         model.fit(X_train, y_train_binary)
                         filename = MODEL_SAVE_PATH + '{}_clsmodel_{}.sav'.format(sec, str(i))
                         joblib.dump(model, filename)
 
                         # Score calculation (use values for consistency)
-                        score = model.score(self.sector_x_train[sec].values if i == 3 else self.sector_x_train[sec], y_train_binary)
+                        score = model.score(X_train, y_train_binary)
                         logging.info(f"  Sector classifier {i} score: {score:.4f}")
 
                     logging.info(f"✅ Trained and saved 4 classifiers for {sec}")
@@ -2405,7 +2402,7 @@ class Regressor:
                     filename = MODEL_SAVE_PATH + '{}_model_{}.sav'.format(sec, str(i))
                     joblib.dump(model, filename)
 
-                    score = model.score(x_train_sector_filtered, y_train_sector_filtered)
+                    score = model.score(x_train_sector_filtered, y_train_sector_filtered.values.ravel())
                     logging.info(f"  Regressor {i} R² score: {score:.4f}")
 
                 logging.info(f"✅ Sector {sec} complete")

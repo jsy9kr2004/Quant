@@ -289,10 +289,14 @@ class AIDataMaker:
         """
         date_list = []
 
-        # 설정에서 시작 월/일 가져오기 (기본값: 1월 1일)
+        # 설정에서 시작 월/일 가져오기
+        # 우선순위:
+        # 1) 최상위 START_MONTH/START_DATE (레거시 backtest.py 호환 + 공통 앵커)
+        # 2) BACKTEST.START_MONTH/START_DATE
+        # 3) 기본값 1/1
         backtest_config = self.conf.get('BACKTEST', {})
-        start_month = backtest_config.get('START_MONTH', 1)
-        start_date = backtest_config.get('START_DATE', 1)
+        start_month = int(self.conf.get('START_MONTH', backtest_config.get('START_MONTH', 1)))
+        start_date = int(self.conf.get('START_DATE', backtest_config.get('START_DATE', 1)))
 
         # 과거 데이터를 위해 start_year보다 3년 전부터 시작
         date = datetime.datetime(int(self.main_ctx.start_year)-3, start_month, start_date)

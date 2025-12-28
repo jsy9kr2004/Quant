@@ -444,6 +444,17 @@ FEATURES:
 # 로깅 레벨 (10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR)
 LOG_LVL: 20
 
+# ============================================================================
+# 리밸런싱 시작일 (LEGACY COMPATIBILITY)
+# ============================================================================
+# 일부 레거시 코드(`src/backtest/backtest.py`)와 ML 데이터 생성(`src/training/make_mldata.py`)에서
+# 최상위 START_MONTH/START_DATE를 리밸런싱 "앵커"로 사용합니다.
+#
+# 예: REBALANCE_PERIOD=3, START_MONTH=3, START_DATE=17
+#  → 매년 3/17, 6/17, 9/17, 12/17(휴장 시 근처 거래일로 보정)
+START_MONTH: 3
+START_DATE: 17
+
 # 사용 중지: ML.CLASSIFIER_THRESHOLD_PERCENTILE로 이동됨
 # THRESHOLD_PERCENTILE: 92  # ML.CLASSIFIER_THRESHOLD_PERCENTILE 사용
 

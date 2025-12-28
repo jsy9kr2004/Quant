@@ -20,11 +20,20 @@ import logging
 import numpy as np
 import xgboost
 import lightgbm as lgb
+try:
+    from catboost import CatBoostClassifier, CatBoostRegressor
+    CATBOOST_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    CatBoostClassifier = None
+    CatBoostRegressor = None
+    CATBOOST_AVAILABLE = False
 from .config import (
     XGBOOST_CLASSIFIER_CONFIGS,
     XGBOOST_REGRESSOR_CONFIGS,
     LIGHTGBM_CLASSIFIER_CONFIGS,
-    LIGHTGBM_REGRESSOR_CONFIGS
+    LIGHTGBM_REGRESSOR_CONFIGS,
+    CATBOOST_CLASSIFIER_CONFIGS,
+    CATBOOST_REGRESSOR_CONFIGS
 )
 
 
@@ -125,12 +134,12 @@ class ModelFactory:
         Creates multiple models with different hyperparameters for ensemble prediction.
 
         When USE_CLASSIFIER=Y:
-        - 4 Classifiers: XGB (depth 8,9,10) + LGBM
-        - 2 Regressors: XGB (depth 8,10)
+        - 4 Classifiers: XGB (depth 8,9,10) + CatBoost
+        - 2 Regressors: XGB (depth 8) + CatBoost
 
         When USE_CLASSIFIER=N:
         - 0 Classifiers (empty list)
-        - 2 Regressors: XGB (depth 8,10)
+        - 2 Regressors: XGB (depth 8) + CatBoost
 
         Returns:
         -------
@@ -179,19 +188,36 @@ class ModelFactory:
             clf_2 = xgboost.XGBClassifier(**clf_config_10, missing=np.nan)
             classifiers.append(clf_2)
 
-            # Classifier 3: LightGBM
-            lgb_clf_config = LIGHTGBM_CLASSIFIER_CONFIGS['default'].copy()
-            lgb_clf_config['device'] = 'cpu'
-            # LightGBM uses different parameter structure
-            clf_3 = lgb.LGBMClassifier(
-                boosting_type=lgb_clf_config.get('boosting_type', 'gbdt'),
-                objective=lgb_clf_config.get('objective', 'binary'),
-                n_estimators=lgb_clf_config.get('n_estimators', 1000),
-                max_depth=lgb_clf_config.get('max_depth', 8),
-                learning_rate=lgb_clf_config.get('learning_rate', 0.1),
-                device='cpu',
-                boost_from_average=False
-            )
+            # Classifier 3: CatBoost
+            if CATBOOST_AVAILABLE:
+                # CatBoost (robust baseline, handles noisy features well)
+                cb_clf_config = CATBOOST_CLASSIFIER_CONFIGS['default'].copy()
+                cb_clf_config.update({
+                    'task_type': 'CPU',             # keep consistent with CPU-only factory defaults
+                    'verbose': False,               # reduce log spam
+                    'random_seed': 42,
+                    'allow_writing_files': False,   # avoid filesystem writes during training
+                })
+                # Recommended tweaks for generalization / speed tradeoff
+                cb_clf_config.setdefault('l2_leaf_reg', 5.0)
+                cb_clf_config.setdefault('rsm', 0.8)  # column subsampling (CPU)
+                cb_clf_config.setdefault('iterations', 800)
+                cb_clf_config.setdefault('learning_rate', 0.05)
+                cb_clf_config.setdefault('depth', 7)
+                clf_3 = CatBoostClassifier(**cb_clf_config)
+            else:
+                # Fallback: LightGBM
+                lgb_clf_config = LIGHTGBM_CLASSIFIER_CONFIGS['default'].copy()
+                lgb_clf_config['device'] = 'cpu'
+                clf_3 = lgb.LGBMClassifier(
+                    boosting_type=lgb_clf_config.get('boosting_type', 'gbdt'),
+                    objective=lgb_clf_config.get('objective', 'binary'),
+                    n_estimators=lgb_clf_config.get('n_estimators', 1000),
+                    max_depth=lgb_clf_config.get('max_depth', 8),
+                    learning_rate=lgb_clf_config.get('learning_rate', 0.1),
+                    device='cpu',
+                    boost_from_average=False
+                )
             classifiers.append(clf_3)
             self.logger.info(f" Created {len(classifiers)} classifiers")
         else:
@@ -204,11 +230,28 @@ class ModelFactory:
         reg_0 = xgboost.XGBRegressor(**reg_config_8, missing=np.nan)
         regressors.append(reg_0)
 
-        # Regressor 1: XGBoost depth=10
-        reg_config_10 = XGBOOST_REGRESSOR_CONFIGS['depth_10'].copy()
-        reg_config_10['device'] = 'cpu'
-        reg_1 = xgboost.XGBRegressor(**reg_config_10, missing=np.nan)
-        regressors.append(reg_1)
+        # Regressor 1: CatBoost (additional model diversity vs XGB-only)
+        if CATBOOST_AVAILABLE:
+            cb_reg_config = CATBOOST_REGRESSOR_CONFIGS['default'].copy()
+            cb_reg_config.update({
+                'task_type': 'CPU',
+                'verbose': False,
+                'random_seed': 42,
+                'allow_writing_files': False,
+            })
+            cb_reg_config.setdefault('l2_leaf_reg', 5.0)
+            cb_reg_config.setdefault('rsm', 0.8)
+            cb_reg_config.setdefault('iterations', 1200)
+            cb_reg_config.setdefault('learning_rate', 0.05)
+            cb_reg_config.setdefault('depth', 7)
+            reg_1 = CatBoostRegressor(**cb_reg_config)
+            regressors.append(reg_1)
+        else:
+            # Fallback: XGBoost depth=10
+            reg_config_10 = XGBOOST_REGRESSOR_CONFIGS['depth_10'].copy()
+            reg_config_10['device'] = 'cpu'
+            reg_1 = xgboost.XGBRegressor(**reg_config_10, missing=np.nan)
+            regressors.append(reg_1)
 
         self.logger.info(f" Created ensemble models: {len(classifiers)} classifiers, {len(regressors)} regressors")
 
@@ -298,7 +341,7 @@ class ModelFactory:
         hyperparameters to capture sector-specific patterns.
 
         When USE_CLASSIFIER=Y:
-        - Per sector: 4 classifiers (XGB depth 8/9/10 + LGBM) + 2 regressors
+        - Per sector: 4 classifiers (XGB depth 8/9/10 + CatBoost) + 2 regressors
 
         When USE_CLASSIFIER=N:
         - Per sector: 0 classifiers + 2 regressors
@@ -371,19 +414,42 @@ class ModelFactory:
                 clf_2 = xgboost.XGBClassifier(**clf_config_10, missing=np.nan)
                 sector_classifiers[(sector, 2)] = clf_2
 
-                # Classifier 3: LightGBM
-                lgb_clf_config = LIGHTGBM_CLASSIFIER_CONFIGS['default'].copy()
-                lgb_clf_config['device'] = 'cpu'
-                clf_3 = lgb.LGBMClassifier(
-                    boosting_type=lgb_clf_config.get('boosting_type', 'gbdt'),
-                    objective=lgb_clf_config.get('objective', 'binary'),
-                    n_estimators=lgb_clf_config.get('n_estimators', 1000),
-                    max_depth=lgb_clf_config.get('max_depth', 8),
-                    learning_rate=lgb_clf_config.get('learning_rate', 0.1),
-                    device='cpu',
-                    boost_from_average=False
-                )
-                sector_classifiers[(sector, 3)] = clf_3
+                # Classifier 3: CatBoost (fallback to LightGBM if CatBoost unavailable)
+                if CATBOOST_AVAILABLE:
+                    cb_clf_config = CATBOOST_CLASSIFIER_CONFIGS['default'].copy()
+                    cb_clf_config.update({
+                        'task_type': 'CPU',
+                        'verbose': False,
+                        'random_seed': 42,
+                        'allow_writing_files': False,
+                    })
+                    # Allow sector config to override core knobs (when present)
+                    if 'learning_rate' in sector_cfg:
+                        cb_clf_config['learning_rate'] = sector_cfg['learning_rate']
+                    if 'max_depth' in sector_cfg:
+                        cb_clf_config['depth'] = int(sector_cfg['max_depth'])
+                    if 'n_estimators' in sector_cfg:
+                        cb_clf_config['iterations'] = int(sector_cfg['n_estimators'])
+
+                    cb_clf_config.setdefault('l2_leaf_reg', 5.0)
+                    cb_clf_config.setdefault('rsm', 0.8)
+                    cb_clf_config.setdefault('depth', 7)
+                    cb_clf_config.setdefault('iterations', 600)
+                    cb_clf_config.setdefault('learning_rate', 0.05)
+
+                    sector_classifiers[(sector, 3)] = CatBoostClassifier(**cb_clf_config)
+                else:
+                    lgb_clf_config = LIGHTGBM_CLASSIFIER_CONFIGS['default'].copy()
+                    lgb_clf_config['device'] = 'cpu'
+                    sector_classifiers[(sector, 3)] = lgb.LGBMClassifier(
+                        boosting_type=lgb_clf_config.get('boosting_type', 'gbdt'),
+                        objective=lgb_clf_config.get('objective', 'binary'),
+                        n_estimators=lgb_clf_config.get('n_estimators', 1000),
+                        max_depth=lgb_clf_config.get('max_depth', 8),
+                        learning_rate=lgb_clf_config.get('learning_rate', 0.1),
+                        device='cpu',
+                        boost_from_average=False
+                    )
 
             # ===== Regressors =====
             # Default parameters (matching regressor.py sector models)
@@ -401,19 +467,47 @@ class ModelFactory:
                 'missing': np.nan  # ✅ CRITICAL FIX: Set to np.nan for NaN handling
             }
 
-            # Create regressor variants with different max_depth
-            for variant_idx in range(num_regressor_variants):
-                params = default_params.copy()
-                # max_depth: Use Optuna if available, else increment from base
-                base_depth = optuna_cfg.get('max_depth', 7)
-                params['max_depth'] = base_depth + variant_idx  # variant 0: depth, variant 1: depth+1
+            # Variant 0: XGBoost regressor (sector-config / optuna aware)
+            params_0 = default_params.copy()
+            base_depth = optuna_cfg.get('max_depth', 7)
+            params_0['max_depth'] = base_depth
+            sector_regressors[(sector, 0)] = xgboost.XGBRegressor(**params_0)
 
-                # Create model with params (missing is already in params, don't pass again)
-                model = xgboost.XGBRegressor(**params)
-                sector_regressors[(sector, variant_idx)] = model
+            # Variant 1: CatBoost regressor (fallback to XGBoost depth+1 if CatBoost unavailable)
+            if CATBOOST_AVAILABLE:
+                cb_reg_config = CATBOOST_REGRESSOR_CONFIGS['default'].copy()
+                cb_reg_config.update({
+                    'task_type': 'CPU',
+                    'verbose': False,
+                    'random_seed': 42,
+                    'allow_writing_files': False,
+                })
+                # Translate sector config knobs (when present)
+                if 'learning_rate' in sector_cfg:
+                    cb_reg_config['learning_rate'] = sector_cfg['learning_rate']
+                if 'max_depth' in sector_cfg:
+                    cb_reg_config['depth'] = int(sector_cfg['max_depth'])
+                if 'n_estimators' in sector_cfg:
+                    cb_reg_config['iterations'] = int(sector_cfg['n_estimators'])
 
-                param_source = "Optuna" if sector in (sector_optuna_params or {}) else "SECTOR_CONFIG"
-                self.logger.debug(f"Created sector model: {sector} variant {variant_idx}, max_depth={params['max_depth']} ({param_source})")
+                cb_reg_config.setdefault('l2_leaf_reg', 5.0)
+                cb_reg_config.setdefault('rsm', 0.8)
+                cb_reg_config.setdefault('depth', 7)
+                cb_reg_config.setdefault('iterations', 900)
+                cb_reg_config.setdefault('learning_rate', 0.05)
+
+                sector_regressors[(sector, 1)] = CatBoostRegressor(**cb_reg_config)
+            else:
+                params_1 = default_params.copy()
+                params_1['max_depth'] = base_depth + 1
+                sector_regressors[(sector, 1)] = xgboost.XGBRegressor(**params_1)
+
+            param_source = "Optuna" if sector in (sector_optuna_params or {}) else "SECTOR_CONFIG"
+            self.logger.debug(
+                f"Created sector models: {sector} "
+                f"(0)=XGB depth={params_0['max_depth']} ({param_source}), "
+                f"(1)={'CatBoost' if CATBOOST_AVAILABLE else 'XGB'}"
+            )
 
         optuna_count = len([s for s in sector_list if s in (sector_optuna_params or {})])
 
