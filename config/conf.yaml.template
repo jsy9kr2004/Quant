@@ -44,20 +44,6 @@ ML:
   # NaN 제거 진단 (초기 데이터 품질 확인용)
   EXPORT_NAN_REMOVAL_DETAILS: Y  # Y = 제거된 NaN 데이터를 CSV로 저장, N = 로그만 출력
 
-  # 모델 선택 (신규 모델 vs 레거시 모델)
-  USE_NEW_MODELS: N  # Y = 신규 CatBoost/MLflow 사용, N = 레거시 regressor.py 사용
-
-  # 학습할 모델 목록 (USE_NEW_MODELS = Y일 때만)
-  MODELS:
-    - xgboost_default
-    - xgboost_depth_9
-    - xgboost_depth_10
-    - lightgbm_default
-    - catboost_default
-    - catboost_deep
-
-  # Ensemble removed: Not implemented
-
   # 하이퍼파라미터 최적화 (프로덕션 환경 권장)
   USE_OPTUNA: Y  # Y = 자동 하이퍼파라미터 튜닝으로 최적 성능 추구
 
@@ -92,19 +78,8 @@ ML:
   OPTUNA_SECTOR_TIMEOUT: 180  # 섹터당 타임아웃 (테스트 모드에서 3분)
 
   # ===== Optuna 결과 재사용 (Result Reuse) =====
-  OPTUNA_REUSE_EXISTING: Y  # Y = 기존 결과 재사용 (있으면), N = 항상 재최적화
-  OPTUNA_REUSE_MAX_AGE_DAYS: 0  # 결과 재사용 가능 최대 일수 (0 = 무제한 재사용, >0 = 일수 제한)
-
-  # 동작 방식:
-  # - REUSE_EXISTING=Y, MAX_AGE_DAYS=0: 파일 있으면 무조건 재사용 (권장, 기본값)
-  # - REUSE_EXISTING=Y, MAX_AGE_DAYS=7: 7일 이내 파일만 재사용, 이후는 재최적화
-  # - REUSE_EXISTING=N: 항상 재최적화 (파일 무시)
-  # 참고: 결과는 {ROOT_PATH}/models/optuna/에 저장되어 이식성 보장
-
-  # MLflow 실험 추적
-  USE_MLFLOW: N  # Y = MLflow로 실험 추적
-  MLFLOW_EXPERIMENT: quant_trading_v2
-  MLFLOW_TRACKING_URI: null  # 로컬은 null, 서버는 http://server:5000
+  OPTUNA_REUSE_EXISTING: Y  # Y = 기존 결과 재사용, N = 항상 재최적화
+  OPTUNA_REUSE_MAX_AGE_DAYS: 0  # 0 = 무제한 재사용, >0 = 일수 제한
 
   # ML 후 종료 (백테스트 실행 안 함)
   EXIT_AFTER_ML: N  # Y = ML 후 종료, N = 백테스트 계속
@@ -173,93 +148,20 @@ ML:
   # 최적 임계값 선택 기준
   CLASSIFIER_THRESHOLD_MIN_PRECISION: 0.65  # 필요한 최소 precision (65%)
   CLASSIFIER_THRESHOLD_MIN_SAMPLES: 30      # 필터링 후 최소 종목 수
-  CLASSIFIER_THRESHOLD_STRATEGY: "balance"  # "precision" (최대 정확도) 또는 "balance" (정확도 + 데이터 크기)
-
-  # 자동 탐색 작동 방식:
-  # 1. 모든 데이터로 분류기 학습
-  # 2. 백분위수 85-98을 테스트하여 분류기가 가장 정확한 지점 찾기
-  # 3. min_precision을 만족하면서 최대 데이터를 가진 임계값 선택 (balance 모드)
-  #    또는 가장 높은 precision을 가진 임계값 선택 (precision 모드)
-  # 4. 이 임계값으로 종목을 필터링한 후 회귀기 학습
-  # 5. 일관된 평가를 위해 모델과 함께 임계값 설정 저장
+  CLASSIFIER_THRESHOLD_STRATEGY: "balance"  # precision: 최대 정확도 | balance: 정확도+데이터 크기
 
   # ============================================================================
   # 섹터별 모델 학습 (Sector-based Model Training)
   # ============================================================================
-  # Y = 섹터별로 독립적인 모델 학습 (각 섹터가 자체 분류기 + 회귀기 보유)
-  # N = 전체 종목에 대한 글로벌 모델 학습 (하나의 분류기 + 회귀기 세트)
-  #
-  # USE_SECTOR_MODEL: Y and USE_CLASSIFIER: Y인 경우
-  #   → 각 섹터: 4 분류기 + 2 회귀기 (완전 독립)
-  # USE_SECTOR_MODEL: Y and USE_CLASSIFIER: N인 경우
-  #   → 각 섹터: 2 회귀기만
-  # USE_SECTOR_MODEL: N and USE_CLASSIFIER: Y인 경우
-  #   → 글로벌: 4 분류기 + 2 회귀기
-  # USE_SECTOR_MODEL: N and USE_CLASSIFIER: N인 경우
-  #   → 글로벌: 2 회귀기만
+  # Y = 섹터별 독립 모델 (각 섹터: 4 분류기 + 2 회귀기)
+  # N = 글로벌 모델 (전체: 4 분류기 + 2 회귀기)
   USE_SECTOR_MODEL: Y
 
-  # 섹터 설정 (USE_SECTOR_MODEL = Y일 때만 사용)
-  SECTOR_CONFIG:
-    # 기본: 모든 섹터에 동일한 모델 사용 (XGBoost)
-    # 고급: 섹터별로 모델을 커스터마이징하여 더 나은 성능 추구
-
-    # 예시 1: 동일한 모델, 섹터별로 다른 파라미터
-    Technology:
-      model: xgboost  # xgboost, lightgbm, catboost
-      n_estimators: 200
-      max_depth: 8
-      learning_rate: 0.05
-
-    Financial:
-      model: xgboost
-      n_estimators: 150
-      max_depth: 6
-      learning_rate: 0.1
-
-    Healthcare:
-      model: xgboost
-      n_estimators: 200
-      max_depth: 7
-      learning_rate: 0.05
-
-    Consumer:
-      model: xgboost
-      n_estimators: 150
-      max_depth: 6
-      learning_rate: 0.1
-
-    Industrial:
-      model: xgboost
-      n_estimators: 150
-      max_depth: 6
-      learning_rate: 0.1
-
-    # 예시 2: 섹터별로 다른 모델 (사용하려면 주석 해제)
-    # Technology:
-    #   model: xgboost
-    #   n_estimators: 200
-    #   max_depth: 8
-    #
-    # Financial:
-    #   model: lightgbm
-    #   n_estimators: 150
-    #   num_leaves: 31
-    #
-    # Healthcare:
-    #   model: catboost
-    #   iterations: 200
-    #   depth: 7
-
-  # 섹터 카테고리화 설정 (USE_SECTOR_MODEL = Y일 때 사용 가능)
-  # 작은 섹터들을 통합하여 샘플 수 부족 문제 해결
+  # 섹터 카테고리화 설정 (작은 섹터들을 통합하여 샘플 수 부족 문제 해결)
   SECTOR_CATEGORIZATION:
-    # 카테고리화 활성화 여부
-    ENABLED: Y  # Y = 섹터를 카테고리로 통합 (권장), N = 원본 섹터 사용
+    ENABLED: Y  # Y = 카테고리 통합 (권장), N = 원본 섹터 사용
 
-    # 카테고리 정의 (금융 관점의 경제적 특성 기반)
-    # ENABLED=Y일 때, 각 카테고리별로 model_config 적용
-    # ENABLED=N일 때, SECTOR_CONFIG (원본 섹터별 설정) 적용
+    # 카테고리 정의 (경제적 특성 기반)
     CATEGORIES:
       # 1. 금융 (이자율/신용 민감 섹터)
       Financial:
@@ -325,19 +227,9 @@ ML:
           max_depth: 6
           learning_rate: 0.1
 
-    # 최소 샘플 수 (이 값 미만인 카테고리는 fallback 전략 사용)
+    # 최소 샘플 수 및 Fallback 전략
     MIN_SAMPLES_PER_CATEGORY: 1000
-
-    # Fallback 전략 (샘플 수 부족 시 처리 방법)
     FALLBACK_STRATEGY: "unified"  # unified: 전체 데이터 모델 사용 | skip: 예측 제외
-
-    # Fallback 전략 설명:
-    # - unified: 샘플 수가 부족한 카테고리는 전체 데이터로 학습한 unified model 사용
-    #            장점: 모든 종목 예측 가능, 과적합 방지
-    #            단점: 카테고리별 특성 반영 안 됨
-    # - skip: 샘플 수가 부족한 카테고리의 종목은 예측에서 제외
-    #         장점: 품질 높은 예측만 사용
-    #         단점: 일부 종목 투자 기회 손실
 
 # ============================================================================
 # 백테스트 설정 (BACKTEST Configuration - ML Walk-Forward)
@@ -449,36 +341,12 @@ LOG_LVL: 20
 # THRESHOLD_PERCENTILE: 92  # ML.CLASSIFIER_THRESHOLD_PERCENTILE 사용
 
 # ============================================================================
-# 사용 예시 (USAGE EXAMPLES)
+# 주요 워크플로우 (Common Workflows)
 # ============================================================================
-#
-# 1. 최초 설정 (데이터 수집):
-#    DATA.GET_FMP: Y
-#    ML.RUN_REGRESSION: N
-#    BACKTEST.RUN_BACKTEST: N
-#
-# 2. VIEW CSV만 재생성 (FMP 데이터 수집 없이):
-#    DATA.GET_FMP: N
-#    DATA.MAKE_VIEW: Y
-#    ML.RUN_REGRESSION: N
-#    BACKTEST.RUN_BACKTEST: N
-#
-# 3. ML 모델 학습:
-#    DATA.GET_FMP: N
-#    ML.RUN_REGRESSION: Y
-#    ML.EXIT_AFTER_ML: Y
-#
-# 4. 백테스트만 실행:
-#    DATA.GET_FMP: N
-#    ML.RUN_REGRESSION: N
-#    ML.EXIT_AFTER_ML: N
-#    BACKTEST.RUN_BACKTEST: Y
-#
-# 5. 전체 파이프라인:
-#    DATA.GET_FMP: Y
-#    ML.RUN_REGRESSION: Y
-#    ML.EXIT_AFTER_ML: N
-#    BACKTEST.RUN_BACKTEST: Y
+# 데이터 수집: DATA.GET_FMP=Y, ML.RUN_REGRESSION=N, BACKTEST.RUN_BACKTEST=N
+# ML 학습: DATA.GET_FMP=N, ML.RUN_REGRESSION=Y, ML.EXIT_AFTER_ML=Y
+# 백테스트: DATA.GET_FMP=N, ML.RUN_REGRESSION=N, BACKTEST.RUN_BACKTEST=Y
+# 전체 파이프라인: 모두 Y, EXIT_AFTER_ML=N
 #
 
 # ============================================================================
@@ -532,30 +400,9 @@ EXPERIMENT_TRACKING:
     - SECRET_KEY
 
 # ============================================================================
-# 실험 추적 사용법 (EXPERIMENT TRACKING USAGE)
+# 실험 추적 사용법 (상세 가이드: docs/experiment_tracking_guide.md)
 # ============================================================================
-#
-# 1. 초기 설정:
-#    - Google Cloud Console에서 Service Account 생성
-#    - JSON key 파일 다운로드 → ~/.credentials/quant_sheets.json 저장
-#    - 구글 시트/드라이브에 Service Account 이메일 편집 권한 부여
-#    - SHEET_ID, FOLDER_ID 입력
-#    - ENABLED: Y로 변경
-#
-# 2. 자동 업로드 조건:
-#    - ENABLED=Y
-#    - BACKTEST.RUN_BACKTEST=Y (백테스트 실행)
-#    - ONLY_MASTER_BRANCH=Y면 master 브랜치에서만
-#
-# 3. 업로드 내용:
-#    - 구글 시트: 실험 요약 (날짜, 변경사항, 결과, Git 정보)
-#    - Drive: 전체 Config 파일 (민감 정보 마스킹됨)
-#
-# 4. 에러 발생 시:
-#    - 경고 메시지만 출력하고 프로그램 계속 실행
-#    - 백테스트 결과는 로컬 log.txt에 저장됨
-#
-# 5. Feature 브랜치 실험:
-#    - ONLY_MASTER_BRANCH=Y면 자동 스킵
-#    - 로컬에서만 테스트 후 master에 merge하여 기록
+# 1. Service Account 생성 → JSON key를 ~/.credentials/quant_sheets.json에 저장
+# 2. SHEET_ID, FOLDER_ID 입력 후 ENABLED: Y
+# 3. 백테스트 실행 시 자동으로 구글 시트/드라이브에 업로드됨
 #
