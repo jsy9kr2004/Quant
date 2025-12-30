@@ -480,3 +480,82 @@ LOG_LVL: 20
 #    ML.EXIT_AFTER_ML: N
 #    BACKTEST.RUN_BACKTEST: Y
 #
+
+# ============================================================================
+# 실험 추적 설정 (EXPERIMENT TRACKING Configuration)
+# ============================================================================
+EXPERIMENT_TRACKING:
+  # 마스터 스위치 - 전체 실험 추적 활성화 여부
+  ENABLED: N  # Y = 구글 시트/드라이브에 자동 업로드, N = 비활성화
+
+  # 업로드 조건
+  UPLOAD_CONDITIONS:
+    # Master 브랜치만 업로드 (Feature 브랜치 실험은 로컬에만 기록)
+    ONLY_MASTER_BRANCH: Y  # Y = master만, N = 모든 브랜치
+
+    # 백테스트 결과 필수 (백테스트 없으면 업로드 스킵)
+    REQUIRE_BACKTEST_RESULTS: Y  # Y = 백테스트 완료 시에만 업로드
+
+  # Google Sheets 설정
+  GOOGLE_SHEETS:
+    # 구글 시트 ID (URL에서 확인: https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit)
+    SHEET_ID: "YOUR_GOOGLE_SHEET_ID_HERE"
+
+    # 시트 내 탭 이름 (Experiments 탭에 기록)
+    SHEET_NAME: "Experiments"
+
+    # Service Account JSON key 파일 경로
+    # 팀원들은 각자 이 경로에 key 파일 저장 필요
+    # 주의: 이 파일은 절대 Git에 커밋하지 않음!
+    KEY_PATH: "~/.credentials/quant_sheets.json"
+
+    # 에러 처리 설정
+    RETRY_ON_FAILURE: 3  # API 실패 시 재시도 횟수
+    TIMEOUT_SECONDS: 30  # API 타임아웃 (초)
+
+  # Google Drive 설정 (Config 파일 저장용)
+  GOOGLE_DRIVE:
+    # Drive 폴더 ID (URL에서 확인: https://drive.google.com/drive/folders/{FOLDER_ID})
+    FOLDER_ID: "YOUR_GOOGLE_DRIVE_FOLDER_ID_HERE"
+
+    # Config 파일명 prefix
+    CONFIG_PREFIX: "config_"  # 예: config_2025-12-30_baseline.yaml
+
+  # 민감 정보 마스킹 (Config 업로드 전 자동 처리)
+  # Drive에 올라가는 Config에서 아래 키들이 "***MASKED***"로 변경됨
+  MASK_KEYS:
+    - API_KEY
+    - FMP_API_KEY
+    - OPENAI_API_KEY
+    - DATABASE_PASSWORD
+    - AWS_SECRET_KEY
+    - SECRET_KEY
+
+# ============================================================================
+# 실험 추적 사용법 (EXPERIMENT TRACKING USAGE)
+# ============================================================================
+#
+# 1. 초기 설정:
+#    - Google Cloud Console에서 Service Account 생성
+#    - JSON key 파일 다운로드 → ~/.credentials/quant_sheets.json 저장
+#    - 구글 시트/드라이브에 Service Account 이메일 편집 권한 부여
+#    - SHEET_ID, FOLDER_ID 입력
+#    - ENABLED: Y로 변경
+#
+# 2. 자동 업로드 조건:
+#    - ENABLED=Y
+#    - BACKTEST.RUN_BACKTEST=Y (백테스트 실행)
+#    - ONLY_MASTER_BRANCH=Y면 master 브랜치에서만
+#
+# 3. 업로드 내용:
+#    - 구글 시트: 실험 요약 (날짜, 변경사항, 결과, Git 정보)
+#    - Drive: 전체 Config 파일 (민감 정보 마스킹됨)
+#
+# 4. 에러 발생 시:
+#    - 경고 메시지만 출력하고 프로그램 계속 실행
+#    - 백테스트 결과는 로컬 log.txt에 저장됨
+#
+# 5. Feature 브랜치 실험:
+#    - ONLY_MASTER_BRANCH=Y면 자동 스킵
+#    - 로컬에서만 테스트 후 master에 merge하여 기록
+#
