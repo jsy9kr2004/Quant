@@ -993,6 +993,12 @@ class MLBacktest:
         """
         벤치마크 Buy-and-Hold 수익률 계산
 
+        ETF와 주식 데이터를 분리하여 처리합니다:
+        - 주식: 기존 price_table 사용
+        - ETF: etf_price.parquet 별도 로드 (ETFDataLoader 사용)
+
+        이를 통해 ETF가 ML 학습 데이터에 오염되는 것을 방지합니다.
+
         Parameters:
         ----------
         start_date : datetime
@@ -1000,7 +1006,7 @@ class MLBacktest:
         end_date : datetime
             백테스트 종료 날짜
         price_table : pd.DataFrame
-            가격 데이터
+            가격 데이터 (주식 only)
 
         Returns:
         -------
@@ -1020,11 +1026,46 @@ class MLBacktest:
 
         self.logger.info(f"\n📊 Calculating benchmark returns for {len(benchmark_symbols)} symbols...")
 
+        # ✅ ETF 가격 데이터 로드 (별도 파일)
+        # 주식 데이터(price_table)와 완전히 분리하여 ETF 오염 방지
+        from src.backtest.etf_data_loader import ETFDataLoader
+
+        try:
+            etf_loader = ETFDataLoader(
+                config=self.config,
+                root_path=self.main_ctx.root_path,
+                logger=self.logger
+            )
+
+            etf_price_table = etf_loader.load_etf_prices(
+                symbols=benchmark_symbols,
+                start_date=start_date,
+                end_date=end_date
+            )
+
+            # 주식 + ETF 통합 (벤치마크 계산용만)
+            # 주의: 이 통합 테이블은 벤치마크 계산에만 사용되며,
+            #      ML 학습 데이터에는 절대 사용되지 않음
+            if not etf_price_table.empty:
+                combined_price_table = pd.concat([
+                    price_table,
+                    etf_price_table
+                ], ignore_index=True)
+                self.logger.info(f"   Combined: {len(price_table)} stock prices + {len(etf_price_table)} ETF prices")
+            else:
+                self.logger.warning("   ⚠️  No ETF data loaded, using stock data only")
+                combined_price_table = price_table
+
+        except Exception as e:
+            self.logger.error(f"❌ ETF data loading failed: {e}")
+            self.logger.warning("   Falling back to stock price table only")
+            combined_price_table = price_table
+
         results = []
 
-        # 실제 거래일 찾기
-        actual_start = DataProcessor.get_trade_date(pd.Timestamp(start_date), price_table)
-        actual_end = DataProcessor.get_trade_date(pd.Timestamp(end_date), price_table)
+        # 실제 거래일 찾기 (통합 테이블 사용)
+        actual_start = DataProcessor.get_trade_date(pd.Timestamp(start_date), combined_price_table)
+        actual_end = DataProcessor.get_trade_date(pd.Timestamp(end_date), combined_price_table)
 
         if actual_start is None or actual_end is None:
             self.logger.error(f"❌ Cannot find trading dates for benchmark period")
@@ -1032,8 +1073,9 @@ class MLBacktest:
 
         for symbol in benchmark_symbols:
             try:
-                # 심볼 가격 데이터 가져오기
-                symbol_prices = price_table[price_table['symbol'] == symbol]
+                # 심볼 가격 데이터 가져오기 (통합 테이블에서)
+                # 주식이면 price_table에서, ETF면 etf_price_table에서 자동으로 찾음
+                symbol_prices = combined_price_table[combined_price_table['symbol'] == symbol]
 
                 if symbol_prices.empty:
                     self.logger.warning(f"   ⚠️  {symbol}: No price data found (symbol may not exist or typo)")
