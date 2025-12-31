@@ -214,43 +214,170 @@ df['log_PER'] = np.log1p(df['PER'].clip(lower=0))
 
 안정성과 수익성을 동시에 잡기 위해 모델을 **두 단계로 분리**하여 운용합니다.
 
-### Stage 1: Stability Filtering (안정성 필터링)
+### Stage 1: Risk Screening (리스크 스크리닝)
 
-**설계 의도**: "이 회사는 펀더멘털이 깨져 있지 않다"는 신호만 남기는 **Negative Screening**
+**설계 철학**: Classifier는 **"동전 던지기"가 아닌 "위험 탐지기"**로 설계됨
 
-#### 학습 시 (Training)
+#### 두 가지 스크리닝 모드
 
-**타겟**: `label_binary = (price_dev > 0)` - 다음 분기 가격 상승/하락
+##### Mode 1: Negative Screening (권장) - "위험 제거"
 
-**프로세스**:
-1. 모든 학습 데이터로 분류기 학습
-2. **자동 Threshold 탐색** (CLASSIFIER_THRESHOLD_AUTO_SEARCH=Y):
-   - 학습된 분류기로 학습 데이터 예측 확률 계산
-   - Percentile 85~98 구간 탐색
-   - 각 percentile에서 precision, recall 계산
-   - 최적 threshold 선정:
-     - "precision" 모드: Precision 최대값
-     - "balance" 모드: Min precision 조건 만족하면서 최대 데이터
-   - 결과를 `threshold_config.pkl`로 저장
-3. 또는 **고정 Threshold** 사용 (AUTO_SEARCH=N):
-   - Config에서 지정한 percentile 사용 (기본값: 92)
+**목적**: 재무적으로 명백히 위험한 종목 제거
 
-**결과**: 최적 threshold로 학습 데이터 필터링 → Stage 2로 전달
+**설계 의도**:
+- "이 재무제표는 무조건 떨어진다" 종목 걸러내기
+- Conservative 전략: 나쁜 것을 피하는 것이 좋은 것 찾기보다 쉬움
+- 대량 파산/대폭락(-30% 이상) 종목을 학습하여 패턴 인식
+
+**Binary Target**:
+```python
+# 극단적 손실을 "BAD" 레이블로 정의
+label_binary = (price_dev < -0.3).astype(int)  # -30% 이하 = 1 (BAD), 나머지 = 0 (OK)
+```
+
+**Classifier 학습**:
+- Class 0 = OK (안전한 종목, -30% 이상 수익률)
+- Class 1 = BAD (위험한 종목, -30% 이하 손실)
+- 목표: "이 재무제표는 파산/폭락 위험이 있다" 식별
+
+**Threshold 적용** (핵심!):
+```python
+# 예측 확률
+y_probs = classifier.predict_proba(X)[:, 1]  # BAD일 확률
+
+# 상위 2~15% (BAD 확률이 가장 높은 종목) 제거
+remove_pct = 10  # 예: 상위 10% 제거
+threshold = np.percentile(y_probs, 100 - remove_pct)  # 90 percentile
+safe_mask = y_probs < threshold  # BAD 확률 하위 90% = 안전
+
+# Regressor에게 안전한 종목만 전달
+x_train_filtered = x_train[safe_mask]
+```
+
+**Config 설정**:
+```yaml
+CLASSIFIER_MODE: "negative_screen"
+NEGATIVE_SCREEN:
+  LOSS_THRESHOLD: -0.3  # -30% 이하 손실 = BAD
+CLASSIFIER_REMOVE_PCT_MIN: 2   # 최소 상위 2% 제거 (98% 유지)
+CLASSIFIER_REMOVE_PCT_MAX: 15  # 최대 상위 15% 제거 (85% 유지)
+```
+
+**장점**:
+- ✅ 많은 데이터 활용 (85~98% 유지)
+- ✅ Regressor가 충분한 샘플로 학습
+- ✅ "나쁜 것 피하기"는 예측하기 쉬움 (파산 패턴은 명확)
+
+---
+
+##### Mode 2: Positive Screening - "좋은 종목 선택"
+
+**목적**: 상승 가능성이 높은 종목만 선택
+
+**설계 의도**:
+- "이 재무제표는 무조건 오른다" 종목 찾기
+- Aggressive 전략: 좋은 것을 적극적으로 선택
+- 고성장 종목 패턴 학습
+
+**Binary Target**:
+```python
+# 상승을 "GOOD" 레이블로 정의
+label_binary = (price_dev > 0.0).astype(int)  # 0% 이상 = 1 (GOOD), 나머지 = 0 (LOSS)
+```
+
+**Classifier 학습**:
+- Class 0 = LOSS (하락 종목)
+- Class 1 = GOOD (상승 종목)
+- 목표: "이 재무제표는 상승 가능성이 높다" 식별
+
+**Threshold 적용**:
+```python
+# 예측 확률
+y_probs = classifier.predict_proba(X)[:, 1]  # GOOD일 확률
+
+# 하위 2~15% (GOOD 확률이 가장 낮은 종목) 제거
+remove_pct = 10  # 예: 하위 10% 제거
+threshold = np.percentile(y_probs, remove_pct)  # 10 percentile
+safe_mask = y_probs > threshold  # GOOD 확률 상위 90% = 유망
+
+# Regressor에게 유망한 종목만 전달
+x_train_filtered = x_train[safe_mask]
+```
+
+**Config 설정**:
+```yaml
+CLASSIFIER_MODE: "positive_screen"
+CLASSIFIER_REMOVE_PCT_MIN: 2   # 하위 2% 제거
+CLASSIFIER_REMOVE_PCT_MAX: 15  # 하위 15% 제거
+```
+
+**단점**:
+- ⚠️ "좋은 것 찾기"는 어려움 (노이즈 많음)
+- ⚠️ 과적합 위험 (특정 시기 패턴에만 맞을 수 있음)
+
+---
+
+#### 학습 프로세스 (Mode 공통)
+
+**1. Binary Target 생성**:
+```python
+# DataProcessor가 모드에 따라 자동 생성
+y_train_binary = DataProcessor.create_binary_target(
+    y_train,
+    config=conf,  # CLASSIFIER_MODE 읽음
+    logger=logger
+)
+```
+
+**2. Classifier 학습**:
+```python
+# 4개 앙상블 모델 학습
+for model in [XGBClassifier, XGBClassifier, XGBClassifier, LGBMClassifier]:
+    model.fit(x_train, y_train_binary)
+```
+
+**3. 최적 Threshold 자동 탐색**:
+```python
+# remove_pct 2~15% 범위에서 탐색
+for remove_pct in range(2, 16):
+    if mode == "negative_screen":
+        threshold = np.percentile(y_probs, 100 - remove_pct)  # 상위 제거
+        mask = y_probs < threshold
+    else:  # positive_screen
+        threshold = np.percentile(y_probs, remove_pct)  # 하위 제거
+        mask = y_probs > threshold
+
+    # Precision, Recall 계산
+    precision = calculate_precision(mask)
+
+# 최적 remove_pct 선택: Min precision 조건 만족하면서 최대 데이터
+optimal_pct = best_remove_pct
+```
+
+**4. 학습 데이터 필터링**:
+```python
+# 최적 threshold로 필터링
+x_train_filtered = x_train[safe_mask]
+y_train_filtered = y_train[safe_mask]
+
+# Regressor 학습
+regressor.fit(x_train_filtered, y_train_filtered)
+```
+
+---
 
 #### 예측 시 (Evaluation/Backtest)
 
 **프로세스**:
 1. 저장된 `threshold_config.pkl` 로드
 2. 분류기로 예측 확률 계산
-3. 학습 시와 동일한 percentile threshold 적용
-4. ml_backtest.py: 확률 × 수익률 (down-weighting)
+3. 학습 시와 동일한 로직으로 필터링
+4. ml_backtest.py: 필터링된 종목 중 수익률 상위 Top-K 선택
 
-**수학적 동등성**:
-- "재무적으로 부실한 기업 제거" (설계 의도)
-- ≈ "상승 확률 낮은 종목 제거" (현재 구현)
-- → Top-K < threshold%이면 두 방식 모두 동일한 결과
+---
 
-**모델 구성**:
+#### 모델 구성
+
 ```python
 # Global Classifiers (USE_CLASSIFIER=Y인 경우)
 clsmodels[0]: XGBClassifier (Optuna 최적화)
@@ -261,6 +388,24 @@ clsmodels[3]: LGBMClassifier (max_depth=8)
 # Sector Classifiers (USE_SECTOR_MODEL=Y인 경우)
 각 섹터당 4개 분류기 (같은 구조)
 ```
+
+---
+
+#### ⚠️ 중요: Classifier의 역할
+
+**Classifier는 절대 "동전 던지기"가 아닙니다**:
+
+| 지표 | 의미 | 평가 |
+|------|------|------|
+| Accuracy 50% | 동전 던지기 | ❌ 쓸모없음 |
+| Accuracy 60% | 약간 나음 | ⚠️ 불충분 |
+| Accuracy 65%+ | 유의미한 신호 | ✅ 사용 가능 |
+| Precision 70%+ | 선택한 종목의 70%가 실제로 안전/유망 | ✅ 좋음 |
+
+**검증 방법**:
+- Regressor 학습 후 로그에서 Classifier Accuracy, Precision 확인
+- 65% 미만이면 모델 재학습 또는 Feature 개선 필요
+- Threshold 자동 탐색이 최소 precision 조건 만족하는지 확인
 
 ### Stage 2: Return Forecast (수익률 예측)
 
