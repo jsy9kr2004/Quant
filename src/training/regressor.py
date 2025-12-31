@@ -2918,6 +2918,82 @@ class Regressor:
         else:
             self._train_walk_forward_sequential(MODEL_SAVE_PATH, top_k)
 
+    def _save_predictions_to_csv(self, model_save_path: str) -> None:
+        """
+        Save predictions cache to CSV files for user-friendly inspection.
+
+        Creates 3 types of CSV files:
+        1. regressor_predictions_all.csv: All predictions combined (full dataset)
+        2. regressor_predictions_YYYYMMDD.csv: Per-date predictions (detailed view)
+        3. regressor_predictions_top_k.csv: Selected stocks only (portfolio view)
+
+        Parameters:
+        ----------
+        model_save_path : str
+            Directory to save CSV files
+        """
+        import os
+        from pathlib import Path
+
+        if not self.predictions_cache:
+            logging.warning("⚠️  No predictions cache to export!")
+            return
+
+        # Create CSV directory
+        csv_dir = Path(model_save_path) / 'predictions_csv'
+        csv_dir.mkdir(parents=True, exist_ok=True)
+
+        logging.info(f"\n📁 Saving predictions to CSV: {csv_dir}")
+
+        # Prepare data for combined CSV
+        all_predictions = []
+        top_k_predictions = []
+
+        for date_str, cache_entry in self.predictions_cache.items():
+            predictions_df = cache_entry.get('predictions_df')
+
+            if predictions_df is None or predictions_df.empty:
+                logging.warning(f"   ⚠️  {date_str}: Empty predictions, skipping")
+                continue
+
+            # Add rebalance_date column for traceability
+            predictions_with_date = predictions_df.copy()
+            predictions_with_date.insert(0, 'rebalance_date', date_str)
+
+            # All predictions
+            all_predictions.append(predictions_with_date)
+
+            # Save per-date CSV
+            date_csv_file = csv_dir / f'predictions_{date_str.replace("-", "")}.csv'
+            predictions_with_date.to_csv(date_csv_file, index=False, encoding='utf-8-sig')
+            logging.info(f"   ✅ {date_str}: {len(predictions_with_date)} predictions → {date_csv_file.name}")
+
+            # Top-K predictions
+            if DataSchema.SELECTED in predictions_df.columns:
+                top_k_df = predictions_with_date[predictions_with_date[DataSchema.SELECTED] == True].copy()
+                if not top_k_df.empty:
+                    top_k_predictions.append(top_k_df)
+
+        # Save combined CSV (all predictions)
+        if all_predictions:
+            all_combined = pd.concat(all_predictions, ignore_index=True)
+            all_csv_file = csv_dir / 'regressor_predictions_all.csv'
+            all_combined.to_csv(all_csv_file, index=False, encoding='utf-8-sig')
+            logging.info(f"\n   📊 Combined: {len(all_combined)} predictions → {all_csv_file.name}")
+        else:
+            logging.warning("   ⚠️  No predictions to combine!")
+
+        # Save top-K CSV (selected stocks only)
+        if top_k_predictions:
+            top_k_combined = pd.concat(top_k_predictions, ignore_index=True)
+            top_k_csv_file = csv_dir / 'regressor_predictions_top_k.csv'
+            top_k_combined.to_csv(top_k_csv_file, index=False, encoding='utf-8-sig')
+            logging.info(f"   🎯 Top-K: {len(top_k_combined)} selected stocks → {top_k_csv_file.name}")
+        else:
+            logging.warning("   ⚠️  No Top-K selections to export!")
+
+        logging.info(f"\n✅ CSV export completed! Files saved to: {csv_dir}")
+
     def _train_walk_forward_sequential(self, model_save_path: str, top_k: int) -> None:
         """Sequential walk-forward training (original implementation)."""
         from src.training.data_processor import DataProcessor
@@ -2990,6 +3066,10 @@ class Regressor:
         logging.info(f"\n💾 Saving predictions cache to {cache_file}")
         joblib.dump(self.predictions_cache, cache_file)
         logging.info(f"✅ Walk-forward training completed! {len(self.predictions_cache)} periods saved.")
+
+        # Save predictions cache to CSV (user-friendly format)
+        self._save_predictions_to_csv(model_save_path)
+        logging.info(f"✅ CSV exports completed!")
 
     def _train_walk_forward_parallel(self, model_save_path: str, top_k: int, num_workers_config: str, profile_file: str) -> None:
         """Parallel walk-forward training using Ray and MemoryProfiler."""
@@ -3086,6 +3166,10 @@ class Regressor:
             logging.info(f"\n💾 Saving predictions cache to {cache_file}")
             joblib.dump(self.predictions_cache, cache_file)
             logging.info(f"✅ Parallel walk-forward training completed! {len(self.predictions_cache)} periods saved.")
+
+            # Save predictions cache to CSV (user-friendly format)
+            self._save_predictions_to_csv(model_save_path)
+            logging.info(f"✅ CSV exports completed!")
 
             # End profiling (success)
             profiler.end_run(success=True)
