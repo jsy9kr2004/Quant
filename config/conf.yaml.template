@@ -232,36 +232,46 @@ ML:
       - -0.5  # 50% 손실
 
   # ============================================================================
-  # 분류기 임계값 설정 (Classifier Threshold Configuration)
+  # 분류기 필터링 설정 (Classifier Filtering Configuration)
   # ============================================================================
-  # Stage 1 필터링 후 Stage 2 회귀로 넘어갈 종목을 결정
+  # Stage 1: 위험한/약한 종목을 제거하여 Stage 2 회귀기에게 전달할 종목 결정
   #
-  # 주의: CLASSIFIER_MODE에 따라 의미가 다릅니다
-  # - negative_screen: 나쁜 종목일 확률이 높은 종목 제거
-  # - positive_screen: 좋은 종목일 확률이 낮은 종목 제거
+  # 모드별 작동 방식:
+  # - negative_screen: BAD 확률이 높은 종목 제거 (위험 회피)
+  #   예: BAD 확률 상위 10% 제거 → 하위 90% 유지
+  # - positive_screen: GOOD 확률이 낮은 종목 제거 (유망주 선택)
+  #   예: GOOD 확률 하위 10% 제거 → 상위 90% 유지
 
   # 자동 임계값 최적화 (권장)
-  CLASSIFIER_THRESHOLD_AUTO_SEARCH: Y  # Y = 최적 임계값 자동 탐색, N = 고정값 사용
+  CLASSIFIER_THRESHOLD_AUTO_SEARCH: Y  # Y = 최적 제거 비율 자동 탐색, N = 고정값 사용
 
-  # 고정 임계값 (AUTO_SEARCH = N일 때만 사용)
-  CLASSIFIER_THRESHOLD_PERCENTILE: 92  # 백분위수 cutoff (92 = 상위 8%)
+  # 고정 제거 비율 (AUTO_SEARCH = N일 때만 사용)
+  CLASSIFIER_REMOVE_PCT: 8  # 8% 제거 (92% 유지)
 
-  # 자동 탐색 설정
-  CLASSIFIER_THRESHOLD_SEARCH_MIN: 85  # 테스트할 최소 백분위수 (85 = 상위 15%)
-  CLASSIFIER_THRESHOLD_SEARCH_MAX: 98  # 테스트할 최대 백분위수 (98 = 상위 2%)
+  # 자동 탐색 범위 - 제거할 종목 비율 (%)
+  CLASSIFIER_REMOVE_PCT_MIN: 2   # 최소 2% 제거 (98% 유지) - 보수적
+  CLASSIFIER_REMOVE_PCT_MAX: 15  # 최대 15% 제거 (85% 유지) - 공격적
 
-  # 최적 임계값 선택 기준
+  # 최적 비율 선택 기준
   CLASSIFIER_THRESHOLD_MIN_PRECISION: 0.65  # 필요한 최소 precision (65%)
-  CLASSIFIER_THRESHOLD_MIN_SAMPLES: 30      # 필터링 후 최소 종목 수
+  CLASSIFIER_THRESHOLD_MIN_SAMPLES: 30      # 제거 후 최소 종목 수
   CLASSIFIER_THRESHOLD_STRATEGY: "balance"  # "precision" (최대 정확도) 또는 "balance" (정확도 + 데이터 크기)
 
   # 자동 탐색 작동 방식:
   # 1. 모든 데이터로 분류기 학습
-  # 2. 백분위수 85-98을 테스트하여 분류기가 가장 정확한 지점 찾기
-  # 3. min_precision을 만족하면서 최대 데이터를 가진 임계값 선택 (balance 모드)
-  #    또는 가장 높은 precision을 가진 임계값 선택 (precision 모드)
-  # 4. 이 임계값으로 종목을 필터링한 후 회귀기 학습
+  # 2. 제거 비율 2~15%를 테스트하여 최적 지점 찾기
+  #    - negative_screen: BAD 확률 상위 N% 제거
+  #    - positive_screen: GOOD 확률 하위 N% 제거
+  # 3. min_precision을 만족하면서 최대 데이터를 가진 비율 선택 (balance 모드)
+  #    또는 가장 높은 precision을 가진 비율 선택 (precision 모드)
+  # 4. 최적 비율로 종목을 필터링한 후 회귀기 학습
   # 5. 일관된 평가를 위해 모델과 함께 임계값 설정 저장
+  #
+  # 예시:
+  #   학습 데이터 10,000개, REMOVE_PCT_MIN=2, REMOVE_PCT_MAX=15
+  #   - 2% 제거: 9,800개로 회귀 학습
+  #   - 15% 제거: 8,500개로 회귀 학습
+  #   → balance 모드: precision 65% 이상 중 데이터 최대인 비율 선택
 
   # ============================================================================
   # 섹터별 모델 학습 (Sector-based Model Training)
