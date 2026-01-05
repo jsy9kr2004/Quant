@@ -91,7 +91,7 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import RandomizedSearchCV
-from sklearn.metrics import accuracy_score, classification_report, precision_recall_fscore_support, precision_score, recall_score
+from sklearn.metrics import accuracy_score, classification_report, precision_recall_fscore_support, precision_score, recall_score, log_loss
 
 # Optuna for hyperparameter optimization
 try:
@@ -715,6 +715,10 @@ class Regressor:
         backtest_config = conf.get('BACKTEST', {})
         self.root_path: str = data_config.get('ROOT_PATH', '/home/user/Quant/data')
 
+        # Include sector as a numeric feature (one-hot encoded, e.g., sector__Technology).
+        # NOTE: This changes feature_columns.pkl and requires retraining.
+        self.include_sector_as_feature = ml_config.get('INCLUDE_SECTOR_AS_FEATURE', 'N') == 'Y'
+
         # 섹터별 모델 사용 여부 (ml_backtest.py와 동일한 방식)
         self.use_sector_model = ml_config.get('USE_SECTOR_MODEL', 'N') == 'Y'
         self.sector_config = ml_config.get('SECTOR_CONFIG', {}) if self.use_sector_model else {}
@@ -728,22 +732,6 @@ class Regressor:
 
         # Top K 설정 (ml_backtest.py와 동일한 방식)
         self.top_k_num = int(backtest_config.get('TOP_K_NUM', 20))
-
-        # ========================================================================
-        # Walk-Forward Evaluation Settings (Phase 3: New Feature)
-        # ========================================================================
-        eval_config = conf.get('EVALUATION', {})
-        self.use_walk_forward = eval_config.get('USE_WALK_FORWARD', 'N') == 'Y'
-        self.walk_forward_periods = []  # Will be populated in dataload()
-        self.predictions_cache = {}  # Store predictions for each cutoff_date
-
-        if self.use_walk_forward:
-            logging.info("🔄 Walk-Forward mode ENABLED")
-            logging.info(f"   Window type: {eval_config.get('WINDOW_TYPE', 'expanding')}")
-            logging.info(f"   Retrain frequency: {eval_config.get('RETRAIN_FREQUENCY', 'quarterly')}")
-        else:
-            logging.info("📊 Traditional train/test split mode (legacy)")
-
         aidata_dir = self.root_path + '/processed/ml_data/per_year/'
         print("aidata path : " + aidata_dir)
         if not os.path.exists(aidata_dir):
@@ -772,6 +760,7 @@ class Regressor:
 
         print("train file list : ", self.train_files)
         print("test file list : ", self.test_files)
+
 
         # 데이터 컨테이너 초기화
         self.train_df = pd.DataFrame()
@@ -960,6 +949,56 @@ class Regressor:
         df = df.rename(columns=new_names)
         return df
 
+    def _add_sector_onehot_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add one-hot encoded sector feature columns (e.g., sector__Technology).
+
+        Keeps original `sector` column for metadata/sector-model routing, but adds
+        numeric dummy columns usable by XGBoost/CatBoost/MLP.
+        """
+        if not self.include_sector_as_feature:
+            return df
+
+        if 'sector' not in df.columns and 'industry' in df.columns:
+            df = df.copy()
+            df['sector'] = df['industry'].map(sector_map)
+
+        if 'sector' not in df.columns:
+            return df
+
+        ml_config = self.conf.get('ML', {})
+        categorization_cfg = ml_config.get('SECTOR_CATEGORIZATION', {}) or {}
+        use_categorization = categorization_cfg.get('ENABLED', 'N') == 'Y'
+
+        df_out = df.copy()
+        if use_categorization:
+            try:
+                df_out = DataProcessor.map_sectors_to_categories(
+                    df_out,
+                    self.conf,
+                    sector_column='sector',
+                    logger=logging.getLogger()
+                )
+            except Exception as e:
+                logging.warning(f"Sector categorization mapping failed, using raw sector: {e}")
+
+        sector_series = None
+        if use_categorization and 'sector_category' in df_out.columns:
+            sector_series = df_out['sector_category']
+        else:
+            sector_series = df_out['sector']
+
+        sector_series = sector_series.fillna('Unknown').astype(str)
+        dummies = pd.get_dummies(sector_series, prefix='sector', prefix_sep='__', dtype=np.float32)
+        dummies = DataProcessor.normalize_feature_names(dummies, logger=logging.getLogger())
+
+        # Avoid duplicates if called multiple times
+        existing_dummy_cols = [c for c in df_out.columns if c.startswith('sector__')]
+        if existing_dummy_cols:
+            df_out = df_out.drop(columns=existing_dummy_cols)
+
+        return pd.concat([df_out, dummies], axis=1)
+
     @staticmethod
     def _extract_date_from_filepath(filepath: str) -> str:
         """파일 경로에서 날짜 정보를 추출합니다.
@@ -1012,12 +1051,30 @@ class Regressor:
         Args:
             model_save_path: 모델 저장 경로
         """
-        for i in range(2):
+        self.models = {}
+        loaded = 0
+        i = 0
+        while True:
             filename = f"{model_save_path}model_{i}.sav"
+            if not os.path.exists(filename):
+                break
             self.models[i] = joblib.load(filename)
-        logging.info("✅ Loaded 2 regression models")
+            loaded += 1
+            i += 1
 
-    def _load_sector_models(self, model_save_path: str, sector_list: List[str]) -> None:
+        if loaded == 0:
+            raise FileNotFoundError(
+                f"No regressor models found under {model_save_path} (expected model_0.sav, model_1.sav, ...)"
+            )
+
+        logging.info(f"✅ Loaded {loaded} regression model(s)")
+
+    def _load_sector_models(
+        self,
+        model_save_path: str,
+        sector_list: List[str],
+        fallback_model_save_path: Optional[str] = None
+    ) -> None:
         """섹터별 회귀 모델들을 로드합니다.
 
         Args:
@@ -1028,10 +1085,17 @@ class Regressor:
             for i in range(2):
                 k = (sec, i)
                 filename = f"{model_save_path}{sec}_model_{i}.sav"
+                if fallback_model_save_path and not os.path.exists(filename):
+                    filename = f"{fallback_model_save_path}{sec}_model_{i}.sav"
                 self.sector_models[k] = joblib.load(filename)
         logging.info(f"✅ Loaded {len(self.sector_models)} sector regressor models for {len(sector_list)} sectors")
 
-    def _load_sector_classifiers(self, model_save_path: str, sector_list: List[str]) -> None:
+    def _load_sector_classifiers(
+        self,
+        model_save_path: str,
+        sector_list: List[str],
+        fallback_model_save_path: Optional[str] = None
+    ) -> None:
         """섹터별 분류 모델들을 로드합니다 (USE_CLASSIFIER=Y인 경우).
 
         Args:
@@ -1046,18 +1110,20 @@ class Regressor:
             for i in range(4):  # 4 classifiers per sector (XGB depth 8/9/10 + CatBoost)
                 k = (sec, i)
                 filename = f"{model_save_path}{sec}_clsmodel_{i}.sav"
+                if fallback_model_save_path and not os.path.exists(filename):
+                    filename = f"{fallback_model_save_path}{sec}_clsmodel_{i}.sav"
                 self.sector_classifiers[k] = joblib.load(filename)
         logging.info(f"✅ Loaded {len(self.sector_classifiers)} sector classifier models for {len(sector_list)} sectors")
 
     @staticmethod
-    def _build_prediction_column_names() -> List[str]:
+    def _build_prediction_column_names(num_regressors: int = 2) -> List[str]:
         """모든 예측 컬럼 이름 리스트를 생성합니다.
 
         Returns:
             예측 컬럼 이름 리스트
         """
         pred_col_list = ['ai_pred_avg']
-        for i in range(2):
+        for i in range(int(num_regressors)):
             pred_col_list.extend([
                 f'model_{i}_prediction',
                 f'model_{i}_prediction_wbinary_0',
@@ -1369,6 +1435,10 @@ class Regressor:
             logging.warning("⚠️  'industry' column not found, skipping sector calculation")
             sector_list = []
 
+        # Optional: add sector one-hot features for global models (requires retraining)
+        if self.include_sector_as_feature:
+            self.train_df = self._add_sector_onehot_features(self.train_df)
+
         # ========================================================================
         # STEP 3: Unified preprocessing using DataProcessor
         # ========================================================================
@@ -1536,6 +1606,10 @@ class Regressor:
                         sec_mean = df.loc[sec_mask, 'price_dev'].mean()
                         df.loc[sec_mask, 'sec_price_dev_subavg'] = \
                             df.loc[sec_mask, 'price_dev'] - sec_mean
+
+            # Optional: add sector one-hot features for global models (requires retraining)
+            if self.include_sector_as_feature:
+                df = self._add_sector_onehot_features(df)
 
             # Apply same column drops as training
             df = df.drop(columns=self.drop_col_list, errors='ignore')
@@ -3938,7 +4012,8 @@ class Regressor:
                 logging.warning("⚠️  Sector threshold configs not found, will use global threshold")
 
         # 통합 메서드로 예측 컬럼 이름 생성
-        pred_col_list = self._build_prediction_column_names()
+        num_regressors = max(self.models.keys()) + 1 if self.models else 2
+        pred_col_list = self._build_prediction_column_names(num_regressors)
 
         model_eval_hist = []  # 모든 기간의 평가 결과 저장
         full_df = pd.DataFrame()  # 예측이 포함된 모든 테스트 데이터 누적
@@ -3980,7 +4055,7 @@ class Regressor:
                 if missing_features:
                     logging.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with NaN")
                     for col in missing_features:
-                        x_test.loc[:, col] = np.nan
+                        x_test[col] = 0.0 if col.startswith('sector__') else np.nan
 
                 # 추가 피처는 제거
                 extra_features = set(x_test.columns) - set(train_feature_columns)
@@ -4173,7 +4248,15 @@ class Regressor:
                         top_k_df['model_0_prediction_wbinary_ensemble2'].sum()/(e-s+1),
                         top_k_df['model_1_prediction_wbinary_ensemble2'].sum()/(e-s+1),
                         top_k_df['model_0_prediction_wbinary_ensemble3'].sum()/(e-s+1),
-                        top_k_df['model_1_prediction_wbinary_ensemble3'].sum()/(e-s+1)
+                        top_k_df['model_1_prediction_wbinary_ensemble3'].sum()/(e-s+1),
+                        top_k_df['model_2_prediction'].sum()/(e-s+1),
+                        top_k_df['model_2_prediction_wbinary_0'].sum()/(e-s+1),
+                        top_k_df['model_2_prediction_wbinary_1'].sum()/(e-s+1),
+                        top_k_df['model_2_prediction_wbinary_2'].sum()/(e-s+1),
+                        top_k_df['model_2_prediction_wbinary_3'].sum()/(e-s+1),
+                        top_k_df['model_2_prediction_wbinary_ensemble'].sum()/(e-s+1),
+                        top_k_df['model_2_prediction_wbinary_ensemble2'].sum()/(e-s+1),
+                        top_k_df['model_2_prediction_wbinary_ensemble3'].sum()/(e-s+1)
                     ])
 
         # 종합 평가 보고서 생성
@@ -4184,7 +4267,10 @@ class Regressor:
                    'model1_pred_wbinary_2', 'model0_pred_wbinary_3', 'model1_pred_wbinary_3',
                    'model0_pred_wbinary_ensemble', 'model1_pred_wbinary_ensemble',
                    'model0_pred_wbinary_ensemble2', 'model1_pred_wbinary_ensemble2',
-                   'model0_pred_wbinary_ensemble3', 'model1_pred_wbinary_ensemble3']
+                   'model0_pred_wbinary_ensemble3', 'model1_pred_wbinary_ensemble3',
+                   'model2_pred', 'model2_pred_wbinary_0', 'model2_pred_wbinary_1', 'model2_pred_wbinary_2',
+                   'model2_pred_wbinary_3', 'model2_pred_wbinary_ensemble', 'model2_pred_wbinary_ensemble2',
+                   'model2_pred_wbinary_ensemble3']
 
         pred_df = pd.DataFrame(model_eval_hist, columns=col_name)
         logging.info(pred_df)
@@ -4199,8 +4285,9 @@ class Regressor:
             self.sector_classifiers = dict()
 
             # 통합 섹터 모델 로딩 메서드 사용
-            self._load_sector_models(MODEL_SAVE_PATH, self.sector_list)
-            self._load_sector_classifiers(MODEL_SAVE_PATH, self.sector_list)
+            sector_model_path = finetuned_path or MODEL_SAVE_PATH
+            self._load_sector_models(sector_model_path, self.sector_list)
+            self._load_sector_classifiers(sector_model_path, self.sector_list)
 
             sector_model_eval_hist = []
 
@@ -4334,6 +4421,536 @@ class Regressor:
             pred_df.to_csv(MODEL_SAVE_PATH+'allsector_pred_df.csv', index=False)
 
 
+
+    def _load_data_for_finetune(
+        self,
+        model_save_path: str,
+        file_list: List[str],
+        label: str,
+        max_rows_per_file: Optional[int] = None,
+        sample_fraction: Optional[float] = None
+    ) -> Optional[Tuple[pd.DataFrame, str]]:
+        feature_columns_file = os.path.join(model_save_path, 'feature_columns.pkl')
+        resolved_model_path = model_save_path
+        try:
+            train_feature_columns = joblib.load(feature_columns_file)
+            logging.info(f"Fine-tune feature columns: {feature_columns_file}")
+        except FileNotFoundError:
+            fallback_path = os.path.join(self.root_path, 'MODELS')
+            fallback_file = os.path.join(fallback_path, 'feature_columns.pkl')
+            if os.path.exists(fallback_file):
+                resolved_model_path = fallback_path
+                train_feature_columns = joblib.load(fallback_file)
+                logging.warning(
+                    f"feature_columns.pkl not found at {feature_columns_file}; using fallback {fallback_file}"
+                )
+            else:
+                logging.warning(
+                    f"feature_columns.pkl not found; checked {feature_columns_file} and {fallback_file}"
+                )
+                return None
+
+        logging.info(f"Fine-tune {label} files configured: {len(file_list)}")
+        processed_dfs: List[pd.DataFrame] = []
+        excluded_cols = DataSchema.get_excluded_cols()
+
+        for fpath in file_list:
+            logging.info(f"Fine-tune {label} load: {fpath}")
+            if not os.path.exists(fpath):
+                logging.warning(f"{label} file not found, skipping: {fpath}")
+                continue
+
+            df = pd.read_parquet(fpath, engine='pyarrow')
+
+            if 'fillingDate' in df.columns:
+                df['fillingDate'] = pd.to_datetime(df['fillingDate'], errors='coerce')
+                df = df.dropna(subset=['fillingDate'])
+
+            df = df.dropna(axis=0, subset=['price_diff'])
+            if len(df) == 0:
+                continue
+
+            if sample_fraction is not None:
+                try:
+                    frac_val = float(sample_fraction)
+                except (TypeError, ValueError):
+                    frac_val = None
+                if frac_val is not None and 0.0 < frac_val < 1.0 and len(df) > 1:
+                    df = df.sample(frac=frac_val, random_state=42).reset_index(drop=True)
+                    logging.info(
+                        f"Fine-tune {label} sampled frac={frac_val:.3f} -> {len(df)} rows: {os.path.basename(fpath)}"
+                    )
+
+            if max_rows_per_file and len(df) > max_rows_per_file:
+                df = df.sample(n=max_rows_per_file, random_state=42).reset_index(drop=True)
+                logging.info(f"Fine-tune {label} sampled to {len(df)} rows: {os.path.basename(fpath)}")
+
+            if 'industry' in df.columns:
+                df['sector'] = df['industry'].map(sector_map)
+                sector_list = [
+                    x for x in df['sector'].unique()
+                    if pd.notna(x) and x is not None and isinstance(x, str) and x.strip()
+                ]
+                for sec in sector_list:
+                    sec_mask = df['sector'] == sec
+                    if sec_mask.sum() > 0:
+                        sec_mean = df.loc[sec_mask, 'price_dev'].mean()
+                        df.loc[sec_mask, 'sec_price_dev_subavg'] = df['price_dev'] - sec_mean
+
+            if self.use_sector_model and 'sector' in df.columns:
+                df = DataProcessor.map_sectors_to_categories(
+                    df,
+                    self.conf,
+                    sector_column='sector',
+                    logger=logging.getLogger()
+                )
+                df['sector_original'] = df['sector']
+                df['sector'] = df['sector_category']
+
+            if self.include_sector_as_feature:
+                df = self._add_sector_onehot_features(df)
+
+            feature_cols = [col for col in df.columns if col not in excluded_cols]
+            X = df[feature_cols].copy()
+
+            missing_features = set(train_feature_columns) - set(X.columns)
+            for col in missing_features:
+                X[col] = 0.0 if col.startswith('sector__') else np.nan
+            X = X[train_feature_columns]
+
+            X = DataProcessor.log_transform_features(X)
+
+            y_reg = df[[DataSchema.REGRESSION_TARGET]].copy()
+            y_cls = df[[DataSchema.CLASSIFICATION_TARGET]].copy()
+
+            nan_mask = y_reg.isna().any(axis=1) | y_cls.isna().any(axis=1)
+            if nan_mask.sum() > 0:
+                X = X[~nan_mask]
+                y_reg = y_reg[~nan_mask]
+                y_cls = y_cls[~nan_mask]
+
+            metadata_cols = ['symbol', 'sector', 'industry'] if 'sector' in df.columns else ['symbol', 'industry']
+            metadata_cols = [col for col in metadata_cols if col in df.columns]
+            metadata_df = df.loc[X.index, metadata_cols].reset_index(drop=True)
+
+            df_processed = pd.concat(
+                [metadata_df, X.reset_index(drop=True), y_reg.reset_index(drop=True), y_cls.reset_index(drop=True)],
+                axis=1
+            )
+            processed_dfs.append(df_processed)
+
+        if not processed_dfs:
+            logging.warning(f"No {label} data available for fine-tune/metrics")
+            return None
+
+        combined_df = pd.concat(processed_dfs, axis=0, ignore_index=True)
+        logging.info(f"Fine-tune {label} rows loaded: {len(combined_df)}")
+        return combined_df, resolved_model_path
+
+    def _load_eval_data_for_finetune(self, model_save_path: str) -> Optional[Tuple[pd.DataFrame, str]]:
+        return self._load_data_for_finetune(
+            model_save_path=model_save_path,
+            file_list=self.test_files,
+            label='eval'
+        )
+
+    def _load_train_data_for_finetune_metrics(self, model_save_path: str) -> Optional[Tuple[pd.DataFrame, str]]:
+        ml_config = self.conf.get('ML', {})
+        train_sample_fraction = ml_config.get('FINETUNE_METRICS_TRAIN_SAMPLE_FRACTION', 0.10)
+        try:
+            train_sample_fraction_val = float(train_sample_fraction) if train_sample_fraction is not None else None
+        except (TypeError, ValueError):
+            train_sample_fraction_val = 0.10
+        if train_sample_fraction_val is not None and train_sample_fraction_val >= 1.0:
+            train_sample_fraction_val = None
+        if train_sample_fraction_val is not None and train_sample_fraction_val <= 0.0:
+            train_sample_fraction_val = None
+
+        max_rows_per_file = ml_config.get('FINETUNE_METRICS_MAX_ROWS_PER_FILE', 20000)
+        try:
+            max_rows_per_file_int = int(max_rows_per_file) if max_rows_per_file is not None else None
+        except (TypeError, ValueError):
+            max_rows_per_file_int = 20000
+        if max_rows_per_file_int is not None and max_rows_per_file_int <= 0:
+            max_rows_per_file_int = None
+        return self._load_data_for_finetune(
+            model_save_path=model_save_path,
+            file_list=self.train_files,
+            label='train',
+            max_rows_per_file=max_rows_per_file_int,
+            sample_fraction=train_sample_fraction_val
+        )
+
+    def _finetune_model(
+        self,
+        model: Any,
+        X: pd.DataFrame,
+        y: np.ndarray,
+        is_classifier: bool,
+        lr_scale: float,
+        extra_estimators_frac: float,
+        extra_estimators_min: int,
+        mlp_max_iter: int
+    ) -> Optional[Any]:
+        if hasattr(model, 'named_steps') and 'mlp' in model.named_steps:
+            mlp = model.named_steps['mlp']
+            base_lr = mlp.get_params().get('learning_rate_init', 0.001)
+            mlp.set_params(
+                warm_start=True,
+                learning_rate_init=max(base_lr * lr_scale, 1e-4),
+                max_iter=mlp_max_iter
+            )
+            X_fit = X
+            if isinstance(X, pd.DataFrame):
+                empty_cols = X.columns[X.isna().all()].tolist()
+                if empty_cols:
+                    X_fit = X.copy()
+                    X_fit[empty_cols] = 0.0
+                    logging.warning(
+                        f"Fine-tune: filled {len(empty_cols)} all-NaN features with 0 for MLP"
+                    )
+            model.fit(X_fit, y)
+            return model
+
+        module_name = model.__class__.__module__
+        params = model.get_params() if hasattr(model, 'get_params') else {}
+
+        if module_name.startswith('xgboost'):
+            base_lr = params.get('learning_rate', 0.1)
+            n_estimators = params.get('n_estimators', 200)
+            extra_rounds = max(extra_estimators_min, int(n_estimators * extra_estimators_frac))
+            model.set_params(learning_rate=base_lr * lr_scale, n_estimators=extra_rounds)
+            model.fit(X, y, xgb_model=model.get_booster())
+            return model
+
+        if module_name.startswith('lightgbm'):
+            base_lr = params.get('learning_rate', 0.1)
+            n_estimators = params.get('n_estimators', 200)
+            extra_rounds = max(extra_estimators_min, int(n_estimators * extra_estimators_frac))
+            model.set_params(learning_rate=base_lr * lr_scale, n_estimators=extra_rounds)
+            model.fit(X, y, init_model=model)
+            return model
+
+        if module_name.startswith('catboost'):
+            base_lr = params.get('learning_rate', 0.1)
+            iterations = params.get('iterations', 200)
+            extra_iters = max(extra_estimators_min, int(iterations * extra_estimators_frac))
+            params.update({
+                'learning_rate': base_lr * lr_scale,
+                'iterations': extra_iters
+            })
+            new_model = model.__class__(**params)
+            new_model.fit(X, y, init_model=model, verbose=False)
+            return new_model
+
+        if hasattr(model, 'set_params') and 'warm_start' in params:
+            model.set_params(warm_start=True)
+            model.fit(X, y)
+            return model
+
+        logging.warning(f"Skipping fine-tune for unsupported model type: {type(model)}")
+        return None
+
+    def _finetune_models_with_eval_data(self, model_save_path: str) -> Optional[str]:
+        logging.info("Starting fine-tune with eval data (if available)")
+        eval_info = self._load_eval_data_for_finetune(model_save_path)
+        if eval_info is None:
+            logging.info("Fine-tune skipped (no eval data or feature columns)")
+            return None
+        eval_df, resolved_model_path = eval_info
+
+        feature_columns_file = os.path.join(resolved_model_path, 'feature_columns.pkl')
+        train_feature_columns = joblib.load(feature_columns_file)
+
+        X_eval = eval_df[train_feature_columns]
+        y_eval = eval_df[[DataSchema.REGRESSION_TARGET]].values.ravel()
+        y_eval_cls = eval_df[[DataSchema.CLASSIFICATION_TARGET]]
+        y_eval_binary = DataProcessor.create_binary_target(
+            y_eval_cls,
+            config=self.conf,
+            logger=logging.getLogger()
+        ).values.ravel()
+
+        train_df = None
+        X_train = None
+        y_train = None
+        y_train_binary = None
+        train_info = self._load_train_data_for_finetune_metrics(resolved_model_path)
+        if train_info is not None:
+            train_df, _ = train_info
+            X_train = train_df[train_feature_columns]
+            y_train = train_df[[DataSchema.REGRESSION_TARGET]].values.ravel()
+            y_train_cls = train_df[[DataSchema.CLASSIFICATION_TARGET]]
+            y_train_binary = DataProcessor.create_binary_target(
+                y_train_cls,
+                config=self.conf,
+                logger=logging.getLogger()
+            ).values.ravel()
+
+        finetuned_path = os.path.join(resolved_model_path, 'finetuned') + os.sep
+        os.makedirs(finetuned_path, exist_ok=True)
+
+        lr_scale = 0.2
+        extra_estimators_frac = 0.2
+        extra_estimators_min = 50
+        mlp_max_iter = 30
+
+        def _prepare_mlp_metric_X(model_obj, X_src: pd.DataFrame) -> pd.DataFrame:
+            if hasattr(model_obj, 'named_steps') and 'mlp' in model_obj.named_steps and isinstance(X_src, pd.DataFrame):
+                empty_cols = X_src.columns[X_src.isna().all()].tolist()
+                if empty_cols:
+                    X_copy = X_src.copy()
+                    X_copy[empty_cols] = 0.0
+                    logging.warning(
+                        f"Fine-tune: filled {len(empty_cols)} all-NaN features with 0 for MLP eval"
+                    )
+                    return X_copy
+            return X_src
+
+        for i, model in self.clsmodels.items():
+            updated_model = self._finetune_model(
+                model, X_eval, y_eval_binary, True,
+                lr_scale, extra_estimators_frac, extra_estimators_min, mlp_max_iter
+            )
+            if updated_model is None:
+                continue
+            self.clsmodels[i] = updated_model
+            X_eval_metric = _prepare_mlp_metric_X(updated_model, X_eval)
+            y_pred_eval = updated_model.predict(X_eval_metric)
+            acc_eval = accuracy_score(y_eval_binary, y_pred_eval)
+
+            acc_train = None
+            acc_all = None
+            if X_train is not None and y_train_binary is not None:
+                X_train_metric = _prepare_mlp_metric_X(updated_model, X_train)
+                y_pred_train = updated_model.predict(X_train_metric)
+                acc_train = accuracy_score(y_train_binary, y_pred_train)
+                y_all_true = np.concatenate([y_train_binary, y_eval_binary])
+                y_all_pred = np.concatenate([y_pred_train, y_pred_eval])
+                acc_all = accuracy_score(y_all_true, y_all_pred)
+
+            loss_val = None
+            if hasattr(updated_model, 'predict_proba'):
+                try:
+                    y_proba = updated_model.predict_proba(X_eval_metric)
+                    loss_val = log_loss(y_eval_binary, y_proba)
+                except Exception as e:
+                    logging.warning(f"Fine-tune clsmodel_{i} log_loss failed: {e}")
+            if acc_train is None or acc_all is None:
+                if loss_val is None:
+                    logging.info(f"Fine-tune clsmodel_{i}: eval_accuracy={acc_eval:.4f}")
+                else:
+                    logging.info(f"Fine-tune clsmodel_{i}: eval_accuracy={acc_eval:.4f}, eval_logloss={loss_val:.4f}")
+            else:
+                if loss_val is None:
+                    logging.info(
+                        f"Fine-tune clsmodel_{i}: train_accuracy={acc_train:.4f}, eval_accuracy={acc_eval:.4f}, train+eval_accuracy={acc_all:.4f}"
+                    )
+                else:
+                    logging.info(
+                        f"Fine-tune clsmodel_{i}: train_accuracy={acc_train:.4f}, eval_accuracy={acc_eval:.4f}, train+eval_accuracy={acc_all:.4f}, eval_logloss={loss_val:.4f}"
+                    )
+            joblib.dump(updated_model, f"{finetuned_path}clsmodel_{i}.sav")
+
+        for i, model in self.models.items():
+            updated_model = self._finetune_model(
+                model, X_eval, y_eval, False,
+                lr_scale, extra_estimators_frac, extra_estimators_min, mlp_max_iter
+            )
+            if updated_model is None:
+                continue
+            self.models[i] = updated_model
+            X_eval_metric = _prepare_mlp_metric_X(updated_model, X_eval)
+            y_pred_eval = updated_model.predict(X_eval_metric)
+            mse_eval = mean_squared_error(y_eval, y_pred_eval)
+
+            mse_train = None
+            mse_all = None
+            if X_train is not None and y_train is not None:
+                X_train_metric = _prepare_mlp_metric_X(updated_model, X_train)
+                y_pred_train = updated_model.predict(X_train_metric)
+                mse_train = mean_squared_error(y_train, y_pred_train)
+                y_all_true = np.concatenate([y_train, y_eval])
+                y_all_pred = np.concatenate([y_pred_train, y_pred_eval])
+                mse_all = mean_squared_error(y_all_true, y_all_pred)
+
+            if mse_train is None or mse_all is None:
+                logging.info(f"Fine-tune model_{i}: eval_mse={mse_eval:.6f}")
+            else:
+                logging.info(
+                    f"Fine-tune model_{i}: train_mse={mse_train:.6f}, eval_mse={mse_eval:.6f}, train+eval_mse={mse_all:.6f}"
+                )
+            joblib.dump(updated_model, f"{finetuned_path}model_{i}.sav")
+
+        if self.use_sector_model and 'sector' in eval_df.columns:
+            sector_col = 'sector_category' if 'sector_category' in eval_df.columns else 'sector'
+            all_sectors = list(eval_df[sector_col].unique())
+            self.sector_list = [
+                x for x in all_sectors
+                if pd.notna(x) and x is not None and isinstance(x, str) and x.strip()
+            ]
+
+            self.sector_models = dict()
+            self.sector_classifiers = dict()
+            self._load_sector_models(resolved_model_path, self.sector_list)
+            self._load_sector_classifiers(resolved_model_path, self.sector_list)
+
+            for sec in self.sector_list:
+                sec_df = eval_df[eval_df[sector_col] == sec].copy()
+                if len(sec_df) == 0:
+                    continue
+
+                X_sec = sec_df[train_feature_columns]
+                y_sec_reg = None
+                if DataSchema.SECTOR_REGRESSION_TARGET in sec_df.columns:
+                    y_sec_reg = sec_df[[DataSchema.SECTOR_REGRESSION_TARGET]].values.ravel()
+                else:
+                    y_sec_reg = sec_df[[DataSchema.REGRESSION_TARGET]].values.ravel()
+
+                if self.use_classifier and DataSchema.CLASSIFICATION_TARGET in sec_df.columns:
+                    y_sec_cls = sec_df[[DataSchema.CLASSIFICATION_TARGET]]
+                    y_sec_binary = DataProcessor.create_binary_target(
+                        y_sec_cls,
+                        config=self.conf,
+                        logger=logging.getLogger()
+                    ).values.ravel()
+                    for i in range(4):
+                        k = (sec, i)
+                        model = self.sector_classifiers.get(k)
+                        if model is None:
+                            continue
+                        updated_model = self._finetune_model(
+                            model, X_sec, y_sec_binary, True,
+                            lr_scale, extra_estimators_frac, extra_estimators_min, mlp_max_iter
+                        )
+                        if updated_model is None:
+                            continue
+                        self.sector_classifiers[k] = updated_model
+                        joblib.dump(updated_model, f"{finetuned_path}{sec}_clsmodel_{i}.sav")
+
+                for i in range(3):
+                    k = (sec, i)
+                    model = self.sector_models.get(k)
+                    if model is None:
+                        continue
+                    updated_model = self._finetune_model(
+                        model, X_sec, y_sec_reg, False,
+                        lr_scale, extra_estimators_frac, extra_estimators_min, mlp_max_iter
+                    )
+                    if updated_model is None:
+                        continue
+                    self.sector_models[k] = updated_model
+                    joblib.dump(updated_model, f"{finetuned_path}{sec}_model_{i}.sav")
+
+            # Report sector-model metrics after fine-tuning (aggregate across sectors)
+            if train_df is not None and 'sector' in train_df.columns and sector_col in eval_df.columns:
+                try:
+                    # Classifiers: weighted accuracy across all sector rows
+                    if self.use_classifier:
+                        for i in range(4):
+                            correct_eval = 0
+                            total_eval = 0
+                            correct_train = 0
+                            total_train = 0
+
+                            for sec in self.sector_list:
+                                k = (sec, i)
+                                model = self.sector_classifiers.get(k)
+                                if model is None:
+                                    continue
+
+                                sec_eval = eval_df[eval_df[sector_col] == sec]
+                                if len(sec_eval) > 0:
+                                    X_sec_eval = sec_eval[train_feature_columns]
+                                    y_sec_eval = DataProcessor.create_binary_target(
+                                        sec_eval[[DataSchema.CLASSIFICATION_TARGET]],
+                                        config=self.conf,
+                                        logger=logging.getLogger()
+                                    ).values.ravel()
+                                    X_sec_eval_metric = _prepare_mlp_metric_X(model, X_sec_eval)
+                                    y_pred_eval = model.predict(X_sec_eval_metric)
+                                    correct_eval += int((y_pred_eval == y_sec_eval).sum())
+                                    total_eval += len(y_sec_eval)
+
+                                sec_train = train_df[train_df['sector'] == sec]
+                                if len(sec_train) > 0:
+                                    X_sec_train = sec_train[train_feature_columns]
+                                    y_sec_train = DataProcessor.create_binary_target(
+                                        sec_train[[DataSchema.CLASSIFICATION_TARGET]],
+                                        config=self.conf,
+                                        logger=logging.getLogger()
+                                    ).values.ravel()
+                                    X_sec_train_metric = _prepare_mlp_metric_X(model, X_sec_train)
+                                    y_pred_train = model.predict(X_sec_train_metric)
+                                    correct_train += int((y_pred_train == y_sec_train).sum())
+                                    total_train += len(y_sec_train)
+
+                            if total_eval > 0:
+                                acc_eval = correct_eval / total_eval
+                            else:
+                                acc_eval = None
+                            if total_train > 0:
+                                acc_train_val = correct_train / total_train
+                            else:
+                                acc_train_val = None
+
+                            if acc_eval is not None and acc_train_val is not None:
+                                acc_all = (correct_eval + correct_train) / (total_eval + total_train)
+                                logging.info(
+                                    f"Fine-tune sector clsmodel_{i}: train_accuracy={acc_train_val:.4f}, eval_accuracy={acc_eval:.4f}, train+eval_accuracy={acc_all:.4f}"
+                                )
+                            elif acc_eval is not None:
+                                logging.info(f"Fine-tune sector clsmodel_{i}: eval_accuracy={acc_eval:.4f}")
+
+                    # Regressors: aggregate MSE across all sector rows
+                    for i in range(3):
+                        sse_eval = 0.0
+                        n_eval = 0
+                        sse_train = 0.0
+                        n_train = 0
+
+                        for sec in self.sector_list:
+                            k = (sec, i)
+                            model = self.sector_models.get(k)
+                            if model is None:
+                                continue
+
+                            sec_eval = eval_df[eval_df[sector_col] == sec]
+                            if len(sec_eval) > 0:
+                                X_sec_eval = sec_eval[train_feature_columns]
+                                y_sec_eval = sec_eval[[DataSchema.REGRESSION_TARGET]].values.ravel()
+                                X_sec_eval_metric = _prepare_mlp_metric_X(model, X_sec_eval)
+                                y_pred_eval = model.predict(X_sec_eval_metric)
+                                diff = y_sec_eval - y_pred_eval
+                                sse_eval += float(np.sum(diff * diff))
+                                n_eval += len(y_sec_eval)
+
+                            sec_train = train_df[train_df['sector'] == sec]
+                            if len(sec_train) > 0:
+                                X_sec_train = sec_train[train_feature_columns]
+                                y_sec_train = sec_train[[DataSchema.REGRESSION_TARGET]].values.ravel()
+                                X_sec_train_metric = _prepare_mlp_metric_X(model, X_sec_train)
+                                y_pred_train = model.predict(X_sec_train_metric)
+                                diff = y_sec_train - y_pred_train
+                                sse_train += float(np.sum(diff * diff))
+                                n_train += len(y_sec_train)
+
+                        mse_eval = (sse_eval / n_eval) if n_eval > 0 else None
+                        mse_train = (sse_train / n_train) if n_train > 0 else None
+
+                        if mse_eval is not None and mse_train is not None:
+                            mse_all = (sse_eval + sse_train) / (n_eval + n_train)
+                            logging.info(
+                                f"Fine-tune sector model_{i}: train_mse={mse_train:.6f}, eval_mse={mse_eval:.6f}, train+eval_mse={mse_all:.6f}"
+                            )
+                        elif mse_eval is not None:
+                            logging.info(f"Fine-tune sector model_{i}: eval_mse={mse_eval:.6f}")
+                except Exception as e:
+                    logging.warning(f"Fine-tune sector metrics reporting failed: {e}")
+
+        self._finetuned_model_path = finetuned_path
+        return finetuned_path
+
     def latest_prediction(self) -> None:
         """주식 선택을 위해 가장 최근 데이터로 예측합니다.
 
@@ -4376,6 +4993,18 @@ class Regressor:
         self._load_classifiers(MODEL_SAVE_PATH)
         self._load_regressors(MODEL_SAVE_PATH)
 
+        # Continual learning (optional): after loading trainset-fitted models,
+        # fine-tune them on evalset (self.test_files) before predicting latest data.
+        ml_config = self.conf.get('ML', {})
+        continual_learning = ml_config.get('CONTINUAL_LEARNING_IN_LATEST_PREDICTION', 'Y') == 'Y'
+        finetuned_path = None
+        if continual_learning:
+            finetuned_path = self._finetune_models_with_eval_data(MODEL_SAVE_PATH)
+            if finetuned_path:
+                logging.info(
+                    f"Continual learning applied for latest prediction (saved under: {finetuned_path})"
+                )
+
         # ===== Load threshold config =====
         threshold_config_file = MODEL_SAVE_PATH + 'threshold_config.pkl'
         try:
@@ -4390,7 +5019,8 @@ class Regressor:
         aidata_dir = self.root_path + '/processed/ml_data/per_year/'
 
         # 통합 메서드로 예측 컬럼 이름 생성
-        pred_col_list = self._build_prediction_column_names()
+        num_regressors = max(self.models.keys()) + 1 if self.models else 2
+        pred_col_list = self._build_prediction_column_names(num_regressors)
 
         # 최신 연도 데이터(모든 분기)를 로드하고 심볼당 가장 최근 것 유지
         # 자동으로 가장 최근 연도 감지 및 Parquet 형식 로드
@@ -4493,6 +5123,9 @@ class Regressor:
         ldf_with_sector = ldf.copy() if self.use_sector_model else None
 
         # sector 컬럼 제거 (global 모델은 sector를 사용하지 않음)
+        if self.include_sector_as_feature:
+            ldf = self._add_sector_onehot_features(ldf)
+
         ldf = ldf.drop('sector', axis=1)
 
         # 입력 특성 준비
@@ -4519,7 +5152,7 @@ class Regressor:
                         logging.warning(f"      - {col}")
                     logging.warning(f"      ... and {len(missing_features)-10} more")
                 for col in missing_features:
-                    input.loc[:, col] = np.nan
+                    input[col] = 0.0 if col.startswith('sector__') else np.nan
 
             # 추가 피처는 제거
             extra_features = set(input.columns) - set(train_feature_columns)
@@ -4618,8 +5251,17 @@ class Regressor:
 
             # 섹터별 모델 로드
             # 통합 섹터 모델 로딩 메서드 사용
-            self._load_sector_models(MODEL_SAVE_PATH, self.sector_list)
-            self._load_sector_classifiers(MODEL_SAVE_PATH, self.sector_list)
+            sector_model_path = finetuned_path or MODEL_SAVE_PATH
+            self._load_sector_models(
+                sector_model_path,
+                self.sector_list,
+                fallback_model_save_path=MODEL_SAVE_PATH
+            )
+            self._load_sector_classifiers(
+                sector_model_path,
+                self.sector_list,
+                fallback_model_save_path=MODEL_SAVE_PATH
+            )
 
             all_preds = []
 

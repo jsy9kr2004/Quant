@@ -17,9 +17,13 @@ Date: 2025-11-28
 
 from typing import Dict, Any, List, Optional, Tuple
 import logging
+import os
 import numpy as np
 import xgboost
 import lightgbm as lgb
+from sklearn.neural_network import MLPClassifier, MLPRegressor
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
 try:
     from catboost import CatBoostClassifier, CatBoostRegressor
     CATBOOST_AVAILABLE = True
@@ -89,6 +93,19 @@ class ModelFactory:
         self.use_classifier = self.ml_config.get('USE_CLASSIFIER', 'Y') == 'Y'
         self.use_sector_model = self.ml_config.get('USE_SECTOR_MODEL', 'N') == 'Y'
 
+        # GPU training settings
+        # - ML.GPU_TRAINING: 'auto' (default), 'Y', or 'N'
+        #   * 'auto' attempts GPU when CUDA runtime seems available, otherwise CPU.
+        self.gpu_training_mode = str(self.ml_config.get('GPU_TRAINING', 'auto')).strip().lower()
+        self.use_gpu_training = self._resolve_gpu_training()
+        self.xgb_device = 'cuda:0' if self.use_gpu_training else 'cpu'
+        self.catboost_task_type = 'GPU' if self.use_gpu_training else 'CPU'
+        self.lgbm_device = 'gpu' if self.use_gpu_training else 'cpu'
+        self.logger.info(
+            f"GPU training: mode={self.gpu_training_mode}, enabled={self.use_gpu_training}, "
+            f"xgb_device={self.xgb_device}, catboost_task_type={self.catboost_task_type}"
+        )
+
         # Load sector configuration (원본 섹터별 설정)
         self.sector_config = self.ml_config.get('SECTOR_CONFIG', {}) if self.use_sector_model else {}
 
@@ -106,6 +123,100 @@ class ModelFactory:
             self.effective_sector_config = self.sector_config
             if self.use_sector_model:
                 self.logger.info("🔧 Using original sector-based model configs (CATEGORIZATION.ENABLED=N)")
+
+    def _make_mlp_classifier(self) -> Pipeline:
+        mlp_cfg = self.ml_config.get('MLP', {}) or {}
+        hidden = mlp_cfg.get('HIDDEN_LAYER_SIZES', (512, 256, 128))
+        if isinstance(hidden, str):
+            # e.g. "512,256,128"
+            hidden = tuple(int(x.strip()) for x in hidden.split(',') if x.strip())
+        elif isinstance(hidden, list):
+            hidden = tuple(int(x) for x in hidden)
+        elif isinstance(hidden, tuple):
+            hidden = tuple(int(x) for x in hidden)
+
+        max_iter = int(mlp_cfg.get('MAX_ITER', 600))
+        batch_size = int(mlp_cfg.get('BATCH_SIZE', 512))
+        alpha = float(mlp_cfg.get('ALPHA', 1e-4))
+
+        return Pipeline(steps=[
+            ('imputer', SimpleImputer(strategy='median')),
+            ('mlp', MLPClassifier(
+                hidden_layer_sizes=hidden,
+                activation='relu',
+                solver='adam',
+                alpha=alpha,
+                batch_size=batch_size,
+                learning_rate='adaptive',
+                max_iter=max_iter,
+                early_stopping=True,
+                n_iter_no_change=20,
+                validation_fraction=0.1,
+                random_state=42
+            ))
+        ])
+
+    def _make_mlp_regressor(self) -> Pipeline:
+        mlp_cfg = self.ml_config.get('MLP', {}) or {}
+        hidden = mlp_cfg.get('HIDDEN_LAYER_SIZES', (512, 256, 128))
+        if isinstance(hidden, str):
+            hidden = tuple(int(x.strip()) for x in hidden.split(',') if x.strip())
+        elif isinstance(hidden, list):
+            hidden = tuple(int(x) for x in hidden)
+        elif isinstance(hidden, tuple):
+            hidden = tuple(int(x) for x in hidden)
+
+        max_iter = int(mlp_cfg.get('MAX_ITER', 600))
+        batch_size = int(mlp_cfg.get('BATCH_SIZE', 512))
+        alpha = float(mlp_cfg.get('ALPHA', 1e-4))
+
+        return Pipeline(steps=[
+            ('imputer', SimpleImputer(strategy='median')),
+            ('mlp', MLPRegressor(
+                hidden_layer_sizes=hidden,
+                activation='relu',
+                solver='adam',
+                alpha=alpha,
+                batch_size=batch_size,
+                learning_rate='adaptive',
+                max_iter=max_iter,
+                early_stopping=True,
+                n_iter_no_change=20,
+                validation_fraction=0.1,
+                random_state=42
+            ))
+        ])
+
+    def _detect_cuda_runtime(self) -> bool:
+        """
+        Best-effort CUDA runtime detection.
+
+        Used only to decide whether to *attempt* GPU training when
+        ML.GPU_TRAINING='auto'. Actual training may still fall back to CPU if
+        libraries/drivers are not compatible.
+        """
+        try:
+            import cupy as cp
+            _ = cp.cuda.Device(0)
+            return True
+        except Exception:
+            pass
+
+        try:
+            import torch  # type: ignore
+            return bool(torch.cuda.is_available())
+        except Exception:
+            pass
+
+        cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES', '').strip()
+        return cuda_visible not in ('', '-1')
+
+    def _resolve_gpu_training(self) -> bool:
+        if self.gpu_training_mode in ('y', 'yes', 'true', '1'):
+            return True
+        if self.gpu_training_mode in ('n', 'no', 'false', '0'):
+            return False
+        return self._detect_cuda_runtime()
 
     def _extract_category_configs(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -134,19 +245,19 @@ class ModelFactory:
         Creates multiple models with different hyperparameters for ensemble prediction.
 
         When USE_CLASSIFIER=Y:
-        - 4 Classifiers: XGB (depth 8,9,10) + CatBoost
-        - 2 Regressors: XGB (depth 8) + CatBoost
+        - 4 Classifiers: XGB + CatBoost + MLP + CatBoost (keeps 4 slots for legacy ensemble logic)
+        - 3 Regressors: XGB + CatBoost + MLP
 
         When USE_CLASSIFIER=N:
         - 0 Classifiers (empty list)
-        - 2 Regressors: XGB (depth 8) + CatBoost
+        - 3 Regressors: XGB + CatBoost + MLP
 
         Returns:
         -------
         classifiers : List[Any]
             List of classification models (empty if USE_CLASSIFIER=N)
         regressors : List[Any]
-            List of 2 regression models
+            List of 3 regression models
         """
         classifiers = []
         regressors = []
@@ -158,7 +269,7 @@ class ModelFactory:
                 self.logger.info(f" Using Optuna-optimized params for classifier_0: {self.optuna_params}")
                 clf_0 = xgboost.XGBClassifier(
                     tree_method='hist',
-                    device='cpu',  # Use CPU for compatibility
+                    device=self.xgb_device,
                     n_estimators=self.optuna_params.get('n_estimators', 500),
                     learning_rate=self.optuna_params.get('learning_rate', 0.1),
                     gamma=self.optuna_params.get('gamma', 0),
@@ -171,51 +282,74 @@ class ModelFactory:
                 )
             else:
                 clf_config = XGBOOST_CLASSIFIER_CONFIGS['default'].copy()
-                clf_config['device'] = 'cpu'  # Override to CPU
+                clf_config['device'] = self.xgb_device
                 clf_0 = xgboost.XGBClassifier(**clf_config, missing=np.nan)
 
             classifiers.append(clf_0)
 
-            # Classifier 1: XGBoost depth=9
-            clf_config_9 = XGBOOST_CLASSIFIER_CONFIGS['depth_9'].copy()
-            clf_config_9['device'] = 'cpu'
-            clf_1 = xgboost.XGBClassifier(**clf_config_9, missing=np.nan)
-            classifiers.append(clf_1)
-
-            # Classifier 2: XGBoost depth=10
-            clf_config_10 = XGBOOST_CLASSIFIER_CONFIGS['depth_10'].copy()
-            clf_config_10['device'] = 'cpu'
-            clf_2 = xgboost.XGBClassifier(**clf_config_10, missing=np.nan)
-            classifiers.append(clf_2)
-
-            # Classifier 3: CatBoost
+            # Classifier 1: CatBoost (fallback: LightGBM)
             if CATBOOST_AVAILABLE:
                 # CatBoost (robust baseline, handles noisy features well)
                 cb_clf_config = CATBOOST_CLASSIFIER_CONFIGS['default'].copy()
                 cb_clf_config.update({
-                    'task_type': 'CPU',             # keep consistent with CPU-only factory defaults
+                    'task_type': self.catboost_task_type,
                     'verbose': False,               # reduce log spam
                     'random_seed': 42,
                     'allow_writing_files': False,   # avoid filesystem writes during training
                 })
                 # Recommended tweaks for generalization / speed tradeoff
                 cb_clf_config.setdefault('l2_leaf_reg', 5.0)
-                cb_clf_config.setdefault('rsm', 0.8)  # column subsampling (CPU)
-                cb_clf_config.setdefault('iterations', 800)
+                if not self.use_gpu_training:
+                    cb_clf_config.setdefault('rsm', 0.8)  # column subsampling (CPU)
+                cb_clf_config.setdefault('iterations', 1200)
                 cb_clf_config.setdefault('learning_rate', 0.05)
                 cb_clf_config.setdefault('depth', 7)
-                clf_3 = CatBoostClassifier(**cb_clf_config)
+                clf_1 = CatBoostClassifier(**cb_clf_config)
             else:
                 # Fallback: LightGBM
                 lgb_clf_config = LIGHTGBM_CLASSIFIER_CONFIGS['default'].copy()
-                lgb_clf_config['device'] = 'cpu'
-                clf_3 = lgb.LGBMClassifier(
+                lgb_clf_config['device'] = self.lgbm_device
+                clf_1 = lgb.LGBMClassifier(
                     boosting_type=lgb_clf_config.get('boosting_type', 'gbdt'),
                     objective=lgb_clf_config.get('objective', 'binary'),
                     n_estimators=lgb_clf_config.get('n_estimators', 1000),
                     max_depth=lgb_clf_config.get('max_depth', 8),
                     learning_rate=lgb_clf_config.get('learning_rate', 0.1),
-                    device='cpu',
+                    device=self.lgbm_device,
+                    boost_from_average=False
+                )
+            classifiers.append(clf_1)
+
+            # Classifier 2: MLP (sklearn)
+            clf_2 = self._make_mlp_classifier()
+            classifiers.append(clf_2)
+
+            # Classifier 3: CatBoost (2nd) to keep 4 slots (fallback: LightGBM)
+            if CATBOOST_AVAILABLE:
+                cb_clf_config_2 = CATBOOST_CLASSIFIER_CONFIGS['default'].copy()
+                cb_clf_config_2.update({
+                    'task_type': self.catboost_task_type,
+                    'verbose': False,
+                    'random_seed': 43,
+                    'allow_writing_files': False,
+                })
+                cb_clf_config_2.setdefault('l2_leaf_reg', 6.0)
+                if not self.use_gpu_training:
+                    cb_clf_config_2.setdefault('rsm', 0.85)
+                cb_clf_config_2.setdefault('iterations', 1400)
+                cb_clf_config_2.setdefault('learning_rate', 0.05)
+                cb_clf_config_2.setdefault('depth', 8)
+                clf_3 = CatBoostClassifier(**cb_clf_config_2)
+            else:
+                lgb_clf_config_2 = LIGHTGBM_CLASSIFIER_CONFIGS['default'].copy()
+                lgb_clf_config_2['device'] = self.lgbm_device
+                clf_3 = lgb.LGBMClassifier(
+                    boosting_type=lgb_clf_config_2.get('boosting_type', 'gbdt'),
+                    objective=lgb_clf_config_2.get('objective', 'binary'),
+                    n_estimators=lgb_clf_config_2.get('n_estimators', 1200),
+                    max_depth=lgb_clf_config_2.get('max_depth', 9),
+                    learning_rate=lgb_clf_config_2.get('learning_rate', 0.08),
+                    device=self.lgbm_device,
                     boost_from_average=False
                 )
             classifiers.append(clf_3)
@@ -226,7 +360,7 @@ class ModelFactory:
         # ===== Regressors =====
         # Regressor 0: XGBoost depth=8
         reg_config_8 = XGBOOST_REGRESSOR_CONFIGS['default'].copy()
-        reg_config_8['device'] = 'cpu'
+        reg_config_8['device'] = self.xgb_device
         reg_0 = xgboost.XGBRegressor(**reg_config_8, missing=np.nan)
         regressors.append(reg_0)
 
@@ -234,14 +368,15 @@ class ModelFactory:
         if CATBOOST_AVAILABLE:
             cb_reg_config = CATBOOST_REGRESSOR_CONFIGS['default'].copy()
             cb_reg_config.update({
-                'task_type': 'CPU',
+                'task_type': self.catboost_task_type,
                 'verbose': False,
                 'random_seed': 42,
                 'allow_writing_files': False,
             })
             cb_reg_config.setdefault('l2_leaf_reg', 5.0)
-            cb_reg_config.setdefault('rsm', 0.8)
-            cb_reg_config.setdefault('iterations', 1200)
+            if not self.use_gpu_training:
+                cb_reg_config.setdefault('rsm', 0.8)
+            cb_reg_config.setdefault('iterations', 1600)
             cb_reg_config.setdefault('learning_rate', 0.05)
             cb_reg_config.setdefault('depth', 7)
             reg_1 = CatBoostRegressor(**cb_reg_config)
@@ -249,9 +384,13 @@ class ModelFactory:
         else:
             # Fallback: XGBoost depth=10
             reg_config_10 = XGBOOST_REGRESSOR_CONFIGS['depth_10'].copy()
-            reg_config_10['device'] = 'cpu'
+            reg_config_10['device'] = self.xgb_device
             reg_1 = xgboost.XGBRegressor(**reg_config_10, missing=np.nan)
             regressors.append(reg_1)
+
+        # Regressor 2: MLP (sklearn)
+        reg_2 = self._make_mlp_regressor()
+        regressors.append(reg_2)
 
         self.logger.info(f" Created ensemble models: {len(classifiers)} classifiers, {len(regressors)} regressors")
 
@@ -331,7 +470,7 @@ class ModelFactory:
     def create_sector_models(
         self,
         sector_list: List[str],
-        num_regressor_variants: int = 2,
+        num_regressor_variants: int = 3,
         sector_optuna_params: Optional[Dict[str, Dict[str, Any]]] = None
     ) -> Tuple[Dict[Tuple[str, int], Any], Dict[Tuple[str, int], Any]]:
         """
@@ -341,10 +480,10 @@ class ModelFactory:
         hyperparameters to capture sector-specific patterns.
 
         When USE_CLASSIFIER=Y:
-        - Per sector: 4 classifiers (XGB depth 8/9/10 + CatBoost) + 2 regressors
+        - Per sector: 4 classifiers (XGB + CatBoost + MLP + CatBoost) + 3 regressors
 
         When USE_CLASSIFIER=N:
-        - Per sector: 0 classifiers + 2 regressors
+        - Per sector: 0 classifiers + 3 regressors
 
         **Parameter Priority**: Optuna > SECTOR_CONFIG > Default
 
@@ -385,7 +524,7 @@ class ModelFactory:
                 if optuna_cfg:
                     clf_0 = xgboost.XGBClassifier(
                         tree_method='hist',
-                        device='cpu',
+                        device=self.xgb_device,
                         n_estimators=optuna_cfg.get('n_estimators', 500),
                         learning_rate=optuna_cfg.get('learning_rate', 0.1),
                         gamma=optuna_cfg.get('gamma', 0),
@@ -398,27 +537,15 @@ class ModelFactory:
                     )
                 else:
                     clf_config = XGBOOST_CLASSIFIER_CONFIGS['default'].copy()
-                    clf_config['device'] = 'cpu'
+                    clf_config['device'] = self.xgb_device
                     clf_0 = xgboost.XGBClassifier(**clf_config, missing=np.nan)
                 sector_classifiers[(sector, 0)] = clf_0
 
-                # Classifier 1: XGBoost depth=9
-                clf_config_9 = XGBOOST_CLASSIFIER_CONFIGS['depth_9'].copy()
-                clf_config_9['device'] = 'cpu'
-                clf_1 = xgboost.XGBClassifier(**clf_config_9, missing=np.nan)
-                sector_classifiers[(sector, 1)] = clf_1
-
-                # Classifier 2: XGBoost depth=10
-                clf_config_10 = XGBOOST_CLASSIFIER_CONFIGS['depth_10'].copy()
-                clf_config_10['device'] = 'cpu'
-                clf_2 = xgboost.XGBClassifier(**clf_config_10, missing=np.nan)
-                sector_classifiers[(sector, 2)] = clf_2
-
-                # Classifier 3: CatBoost (fallback to LightGBM if CatBoost unavailable)
+                # Classifier 1: CatBoost (fallback to LightGBM if CatBoost unavailable)
                 if CATBOOST_AVAILABLE:
                     cb_clf_config = CATBOOST_CLASSIFIER_CONFIGS['default'].copy()
                     cb_clf_config.update({
-                        'task_type': 'CPU',
+                        'task_type': self.catboost_task_type,
                         'verbose': False,
                         'random_seed': 42,
                         'allow_writing_files': False,
@@ -432,22 +559,55 @@ class ModelFactory:
                         cb_clf_config['iterations'] = int(sector_cfg['n_estimators'])
 
                     cb_clf_config.setdefault('l2_leaf_reg', 5.0)
-                    cb_clf_config.setdefault('rsm', 0.8)
+                    if not self.use_gpu_training:
+                        cb_clf_config.setdefault('rsm', 0.8)
                     cb_clf_config.setdefault('depth', 7)
-                    cb_clf_config.setdefault('iterations', 600)
+                    cb_clf_config.setdefault('iterations', 900)
                     cb_clf_config.setdefault('learning_rate', 0.05)
 
-                    sector_classifiers[(sector, 3)] = CatBoostClassifier(**cb_clf_config)
+                    sector_classifiers[(sector, 1)] = CatBoostClassifier(**cb_clf_config)
                 else:
                     lgb_clf_config = LIGHTGBM_CLASSIFIER_CONFIGS['default'].copy()
-                    lgb_clf_config['device'] = 'cpu'
-                    sector_classifiers[(sector, 3)] = lgb.LGBMClassifier(
+                    lgb_clf_config['device'] = self.lgbm_device
+                    sector_classifiers[(sector, 1)] = lgb.LGBMClassifier(
                         boosting_type=lgb_clf_config.get('boosting_type', 'gbdt'),
                         objective=lgb_clf_config.get('objective', 'binary'),
                         n_estimators=lgb_clf_config.get('n_estimators', 1000),
                         max_depth=lgb_clf_config.get('max_depth', 8),
                         learning_rate=lgb_clf_config.get('learning_rate', 0.1),
-                        device='cpu',
+                        device=self.lgbm_device,
+                        boost_from_average=False
+                    )
+
+                # Classifier 2: MLP
+                sector_classifiers[(sector, 2)] = self._make_mlp_classifier()
+
+                # Classifier 3: CatBoost (2nd) (fallback: LightGBM)
+                if CATBOOST_AVAILABLE:
+                    cb_clf_config_2 = CATBOOST_CLASSIFIER_CONFIGS['default'].copy()
+                    cb_clf_config_2.update({
+                        'task_type': self.catboost_task_type,
+                        'verbose': False,
+                        'random_seed': 43,
+                        'allow_writing_files': False,
+                    })
+                    cb_clf_config_2.setdefault('l2_leaf_reg', 6.0)
+                    if not self.use_gpu_training:
+                        cb_clf_config_2.setdefault('rsm', 0.85)
+                    cb_clf_config_2.setdefault('depth', 8)
+                    cb_clf_config_2.setdefault('iterations', 1000)
+                    cb_clf_config_2.setdefault('learning_rate', 0.05)
+                    sector_classifiers[(sector, 3)] = CatBoostClassifier(**cb_clf_config_2)
+                else:
+                    lgb_clf_config_2 = LIGHTGBM_CLASSIFIER_CONFIGS['default'].copy()
+                    lgb_clf_config_2['device'] = self.lgbm_device
+                    sector_classifiers[(sector, 3)] = lgb.LGBMClassifier(
+                        boosting_type=lgb_clf_config_2.get('boosting_type', 'gbdt'),
+                        objective=lgb_clf_config_2.get('objective', 'binary'),
+                        n_estimators=lgb_clf_config_2.get('n_estimators', 1200),
+                        max_depth=lgb_clf_config_2.get('max_depth', 9),
+                        learning_rate=lgb_clf_config_2.get('learning_rate', 0.08),
+                        device=self.lgbm_device,
                         boost_from_average=False
                     )
 
@@ -456,7 +616,7 @@ class ModelFactory:
             # Priority: Optuna > SECTOR_CONFIG > Default
             default_params = {
                 'tree_method': 'hist',
-                'device': 'cpu',
+                'device': self.xgb_device,
                 'n_estimators': optuna_cfg.get('n_estimators') or sector_cfg.get('n_estimators', 1000),
                 'learning_rate': optuna_cfg.get('learning_rate') or sector_cfg.get('learning_rate', 0.05),
                 'gamma': optuna_cfg.get('gamma', 0.01),
@@ -477,7 +637,7 @@ class ModelFactory:
             if CATBOOST_AVAILABLE:
                 cb_reg_config = CATBOOST_REGRESSOR_CONFIGS['default'].copy()
                 cb_reg_config.update({
-                    'task_type': 'CPU',
+                    'task_type': self.catboost_task_type,
                     'verbose': False,
                     'random_seed': 42,
                     'allow_writing_files': False,
@@ -491,9 +651,10 @@ class ModelFactory:
                     cb_reg_config['iterations'] = int(sector_cfg['n_estimators'])
 
                 cb_reg_config.setdefault('l2_leaf_reg', 5.0)
-                cb_reg_config.setdefault('rsm', 0.8)
+                if not self.use_gpu_training:
+                    cb_reg_config.setdefault('rsm', 0.8)
                 cb_reg_config.setdefault('depth', 7)
-                cb_reg_config.setdefault('iterations', 900)
+                cb_reg_config.setdefault('iterations', 1200)
                 cb_reg_config.setdefault('learning_rate', 0.05)
 
                 sector_regressors[(sector, 1)] = CatBoostRegressor(**cb_reg_config)
@@ -502,11 +663,15 @@ class ModelFactory:
                 params_1['max_depth'] = base_depth + 1
                 sector_regressors[(sector, 1)] = xgboost.XGBRegressor(**params_1)
 
+            # Variant 2: MLP regressor
+            sector_regressors[(sector, 2)] = self._make_mlp_regressor()
+
             param_source = "Optuna" if sector in (sector_optuna_params or {}) else "SECTOR_CONFIG"
             self.logger.debug(
                 f"Created sector models: {sector} "
                 f"(0)=XGB depth={params_0['max_depth']} ({param_source}), "
-                f"(1)={'CatBoost' if CATBOOST_AVAILABLE else 'XGB'}"
+                f"(1)={'CatBoost' if CATBOOST_AVAILABLE else 'XGB'}, "
+                f"(2)=MLP"
             )
 
         optuna_count = len([s for s in sector_list if s in (sector_optuna_params or {})])
@@ -534,11 +699,7 @@ class ModelFactory:
         bool
             True if GPU is available, False otherwise
         """
-        try:
-            import cupy
-            return True
-        except:
-            return False
+        return self._detect_cuda_runtime()
 
 
 # ============================================================================

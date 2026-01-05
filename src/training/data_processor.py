@@ -949,12 +949,18 @@ class DataProcessor:
         - XGBoost/LightGBM benefit from compressed scale (prevents "value too large" errors)
         - Preserves feature names and DataFrame structure
         """
-        # Only transform numeric columns, preserve object/string columns as-is
-        # Memory-efficient: avoid select_dtypes which causes memory spike on large data
-        numeric_cols = [col for col in X.columns
-                       if pd.api.types.is_numeric_dtype(X[col])]
-        object_cols = [col for col in X.columns
-                      if not pd.api.types.is_numeric_dtype(X[col])]
+        # Only transform numeric (non-boolean) columns, preserve object/string/bool columns as-is.
+        # Bool/BooleanDtype columns (e.g., one-hot features) should NOT be log-transformed and can
+        # break np.sign with pandas' BoolDType.
+        # Memory-efficient: avoid select_dtypes which causes memory spike on large data.
+        numeric_cols = [
+            col for col in X.columns
+            if pd.api.types.is_numeric_dtype(X[col]) and not pd.api.types.is_bool_dtype(X[col])
+        ]
+        object_cols = [
+            col for col in X.columns
+            if (not pd.api.types.is_numeric_dtype(X[col])) or pd.api.types.is_bool_dtype(X[col])
+        ]
 
         if len(numeric_cols) == 0:
             # No numeric columns to transform
@@ -1967,8 +1973,12 @@ class DataProcessor:
             df = df.loc[:, ~df.columns.duplicated(keep='first')]
 
         # Memory-efficient: avoid select_dtypes which causes memory spike on large data
-        numeric_cols = [col for col in df.columns
-                       if pd.api.types.is_numeric_dtype(df[col])]
+        # NOTE: Exclude bool/BooleanDtype columns (e.g., one-hot features). Quantiles/percentiles
+        # on boolean arrays can fail inside numpy/pandas (boolean subtract error).
+        numeric_cols = [
+            col for col in df.columns
+            if pd.api.types.is_numeric_dtype(df[col]) and not pd.api.types.is_bool_dtype(df[col])
+        ]
         winsorized_count = 0
 
         for col in numeric_cols:
