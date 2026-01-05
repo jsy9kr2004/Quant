@@ -41,7 +41,13 @@ optuna>=3.5.0
 # ============================================
 # Experiment Tracking
 # ============================================
-mlflow>=2.9.0
+mlflow>=2.9.0  # Local experiment tracking
+
+# Google Sheets & Drive integration
+gspread>=6.0.0  # Google Sheets API wrapper
+google-auth>=2.25.0  # Google authentication
+google-auth-oauthlib>=1.2.0  # OAuth2 support
+google-auth-httplib2>=0.2.0  # HTTP support
 
 # ============================================
 # Feature Engineering
