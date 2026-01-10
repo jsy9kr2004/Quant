@@ -1115,17 +1115,21 @@ class Regressor:
         df: pd.DataFrame,
         y_predict: np.ndarray,
         classifier_cols: dict,
-        regression_col_names: dict
+        regression_col_names: dict,
+        classifier_mode: str = 'positive_screen'
     ) -> pd.DataFrame:
         """분류기 결과를 사용하여 회귀 예측을 필터링합니다.
 
-        분류기가 하락(0)을 예측하면 회귀 출력을 -1로 대체합니다.
+        모드에 따라 다른 조건 적용:
+        - positive_screen: Class 0 (LOSS) → -1로 대체
+        - negative_screen: Class 1 (BAD) → -1로 대체
 
         Args:
             df: 데이터프레임
             y_predict: 회귀 예측 값
             classifier_cols: 분류기 컬럼 이름 딕셔너리
             regression_col_names: 회귀 컬럼 이름 딕셔너리
+            classifier_mode: 분류기 모드 ('positive_screen' or 'negative_screen')
 
         Returns:
             필터링된 예측이 추가된 데이터프레임
@@ -1133,7 +1137,13 @@ class Regressor:
         for i in range(4):
             col_name = regression_col_names[f'wbinary_{i}']
             clf_col = classifier_cols[i]
-            df[col_name] = np.where(df[clf_col] == 0, -1, y_predict)
+
+            if classifier_mode == "negative_screen":
+                # negative_screen: Class 1 = BAD → 제외 (위험한 종목)
+                df[col_name] = np.where(df[clf_col] == 1, -1, y_predict)
+            else:  # positive_screen
+                # positive_screen: Class 0 = LOSS → 제외 (비유망 종목)
+                df[col_name] = np.where(df[clf_col] == 0, -1, y_predict)
         return df
 
     @staticmethod
@@ -1141,37 +1151,46 @@ class Regressor:
         df: pd.DataFrame,
         y_predict: np.ndarray,
         classifier_cols: dict,
-        regression_col_names: dict
+        regression_col_names: dict,
+        classifier_mode: str = 'positive_screen'
     ) -> pd.DataFrame:
         """앙상블 전략을 사용하여 예측을 생성합니다.
 
         3가지 앙상블 전략:
-        - ensemble: 분류기 1 AND 3 모두 상승
-        - ensemble2: 분류기 1 AND 2 모두 상승
-        - ensemble3: 다수결 (3개 중 2개 이상)
+        - ensemble: 분류기 1 AND 3 모두 통과
+        - ensemble2: 분류기 1 AND 2 모두 통과
+        - ensemble3: 다수결 (3개 중 2개 이상 통과)
+
+        모드에 따른 제외 조건:
+        - positive_screen: Class 0 (LOSS) → 제외
+        - negative_screen: Class 1 (BAD) → 제외
 
         Args:
             df: 데이터프레임
             y_predict: 회귀 예측 값
             classifier_cols: 분류기 컬럼 이름 딕셔너리
             regression_col_names: 회귀 컬럼 이름 딕셔너리
+            classifier_mode: 분류기 모드 ('positive_screen' or 'negative_screen')
 
         Returns:
             앙상블 예측이 추가된 데이터프레임
         """
+        # 제외할 클래스 결정
+        exclude_class = 1 if classifier_mode == "negative_screen" else 0
+
         # 앙상블 1: 분류기 1 AND 3
         df[regression_col_names['wbinary_ensemble']] = np.where(
-            ((df[classifier_cols[1]] == 0) | (df[classifier_cols[3]] == 0)),
+            ((df[classifier_cols[1]] == exclude_class) | (df[classifier_cols[3]] == exclude_class)),
             -1, y_predict)
 
         # 앙상블 2: 분류기 1 AND 2
         df[regression_col_names['wbinary_ensemble2']] = np.where(
-            ((df[classifier_cols[1]] == 0) | (df[classifier_cols[2]] == 0)),
+            ((df[classifier_cols[1]] == exclude_class) | (df[classifier_cols[2]] == exclude_class)),
             -1, y_predict)
 
-        # 앙상블 3: 다수결 (2개 이상이 하락 예측)
+        # 앙상블 3: 다수결 (2개 이상이 제외 클래스 예측)
         condition = (
-            (df[[classifier_cols[1], classifier_cols[2], classifier_cols[3]]] == 0).sum(axis=1) >= 2
+            (df[[classifier_cols[1], classifier_cols[2], classifier_cols[3]]] == exclude_class).sum(axis=1) >= 2
         )
         df[regression_col_names['wbinary_ensemble3']] = np.where(condition, -1, y_predict)
 
@@ -4056,6 +4075,9 @@ class Regressor:
             # 통합 유틸리티 메서드로 컬럼 이름 가져오기
             classifier_cols = self._get_classifier_column_names()
 
+            # CLASSIFIER_MODE 가져오기 (threshold_config 또는 config에서)
+            classifier_mode = threshold_config.get('mode', self.conf.get('ML', {}).get('CLASSIFIER_MODE', 'positive_screen'))
+
             for i, model in self.models.items():
                 # 통합 유틸리티 메서드로 컬럼 이름 가져오기
                 reg_cols = self._get_regression_column_names(i)
@@ -4067,11 +4089,11 @@ class Regressor:
                 # 원시 회귀 예측 저장
                 df[reg_cols['prediction']] = y_predict
 
-                # 통합 메서드로 바이너리 필터링 적용
-                df = self._apply_binary_filtering(df, y_predict, classifier_cols, reg_cols)
+                # 통합 메서드로 바이너리 필터링 적용 (모드 전달)
+                df = self._apply_binary_filtering(df, y_predict, classifier_cols, reg_cols, classifier_mode)
 
-                # 통합 메서드로 앙상블 예측 생성
-                df = self._create_ensemble_predictions(df, y_predict, classifier_cols, reg_cols)
+                # 통합 메서드로 앙상블 예측 생성 (모드 전달)
+                df = self._create_ensemble_predictions(df, y_predict, classifier_cols, reg_cols, classifier_mode)
 
                 # 평균화를 위한 원시 예측 저장
                 preds = np.vstack((preds, y_predict[None,:]))
@@ -4553,6 +4575,9 @@ class Regressor:
         # 통합 유틸리티 메서드로 컬럼 이름 가져오기
         classifier_cols = self._get_classifier_column_names()
 
+        # CLASSIFIER_MODE 가져오기 (threshold_config 또는 config에서)
+        classifier_mode = threshold_config.get('mode', self.conf.get('ML', {}).get('CLASSIFIER_MODE', 'positive_screen'))
+
         for i, model in self.models.items():
             # 통합 유틸리티 메서드로 컬럼 이름 가져오기
             reg_cols = self._get_regression_column_names(i)
@@ -4564,11 +4589,11 @@ class Regressor:
             # 원시 예측 저장
             ldf[reg_cols['prediction']] = y_predict
 
-            # 통합 메서드로 바이너리 필터링 적용
-            ldf = self._apply_binary_filtering(ldf, y_predict, classifier_cols, reg_cols)
+            # 통합 메서드로 바이너리 필터링 적용 (모드 전달)
+            ldf = self._apply_binary_filtering(ldf, y_predict, classifier_cols, reg_cols, classifier_mode)
 
-            # 통합 메서드로 앙상블 예측 생성
-            ldf = self._create_ensemble_predictions(ldf, y_predict, classifier_cols, reg_cols)
+            # 통합 메서드로 앙상블 예측 생성 (모드 전달)
+            ldf = self._create_ensemble_predictions(ldf, y_predict, classifier_cols, reg_cols, classifier_mode)
 
             preds = np.vstack((preds, y_predict[None,:]))
 
