@@ -2622,7 +2622,8 @@ class DataProcessor:
             if res.empty:
                 return None
             else:
-                return res.iloc[0][date_column]  # 첫 번째 = 가장 가까운 미래 거래일
+                # ✅ min() 사용: price_table 정렬 순서와 무관하게 가장 가까운 미래 거래일
+                return res[date_column].min()
         else:
             # 월말: 날짜 이전 10일 내에서 가장 가까운 거래일 찾기
             past_date = pdate - relativedelta(days=10)
@@ -2630,7 +2631,8 @@ class DataProcessor:
             if res.empty:
                 return None
             else:
-                return res.iloc[-1][date_column]  # 마지막 = 가장 가까운 과거 거래일
+                # ✅ max() 사용: price_table 정렬 순서와 무관하게 가장 가까운 과거 거래일
+                return res[date_column].max()
 
     # ========================================================================
     # Sector Categorization Utilities
