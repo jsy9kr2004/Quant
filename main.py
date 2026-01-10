@@ -569,6 +569,38 @@ def main() -> None:
             logger.error(f"VIEW rebuild failed: {e}")
             logger.info("Please check if raw data files exist...")
 
+    # 5.5 Prediction-Only Mode (Optional)
+    # 이미 학습된 모델로 특정 날짜 기준 예측만 수행
+    prediction_config = config.get('PREDICTION', {})
+    prediction_enabled_val = prediction_config.get('ENABLED')
+    if prediction_enabled_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True'):
+        logger.info("="*80)
+        logger.info("🎯 PREDICTION-ONLY MODE")
+        logger.info("="*80)
+        logger.info("Skipping training/evaluation/backtest - using pre-trained models")
+
+        target_date = prediction_config.get('TARGET_DATE', 'latest')
+        top_k = prediction_config.get('TOP_K', 10)
+
+        logger.info(f"  Target Date: {target_date}")
+        logger.info(f"  Top-K: {top_k}")
+
+        # Regressor 인스턴스 생성 (학습 없이 예측만)
+        regressor = RegressorIntegrated(config, use_new_models=False)
+
+        # 예측 수행
+        top_stocks = regressor.predict_for_date(target_date=target_date, top_k=top_k)
+
+        if len(top_stocks) > 0:
+            logger.info(f"✅ Prediction completed! {len(top_stocks)} stocks recommended")
+            logger.info(f"   Results saved to: MODELS/prediction_{target_date.replace('-', '')}_top{top_k}.csv")
+        else:
+            logger.error("❌ Prediction failed - check logs for details")
+
+        logger.info("="*80)
+        logger.info("Exiting after prediction (PREDICTION.ENABLED=Y)")
+        sys.exit(0)
+
     # 6. ML Pipeline (Optional)
     ml_config = config.get('ML', {})
     # Support both 'Y'/True and 'N'/False from YAML parsing
