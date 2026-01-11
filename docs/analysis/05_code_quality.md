@@ -1,6 +1,6 @@
 # 코드 품질 및 유지보수성 분석
 
-> **작성일**: 2025-12-17
+> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-10)
 > **이전 문서**: [04_backtesting.md](./04_backtesting.md)
 > **다음 문서**: [06_quant_perspective.md](./06_quant_perspective.md)
 
@@ -58,7 +58,7 @@ ModelFactory        # 모델 생성 팩토리
 #### 복잡도 높음
 
 ```python
-# regressor.py: 2000+ 줄
+# regressor.py: 4700+ 줄 (Prediction-Only Mode 추가로 증가)
 # ml_backtest.py: 1411 줄
 # data_processor.py: 1000+ 줄
 ```

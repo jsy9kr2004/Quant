@@ -1,6 +1,6 @@
 # 백테스팅 시스템 분석
 
-> **작성일**: 2025-12-17
+> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-10)
 > **이전 문서**: [03_ml_strategy.md](./03_ml_strategy.md)
 > **다음 문서**: [05_code_quality.md](./05_code_quality.md)
 
@@ -199,7 +199,10 @@ Sheet 3: Benchmark (벤치마크)
 
 ---
 
-## 5. 거래일 조정 (Trading Day Adjustment)
+## 5. 거래일 조정 (Trading Day Adjustment) ✅ 구현 완료
+
+> **상태**: 2026-01-10 완료
+> **구현 위치**: `src/backtest/ml_backtest.py` - `_get_trade_date()` 메서드
 
 ### 문제
 
@@ -239,7 +242,44 @@ for target_date in rebalance_dates:
 
 ---
 
-## 6. 문제점 및 개선안
+## 6. CLASSIFIER_MODE와 Hard Filtering ✅ 구현 완료
+
+> **상태**: 2026-01-10 완료
+> **상세 문서**: [03_ml_strategy.md](./03_ml_strategy.md) Section 2
+
+### 개요
+
+백테스트 시 분류기(Classifier)가 두 가지 모드로 작동합니다:
+
+| 모드 | 목적 | 제거 대상 |
+|------|------|-----------|
+| `negative_screen` | 극단적 손실 종목 제거 | BAD 확률 상위 2~15% |
+| `positive_screen` | 저성장 종목 제거 | GOOD 확률 하위 2~15% |
+
+### Hard Filtering 구현
+
+```python
+# ml_backtest.py
+if mode == 'negative_screen':
+    # BAD 확률이 threshold 미만인 종목만 통과
+    pass_mask = y_pred_proba < threshold
+else:
+    # GOOD 확률이 threshold 이상인 종목만 통과
+    pass_mask = y_pred_proba >= threshold
+
+# Hard filtering: 미통과 종목은 -inf로 설정
+ml_score = np.where(pass_mask, y_pred_return, -np.inf)
+```
+
+### 효과
+
+- 필터 미통과 종목이 Top-K 선정에서 완전히 배제됨
+- regressor.py와 ml_backtest.py 간 일관성 확보
+- 위험 종목 제외로 포트폴리오 안정성 향상
+
+---
+
+## 7. 문제점 및 개선안
 
 ### 문제 1: 거래 비용 미반영
 
@@ -307,7 +347,7 @@ PERIODS:
 
 ---
 
-## 7. 시장 레짐 분석
+## 8. 시장 레짐 분석
 
 ### 레짐 정의
 
@@ -356,7 +396,8 @@ for regime, sharpes in regime_performance.items():
 - Walk-Forward Analysis (A+)
 - Filing Date 기준 (A+)
 - 벤치마크 비교 (A)
-- 거래일 조정 (A)
+- 거래일 조정 (A) ✅
+- CLASSIFIER_MODE + Hard Filtering (A) ✅
 
 **약점**:
 - 거래 비용 미반영 (C)
