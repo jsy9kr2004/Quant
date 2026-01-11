@@ -63,8 +63,17 @@ class ConfigLoader:
     Loader는 configuration 파일이 존재하는지 검증하고 configuration의 다른 섹션에
     접근할 수 있는 편리한 메서드를 제공합니다.
 
+    민감 정보 분리:
+        민감한 설정(API 키, 인증 정보 등)은 별도의 secrets.yaml 파일에서 관리됩니다.
+        - conf.yaml: 일반 설정 (팀원 간 공유 가능)
+        - secrets.yaml: 민감 정보 (개인 관리, Git 제외)
+
+        secrets.yaml이 존재하면 자동으로 로드되어 conf.yaml과 merge됩니다.
+        secrets.yaml이 없으면 기존 방식(conf.yaml만 사용)으로 동작합니다.
+
     Attributes:
         config_path (Path): Configuration 파일 경로.
+        secrets_path (Path): Secrets 파일 경로.
         config (Dict[str, Any]): 로드된 configuration dictionary.
 
     사용 예시:
@@ -73,19 +82,31 @@ class ConfigLoader:
         start_year = loader.get('DATA.START_YEAR', 2015)
         # 전체 섹션 접근
         ml_config = loader.get_ml_config()
-        # Dictionary 스타일 접근
+        # Dictionary 스타일 접근 (secrets.yaml에서 로드됨)
         api_key = loader['DATA.API_KEY']
 
     Raises:
         FileNotFoundError: Configuration 파일이 존재하지 않는 경우.
     """
 
-    def __init__(self, config_path: str = "config/conf.yaml") -> None:
+    # secrets.yaml에서 conf.yaml로 매핑되는 키들
+    SECRETS_KEY_MAPPING = {
+        'FMP_API_KEY': ('DATA', 'API_KEY'),
+        'GOOGLE_SERVICE_ACCOUNT_KEY_PATH': ('EXPERIMENT_TRACKING', 'GOOGLE_SHEETS', 'KEY_PATH'),
+        'GOOGLE_SHEETS_ID': ('EXPERIMENT_TRACKING', 'GOOGLE_SHEETS', 'SHEET_ID'),
+        'GOOGLE_DRIVE_FOLDER_ID': ('EXPERIMENT_TRACKING', 'GOOGLE_DRIVE', 'FOLDER_ID'),
+        'MLFLOW_TRACKING_URI': ('ML', 'MLFLOW_TRACKING_URI'),
+    }
+
+    def __init__(self, config_path: str = "config/conf.yaml",
+                 secrets_path: str = "config/secrets.yaml") -> None:
         """Configuration loader를 초기화합니다.
 
         Args:
             config_path (str, optional): YAML configuration 파일 경로.
                 기본값은 "config/conf.yaml".
+            secrets_path (str, optional): Secrets configuration 파일 경로.
+                기본값은 "config/secrets.yaml".
 
         Raises:
             FileNotFoundError: 지정된 경로에 configuration 파일이 없는 경우.
@@ -95,11 +116,13 @@ class ConfigLoader:
             loader = ConfigLoader()  # 기본 경로 사용
         """
         self.config_path = Path(config_path)
+        self.secrets_path = Path(secrets_path)
 
         if not self.config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
 
         self.config = self._load_config()
+        self._load_and_merge_secrets()
 
     def _load_config(self) -> Dict[str, Any]:
         """YAML configuration 파일을 로드하고 파싱합니다.
@@ -119,6 +142,71 @@ class ConfigLoader:
 
         logging.info(f"✅ Configuration loaded from: {self.config_path}")
         return config
+
+    def _load_and_merge_secrets(self) -> None:
+        """secrets.yaml 파일을 로드하고 config에 merge합니다.
+
+        secrets.yaml 파일이 존재하면 로드하여 SECRETS_KEY_MAPPING에 따라
+        config dictionary의 적절한 위치에 값을 설정합니다.
+
+        secrets.yaml이 없으면 경고 메시지를 출력하고 넘어갑니다.
+        기존 conf.yaml에 값이 있으면 secrets.yaml 값으로 덮어씁니다.
+
+        동작 방식:
+            1. secrets.yaml 파일 존재 확인
+            2. 파일 로드 및 파싱
+            3. SECRETS_KEY_MAPPING에 따라 config에 값 설정
+               - 예: FMP_API_KEY -> config['DATA']['API_KEY']
+        """
+        if not self.secrets_path.exists():
+            logging.warning(
+                f"⚠️  Secrets file not found: {self.secrets_path}\n"
+                f"   민감 정보(API 키 등)는 secrets.yaml에서 관리하는 것이 안전합니다.\n"
+                f"   설정: cp config/secrets.yaml.template config/secrets.yaml"
+            )
+            return
+
+        try:
+            with open(self.secrets_path, 'r', encoding='utf-8') as f:
+                secrets = yaml.safe_load(f)
+
+            if not secrets:
+                logging.warning(f"⚠️  Secrets file is empty: {self.secrets_path}")
+                return
+
+            # secrets.yaml의 키를 config의 적절한 위치에 매핑
+            merged_count = 0
+            for secret_key, config_path in self.SECRETS_KEY_MAPPING.items():
+                if secret_key in secrets:
+                    value = secrets[secret_key]
+                    # placeholder 값은 무시 (YOUR_..._HERE 패턴)
+                    if isinstance(value, str) and value.startswith('YOUR_') and value.endswith('_HERE'):
+                        continue
+
+                    self._set_nested_value(self.config, config_path, value)
+                    merged_count += 1
+
+            logging.info(f"✅ Secrets merged from: {self.secrets_path} ({merged_count} keys)")
+
+        except yaml.YAMLError as e:
+            logging.error(f"❌ Failed to parse secrets file: {e}")
+        except IOError as e:
+            logging.error(f"❌ Failed to read secrets file: {e}")
+
+    def _set_nested_value(self, config: Dict[str, Any], path: tuple, value: Any) -> None:
+        """중첩된 dictionary에 값을 설정합니다.
+
+        Args:
+            config: 대상 dictionary
+            path: 키 경로 tuple (예: ('DATA', 'API_KEY'))
+            value: 설정할 값
+        """
+        current = config
+        for key in path[:-1]:
+            if key not in current:
+                current[key] = {}
+            current = current[key]
+        current[path[-1]] = value
 
     def get(self, key: str, default: Any = None) -> Any:
         """Dot notation을 사용하여 configuration 값을 가져옵니다.
