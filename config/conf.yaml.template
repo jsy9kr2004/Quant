@@ -32,7 +32,6 @@ DATA:
 
   # FMP API 설정
   FMP_URL: https://financialmodelingprep.com
-  # API_KEY: secrets.yaml에서 FMP_API_KEY로 관리됨
   EX_SYMBOL: AAPL  # URL 파싱용 예제 심볼 (보통 변경 불필요)
   TARGET_API_LIST: src/data_collector/target_api_list.csv
 
@@ -194,7 +193,6 @@ ML:
   # MLflow 실험 추적
   USE_MLFLOW: N  # Y = MLflow로 실험 추적
   MLFLOW_EXPERIMENT: quant_trading_v2
-  # MLFLOW_TRACKING_URI: secrets.yaml에서 관리됨 (로컬 사용 시 null)
 
   # ML 후 종료 (백테스트 실행 안 함)
   EXIT_AFTER_ML: N  # Y = ML 후 종료, N = 백테스트 계속
@@ -527,21 +525,12 @@ EXPERIMENT_TRACKING:
 
   # Google Sheets 설정
   GOOGLE_SHEETS:
-    # SHEET_ID: secrets.yaml에서 GOOGLE_SHEETS_ID로 관리됨
-    # KEY_PATH: secrets.yaml에서 GOOGLE_SERVICE_ACCOUNT_KEY_PATH로 관리됨
-
-    # 시트 내 탭 이름 (Experiments 탭에 기록)
-    SHEET_NAME: "Experiments"
-
-    # 에러 처리 설정
+    SHEET_NAME: "Experiments"  # 시트 내 탭 이름
     RETRY_ON_FAILURE: 3  # API 실패 시 재시도 횟수
     TIMEOUT_SECONDS: 30  # API 타임아웃 (초)
 
   # Google Drive 설정 (Config 파일 저장용)
   GOOGLE_DRIVE:
-    # FOLDER_ID: secrets.yaml에서 GOOGLE_DRIVE_FOLDER_ID로 관리됨
-
-    # Config 파일명 prefix
     CONFIG_PREFIX: "config_"  # 예: config_2025-12-30_baseline.yaml
 
   # 민감 정보 마스킹 (Config 업로드 전 자동 처리)
