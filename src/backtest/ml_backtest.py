@@ -195,6 +195,54 @@ class MLBacktest:
 
         return combined_data
 
+    def _calculate_threshold_config(
+        self,
+        y_probs: np.ndarray,
+        classifier_mode: str = 'positive_screen',
+        remove_pct: int = 8
+    ) -> Dict[str, Any]:
+        """
+        Threshold 설정을 계산하는 공통 함수.
+
+        학습 시 classifier의 예측 확률에서 threshold를 계산하여
+        예측 시 hard filtering에 사용합니다.
+
+        Parameters:
+        ----------
+        y_probs : np.ndarray
+            분류기의 Class 1 예측 확률 (BAD 또는 GOOD)
+        classifier_mode : str
+            분류 모드:
+            - 'negative_screen': BAD 확률 상위 N% 제거
+            - 'positive_screen': GOOD 확률 하위 N% 제거
+        remove_pct : int
+            제거할 비율 (%)
+
+        Returns:
+        -------
+        Dict[str, Any]
+            threshold 설정 딕셔너리:
+            - mode: classifier_mode
+            - threshold_value: 계산된 threshold
+            - remove_pct: 제거 비율
+            - percentile: 사용된 percentile
+        """
+        if classifier_mode == "negative_screen":
+            # BAD 확률 상위 N% 제거 → percentile = 100 - remove_pct
+            percentile = 100 - remove_pct
+        else:  # positive_screen
+            # GOOD 확률 하위 N% 제거 → percentile = remove_pct
+            percentile = remove_pct
+
+        threshold_value = np.percentile(y_probs, percentile)
+
+        return {
+            'mode': classifier_mode,
+            'threshold_value': threshold_value,
+            'remove_pct': remove_pct,
+            'percentile': percentile
+        }
+
     def _should_retrain(self, current_date: datetime, last_train_date: Optional[datetime]) -> bool:
         """
         모델을 재학습해야 하는지 판단
@@ -458,9 +506,8 @@ class MLBacktest:
             models['classifier'] = clf
 
             # ========================================
-            # 🎯 THRESHOLD CONFIG 계산 및 저장
+            # 🎯 THRESHOLD CONFIG 계산 및 저장 (공통 함수 사용)
             # ========================================
-            # 분류기 학습 후 threshold를 계산하여 예측 시 hard filtering에 사용
             ml_config = self.config.get('ML', {})
             classifier_mode = ml_config.get('CLASSIFIER_MODE', 'positive_screen')
             remove_pct = ml_config.get('CLASSIFIER_REMOVE_PCT', 8)
@@ -468,22 +515,12 @@ class MLBacktest:
             # 학습 데이터에서 확률 계산
             y_probs = clf.predict_proba(X)[:, 1]
 
-            if classifier_mode == "negative_screen":
-                # BAD 확률 상위 N% 제거 → percentile = 100 - remove_pct
-                percentile = 100 - remove_pct
-            else:  # positive_screen
-                # GOOD 확률 하위 N% 제거 → percentile = remove_pct
-                percentile = remove_pct
+            # 공통 함수로 threshold config 계산
+            models['threshold_config'] = self._calculate_threshold_config(
+                y_probs, classifier_mode, remove_pct
+            )
 
-            threshold_value = np.percentile(y_probs, percentile)
-
-            models['threshold_config'] = {
-                'mode': classifier_mode,
-                'threshold_value': threshold_value,
-                'remove_pct': remove_pct,
-                'percentile': percentile
-            }
-
+            threshold_value = models['threshold_config']['threshold_value']
             self.logger.info(f"   Threshold config: mode={classifier_mode}, "
                            f"remove_pct={remove_pct}%, threshold={threshold_value:.3f}")
         else:
@@ -631,29 +668,26 @@ class MLBacktest:
                     self.logger.info(f"      ✅ {sector} classifiers trained (4 variants)")
 
                     # ========================================
-                    # 🎯 SECTOR THRESHOLD CONFIG 계산 및 저장
+                    # 🎯 SECTOR THRESHOLD CONFIG 계산 및 저장 (4개 앙상블 평균)
                     # ========================================
                     ml_config = self.config.get('ML', {})
                     classifier_mode = ml_config.get('CLASSIFIER_MODE', 'positive_screen')
                     remove_pct = ml_config.get('CLASSIFIER_REMOVE_PCT', 8)
 
-                    # 첫 번째 classifier 확률로 threshold 계산
-                    y_probs = sector_classifiers[(sector, 0)].predict_proba(X)[:, 1]
+                    # 4개 classifier 앙상블 평균으로 threshold 계산 (더 robust)
+                    y_probs_list = [
+                        sector_classifiers[(sector, i)].predict_proba(X)[:, 1]
+                        for i in range(4)
+                    ]
+                    y_probs = np.mean(y_probs_list, axis=0)
 
-                    if classifier_mode == "negative_screen":
-                        percentile = 100 - remove_pct
-                    else:
-                        percentile = remove_pct
+                    # 공통 함수로 threshold config 계산
+                    sector_models['threshold_config'] = self._calculate_threshold_config(
+                        y_probs, classifier_mode, remove_pct
+                    )
 
-                    threshold_value = np.percentile(y_probs, percentile)
-
-                    sector_models['threshold_config'] = {
-                        'mode': classifier_mode,
-                        'threshold_value': threshold_value,
-                        'remove_pct': remove_pct,
-                        'percentile': percentile
-                    }
-                    self.logger.info(f"      Threshold: mode={classifier_mode}, threshold={threshold_value:.3f}")
+                    threshold_value = sector_models['threshold_config']['threshold_value']
+                    self.logger.info(f"      Threshold: mode={classifier_mode}, threshold={threshold_value:.3f} (4-clf ensemble)")
 
                 # Train sector-specific regressors (2 variants, same as regressor.py)
                 for variant_idx in range(2):
@@ -806,30 +840,37 @@ class MLBacktest:
         #
         # negative_screen: BAD 확률 >= threshold → 제외, 나머지는 y_pred_return으로 순위
         # positive_screen: GOOD 확률 < threshold → 제외, 나머지는 y_pred_return으로 순위
-        if models['classifier'] is not None:
-            threshold_config = models.get('threshold_config', {})
-            classifier_mode = threshold_config.get('mode', 'positive_screen')
-            threshold_value = threshold_config.get('threshold_value', 0.5)
+        threshold_config = models.get('threshold_config', {})
 
-            if classifier_mode == "negative_screen":
-                # BAD 확률이 threshold 이상이면 제외 (위험 종목)
-                pass_mask = y_pred_proba < threshold_value
-            else:  # positive_screen
-                # GOOD 확률이 threshold 이하면 제외 (비유망 종목)
-                pass_mask = y_pred_proba > threshold_value
-
-            # Hard filtering: 통과한 종목은 회귀 예측값으로만 순위, 탈락은 -inf
-            result['ml_score'] = np.where(pass_mask, y_pred_return, -np.inf)
-
-            n_passed = pass_mask.sum()
-            n_total = len(pass_mask)
-            self.logger.debug(
-                f"   Classifier filter ({classifier_mode}): "
-                f"{n_passed}/{n_total} passed (threshold={threshold_value:.3f})"
-            )
-        else:
-            # USE_CLASSIFIER=N: 회귀 예측값만 사용
+        # Classifier 비활성화 또는 threshold_config 없음: 회귀값만 사용
+        if models['classifier'] is None or not threshold_config:
             result['ml_score'] = y_pred_return
+            if models['classifier'] is None:
+                self.logger.debug("   USE_CLASSIFIER=N: Using regressor predictions only")
+            else:
+                self.logger.warning("   ⚠️ Classifier exists but threshold_config is empty! Using regressor predictions only")
+            return result
+
+        # Classifier 활성화: Hard filtering 적용
+        classifier_mode = threshold_config['mode']
+        threshold_value = threshold_config['threshold_value']
+
+        if classifier_mode == "negative_screen":
+            # BAD 확률이 threshold 이상이면 제외 (위험 종목)
+            pass_mask = y_pred_proba < threshold_value
+        else:  # positive_screen
+            # GOOD 확률이 threshold 이하면 제외 (비유망 종목)
+            pass_mask = y_pred_proba > threshold_value
+
+        # Hard filtering: 통과한 종목은 회귀 예측값으로만 순위, 탈락은 -inf
+        result['ml_score'] = np.where(pass_mask, y_pred_return, -np.inf)
+
+        n_passed = pass_mask.sum()
+        n_total = len(pass_mask)
+        self.logger.debug(
+            f"   Classifier filter ({classifier_mode}): "
+            f"{n_passed}/{n_total} passed (threshold={threshold_value:.3f})"
+        )
 
         return result
 
@@ -941,10 +982,17 @@ class MLBacktest:
                 # 🎯 NEGATIVE SCREEN HARD FILTERING (SECTOR)
                 # ========================================
                 # 철학: 분류기는 "Gate" 역할만 수행 (섹터별 모델도 동일)
-                if has_sector_classifiers:
-                    threshold_config = sector_model.get('threshold_config', {})
-                    classifier_mode = threshold_config.get('mode', 'positive_screen')
-                    threshold_value = threshold_config.get('threshold_value', 0.5)
+                threshold_config = sector_model.get('threshold_config', {})
+
+                # Classifier 비활성화 또는 threshold_config 없음: 회귀값만 사용
+                if not has_sector_classifiers or not threshold_config:
+                    result.loc[sector_mask, 'ml_score'] = y_pred_return
+                    if has_sector_classifiers and not threshold_config:
+                        self.logger.warning(f"   ⚠️ {sector}: Classifiers exist but threshold_config is empty!")
+                else:
+                    # Classifier 활성화: Hard filtering 적용
+                    classifier_mode = threshold_config['mode']
+                    threshold_value = threshold_config['threshold_value']
 
                     if classifier_mode == "negative_screen":
                         # BAD 확률이 threshold 이상이면 제외
@@ -956,9 +1004,6 @@ class MLBacktest:
                     # Hard filtering: 통과한 종목은 회귀 예측값으로만 순위
                     ml_scores = np.where(pass_mask, y_pred_return, -np.inf)
                     result.loc[sector_mask, 'ml_score'] = ml_scores
-                else:
-                    # USE_CLASSIFIER=N: 회귀 예측값만 사용
-                    result.loc[sector_mask, 'ml_score'] = y_pred_return
 
                 clf_msg = "classifiers + regressors" if has_sector_classifiers else "regressors only"
                 self.logger.info(f"   Predicted {sector} ({clf_msg}): {len(sector_data)} stocks")

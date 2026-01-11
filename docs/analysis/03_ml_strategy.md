@@ -1,6 +1,6 @@
 # ML 전략 상세 분석
 
-> **작성일**: 2025-12-17
+> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-10)
 > **이전 문서**: [02_data_pipeline.md](./02_data_pipeline.md)
 > **다음 문서**: [04_backtesting.md](./04_backtesting.md)
 
@@ -62,7 +62,106 @@ top_k = all_stocks.sort_values('ml_score').head(K)
 
 ---
 
-## 2. Threshold 최적화 전략
+## 2. CLASSIFIER_MODE: 분류기 작동 모드 (2026-01 추가)
+
+### 개요
+
+CLASSIFIER_MODE는 분류기의 타겟 정의와 필터링 방향을 결정합니다.
+
+```yaml
+ML:
+  CLASSIFIER_MODE: "negative_screen"  # 또는 "positive_screen"
+  CLASSIFIER_REMOVE_PCT_MIN: 2        # 최소 제거 비율 (%)
+  CLASSIFIER_REMOVE_PCT_MAX: 15       # 최대 제거 비율 (%)
+  NEGATIVE_SCREEN:
+    LOSS_THRESHOLD: -0.3              # -30% 이하 손실 = BAD
+```
+
+### Mode 1: negative_screen (권장)
+
+**철학**: "나쁜 것을 피하는 것이 좋은 것 찾기보다 쉽다"
+
+**타겟 정의**:
+```python
+# 극단적 손실 = BAD 레이블
+label_binary = (price_dev < -0.3).astype(int)
+# Class 0 = OK (안전), Class 1 = BAD (위험)
+```
+
+**필터링 로직**:
+```python
+y_probs = classifier.predict_proba(X)[:, 1]  # BAD 확률
+
+# 상위 N% (BAD 확률 높음) 제거
+threshold = np.percentile(y_probs, 100 - remove_pct)  # 예: 92 percentile
+safe_mask = y_probs < threshold  # 상위 8% 제거 → 92% 유지
+```
+
+**장점**:
+- ✅ 대부분의 데이터 유지 (85~98%)
+- ✅ 파산/폭락 패턴은 명확하여 예측 용이
+- ✅ Conservative 전략으로 리스크 최소화
+
+### Mode 2: positive_screen
+
+**철학**: "상승 가능성 높은 종목을 적극 선택"
+
+**타겟 정의**:
+```python
+# 상승 = GOOD 레이블
+label_binary = (price_dev > 0.0).astype(int)
+# Class 0 = LOSS (하락), Class 1 = GOOD (상승)
+```
+
+**필터링 로직**:
+```python
+y_probs = classifier.predict_proba(X)[:, 1]  # GOOD 확률
+
+# 하위 N% (GOOD 확률 낮음) 제거
+threshold = np.percentile(y_probs, remove_pct)  # 예: 8 percentile
+safe_mask = y_probs > threshold  # 하위 8% 제거 → 92% 유지
+```
+
+**단점**:
+- ⚠️ "좋은 것 찾기"는 노이즈 많음
+- ⚠️ 과적합 위험 (특정 시기 패턴에만 맞을 수 있음)
+
+### 실제 구현 위치
+
+| 파일 | 함수 | 역할 |
+|------|------|------|
+| `data_processor.py` | `create_binary_target()` | 모드에 따른 타겟 생성 |
+| `regressor.py` | `_find_optimal_threshold()` | threshold 자동 탐색 |
+| `ml_backtest.py` | `_calculate_threshold_config()` | 섹터별 threshold 계산 |
+| `ml_backtest.py` | `_filter_by_classifier()` | hard filtering 적용 |
+
+### threshold_config.pkl 구조
+
+학습 시 저장되는 설정:
+```python
+threshold_config = {
+    'mode': 'negative_screen',        # 또는 'positive_screen'
+    'percentile': 92,                 # 자동 탐색된 최적 percentile
+    'threshold_value': 0.15,          # 해당 percentile의 확률값
+    'remove_pct': 8,                  # 실제 제거 비율 (100 - percentile)
+    'precision': 0.78,                # 해당 threshold에서의 precision
+    'recall': 0.65,                   # 해당 threshold에서의 recall
+    'n_selected': 8500,               # 선택된 샘플 수
+    'n_total': 9200                   # 전체 샘플 수
+}
+```
+
+### 권장 설정
+
+| 시장 환경 | 권장 모드 | 이유 |
+|-----------|-----------|------|
+| 불확실/하락장 | `negative_screen` | 리스크 회피 우선 |
+| 상승장 | `positive_screen` | 공격적 수익 추구 |
+| 기본값 | `negative_screen` | 안정성 우선 |
+
+---
+
+## 3. Threshold 최적화 전략
 
 ### 자동 탐색 알고리즘
 
@@ -102,7 +201,7 @@ def _find_optimal_threshold(y_true, y_probs, strategy='balance'):
 
 ---
 
-## 3. Optuna 하이퍼파라미터 최적화
+## 4. Optuna 하이퍼파라미터 최적화
 
 ### 탐색 공간
 
@@ -161,7 +260,7 @@ best_params = study.best_params
 
 ---
 
-## 4. 섹터별 모델 전략
+## 5. 섹터별 모델 전략
 
 ### 카테고리화 효과
 
@@ -202,7 +301,7 @@ if len(X_category) < MIN_SAMPLES (1000):
 
 ---
 
-## 5. 앙상블 전략
+## 6. 앙상블 전략
 
 ### Classifier Ensemble (4 variants)
 
@@ -241,7 +340,7 @@ y_pred = np.mean([reg.predict(X) for reg in models], axis=0)
 
 ---
 
-## 6. 과적합 방지 메커니즘
+## 7. 과적합 방지 메커니즘
 
 ### 1. Early Stopping
 
@@ -279,7 +378,7 @@ colsample_bytree: [0.5, 1.0]  # 열 샘플링
 
 ---
 
-## 7. 문제점 및 개선안
+## 8. 문제점 및 개선안
 
 ### 문제 1: 모델 수 과다
 
@@ -346,22 +445,31 @@ for min_precision in [0.60, 0.65, 0.70, 0.75]:
 
 ## 결론
 
-### ML 전략 평가: B+
+### ML 전략 평가: A- (2026-01 업데이트)
 
 **강점**:
 - 철학적 타당성 (2-Stage)
 - 자동화 (Threshold, Optuna)
 - 섹터 특성 고려
+- ✅ **CLASSIFIER_MODE 유연성** (negative_screen/positive_screen) - 시장 환경별 전략 전환 가능
+- ✅ **Hard Filtering 구현 완료** - 확률 가중치 대신 명확한 cutoff 적용
 
 **약점**:
 - 복잡도 높음
 - 과적합 위험
 - 검증 부족
 
+### 최근 개선 (2026-01)
+1. ✅ **CLASSIFIER_MODE** 구현 완료 (`negative_screen` / `positive_screen`)
+2. ✅ **threshold_config.pkl** 구조 개선 (mode, remove_pct 필드 추가)
+3. ✅ **Hard Filtering** 적용 (`ml_score = np.where(pass_mask, return, -np.inf)`)
+4. ✅ **4-classifier 앙상블 평균**으로 섹터 threshold 계산
+
 ### 개선 우선순위
 1. Feature 선택 (Top-50)
 2. 섹터 모델 효과 검증
 3. Threshold 전략 Grid Search
+4. ⏳ positive_screen 모드 실전 검증
 
 ---
 

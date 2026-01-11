@@ -32,6 +32,11 @@
 1. **[docs/REFACTORING_GUIDE.md](docs/REFACTORING_GUIDE.md)** ⭐ 리팩토링 전체 가이드
 2. **[docs/DATA_SCHEMA_REFERENCE.md](docs/DATA_SCHEMA_REFERENCE.md)** - DataSchema API 레퍼런스
 
+### 🎯 실제 투자에 활용하고 싶은 분
+**추천 읽기 순서:**
+1. **[docs/PREDICTION_MODE.md](docs/PREDICTION_MODE.md)** ⭐ 예측 전용 모드 (오늘 뭘 사야 하나?)
+2. **[docs/QUICK_START.md](docs/QUICK_START.md)** - 기본 실행 확인
+
 ### 📁 기타 문서
 - **[docs/archive/](docs/archive/)** - 과거 분석 리포트 및 참고 자료
 
@@ -83,6 +88,14 @@
 - ✅ **예측도 ↔ 백테스트 수익률 동일선상 비교 가능**
 
 > 📖 **상세 가이드:** [docs/REFACTORING_GUIDE.md](docs/REFACTORING_GUIDE.md)
+
+### 9. 예측 전용 모드 (2025-01) ✨ NEW
+- ✅ **학습 없이 예측만**: 이미 학습된 모델로 빠르게 추천
+- ✅ **특정 날짜 지정**: `TARGET_DATE: "2025-01-11"` 형식
+- ✅ **실시간 활용**: FMP 데이터 업데이트 후 즉시 추천 확인
+- ✅ **과거 시점 시뮬레이션**: "그때 뭘 샀어야 했나?" 분석
+
+> 📖 **상세 가이드:** [docs/PREDICTION_MODE.md](docs/PREDICTION_MODE.md)
 
 ## 프로젝트 구조
 

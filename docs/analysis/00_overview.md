@@ -1,8 +1,9 @@
 # 퀀트 트레이딩 시스템 - 전체 개요 및 진단
 
-> **작성일**: 2025-12-17
+> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-10)
 > **작성자**: Claude Code Analysis
 > **목적**: 실제 투자 전 시스템 전반에 대한 포괄적 진단
+> **최신 커밋**: `3e73dc1` (feat: Add prediction-only mode for quick stock recommendations)
 
 ---
 
@@ -144,9 +145,9 @@
 
 | 파일 | 라인 수 (추정) | 역할 |
 |------|---------------|------|
-| main.py | 660 | 진입점, 파이프라인 조율 |
-| regressor.py | 2000+ | 모델 학습 (2-Stage) |
-| ml_backtest.py | 1411 | Walk-Forward 백테스트 |
+| main.py | 660 | 진입점, 파이프라인 조율, 예측 전용 모드 지원 |
+| regressor.py | 4700+ | 모델 학습 (2-Stage) + 예측 전용 모드 |
+| ml_backtest.py | 1500+ | Walk-Forward 백테스트, negative_screen 지원 |
 | data_processor.py | 1000+ | 통합 전처리 |
 | make_mldata.py | 1500+ | Feature 엔지니어링 |
 | model_factory.py | 531 | 모델 생성 팩토리 |
@@ -176,6 +177,36 @@ Stage 2 (Regressor): "무효화된 가치의 회복 가능성" (수익성)
 ```
 
 **평가**: 단순 회귀보다 "먼저 걸러내고, 그 다음 순위 매기기"가 투자 프로세스에 더 가깝습니다. (A)
+
+#### ✅ CLASSIFIER_MODE 유연성 (2026-01 추가)
+```yaml
+ML:
+  CLASSIFIER_MODE: "negative_screen"  # 또는 "positive_screen"
+```
+
+| 모드 | 타겟 정의 | 제거 대상 | 장점 |
+|------|-----------|-----------|------|
+| `negative_screen` | 극단적 손실(-30%) = BAD | 상위 N% BAD 확률 제거 | 위험 회피 중심, 안정적 |
+| `positive_screen` | 상승(0%) = GOOD | 하위 N% GOOD 확률 제거 | 공격적, 성장주 선호 |
+
+**평가**: 시장 환경에 따라 보수적/공격적 전략 선택 가능. Threshold 자동 탐색으로 최적 percentile 결정. (A)
+
+#### ✅ 예측 전용 모드 (2026-01 추가)
+```yaml
+PREDICTION:
+  ENABLED: Y
+  TARGET_DATE: "2025-01-11"  # 또는 "latest"
+  TOP_K: 10
+```
+
+**목적**: 이미 학습된 모델로 빠르게 주식 추천 (재학습 없이 수 초 내 결과)
+
+**사용 시나리오**:
+- 매일/매주 최신 추천 확인
+- 과거 특정 시점 시뮬레이션 ("2024-06-30 기준으로 뭘 샀어야 했나?")
+- FMP 데이터 업데이트 후 빠른 추천 확인
+
+**평가**: 실전 투자에서 **가장 중요한 기능**. 학습 없이 바로 추천을 받을 수 있어 실용성 극대화. (A+)
 
 ### 3.2 아키텍처 강점
 

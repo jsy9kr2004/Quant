@@ -4696,3 +4696,264 @@ class Regressor:
             col_name = ['k', 'sector', 'model', 'i', 'symbol', 'pred']
             pred_df = pd.DataFrame(all_preds, columns=col_name)
             pred_df.to_csv(MODEL_SAVE_PATH+'allsector_latest_pred_df.csv', index=False)
+
+    def predict_for_date(self, target_date: str = "latest", top_k: int = 10) -> pd.DataFrame:
+        """
+        특정 날짜 기준으로 주식 추천을 생성합니다 (학습 없이 예측만).
+
+        이미 학습된 모델을 로드하여 target_date 기준으로 사용 가능한 데이터로
+        예측을 수행합니다. 학습, 평가, 백테스트를 건너뛰고 빠르게 추천을 받을 수 있습니다.
+
+        Parameters:
+        ----------
+        target_date : str
+            예측 기준 날짜:
+            - "latest": 가장 최근 데이터 사용 (기존 latest_prediction()과 동일)
+            - "2025-01-11": 해당 날짜 기준으로 filingDate <= target_date인 최신 데이터 사용
+        top_k : int
+            추천할 종목 수 (기본값: 10)
+
+        Returns:
+        -------
+        pd.DataFrame
+            추천 종목 DataFrame (symbol, company, sector, ml_score, pred_return 등)
+
+        출력 파일:
+            - MODELS/prediction_{target_date}.csv: 전체 예측 결과
+            - MODELS/prediction_{target_date}_top{K}.csv: 상위 K개 추천
+
+        사용 예시:
+            >>> regressor = Regressor(config)
+            >>> # 오늘 날짜 기준 추천
+            >>> top_stocks = regressor.predict_for_date("2025-01-11", top_k=10)
+            >>> print(top_stocks[['symbol', 'company', 'ml_score']])
+        """
+        from datetime import datetime as dt
+
+        MODEL_SAVE_PATH = self.root_path + '/MODELS/'
+        aidata_dir = self.root_path + '/processed/ml_data/per_year/'
+
+        # ===== 1. 모델 로드 =====
+        logging.info("="*80)
+        logging.info("🎯 PREDICTION-ONLY MODE")
+        logging.info(f"   Target Date: {target_date}")
+        logging.info(f"   Top-K: {top_k}")
+        logging.info("="*80)
+
+        # 분류기 및 회귀기 로드
+        self.clsmodels = dict()
+        self.models = dict()
+
+        try:
+            self._load_classifiers(MODEL_SAVE_PATH)
+            self._load_regressors(MODEL_SAVE_PATH)
+            logging.info("✅ Models loaded successfully")
+        except FileNotFoundError as e:
+            logging.error(f"❌ Model files not found: {e}")
+            logging.error("   Please run training first (ML.RUN_REGRESSION=Y)")
+            return pd.DataFrame()
+
+        # Threshold config 로드
+        threshold_config_file = MODEL_SAVE_PATH + 'threshold_config.pkl'
+        try:
+            threshold_config = joblib.load(threshold_config_file)
+            THRESHOLD_PERCENTILE = threshold_config['percentile']
+            classifier_mode = threshold_config.get('mode', 'positive_screen')
+            logging.info(f"✅ Threshold config loaded: Percentile {THRESHOLD_PERCENTILE}, Mode: {classifier_mode}")
+        except FileNotFoundError:
+            ml_config = self.conf.get('ML', {})
+            THRESHOLD_PERCENTILE = int(ml_config.get('CLASSIFIER_THRESHOLD_PERCENTILE', 92))
+            classifier_mode = ml_config.get('CLASSIFIER_MODE', 'positive_screen')
+            logging.warning(f"⚠️ Threshold config not found, using defaults")
+
+        # Feature columns 로드
+        feature_columns_file = MODEL_SAVE_PATH + 'feature_columns.pkl'
+        try:
+            train_feature_columns = joblib.load(feature_columns_file)
+            logging.info(f"✅ Feature columns loaded: {len(train_feature_columns)} features")
+        except FileNotFoundError:
+            logging.error(f"❌ Feature columns file not found: {feature_columns_file}")
+            logging.error("   Please run training first")
+            return pd.DataFrame()
+
+        # ===== 2. 데이터 로드 =====
+        logging.info("")
+        logging.info("📊 Loading data...")
+
+        # 모든 parquet 파일 찾기
+        fs_files = sorted(glob.glob(aidata_dir + 'rnorm_fs_*.parquet'))
+        if not fs_files:
+            logging.error(f"❌ No data files found in {aidata_dir}")
+            return pd.DataFrame()
+
+        # 모든 연도 데이터 로드
+        all_data = []
+        for f in fs_files:
+            try:
+                df = pd.read_parquet(f)
+                all_data.append(df)
+            except Exception as e:
+                logging.warning(f"   Failed to load {f}: {e}")
+
+        if not all_data:
+            logging.error("❌ No data loaded")
+            return pd.DataFrame()
+
+        ldf = pd.concat(all_data, ignore_index=True)
+        logging.info(f"   Loaded {len(ldf)} rows from {len(all_data)} files")
+
+        # ===== 3. 날짜 필터링 =====
+        if target_date.lower() != "latest":
+            # 특정 날짜 기준 필터링
+            try:
+                target_dt = pd.to_datetime(target_date)
+                logging.info(f"   Filtering data for target_date: {target_date}")
+
+                # filingDate 기준 필터링 (공시일 <= target_date)
+                if 'filingDate' in ldf.columns:
+                    ldf['filingDate'] = pd.to_datetime(ldf['filingDate'], errors='coerce')
+                    before_filter = len(ldf)
+                    ldf = ldf[ldf['filingDate'] <= target_dt]
+                    logging.info(f"   After filingDate filter: {len(ldf)} rows (removed {before_filter - len(ldf)})")
+                else:
+                    logging.warning("   ⚠️ 'filingDate' column not found, using all data")
+
+                date_str = target_date.replace("-", "")
+            except Exception as e:
+                logging.error(f"❌ Invalid date format: {target_date}")
+                logging.error(f"   Expected format: YYYY-MM-DD (e.g., 2025-01-11)")
+                return pd.DataFrame()
+        else:
+            date_str = "latest"
+            logging.info("   Using latest available data")
+
+        # 심볼당 가장 최근 데이터만 유지
+        if 'year_period' in ldf.columns:
+            ldf = ldf.sort_values(by='year_period', ascending=False)
+            ldf = ldf.drop_duplicates(subset='symbol', keep='first')
+            logging.info(f"   After deduplication: {len(ldf)} unique symbols")
+
+        if len(ldf) == 0:
+            logging.error("❌ No data available for the specified date")
+            return pd.DataFrame()
+
+        # ===== 4. 전처리 =====
+        # 과도한 NaN 행 제거
+        ldf = DataProcessor.drop_many_nan_row(ldf, threshold=0.6)
+        logging.info(f"   After NaN filter: {len(ldf)} rows")
+
+        # 메타데이터 컬럼 보존
+        meta_cols = ['symbol', 'company', 'sector', 'filingDate', 'year_period']
+        meta_df = ldf[[c for c in meta_cols if c in ldf.columns]].copy()
+
+        # 입력 특성 준비
+        ldf_features = ldf.drop(columns=self.drop_col_list, errors='ignore')
+        ldf_features = ldf_features.drop(columns=['sector'], errors='ignore')
+
+        input_data = ldf_features[ldf_features.columns.difference(y_col_list)]
+        input_data = self.clean_feature_names(input_data)
+
+        # Feature alignment
+        missing_features = set(train_feature_columns) - set(input_data.columns)
+        if missing_features:
+            logging.info(f"   Adding {len(missing_features)} missing features with NaN")
+            for col in missing_features:
+                input_data[col] = np.nan
+
+        extra_features = set(input_data.columns) - set(train_feature_columns)
+        if extra_features:
+            logging.info(f"   Removing {len(extra_features)} extra features")
+            input_data = input_data.drop(columns=list(extra_features))
+
+        input_data = input_data[train_feature_columns]
+        logging.info(f"   Feature alignment complete: {len(input_data.columns)} features")
+
+        # Winsorization
+        if self.use_winsorization:
+            input_data = DataProcessor.winsorize_features(
+                input_data,
+                lower_percentile=0.01,
+                upper_percentile=0.99,
+                enabled=True
+            )
+
+        # ===== 5. 분류 예측 =====
+        logging.info("")
+        logging.info("🔮 Running predictions...")
+
+        classifier_cols = self._get_classifier_column_names()
+        result_df = meta_df.copy()
+
+        # 분류기 실행
+        clf_probs_list = []
+        for i, model in self.clsmodels.items():
+            y_probs = predict_proba_with_gpu_support(model, input_data, self.use_gpu_prediction)[:, 1]
+            clf_probs_list.append(y_probs)
+            result_df[f'clf_{i}_proba'] = y_probs
+
+        # 앙상블 평균 확률
+        avg_proba = np.mean(clf_probs_list, axis=0)
+        result_df['pred_up_proba'] = avg_proba
+
+        # ===== 6. 회귀 예측 =====
+        reg_preds_list = []
+        for i, model in self.models.items():
+            y_pred = predict_with_gpu_support(model, input_data, self.use_gpu_prediction)
+            reg_preds_list.append(y_pred)
+            result_df[f'reg_{i}_pred'] = y_pred
+
+        # 앙상블 평균 수익률 예측
+        avg_return = np.mean(reg_preds_list, axis=0)
+        result_df['pred_return'] = avg_return
+
+        # ===== 7. ML Score 계산 (Hard Filtering) =====
+        threshold = np.percentile(avg_proba, THRESHOLD_PERCENTILE)
+
+        if classifier_mode == "negative_screen":
+            # BAD 확률이 threshold 이상이면 제외
+            pass_mask = avg_proba < threshold
+        else:  # positive_screen
+            # GOOD 확률이 threshold 이하면 제외
+            pass_mask = avg_proba > threshold
+
+        result_df['ml_score'] = np.where(pass_mask, avg_return, -np.inf)
+        result_df['passed_filter'] = pass_mask
+
+        n_passed = pass_mask.sum()
+        logging.info(f"   Classifier filter ({classifier_mode}): {n_passed}/{len(pass_mask)} passed")
+
+        # ===== 8. 결과 정렬 및 저장 =====
+        result_df = result_df.sort_values('ml_score', ascending=False)
+
+        # 전체 예측 저장
+        output_file = f"{MODEL_SAVE_PATH}prediction_{date_str}.csv"
+        result_df.to_csv(output_file, index=False)
+        logging.info(f"✅ Full predictions saved: {output_file}")
+
+        # Top-K 추천 저장
+        top_k_df = result_df[result_df['passed_filter']].head(top_k)
+        top_k_file = f"{MODEL_SAVE_PATH}prediction_{date_str}_top{top_k}.csv"
+        top_k_df.to_csv(top_k_file, index=False)
+        logging.info(f"✅ Top-{top_k} recommendations saved: {top_k_file}")
+
+        # 결과 출력
+        logging.info("")
+        logging.info("="*80)
+        logging.info(f"🏆 TOP {top_k} RECOMMENDATIONS (as of {target_date})")
+        logging.info("="*80)
+
+        display_cols = ['symbol', 'company', 'sector', 'ml_score', 'pred_return', 'pred_up_proba']
+        display_cols = [c for c in display_cols if c in top_k_df.columns]
+
+        for idx, row in top_k_df.iterrows():
+            symbol = row.get('symbol', 'N/A')
+            company = row.get('company', 'N/A')[:30] if pd.notna(row.get('company')) else 'N/A'
+            sector = row.get('sector', 'N/A')
+            ml_score = row.get('ml_score', 0)
+            pred_return = row.get('pred_return', 0)
+
+            logging.info(f"   {symbol:6s} | {company:30s} | {sector:20s} | Score: {ml_score:+.4f} | Return: {pred_return:+.2%}")
+
+        logging.info("="*80)
+
+        return top_k_df

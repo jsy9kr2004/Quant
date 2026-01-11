@@ -1,22 +1,91 @@
 # 종합 개선 제안 및 로드맵
 
-> **작성일**: 2025-12-17
+> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-10)
 > **이전 문서**: [06_quant_perspective.md](./06_quant_perspective.md)
+> **다음 문서**: [08_recent_changes.md](./08_recent_changes.md)
 
 ---
 
 ## 목차
 
-1. [우선순위별 개선 과제](#1-우선순위별-개선-과제)
-2. [단기 개선 (1~2주)](#2-단기-개선-1-2주)
-3. [중기 개선 (1~2개월)](#3-중기-개선-1-2개월)
-4. [장기 개선 (3~6개월)](#4-장기-개선-3-6개월)
-5. [실전 투자 로드맵](#5-실전-투자-로드맵)
-6. [다음 분기 TODO](#6-다음-분기-todo)
+1. [완료된 개선 사항](#1-완료된-개선-사항-2026-01)
+2. [우선순위별 개선 과제](#2-우선순위별-개선-과제)
+3. [단기 개선 (1~2주)](#3-단기-개선-1-2주)
+4. [중기 개선 (1~2개월)](#4-중기-개선-1-2개월)
+5. [장기 개선 (3~6개월)](#5-장기-개선-3-6개월)
+6. [실전 투자 로드맵](#6-실전-투자-로드맵)
+7. [다음 분기 TODO](#7-다음-분기-todo)
 
 ---
 
-## 1. 우선순위별 개선 과제
+## 1. 완료된 개선 사항 (2026-01)
+
+### ✅ 예측 전용 모드 (Prediction-Only Mode)
+
+**커밋**: `3e73dc1` (feat: Add prediction-only mode for quick stock recommendations)
+
+**구현 내용**:
+- 학습된 모델로 특정 날짜 기준 주식 추천
+- 재학습 없이 수 초 내 결과 도출
+- `config/conf.yaml`의 `PREDICTION` 섹션으로 설정
+
+```yaml
+PREDICTION:
+  ENABLED: Y
+  TARGET_DATE: "2025-01-11"  # 또는 "latest"
+  TOP_K: 10
+```
+
+**효과**:
+- 실전 투자에서 가장 중요한 기능
+- 매일/매주 빠른 추천 확인 가능
+- 과거 특정 시점 시뮬레이션 가능
+
+**문서**: [PREDICTION_MODE.md](../PREDICTION_MODE.md)
+
+---
+
+### ✅ CLASSIFIER_MODE 구현 (negative_screen / positive_screen)
+
+**커밋**: `ba3b312` (refactor: Improve negative_screen implementation in ml_backtest.py)
+
+**구현 내용**:
+- `negative_screen`: 극단적 손실(-30% 이하) 종목 제거 (권장)
+- `positive_screen`: 하락 확률 높은 종목 제거
+- 4-classifier 앙상블 평균으로 섹터 threshold 계산
+- Hard filtering 적용 (`ml_score = np.where(pass_mask, return, -np.inf)`)
+
+```yaml
+ML:
+  CLASSIFIER_MODE: "negative_screen"
+  CLASSIFIER_REMOVE_PCT_MIN: 2
+  CLASSIFIER_REMOVE_PCT_MAX: 15
+  NEGATIVE_SCREEN:
+    LOSS_THRESHOLD: -0.3
+```
+
+**효과**:
+- 시장 환경에 따라 보수적/공격적 전략 선택 가능
+- threshold_config.pkl에 mode, remove_pct 필드 추가
+
+---
+
+### ✅ 거래일 조정 (Trading Day Adjustment)
+
+**커밋**: `551fb8a` (Fix get_trade_date() returning wrong trading date)
+
+**구현 내용**:
+- 리밸런싱 날짜가 휴장일인 경우 이전 거래일로 자동 조정
+- `_get_trade_date()` 함수로 실제 거래 가능 날짜 반환
+- regressor.py와 ml_backtest.py 간 일관성 확보
+
+**효과**:
+- 휴장일 0% 수익률 문제 해결
+- 백테스트 정확도 향상
+
+---
+
+## 2. 우선순위별 개선 과제
 
 ### 긴급 (Critical) - 실전 투자 전 필수
 
@@ -54,9 +123,9 @@
 
 ---
 
-## 2. 단기 개선 (1~2주)
+## 3. 단기 개선 (1~2주)
 
-### 2.1 백테스트 검증 철저화 (3일)
+### 3.1 백테스트 검증 철저화 (3일)
 
 **목표**: 다양한 시장 환경에서 성능 검증
 
@@ -104,7 +173,7 @@ python main.py
 
 ---
 
-### 2.2 데이터 품질 체크 (3일)
+### 3.2 데이터 품질 체크 (3일)
 
 **목표**: NaN/Infinite 문제 진단 및 해결
 
@@ -141,7 +210,7 @@ python scripts/data_quality_check.py
 
 ---
 
-### 2.3 Feature 선택 (3일)
+### 3.3 Feature 선택 (3일)
 
 **목표**: Feature 수를 500~1000개 → 50개로 감소
 
@@ -175,7 +244,7 @@ print(f"Reduced: {perf_reduced}")
 
 ---
 
-### 2.4 거래 비용 반영 (2일)
+### 3.4 거래 비용 반영 (2일)
 
 **목표**: 백테스트에 Commission + Slippage 반영
 
@@ -208,7 +277,7 @@ def _calculate_period_return(self, portfolio, date):
 
 ---
 
-### 2.5 Stop-Loss 구현 (2일)
+### 3.5 Stop-Loss 구현 (2일)
 
 **목표**: 종목별 손절 로직 추가
 
@@ -236,9 +305,9 @@ def _apply_stop_loss(self, portfolio, max_loss=-0.15):
 
 ---
 
-## 3. 중기 개선 (1~2개월)
+## 4. 중기 개선 (1~2개월)
 
-### 3.1 단위 테스트 추가 (1주)
+### 4.1 단위 테스트 추가 (1주)
 
 **목표**: 핵심 함수 커버리지 50%+
 
@@ -283,7 +352,7 @@ pytest tests/ -v --cov=src --cov-report=html
 
 ---
 
-### 3.2 모니터링 시스템 (2주)
+### 4.2 모니터링 시스템 (2주)
 
 **목표**: Prometheus + Grafana 대시보드
 
@@ -332,7 +401,7 @@ def record_backtest_metrics(results):
 
 ---
 
-### 3.3 복잡도 감소 (1주)
+### 4.3 복잡도 감소 (1주)
 
 **목표**: Ablation Study 실행, 불필요한 단계 제거
 
@@ -370,7 +439,7 @@ for i in range(1, len(stages) + 1):
 
 ---
 
-### 3.4 섹터 모델 효과 검증 (3일)
+### 4.4 섹터 모델 효과 검증 (3일)
 
 **목표**: 섹터별 모델 vs 통합 모델 성능 비교
 
@@ -402,9 +471,9 @@ print(f"Difference: {perf_sector['sharpe'] - perf_unified['sharpe']:.2f}")
 
 ---
 
-## 4. 장기 개선 (3~6개월)
+## 5. 장기 개선 (3~6개월)
 
-### 4.1 Microservices 아키텍처 (2개월)
+### 5.1 Microservices 아키텍처 (2개월)
 
 **목표**: Monolith → Microservices 전환
 
@@ -428,7 +497,7 @@ print(f"Difference: {perf_sector['sharpe'] - perf_unified['sharpe']:.2f}")
 
 ---
 
-### 4.2 고급 ML 모델 (1개월)
+### 5.2 고급 ML 모델 (1개월)
 
 **Transformer 기반 시계열**:
 ```python
@@ -453,7 +522,7 @@ class TransformerRegressor:
 
 ---
 
-### 4.3 클라우드 배포 (2주)
+### 5.3 클라우드 배포 (2주)
 
 **Docker 컨테이너화**:
 ```dockerfile
@@ -497,7 +566,7 @@ spec:
 
 ---
 
-## 5. 실전 투자 로드맵
+## 6. 실전 투자 로드맵
 
 ### Phase 1: 파일럿 (3개월)
 
@@ -560,7 +629,7 @@ spec:
 
 ---
 
-## 6. 다음 분기 TODO
+## 7. 다음 분기 TODO
 
 ### 즉시 실행 (이번 주)
 
@@ -634,3 +703,4 @@ spec:
 - [05_code_quality.md](./05_code_quality.md)
 - [06_quant_perspective.md](./06_quant_perspective.md)
 - [07_recommendations.md](./07_recommendations.md) (현재 문서)
+- [08_recent_changes.md](./08_recent_changes.md) - 최신 변경사항 분석 (2026-01)
