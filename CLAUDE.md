@@ -851,36 +851,60 @@ current_quarter_data['filling_delay_days'] = (
 
 ## 🗂️ 프로젝트 관리 (Project Management)
 
-### Configuration 파일 관리
+### Configuration 파일 관리 (민감 정보 분리)
 
-**conf.yaml vs conf.yaml.template**
+**2-파일 구조로 민감 정보 분리**
 
-- **conf.yaml**: 실제 사용하는 설정 파일 (Git에 포함 안 됨)
-  - API_KEY 등 보안 정보 포함
-  - `.gitignore`에 등록되어 Git 추적 제외
-  - 사용자가 직접 생성하고 관리
+실수로 인한 민감 정보 유출을 방지하기 위해 설정 파일을 두 개로 분리합니다:
 
-- **conf.yaml.template**: 설정 파일 템플릿 (Git에 포함)
-  - API_KEY 자리는 placeholder로 표시
-  - 모든 설정 항목의 기본값 제공
-  - 코드 수정 시 이 파일을 업데이트
+| 파일 | 용도 | Git 포함 | 공유 가능 |
+|------|------|----------|-----------|
+| `conf.yaml` | 일반 설정 (파라미터, 기간 등) | ❌ | ⚠️ 가능하지만 권장 안함 |
+| `secrets.yaml` | 민감 정보 (API 키, 인증) | ❌ | ❌ 절대 금지 |
+| `conf.yaml.template` | conf.yaml 템플릿 | ✅ | ✅ |
+| `secrets.yaml.template` | secrets.yaml 템플릿 | ✅ | ✅ |
+
+**secrets.yaml에서 관리하는 민감 정보**:
+- `FMP_API_KEY`: FMP API 키
+- `GOOGLE_SERVICE_ACCOUNT_KEY_PATH`: Google 서비스 계정 키 파일 경로
+- `GOOGLE_SHEETS_ID`: Google Sheets ID
+- `GOOGLE_DRIVE_FOLDER_ID`: Google Drive 폴더 ID
+- `MLFLOW_TRACKING_URI`: MLflow 서버 URL (내부 인프라)
+
+**초기 설정 방법**:
+```bash
+# 1. 템플릿 복사
+cp config/conf.yaml.template config/conf.yaml
+cp config/secrets.yaml.template config/secrets.yaml
+
+# 2. secrets.yaml에 실제 API 키 입력
+# 3. conf.yaml은 일반 설정만 수정
+```
+
+**장점**:
+1. **유출 방지**: conf.yaml을 실수로 커밋해도 API 키 안전
+2. **팀 협업**: conf.yaml 공유 가능 (secrets.yaml만 개인 관리)
+3. **명확한 분리**: 민감 정보 관리 단순화
+
+**동작 원리** (`context_loader.py`):
+```python
+# 1. conf.yaml 로드
+config = load_config('config/conf.yaml')
+
+# 2. secrets.yaml 자동 merge (있으면)
+# FMP_API_KEY -> config['DATA']['API_KEY']
+# GOOGLE_SHEETS_ID -> config['EXPERIMENT_TRACKING']['GOOGLE_SHEETS']['SHEET_ID']
+```
+
+**하위 호환성**:
+- secrets.yaml이 없으면 기존 방식(conf.yaml만 사용)으로 동작
+- 경고 메시지 출력 후 정상 진행
 
 **작업 원칙**:
-1. **코드 작성 시**: 사용자가 conf.yaml.template을 복사하여 conf.yaml을 만들었다고 가정
-2. **새 설정 추가**: conf.yaml.template에 추가 (주석과 예시 포함)
-3. **보안 정보**: conf.yaml.template에는 절대 실제 키 입력 금지
+1. **새 민감 정보 추가**: secrets.yaml.template + SECRETS_KEY_MAPPING 업데이트
+2. **새 일반 설정 추가**: conf.yaml.template에 추가 (주석과 예시 포함)
+3. **보안 정보**: 절대 template 파일에 실제 값 입력 금지
 4. **기본값**: 합리적인 기본값 제공 (사용자가 바로 테스트 가능하도록)
-
-**예시**:
-```yaml
-# conf.yaml.template
-DATA:
-  API_KEY: "your_fmp_api_key_here"  # ← placeholder
-
-# 사용자가 만드는 conf.yaml
-DATA:
-  API_KEY: "abc123xyz789real"  # ← 실제 키
-```
 
 ### Dependencies 관리 (requirements.txt)
 

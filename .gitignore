@@ -13,8 +13,17 @@ build/
 *.ipynb
 
 # Config (API 키 등 민감 정보)
+# conf.yaml은 일반 설정이므로 공유 가능하지만, 하위 호환성을 위해 제외 유지
 conf.yaml
 **/conf.yaml
+
+# Secrets (API 키, 인증 정보 등 절대 공유 금지!)
+secrets.yaml
+**/secrets.yaml
+# Google Service Account 키 파일
+*.json
+!package.json
+!tsconfig.json
 
 # 실행 결과물 전체 (중요!)
 Quant-refactoring/outputs/

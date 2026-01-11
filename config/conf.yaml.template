@@ -1,5 +1,23 @@
 # 퀀트 트레이딩 시스템 설정 템플릿
 # 이 파일을 conf.yaml로 복사한 후 설정을 입력하세요
+#
+# ============================================================================
+# 민감 정보 분리 안내
+# ============================================================================
+# API 키, 인증 정보 등 민감한 설정은 별도 파일(secrets.yaml)에서 관리합니다.
+#
+# 설정 방법:
+#   1. cp config/conf.yaml.template config/conf.yaml
+#   2. cp config/secrets.yaml.template config/secrets.yaml
+#   3. secrets.yaml에 실제 API 키 등 입력
+#   4. conf.yaml은 일반 설정만 수정
+#
+# 장점:
+#   - conf.yaml을 실수로 커밋해도 API 키 유출 방지
+#   - 팀원 간 conf.yaml 공유 가능 (secrets.yaml만 개인 관리)
+#   - 민감 정보 관리 단순화
+#
+# ============================================================================
 
 # ============================================================================
 # 데이터 설정 (DATA Configuration)
@@ -14,7 +32,6 @@ DATA:
 
   # FMP API 설정
   FMP_URL: https://financialmodelingprep.com
-  API_KEY: YOUR_FMP_API_KEY_HERE  # https://site.financialmodelingprep.com/ 에서 발급
   EX_SYMBOL: AAPL  # URL 파싱용 예제 심볼 (보통 변경 불필요)
   TARGET_API_LIST: src/data_collector/target_api_list.csv
 
@@ -176,7 +193,6 @@ ML:
   # MLflow 실험 추적
   USE_MLFLOW: N  # Y = MLflow로 실험 추적
   MLFLOW_EXPERIMENT: quant_trading_v2
-  MLFLOW_TRACKING_URI: null  # 로컬은 null, 서버는 http://server:5000
 
   # ML 후 종료 (백테스트 실행 안 함)
   EXIT_AFTER_ML: N  # Y = ML 후 종료, N = 백테스트 계속
@@ -509,27 +525,12 @@ EXPERIMENT_TRACKING:
 
   # Google Sheets 설정
   GOOGLE_SHEETS:
-    # 구글 시트 ID (URL에서 확인: https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit)
-    SHEET_ID: "YOUR_GOOGLE_SHEET_ID_HERE"
-
-    # 시트 내 탭 이름 (Experiments 탭에 기록)
-    SHEET_NAME: "Experiments"
-
-    # Service Account JSON key 파일 경로
-    # 팀원들은 각자 이 경로에 key 파일 저장 필요
-    # 주의: 이 파일은 절대 Git에 커밋하지 않음!
-    KEY_PATH: "~/.credentials/quant_sheets.json"
-
-    # 에러 처리 설정
+    SHEET_NAME: "Experiments"  # 시트 내 탭 이름
     RETRY_ON_FAILURE: 3  # API 실패 시 재시도 횟수
     TIMEOUT_SECONDS: 30  # API 타임아웃 (초)
 
   # Google Drive 설정 (Config 파일 저장용)
   GOOGLE_DRIVE:
-    # Drive 폴더 ID (URL에서 확인: https://drive.google.com/drive/folders/{FOLDER_ID})
-    FOLDER_ID: "YOUR_GOOGLE_DRIVE_FOLDER_ID_HERE"
-
-    # Config 파일명 prefix
     CONFIG_PREFIX: "config_"  # 예: config_2025-12-30_baseline.yaml
 
   # 민감 정보 마스킹 (Config 업로드 전 자동 처리)
@@ -541,6 +542,10 @@ EXPERIMENT_TRACKING:
     - DATABASE_PASSWORD
     - AWS_SECRET_KEY
     - SECRET_KEY
+    - GOOGLE_SHEETS_ID
+    - GOOGLE_DRIVE_FOLDER_ID
+    - GOOGLE_SERVICE_ACCOUNT_KEY_PATH
+    - MLFLOW_TRACKING_URI
 
 # ============================================================================
 # 실험 추적 사용법 (EXPERIMENT TRACKING USAGE)
