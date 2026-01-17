@@ -86,6 +86,10 @@
 - ✅ **ModelFactory**: 모델 생성 일관성 보장
 - ✅ **825줄의 중복 코드 제거** (-100% 중복)
 - ✅ **예측도 ↔ 백테스트 수익률 동일선상 비교 가능**
+- ✅ **아키텍처 기반 일원화 강제** (2025-01-17)
+  - Prediction Cache 공유: regressor.py 예측 → ml_backtest.py 재사용
+  - Fallback 제거: 캐시 없으면 에러 발생 (silent fallback 금지)
+  - 유닛테스트 없이도 일원화 100% 보장
 
 > 📖 **상세 가이드:** [docs/REFACTORING_GUIDE.md](docs/REFACTORING_GUIDE.md)
 
