@@ -43,7 +43,7 @@
 ### 1.3 주요 우려사항 (Top 3)
 
 1. **과적합 위험**: 30~66개 모델(섹터별 4 classifiers + 2 regressors), 복잡한 파이프라인
-2. **검증 부족**: 단위 테스트 부족, Out-of-Sample 검증 기간 짧음
+2. **검증 부족**: 단위 테스트 부족 (Out-of-Sample 검증은 ✅ 4년 다양한 시장 환경으로 개선됨)
 3. **리스크 관리**: Stop-Loss, Position Sizing 미구현
 
 ### 1.4 최근 해결된 사항 (2026-01-17)
@@ -51,6 +51,7 @@
 - ~~거래 비용 미반영~~ → ✅ Commission + Slippage 구현 완료
 - ~~regressor ↔ ml_backtest 일원화 위험~~ → ✅ 아키텍처 기반 강제 완료
 - ~~예측 전용 모드 부재~~ → ✅ Prediction-Only Mode 구현 완료
+- ~~Out-of-Sample 검증 기간 짧음~~ → ✅ 4년 다양한 시장 환경 (2020-2023)
 
 ### 1.4 실전 투자 권고사항
 
@@ -384,17 +385,31 @@ $ find /home/user/Quant -name "test_*.py" -o -name "*_test.py"
 
 **우려**: 코드 변경 시 예상치 못한 버그 발생 가능성.
 
-#### 문제 2: Out-of-Sample 검증 부족
+#### 문제 2: ~~Out-of-Sample 검증 부족~~ → ✅ 개선됨
+
 ```yaml
-ML:
-  TRAIN_START_YEAR: 1996
-  TRAIN_END_YEAR: 2022
-  TEST_START_YEAR: 2023
-  TEST_END_YEAR: 2025  # 2년 테스트
+BACKTEST:
+  PERIODS:
+    # 구간 1: 팬데믹 충격과 유동성 주도 장세
+    - START_YEAR: 2020
+      END_YEAR: 2021
+      START_MONTH: 1
+      START_DATE: 1
+
+    # 구간 2: 금리 급등기와 AI 중심 회복 장세
+    - START_YEAR: 2022
+      END_YEAR: 2023
+      START_MONTH: 1
+      START_DATE: 1
 ```
 
-**우려**: 2년은 시장 사이클 1회도 안 됩니다.
-다양한 시장 환경(상승/하락/횡보)에서 검증 필요합니다.
+**개선 내용 (2026-01-17)**:
+- 기존: 2년 단일 기간 (2023-2025)
+- 현재: **4년 다양한 시장 환경** (2020-2023)
+  - 2020-2021: 팬데믹 충격 + 유동성 랠리 + 성장주 버블
+  - 2022-2023: 금리 급등 + 인플레이션 + AI 테마 부상
+
+**평가**: B → **A-** (다양한 시장 레짐에서 검증 가능)
 
 **권고사항**:
 - [ ] 주요 함수에 단위 테스트 추가 (DataProcessor, ModelFactory 등)
