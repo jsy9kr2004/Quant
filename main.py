@@ -295,6 +295,36 @@ class RegressorIntegrated:
         elif self.legacy_regressor:
             self.legacy_regressor.latest_prediction()
 
+    def predict_for_date(self, target_date: str = "latest", top_k: int = 10) -> 'pd.DataFrame':
+        """
+        특정 날짜 기준으로 주식 추천을 생성합니다 (학습 없이 예측만).
+
+        이미 학습된 모델을 로드하여 target_date 기준으로 사용 가능한 데이터로
+        예측을 수행합니다.
+
+        Parameters:
+        ----------
+        target_date : str
+            예측 기준 날짜:
+            - "latest": 가장 최근 데이터 사용
+            - "2025-01-11": 해당 날짜 기준으로 filingDate <= target_date인 최신 데이터 사용
+        top_k : int
+            추천할 종목 수 (기본값: 10)
+
+        Returns:
+        -------
+        pd.DataFrame
+            추천 종목 DataFrame (symbol, company, sector, ml_score, pred_return 등)
+        """
+        import pandas as pd
+
+        if self.legacy_regressor:
+            return self.legacy_regressor.predict_for_date(target_date=target_date, top_k=top_k)
+        else:
+            logger = get_logger('RegressorIntegrated')
+            logger.error("Legacy regressor not available, cannot run predict_for_date")
+            return pd.DataFrame()
+
 
 def get_config_path() -> str:
     """
