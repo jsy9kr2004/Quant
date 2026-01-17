@@ -15,7 +15,8 @@
 5. [CLASSIFIER_MODE 개선](#5-classifier_mode-개선)
 6. [거래일 조정 수정](#6-거래일-조정-수정)
 7. [문서 구조 개편](#7-문서-구조-개편)
-8. [향후 과제](#8-향후-과제)
+8. [데이터 품질 검증 시스템](#8-데이터-품질-검증-시스템)
+9. [향후 과제](#9-향후-과제)
 
 ---
 
@@ -44,6 +45,7 @@
 1. **아키텍처 기반 일원화**: Prediction Cache 필수화로 regressor ↔ ml_backtest 일관성 강제
 2. **거래 비용 반영**: Commission (0.1%) + Slippage (0.1%) 지원
 3. **문서 구조 개편**: 핵심 분석 레포트를 `docs/codebase-report/`로 분리
+4. **데이터 품질 검증**: DataQualityReport + A/B Test로 cleaning 효과 검증
 
 ### 주요 변경점 (이전 주)
 
@@ -491,18 +493,134 @@ docs/
 
 ---
 
-## 8. 향후 과제
+## 8. 데이터 품질 검증 시스템
 
-### 8.1 완료된 항목 (2026-01-17)
+### 8.1 구현 배경
 
-| 과제 | 상태 | 커밋 |
+**문제점**: NaN/Infinite 값 제거 효과에 대한 정량적 검증 부재
+- 데이터 전처리 시 많은 행이 제거됨
+- 제거 vs 대체(imputation) 중 어떤 방식이 더 나은지 알 수 없음
+- 데이터 품질 문제를 사전에 탐지하기 어려움
+
+### 8.2 구현 내용
+
+**새 모듈**: `src/training/data_quality.py`
+
+```python
+# 1. DataQualityReport: 데이터 품질 리포트 생성
+class DataQualityReport:
+    """
+    NaN/Infinite 분석, 분포 이상치, 권장 사항 리포트 생성
+    - 컬럼별 NaN 비율 분석
+    - Infinite 값 원인 추정 (PER=EPS/0, ROE=순이익/자본=0 등)
+    - 극단값 컬럼 탐지
+    - 동일값 컬럼 탐지
+    """
+
+# 2. DataCleaningValidator: A/B 테스트로 cleaning 효과 검증
+class DataCleaningValidator:
+    """
+    Case A: Imputation (NaN/Inf → median/0)
+    Case B: Removal (현재 방식)
+    → 두 방식 비교 후 권장 사항 제시
+    """
+```
+
+**Config 설정**: `config/conf.yaml.template`
+
+```yaml
+DATA_QUALITY:
+  GENERATE_REPORT: Y           # 학습 전 품질 리포트 자동 생성
+  REPORT_OUTPUT_PATH: "outputs/data_quality_report.xlsx"
+  VALIDATE_CLEANING_EFFECT: N  # A/B 테스트 (시간 소요, 필요시만 활성화)
+  CLEANING_STRATEGY: removal   # removal 또는 imputation
+  NAN_HANDLING:
+    ROW_NAN_THRESHOLD: 0.5     # 50% 이상 NaN인 행 제거
+    COL_NAN_THRESHOLD: 0.5     # 50% 이상 NaN인 열 제거
+    IMPUTATION_METHOD: median  # 대체 방법 (median, mean, zero)
+  VERBOSE_LOGGING: Y           # 상세 로깅
+```
+
+### 8.3 통합
+
+**위치**: `src/training/data_processor.py` - `preprocess_training_data()`
+
+```python
+# ===== Data Quality Report (BEFORE preprocessing) =====
+data_quality_config = config.get('DATA_QUALITY', {}) if config else {}
+generate_report = data_quality_config.get('GENERATE_REPORT', 'N') == 'Y'
+
+if generate_report:
+    report = DataQualityReport(X, y_series, config, logger)
+    report.generate()  # 로깅 + 권장 사항 출력
+    report.save(report_path)  # Excel 파일 저장
+
+# ===== A/B Test for Cleaning Effect (optional) =====
+validate_cleaning = data_quality_config.get('VALIDATE_CLEANING_EFFECT', 'N') == 'Y'
+
+if validate_cleaning:
+    validator = DataCleaningValidator(X, y_series, config, logger)
+    results = validator.validate_cleaning_effect()
+    # Case A (imputation) vs Case B (removal) 비교 결과 출력
+```
+
+### 8.4 리포트 출력 예시
+
+```
+======================================================
+📊 DATA QUALITY REPORT
+======================================================
+
+📊 Dataset: 85,432 rows × 1,245 columns
+   Memory usage: 814.5 MB
+
+🔍 NaN Analysis:
+   Total NaN cells: 1,234,567 (1.16%)
+   Rows with NaN: 12,345 (14.5%)
+   Columns with NaN: 234
+      - no_nan (0%): 1011
+      - low_nan (0-10%): 189
+      - medium_nan (10-50%): 32
+      - high_nan (50-90%): 10
+      - very_high_nan (>90%): 3
+
+♾️  Infinite Analysis:
+   Total Inf cells: 567 (0.0007%)
+   Rows with Inf: 423 (0.50%)
+   Affected columns:
+      - peRatio: 234 (Division by EPS (EPS=0))
+      - priceToBook: 189 (Division by Book Value (BV=0))
+
+📝 Recommendations:
+   🔴 [NaN] 3 columns have >90% NaN - consider dropping
+      → Review DROP_SPARSE_COLS threshold
+   🟡 [Infinite] 423 rows have infinite values
+      → Review ratio calculations (division by zero)
+======================================================
+```
+
+### 8.5 효과
+
+- **사전 탐지**: 데이터 품질 문제를 학습 전에 파악
+- **정량적 분석**: NaN/Infinite 비율, 원인, 영향 정량화
+- **전략 검증**: A/B 테스트로 cleaning 방식 비교
+- **Config 제어**: 필요할 때만 A/B 테스트 활성화 (시간 절약)
+
+---
+
+## 9. 향후 과제
+
+### 9.1 완료된 항목 (2026-01-17)
+
+| 과제 | 상태 | 커밋/파일 |
 |------|------|------|
 | 거래 비용 반영 | ✅ 완료 | `ef25545` |
 | 슬리피지 반영 | ✅ 완료 | `ef25545` |
 | regressor ↔ ml_backtest 일원화 강제 | ✅ 완료 | `f8789bd` |
 | 문서 구조 개편 | ✅ 완료 | `7e07669` |
+| 데이터 품질 검증 시스템 | ✅ 완료 | `data_quality.py` |
 
-### 8.2 예측 전용 모드 관련
+### 9.2 예측 전용 모드 관련
 
 | 과제 | 우선순위 | 설명 |
 |------|----------|------|
@@ -510,7 +628,7 @@ docs/
 | 증분 예측 | 중간 | 새 데이터만 예측하여 기존 결과에 추가 |
 | API 서버화 | 낮음 | REST API로 예측 서비스 제공 |
 
-### 8.3 CLASSIFIER_MODE 관련
+### 9.3 CLASSIFIER_MODE 관련
 
 | 과제 | 우선순위 | 설명 |
 |------|----------|------|

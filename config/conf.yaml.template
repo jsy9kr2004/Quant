@@ -468,6 +468,42 @@ FEATURES:
   USE_FEATURE_SELECTION: Y  # Y = 저품질 피처 제거를 위한 피처 선택 적용
 
 # ============================================================================
+# 데이터 품질 검증 (DATA QUALITY Validation)
+# ============================================================================
+# NaN/Infinite 제거 효과 검증 및 데이터 품질 리포트 생성
+#
+# 배경:
+# - NaN/Infinite 제거 로직은 존재하지만 실제 효과가 검증되지 않음
+# - 제거율이 5%인지 50%인지에 따라 전략이 달라져야 함
+# - A/B 테스트로 제거 vs 대체(imputation) 효과 비교 필요
+#
+DATA_QUALITY:
+  # 데이터 품질 리포트 생성
+  GENERATE_REPORT: Y  # Y = 학습 전 품질 리포트 자동 생성
+  REPORT_OUTPUT_PATH: "outputs/data_quality_report.xlsx"  # 리포트 저장 경로
+
+  # A/B 테스트: 데이터 클리닝 효과 검증
+  # 주의: 활성화하면 학습 시간이 약간 증가 (데이터 처리 2회)
+  VALIDATE_CLEANING_EFFECT: N  # Y = A/B 테스트 실행, N = 스킵
+
+  # 클리닝 전략 (A/B 테스트 결과에 따라 조정)
+  # - removal: 현재 방식 (NaN/Inf 행 제거)
+  # - imputation: 대체 방식 (NaN/Inf를 median/0으로 대체)
+  CLEANING_STRATEGY: removal
+
+  # NaN 처리 세부 설정
+  NAN_HANDLING:
+    # 행 제거 기준: 이 비율 이상 NaN인 행 제거
+    ROW_NAN_THRESHOLD: 0.5  # 50% 이상 NaN인 행 제거
+    # 열 제거 기준: 이 비율 이상 NaN인 열 제거
+    COL_NAN_THRESHOLD: 0.5  # 50% 이상 NaN인 열 제거
+    # imputation 방식 선택 (CLEANING_STRATEGY=imputation일 때)
+    IMPUTATION_METHOD: median  # median, mean, zero
+
+  # 로깅 수준
+  VERBOSE_LOGGING: Y  # Y = 상세 로그 (제거 통계 등), N = 요약만
+
+# ============================================================================
 # 일반 설정 (GENERAL Configuration)
 # ============================================================================
 # 로깅 레벨 (10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR)
