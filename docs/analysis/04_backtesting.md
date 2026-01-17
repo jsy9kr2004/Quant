@@ -1,6 +1,6 @@
 # 백테스팅 시스템 분석
 
-> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-10)
+> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-17)
 > **이전 문서**: [03_ml_strategy.md](./03_ml_strategy.md)
 > **다음 문서**: [05_code_quality.md](./05_code_quality.md)
 
@@ -8,16 +8,17 @@
 
 ## 핵심 요약
 
-### 백테스팅 평가: A- (엄격하고 신뢰성 높음)
+### 백테스팅 평가: A (엄격하고 신뢰성 높음)
 
 **강점**:
 - Walk-Forward Analysis (미래 유출 방지)
 - Filing Date 기준 엄격한 cutoff
 - 벤치마크 비교 (AAPL, NVDA, QQQ, SPY)
 - Excel 통합 리포트
+- **아키텍처 기반 일원화** (regressor ↔ ml_backtest) ✅ NEW
+- **실험 추적 시스템** (Google Sheets/Drive) ✅ NEW
 
 **약점**:
-- Out-of-Sample 기간 짧음 (2년)
 - 거래 비용 미반영
 - 슬리피지 미반영
 
@@ -46,20 +47,20 @@ backtest(predictions)  # 미래 유출!
 for date in rebalance_dates:
     # 1. 미래 유출 방지 데이터 로드
     X_available = load_data(cutoff_date=date)  # Filing Date <= date
-    
+
     # 2. 모델 학습 (필요 시)
     if should_retrain(date):
         model.fit(X_available, y_available)
-    
+
     # 3. 예측
     predictions = model.predict(X_available)
-    
+
     # 4. Top-K 선택
     top_k = select_top_k(predictions)
-    
+
     # 5. 실제 수익률 계산
     returns = calculate_returns(top_k, date)
-    
+
     results.append(returns)
 ```
 
@@ -70,7 +71,62 @@ for date in rebalance_dates:
 
 ---
 
-## 2. Retrain 전략
+## 2. 아키텍처 기반 일원화 ✅ NEW
+
+> **상태**: 2026-01-17 완료
+> **구현 위치**: `src/backtest/ml_backtest.py`
+
+### 문제: regressor ↔ ml_backtest 불일치 위험
+
+```
+기존 문제:
+- regressor.py: 모델 학습 & 예측
+- ml_backtest.py: 별도로 모델 학습 & 예측 (중복!)
+→ 코드가 달라지면 예측도 달라짐
+→ "예측 정확도 vs 실제 수익률" 비교가 무의미해짐
+```
+
+### 해결: Prediction Cache 공유
+
+```
+regressor.py (학습 & 예측)
+    ↓
+    예측 결과 저장: MODELS/regressor_predictions.pkl
+    ↓
+ml_backtest.py (수익률 계산만)
+    ↑
+    캐시 로드 & 재사용 (모델 학습/예측 스킵)
+```
+
+**Config 설정**:
+```yaml
+EVALUATION:
+  USE_CACHED_PREDICTIONS: Y
+  PREDICTIONS_CACHE_FILE: "regressor_predictions.pkl"
+```
+
+### Fallback 제거로 강제
+
+```python
+# ml_backtest.py 초기화
+if cache_path.exists():
+    self.predictions_cache = joblib.load(cache_path)
+else:
+    # ✅ 에러 발생 - 일원화 강제
+    raise FileNotFoundError(
+        "Predictions cache not found!\n"
+        "Run regressor.py first, or set USE_CACHED_PREDICTIONS=N"
+    )
+```
+
+**효과**:
+- 두 시스템이 **물리적으로 동일한 예측값** 사용
+- 캐시 없이 백테스트 실행 **불가능** (원천 차단)
+- 유닛테스트 없이도 일원화 100% 보장
+
+---
+
+## 3. Retrain 전략
 
 ### 4가지 옵션
 
@@ -117,7 +173,7 @@ train_data = data[current_date-window_size:current_date]
 
 ---
 
-## 3. 벤치마크 비교
+## 4. 벤치마크 비교
 
 ### 지원 벤치마크
 
@@ -162,7 +218,7 @@ SPY              +30%    -20%   0.8     50%
 
 ---
 
-## 4. 리포트 생성
+## 5. 리포트 생성
 
 ### Excel 통합 리포트
 
@@ -197,9 +253,53 @@ Sheet 3: Benchmark (벤치마크)
 └──────────┴──────────┴──────┴──────┴──────┘
 ```
 
+### 실험 추적 시스템 (Google Sheets/Drive) ✅ NEW
+
+> **구현 위치**: `src/experiment/sheets_tracker.py`
+
+```python
+# 백테스트 완료 후 자동 업로드
+from src.experiment import upload_experiment_result
+
+upload_experiment_result(
+    config=config,
+    backtest_results={
+        "total_return": 163.81,
+        "sharpe_ratio": 1.24,
+        "max_drawdown": -16.86,
+        "win_rate": 81.8
+    },
+    prediction_metrics={
+        "rmse": 0.123,
+        "accuracy": 61.2,
+        "precision": 72.9
+    }
+)
+```
+
+**기능**:
+- 실험 결과를 Google Sheets에 자동 기록
+- Config 파일을 Google Drive에 업로드 (민감 정보 마스킹)
+- Git 정보 자동 추출 (user, commit, branch)
+
+**Config 설정**:
+```yaml
+EXPERIMENT_TRACKING:
+  ENABLED: Y
+  UPLOAD_CONDITIONS:
+    REQUIRE_BACKTEST_RESULTS: Y
+    ONLY_MASTER_BRANCH: Y
+  GOOGLE_SHEETS:
+    KEY_PATH: "~/.gcp/service-account.json"
+    SHEET_ID: "your-sheet-id"
+    SHEET_NAME: "Experiments"
+  GOOGLE_DRIVE:
+    FOLDER_ID: "your-folder-id"
+```
+
 ---
 
-## 5. 거래일 조정 (Trading Day Adjustment) ✅ 구현 완료
+## 6. 거래일 조정 (Trading Day Adjustment) ✅
 
 > **상태**: 2026-01-10 완료
 > **구현 위치**: `src/backtest/ml_backtest.py` - `_get_trade_date()` 메서드
@@ -222,16 +322,16 @@ def _get_trade_date(target_date, price_table):
         check_date = target_date - timedelta(days=i)
         if check_date in price_table['date'].values:
             return check_date
-    
+
     return None  # 10일 내 거래일 없으면 None
 
 # 사용
 for target_date in rebalance_dates:
     actual_trade_date = _get_trade_date(target_date, price_table)
-    
+
     if actual_trade_date is None:
         continue  # 스킵
-    
+
     adjusted_dates.append(actual_trade_date)
 ```
 
@@ -242,7 +342,7 @@ for target_date in rebalance_dates:
 
 ---
 
-## 6. CLASSIFIER_MODE와 Hard Filtering ✅ 구현 완료
+## 7. CLASSIFIER_MODE와 Hard Filtering ✅
 
 > **상태**: 2026-01-10 완료
 > **상세 문서**: [03_ml_strategy.md](./03_ml_strategy.md) Section 2
@@ -279,7 +379,7 @@ ml_score = np.where(pass_mask, y_pred_return, -np.inf)
 
 ---
 
-## 7. 문제점 및 개선안
+## 8. 문제점 및 개선안
 
 ### 문제 1: 거래 비용 미반영
 
@@ -316,38 +416,9 @@ entry_price = close_price * (1 + slippage)  # 매수 시 +0.1%
 exit_price = close_price * (1 - slippage)   # 매도 시 -0.1%
 ```
 
-### 문제 3: Out-of-Sample 기간 짧음
-
-**현재**:
-```yaml
-TEST_START_YEAR: 2023
-TEST_END_YEAR: 2025  # 2년
-```
-
-**우려**:
-- 시장 사이클 1회도 안 됨
-- 다양한 환경 검증 부족
-
-**개선안**:
-```yaml
-# 여러 기간 백테스트
-PERIODS:
-  - START_YEAR: 2008  # 금융위기
-    END_YEAR: 2009
-  
-  - START_YEAR: 2015  # 저성장기
-    END_YEAR: 2016
-  
-  - START_YEAR: 2020  # 코로나 충격
-    END_YEAR: 2021
-  
-  - START_YEAR: 2022  # 금리 급등기
-    END_YEAR: 2023
-```
-
 ---
 
-## 8. 시장 레짐 분석
+## 9. 시장 레짐 분석
 
 ### 레짐 정의
 
@@ -369,7 +440,7 @@ regime_performance = {}
 for year in backtest_years:
     spy_return = get_spy_return(year)
     regime = classify_market_regime(spy_return)
-    
+
     ml_sharpe = backtest_results[year]['sharpe']
     regime_performance.setdefault(regime, []).append(ml_sharpe)
 
@@ -390,24 +461,37 @@ for regime, sharpes in regime_performance.items():
 
 ## 결론
 
-### 백테스팅 평가: A-
+### 백테스팅 평가: A
 
 **강점**:
-- Walk-Forward Analysis (A+)
-- Filing Date 기준 (A+)
-- 벤치마크 비교 (A)
-- 거래일 조정 (A) ✅
-- CLASSIFIER_MODE + Hard Filtering (A) ✅
+| 항목 | 평가 | 비고 |
+|------|------|------|
+| Walk-Forward Analysis | A+ | 미래 유출 완벽 차단 |
+| Filing Date 기준 | A+ | 공시일 기준 엄격한 cutoff |
+| 아키텍처 기반 일원화 | A+ | Prediction Cache + Fallback 제거 ✅ NEW |
+| 벤치마크 비교 | A | 4개 벤치마크 지원 |
+| 거래일 조정 | A | 휴장일 자동 처리 ✅ |
+| CLASSIFIER_MODE | A | Hard Filtering 지원 ✅ |
+| 실험 추적 | A | Google Sheets/Drive 연동 ✅ NEW |
+| Excel 리포트 | A | 3개 시트 통합 리포트 |
 
 **약점**:
-- 거래 비용 미반영 (C)
-- 슬리피지 미반영 (C)
-- Out-of-Sample 짧음 (B)
+| 항목 | 평가 | 개선 필요 |
+|------|------|----------|
+| 거래 비용 | C | 미반영 |
+| 슬리피지 | C | 미반영 |
+
+### 이전 대비 개선사항 (2026-01-17)
+
+| 항목 | 이전 | 현재 |
+|------|------|------|
+| regressor ↔ ml_backtest 일원화 | 코드 중복 (위험) | 아키텍처 강제 (안전) ✅ |
+| 캐시 없을 때 동작 | Silent fallback | 에러 발생 ✅ |
+| 실험 추적 | 수동 | 자동 (Google Sheets) ✅ |
 
 ### 개선 우선순위
 1. 거래 비용 + 슬리피지 반영
-2. Out-of-Sample 확대
-3. 시장 레짐 분석
+2. 시장 레짐 분석 자동화
 
 ---
 
