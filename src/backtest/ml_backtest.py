@@ -156,6 +156,20 @@ class MLBacktest:
                     f"{'='*60}"
                 )
 
+        # 거래 비용 설정 (Trading Costs)
+        backtest_config = config.get('BACKTEST', {})
+        trading_costs = backtest_config.get('TRADING_COSTS', {})
+        self.trading_costs_enabled = trading_costs.get('ENABLED', 'N') == 'Y'
+        self.commission = trading_costs.get('COMMISSION', 0.001)  # 0.1% 기본값
+        self.slippage = trading_costs.get('SLIPPAGE', 0.001)      # 0.1% 기본값
+
+        if self.trading_costs_enabled:
+            total_cost = 2 * (self.commission + self.slippage)
+            self.logger.info(f"💰 Trading costs enabled: commission={self.commission*100:.2f}%, "
+                           f"slippage={self.slippage*100:.2f}%, total={total_cost*100:.2f}%/trade")
+        else:
+            self.logger.info("💰 Trading costs disabled (pure returns)")
+
     def _get_available_data_until(self, cutoff_date: datetime) -> pd.DataFrame:
         """
         특정 날짜까지 사용 가능한 데이터 로드 (Filing Date 고려)
@@ -1114,29 +1128,52 @@ class MLBacktest:
             sell_price_rows = symbol_prices[symbol_prices['date'] == actual_sell_date]
             if sell_price_rows.empty:
                 # ✅ 상장폐지: -100% 수익률로 처리
-                ret = -1.0
+                gross_ret = -1.0
+                net_ret = -1.0
                 sell_price = 0.0
                 is_delisted = True
+                trading_cost = 0.0  # 상장폐지 시 거래 비용 없음
                 self.logger.warning(
                     f"   ⚠️  {symbol}: DELISTED (no price at {actual_sell_date.date()}) "
                     f"→ -100% return"
                 )
             else:
                 sell_price = sell_price_rows.iloc[0]['close']
-                ret = (sell_price - buy_price) / buy_price
+
+                # 순수 수익률 (거래 비용 미반영)
+                gross_ret = (sell_price - buy_price) / buy_price
+
+                # 거래 비용 반영
+                if self.trading_costs_enabled:
+                    # 슬리피지: 매수 시 높게, 매도 시 낮게
+                    effective_buy_price = buy_price * (1 + self.slippage)
+                    effective_sell_price = sell_price * (1 - self.slippage)
+
+                    # 슬리피지 적용 후 수익률
+                    ret_after_slippage = (effective_sell_price - effective_buy_price) / effective_buy_price
+
+                    # 거래 수수료 (매수 + 매도)
+                    net_ret = ret_after_slippage - 2 * self.commission
+                    trading_cost = gross_ret - net_ret
+                else:
+                    net_ret = gross_ret
+                    trading_cost = 0.0
+
                 is_delisted = False
 
-            # 수익률 리스트에 추가 (상장폐지 포함)
-            returns.append(ret)
+            # 수익률 리스트에 추가 (상장폐지 포함) - 순수익률 사용
+            returns.append(net_ret)
 
-            # 상세 정보 저장 (섹터 정보 + 상장폐지 여부)
+            # 상세 정보 저장 (섹터 정보 + 상장폐지 여부 + 거래 비용)
             details.append({
                 'symbol': symbol,
                 'sector': sector,  # ✅ 섹터 정보 추가
                 'buy_price': buy_price,
                 'sell_price': sell_price,
-                'return': ret,
-                'return_pct': ret * 100,
+                'gross_return': gross_ret,         # 순수 수익률
+                'trading_cost': trading_cost,       # 거래 비용
+                'return': net_ret,                  # 순수익률 (거래 비용 차감)
+                'return_pct': net_ret * 100,
                 'delisted': is_delisted  # ✅ 상장폐지 여부 추가
             })
 

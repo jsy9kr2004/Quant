@@ -8,19 +8,19 @@
 
 ## 핵심 요약
 
-### 백테스팅 평가: A (엄격하고 신뢰성 높음)
+### 백테스팅 평가: A+ (엄격하고 신뢰성 높음)
 
 **강점**:
 - Walk-Forward Analysis (미래 유출 방지)
 - Filing Date 기준 엄격한 cutoff
 - 벤치마크 비교 (AAPL, NVDA, QQQ, SPY)
 - Excel 통합 리포트
-- **아키텍처 기반 일원화** (regressor ↔ ml_backtest) ✅ NEW
-- **실험 추적 시스템** (Google Sheets/Drive) ✅ NEW
+- **아키텍처 기반 일원화** (regressor ↔ ml_backtest) ✅
+- **실험 추적 시스템** (Google Sheets/Drive) ✅
+- **거래 비용 및 슬리피지 반영** ✅ NEW
 
 **약점**:
-- 거래 비용 미반영
-- 슬리피지 미반영
+- 현재 주요 약점 없음
 
 ---
 
@@ -379,41 +379,64 @@ ml_score = np.where(pass_mask, y_pred_return, -np.inf)
 
 ---
 
-## 8. 문제점 및 개선안
+## 8. 거래 비용 및 슬리피지 ✅ NEW
 
-### 문제 1: 거래 비용 미반영
+> **상태**: 2026-01-17 완료
+> **구현 위치**: `src/backtest/ml_backtest.py` - `_calculate_period_return()` 메서드
 
-**현재**:
-```python
-# 수익률 계산 시 거래 비용 미반영
-return = (exit_price - entry_price) / entry_price
+### 개요
+
+실전과 동일한 조건으로 백테스트하기 위해 거래 비용(수수료)과 슬리피지를 반영합니다.
+
+### Config 설정
+
+```yaml
+BACKTEST:
+  TRADING_COSTS:
+    ENABLED: Y           # Y = 거래 비용 반영, N = 순수 수익률
+    COMMISSION: 0.001    # 0.1% 편도 (왕복 0.2%)
+    SLIPPAGE: 0.001      # 0.1% 편도 (왕복 0.2%)
 ```
 
-**개선안**:
+### 구현 방식
+
 ```python
-# 거래 비용 반영 (0.1% × 2 = 0.2%)
-commission = 0.001  # 0.1%
-return = (exit_price - entry_price) / entry_price - 2 * commission
+# 슬리피지: 매수 시 높게, 매도 시 낮게
+effective_buy_price = buy_price * (1 + slippage)
+effective_sell_price = sell_price * (1 - slippage)
+
+# 슬리피지 적용 후 수익률
+ret_after_slippage = (effective_sell_price - effective_buy_price) / effective_buy_price
+
+# 거래 수수료 (매수 + 매도)
+net_return = ret_after_slippage - 2 * commission
 ```
 
-**효과**:
-- 실전과 동일한 조건
-- 수익률 약간 감소 (연 -1~2%)
+### 비용 상세
 
-### 문제 2: 슬리피지 미반영
+| 항목 | 편도 | 왕복 | 설명 |
+|------|------|------|------|
+| 수수료 | 0.1% | 0.2% | 브로커 거래 수수료 |
+| 슬리피지 | 0.1% | 0.2% | 체결가 vs 예상가 차이 |
+| **총 비용** | - | **0.4%** | 거래당 비용 |
 
-**현재**:
-```python
-# 종가 기준 매수/매도
-entry_price = close_price
+### 연간 영향 예시
+
+- 분기별 리밸런싱 (4회/년): 0.4% × 4 = **1.6%/년**
+- 월별 리밸런싱 (12회/년): 0.4% × 12 = **4.8%/년**
+
+### 레포트 출력
+
+상세 거래 내역에 거래 비용 정보가 추가됩니다:
+
 ```
-
-**개선안**:
-```python
-# 슬리피지 반영 (0.1%)
-slippage = 0.001
-entry_price = close_price * (1 + slippage)  # 매수 시 +0.1%
-exit_price = close_price * (1 - slippage)   # 매도 시 -0.1%
+Sheet 2: Detailed
+┌────────┬───────────┬─────────────┬──────────────┬────────┐
+│ Symbol │ Gross Ret │ Trading Cost│ Net Return   │ ...    │
+├────────┼───────────┼─────────────┼──────────────┼────────┤
+│ AAPL   │ +5.30%    │ 0.40%       │ +4.90%       │ ...    │
+│ MSFT   │ +4.00%    │ 0.40%       │ +3.60%       │ ...    │
+└────────┴───────────┴─────────────┴──────────────┴────────┘
 ```
 
 ---
@@ -461,25 +484,23 @@ for regime, sharpes in regime_performance.items():
 
 ## 결론
 
-### 백테스팅 평가: A
+### 백테스팅 평가: A+
 
 **강점**:
 | 항목 | 평가 | 비고 |
 |------|------|------|
 | Walk-Forward Analysis | A+ | 미래 유출 완벽 차단 |
 | Filing Date 기준 | A+ | 공시일 기준 엄격한 cutoff |
-| 아키텍처 기반 일원화 | A+ | Prediction Cache + Fallback 제거 ✅ NEW |
+| 아키텍처 기반 일원화 | A+ | Prediction Cache + Fallback 제거 ✅ |
+| 거래 비용 및 슬리피지 | A+ | Config로 조절 가능 ✅ NEW |
 | 벤치마크 비교 | A | 4개 벤치마크 지원 |
 | 거래일 조정 | A | 휴장일 자동 처리 ✅ |
 | CLASSIFIER_MODE | A | Hard Filtering 지원 ✅ |
-| 실험 추적 | A | Google Sheets/Drive 연동 ✅ NEW |
+| 실험 추적 | A | Google Sheets/Drive 연동 ✅ |
 | Excel 리포트 | A | 3개 시트 통합 리포트 |
 
 **약점**:
-| 항목 | 평가 | 개선 필요 |
-|------|------|----------|
-| 거래 비용 | C | 미반영 |
-| 슬리피지 | C | 미반영 |
+- 현재 주요 약점 없음 ✅
 
 ### 이전 대비 개선사항 (2026-01-17)
 
@@ -488,10 +509,11 @@ for regime, sharpes in regime_performance.items():
 | regressor ↔ ml_backtest 일원화 | 코드 중복 (위험) | 아키텍처 강제 (안전) ✅ |
 | 캐시 없을 때 동작 | Silent fallback | 에러 발생 ✅ |
 | 실험 추적 | 수동 | 자동 (Google Sheets) ✅ |
+| 거래 비용 | 미반영 | 수수료 + 슬리피지 반영 ✅ NEW |
 
-### 개선 우선순위
-1. 거래 비용 + 슬리피지 반영
-2. 시장 레짐 분석 자동화
+### 향후 개선 고려사항
+1. 시장 레짐 분석 자동화
+2. 섹터별 슬리피지 차등 적용 (유동성 기반)
 
 ---
 
