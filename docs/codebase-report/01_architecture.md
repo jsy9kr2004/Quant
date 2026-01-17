@@ -1,6 +1,6 @@
 # 아키텍처 상세 분석
 
-> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-10)
+> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-17)
 > **이전 문서**: [00_overview.md](./00_overview.md)
 > **다음 문서**: [02_data_pipeline.md](./02_data_pipeline.md)
 
@@ -31,7 +31,9 @@
 "그 다음 수익성"     →      Stage 2: Regressor (순위 매기기)
 "섹터 특성 고려"     →      Sector Categorization
 "코드 신뢰성"        →      Unified Architecture (단일 전처리)
+"일원화 강제"        →      Prediction Cache 필수화 (2026-01-17)
 "미래 유출 방지"     →      Walk-Forward Backtest
+"현실적 백테스트"    →      거래 비용 반영 (Commission+Slippage)
 ```
 
 ### 1.2 아키텍처 계층 (Layered Architecture)

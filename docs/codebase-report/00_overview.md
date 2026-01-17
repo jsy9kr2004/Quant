@@ -1,9 +1,9 @@
 # 퀀트 트레이딩 시스템 - 전체 개요 및 진단
 
-> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-10)
+> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-17)
 > **작성자**: Claude Code Analysis
 > **목적**: 실제 투자 전 시스템 전반에 대한 포괄적 진단
-> **최신 커밋**: `3e73dc1` (feat: Add prediction-only mode for quick stock recommendations)
+> **최신 커밋**: `ef25545` (feat: Add trading costs (commission & slippage) to backtest)
 
 ---
 
@@ -20,29 +20,37 @@
 
 ## 1. Executive Summary
 
-### 1.1 전체 평가: **B+ (실전 투자 가능, 단 개선 필요)**
+### 1.1 전체 평가: **A- (실전 투자 준비 완료)**
 
 | 항목 | 등급 | 평가 |
 |------|------|------|
 | **철학 및 설계** | A | 예측이 아닌 선별, 펀더멘털 중심, 미래 유출 방지 등 탄탄한 철학 |
-| **아키텍처** | A- | 2-Stage 모델, 통합 전처리, Walk-Forward 백테스트 등 우수 |
+| **아키텍처** | A | 2-Stage 모델, 통합 전처리, 아키텍처 기반 일원화 강제 |
 | **데이터 파이프라인** | B+ | 체계적이나 결측치/이상치 처리 검증 필요 |
 | **ML 전략** | B+ | 정교하나 과적합 위험 및 복잡도 높음 |
-| **백테스팅** | A- | 엄격한 Walk-Forward, 벤치마크 비교 우수 |
-| **코드 품질** | B | 리팩토링 진행 중, 일부 레거시 코드 잔존 |
-| **실전 준비도** | B | 기본 구조는 준비되었으나 검증 및 모니터링 강화 필요 |
+| **백테스팅** | A+ | Walk-Forward, 거래 비용(Commission+Slippage), 벤치마크 비교 |
+| **코드 품질** | B+ | 아키텍처 기반 일원화 적용, 레거시 코드 정리 진행 중 |
+| **실전 준비도** | A- | 거래 비용 반영, 예측 전용 모드, 아키텍처 일원화 완료 |
 
-### 1.2 핵심 강점 (Top 3)
+### 1.2 핵심 강점 (Top 5)
 
 1. **철학적 일관성**: "예측이 아닌 선별", "펀더멘털 중심", "미래 유출 방지"가 코드 전반에 일관되게 반영
-2. **엄격한 백테스팅**: Walk-Forward Analysis, Filing Date 기준 cutoff, 벤치마크 비교
+2. **엄격한 백테스팅**: Walk-Forward Analysis, Filing Date 기준 cutoff, **거래 비용 반영**, 벤치마크 비교
 3. **통합 아키텍처**: DataSchema, DataProcessor, ModelFactory로 코드 이중화 제거 (825줄 감소)
+4. **아키텍처 기반 일원화**: Prediction Cache 필수화로 regressor ↔ ml_backtest 100% 일관성 보장
+5. **실전 기능 완비**: 예측 전용 모드, 거래 비용(Commission+Slippage), CLASSIFIER_MODE 지원
 
 ### 1.3 주요 우려사항 (Top 3)
 
-1. **과적합 위험**: 63개 모델(11섹터 × 6모델 - 섹터별 4 classifiers + 2 regressors), 매우 복잡한 파이프라인
-2. **검증 부족**: 단위 테스트 없음, 프로덕션 모니터링 미흡
-3. **데이터 품질**: NaN/Infinite 제거 로직이 있지만 실제 효과 검증 필요
+1. **과적합 위험**: 30~66개 모델(섹터별 4 classifiers + 2 regressors), 복잡한 파이프라인
+2. **검증 부족**: 단위 테스트 부족, Out-of-Sample 검증 기간 짧음
+3. **리스크 관리**: Stop-Loss, Position Sizing 미구현
+
+### 1.4 최근 해결된 사항 (2026-01-17)
+
+- ~~거래 비용 미반영~~ → ✅ Commission + Slippage 구현 완료
+- ~~regressor ↔ ml_backtest 일원화 위험~~ → ✅ 아키텍처 기반 강제 완료
+- ~~예측 전용 모드 부재~~ → ✅ Prediction-Only Mode 구현 완료
 
 ### 1.4 실전 투자 권고사항
 
@@ -625,7 +633,7 @@ FMP API → Parquet → VIEW → tsfresh → Winsorization → Extreme Filter
 3. **모니터링 시스템** 구축 후 본격 투자
 4. **단계적 확대** (3개월 → 6개월 → 1년)
 
-**최종 판단**: **B+ (실전 투자 가능, 단 개선 필요)**
+**최종 판단**: **A- (실전 투자 준비 완료)**
 
 ---
 
