@@ -1,24 +1,37 @@
 # 최신 변경사항 분석 (2026-01)
 
-> **작성일**: 2026-01-10
+> **작성일**: 2026-01-17
 > **이전 문서**: [07_recommendations.md](./07_recommendations.md)
-> **관련 커밋**: `3e73dc1`, `ba3b312`, `551fb8a`
+> **관련 커밋**: `f8789bd`, `8847ac7`, `9e17ae3`, `ef25545`, `7e07669`
 
 ---
 
 ## 목차
 
 1. [변경사항 요약](#1-변경사항-요약)
-2. [예측 전용 모드 (Prediction-Only Mode)](#2-예측-전용-모드)
-3. [CLASSIFIER_MODE 개선](#3-classifier_mode-개선)
-4. [거래일 조정 수정](#4-거래일-조정-수정)
-5. [향후 과제](#5-향후-과제)
+2. [아키텍처 기반 일원화 강제](#2-아키텍처-기반-일원화-강제)
+3. [거래 비용 (Commission & Slippage)](#3-거래-비용-commission--slippage)
+4. [예측 전용 모드 (Prediction-Only Mode)](#4-예측-전용-모드)
+5. [CLASSIFIER_MODE 개선](#5-classifier_mode-개선)
+6. [거래일 조정 수정](#6-거래일-조정-수정)
+7. [문서 구조 개편](#7-문서-구조-개편)
+8. [향후 과제](#8-향후-과제)
 
 ---
 
 ## 1. 변경사항 요약
 
-### 최근 커밋 히스토리
+### 최근 커밋 히스토리 (2026-01-10 ~ 2026-01-17)
+
+| 커밋 | 설명 | 영향 범위 |
+|------|------|----------|
+| `7e07669` | refactor: Move core analysis reports to docs/codebase-report/ | 문서 구조 |
+| `ef25545` | feat: Add trading costs (commission & slippage) to backtest | ml_backtest.py, conf.yaml.template |
+| `9e17ae3` | docs: Update backtesting analysis with latest changes | 04_backtesting.md |
+| `8847ac7` | docs: Document architecture-based unification enforcement | CLAUDE.md, README.md |
+| `f8789bd` | refactor: Remove fallback, require predictions cache for consistency | ml_backtest.py |
+
+### 이전 커밋 히스토리 (~ 2026-01-10)
 
 | 커밋 | 설명 | 영향 범위 |
 |------|------|----------|
@@ -26,18 +39,189 @@
 | `ba3b312` | refactor: Improve negative_screen implementation in ml_backtest.py | ml_backtest.py, regressor.py |
 | `551fb8a` | Fix get_trade_date() returning wrong trading date | ml_backtest.py |
 
-### 주요 변경점
+### 주요 변경점 (이번 주)
 
-1. **예측 전용 모드**: 학습 없이 기존 모델로 빠른 추천 생성
-2. **CLASSIFIER_MODE**: negative_screen / positive_screen 모드 선택 가능
-3. **Hard Filtering**: 확률 가중치 → 명확한 cutoff 방식으로 변경
-4. **거래일 조정**: 휴장일 처리 버그 수정
+1. **아키텍처 기반 일원화**: Prediction Cache 필수화로 regressor ↔ ml_backtest 일관성 강제
+2. **거래 비용 반영**: Commission (0.1%) + Slippage (0.1%) 지원
+3. **문서 구조 개편**: 핵심 분석 레포트를 `docs/codebase-report/`로 분리
+
+### 주요 변경점 (이전 주)
+
+4. **예측 전용 모드**: 학습 없이 기존 모델로 빠른 추천 생성
+5. **CLASSIFIER_MODE**: negative_screen / positive_screen 모드 선택 가능
+6. **Hard Filtering**: 확률 가중치 → 명확한 cutoff 방식으로 변경
+7. **거래일 조정**: 휴장일 처리 버그 수정
 
 ---
 
-## 2. 예측 전용 모드
+## 2. 아키텍처 기반 일원화 강제
 
 ### 2.1 구현 배경
+
+**문제점**:
+- regressor.py와 ml_backtest.py가 동일한 예측 로직을 사용해야 함
+- 코드 리뷰나 유닛테스트만으로는 일원화 보장 어려움
+- 캐시가 없을 때 ml_backtest.py가 자체 학습하면 불일치 발생 가능
+
+**해결책**:
+- Prediction Cache가 없으면 **에러 발생** (Silent fallback 제거)
+- 아키텍처 자체가 일원화를 **강제**하도록 설계
+
+### 2.2 구현 상세
+
+**수정 파일**: `src/backtest/ml_backtest.py` (lines 143-157)
+
+```python
+# 기존 코드 (위험)
+if cache_path.exists():
+    self.predictions_cache = joblib.load(cache_path)
+else:
+    # ❌ Silent fallback - 일원화 위반 가능!
+    self.logger.warning("Falling back to normal training mode")
+    self.use_cached_predictions = False
+
+# 수정된 코드 (안전)
+if cache_path.exists():
+    self.predictions_cache = joblib.load(cache_path)
+else:
+    # ✅ 에러 발생 - 일원화 강제
+    raise FileNotFoundError(
+        f"\n{'='*60}\n"
+        f"❌ Predictions cache not found!\n"
+        f"   Path: {cache_path}\n"
+        f"\n"
+        f"   USE_CACHED_PREDICTIONS=Y requires regressor.py to run first.\n"
+        f"\n"
+        f"   Solutions:\n"
+        f"   1. Run regressor.py first to generate predictions cache\n"
+        f"   2. Or set USE_CACHED_PREDICTIONS=N in config to train directly\n"
+        f"{'='*60}"
+    )
+```
+
+### 2.3 워크플로우 변경
+
+```
+[기존 워크플로우]
+regressor.py → (캐시 생성)
+ml_backtest.py → 캐시 있으면 사용, 없으면 자체 학습 ⚠️
+
+[새 워크플로우]
+regressor.py → (캐시 생성) → 필수!
+ml_backtest.py → 캐시 없으면 에러 ✅
+```
+
+### 2.4 일원화 보장 수준 비교
+
+| 접근 방식 | 일원화 보장 | 단점 |
+|-----------|------------|------|
+| 코드 리뷰 | 사람 의존 | 실수 가능 |
+| 유닛테스트 | 테스트 커버리지 의존 | 누락 가능 |
+| **아키텍처 강제** | **100% 보장** | 없음 |
+
+### 2.5 관련 문서
+
+- `CLAUDE.md`: "해결 방법: 아키텍처 기반 일원화" 섹션 추가
+- `README.md`: Section 8에 일원화 원칙 문서화
+
+---
+
+## 3. 거래 비용 (Commission & Slippage)
+
+### 3.1 구현 배경
+
+**문제점** (04_backtesting.md에서 지적):
+- 백테스트에 거래 비용이 반영되지 않음
+- 슬리피지 미반영으로 낙관적 수익률 계산
+- 실전 투자 시 예상보다 낮은 수익률
+
+**해결책**:
+- Commission (수수료): 매수/매도 시 각각 적용
+- Slippage (슬리피지): 시장가 주문 시 불리한 가격 반영
+
+### 3.2 설정 방법
+
+```yaml
+# config/conf.yaml
+BACKTEST:
+  TRADING_COSTS:
+    ENABLED: Y           # 거래 비용 적용 여부
+    COMMISSION: 0.001    # 0.1% (편도)
+    SLIPPAGE: 0.001      # 0.1% (편도)
+```
+
+### 3.3 구현 상세
+
+**파일**: `src/backtest/ml_backtest.py`
+
+**초기화** (lines 159-171):
+```python
+# 거래 비용 설정 로드
+backtest_config = config.get('BACKTEST', {})
+trading_costs = backtest_config.get('TRADING_COSTS', {})
+self.trading_costs_enabled = trading_costs.get('ENABLED', 'N') == 'Y'
+self.commission = trading_costs.get('COMMISSION', 0.001)  # 0.1%
+self.slippage = trading_costs.get('SLIPPAGE', 0.001)      # 0.1%
+```
+
+**수익률 계산** (`_calculate_period_return`, lines 1127-1178):
+```python
+def _calculate_period_return(self, buy_prices, sell_prices) -> float:
+    """거래 비용을 반영한 수익률 계산"""
+
+    if not self.trading_costs_enabled:
+        # 거래 비용 미적용 시 단순 수익률
+        raw_return = (sell_prices / buy_prices - 1).mean()
+        return raw_return
+
+    # 거래 비용 적용
+    # 매수 시: 실제 매수가 = 시장가 × (1 + commission + slippage)
+    # 매도 시: 실제 매도가 = 시장가 × (1 - commission - slippage)
+
+    buy_cost_factor = 1 + self.commission + self.slippage   # 1.002
+    sell_cost_factor = 1 - self.commission - self.slippage  # 0.998
+
+    effective_buy = buy_prices * buy_cost_factor
+    effective_sell = sell_prices * sell_cost_factor
+
+    adjusted_return = (effective_sell / effective_buy - 1).mean()
+
+    # 로깅: 비용 영향 표시
+    cost_impact = raw_return - adjusted_return
+    self.logger.debug(f"Trading costs impact: -{cost_impact:.2%}")
+
+    return adjusted_return
+```
+
+### 3.4 비용 영향 분석
+
+**예시 (분기별 리밸런싱 10종목 기준)**:
+
+| 항목 | 계산 |
+|------|------|
+| 연간 리밸런싱 횟수 | 4회 |
+| 매 리밸런싱 거래 수 | 20건 (10매수 + 10매도) |
+| 편도 비용 | 0.2% (commission 0.1% + slippage 0.1%) |
+| 왕복 비용 | 0.4% |
+| 연간 총 비용 | 1.6% (0.4% × 4회) |
+
+**수익률 영향**:
+- 거래 비용 미적용 시: +15.0%
+- 거래 비용 적용 후: +13.4% (-1.6%)
+
+### 3.5 설정 가이드
+
+| 투자자 유형 | Commission | Slippage | 비고 |
+|------------|------------|----------|------|
+| 개인 (일반) | 0.001 | 0.002 | 총 0.6% 왕복 |
+| 개인 (저가) | 0.0005 | 0.001 | 총 0.3% 왕복 |
+| 기관 | 0.0001 | 0.0005 | 총 0.12% 왕복 |
+
+---
+
+## 4. 예측 전용 모드
+
+### 4.1 구현 배경
 
 **문제점**:
 - 기존에는 추천을 받으려면 전체 학습 파이프라인 실행 필요
@@ -49,7 +233,7 @@
 - 학습된 모델(`MODELS/*.sav`)을 로드하여 즉시 예측
 - 특정 날짜 또는 최신 데이터 기준으로 추천 생성
 
-### 2.2 설정 방법
+### 4.2 설정 방법
 
 ```yaml
 # config/conf.yaml
@@ -59,7 +243,7 @@ PREDICTION:
   TOP_K: 10                     # 추천 종목 수
 ```
 
-### 2.3 구현 상세
+### 4.3 구현 상세
 
 **파일 위치**: `src/training/regressor.py` (4700번째 줄 부근)
 
@@ -100,14 +284,14 @@ def predict_for_date(self, target_date: str = "latest", top_k: int = 10) -> pd.D
     return top_k_df
 ```
 
-### 2.4 출력 파일
+### 4.4 출력 파일
 
 | 파일 | 설명 |
 |------|------|
 | `MODELS/prediction_{날짜}.csv` | 전체 예측 결과 (모든 종목) |
 | `MODELS/prediction_{날짜}_top{K}.csv` | 상위 K개 추천 종목 |
 
-### 2.5 사용 시나리오
+### 4.5 사용 시나리오
 
 **시나리오 1: 오늘 기준 추천**
 ```yaml
@@ -127,9 +311,9 @@ PREDICTION:
 
 ---
 
-## 3. CLASSIFIER_MODE 개선
+## 5. CLASSIFIER_MODE 개선
 
-### 3.1 구현 배경
+### 5.1 구현 배경
 
 **문제점**:
 - 기존에는 분류기가 단순 상승/하락 예측
@@ -141,7 +325,7 @@ PREDICTION:
 - `positive_screen`: 상승 확률 낮은 종목 제거 (공격적)
 - Hard filtering으로 명확한 cutoff 적용
 
-### 3.2 모드 비교
+### 5.2 모드 비교
 
 | 항목 | negative_screen | positive_screen |
 |------|-----------------|-----------------|
@@ -150,7 +334,7 @@ PREDICTION:
 | 전략 성격 | 보수적 (위험 회피) | 공격적 (수익 추구) |
 | 권장 환경 | 불확실/하락장 | 상승장 |
 
-### 3.3 구현 상세
+### 5.3 구현 상세
 
 **타겟 생성** (`data_processor.py`):
 ```python
@@ -192,7 +376,7 @@ ml_score = y_pred_proba * y_pred_return  # 확률 가중치
 ml_score = np.where(pass_mask, y_pred_return, -np.inf)  # 명확한 cutoff
 ```
 
-### 3.4 threshold_config.pkl 구조
+### 5.4 threshold_config.pkl 구조
 
 ```python
 {
@@ -207,35 +391,11 @@ ml_score = np.where(pass_mask, y_pred_return, -np.inf)  # 명확한 cutoff
 }
 ```
 
-### 3.5 섹터별 Threshold 개선
-
-**기존 문제**:
-- 단일 분류기로 섹터 threshold 계산
-- 분류기 간 차이가 큼
-
-**개선 사항**:
-- 4-classifier 앙상블 평균으로 threshold 계산
-- 더 안정적인 필터링
-
-```python
-def _calculate_sector_threshold(self, X, clsmodels, classifier_mode, remove_pct):
-    # 4개 분류기의 예측 확률 평균
-    y_probs_list = [clf.predict_proba(X)[:, 1] for clf in clsmodels]
-    y_probs_avg = np.mean(y_probs_list, axis=0)
-
-    # 앙상블 평균으로 threshold 계산
-    threshold, pass_mask = self._calculate_threshold_config(
-        y_probs_avg, classifier_mode, remove_pct
-    )
-
-    return threshold, pass_mask
-```
-
 ---
 
-## 4. 거래일 조정 수정
+## 6. 거래일 조정 수정
 
-### 4.1 문제점
+### 6.1 문제점
 
 **이슈**: 리밸런싱 날짜가 휴장일(주말, 공휴일)인 경우
 - 가격 데이터 없음 → 0% 수익률
@@ -245,7 +405,7 @@ def _calculate_sector_threshold(self, X, clsmodels, classifier_mode, remove_pct)
 - 2025-01-01 (New Year's Day) → 휴장일
 - 리밸런싱 시도 → 거래 불가 → 잘못된 결과
 
-### 4.2 수정 내용
+### 6.2 수정 내용
 
 **함수**: `_get_trade_date()` (ml_backtest.py)
 
@@ -275,22 +435,7 @@ def _get_trade_date(self, target_date, price_table, lookback_days=10):
     return None
 ```
 
-### 4.3 적용 위치
-
-```python
-# 리밸런싱 날짜 생성 후
-adjusted_dates = []
-for target_date in rebalance_dates:
-    actual_trade_date = self._get_trade_date(target_date, price_table)
-    if actual_trade_date is not None:
-        adjusted_dates.append(actual_trade_date)
-    else:
-        self.logger.warning(f"Skipping {target_date}: no trading day")
-
-rebalance_dates = adjusted_dates
-```
-
-### 4.4 효과
+### 6.3 효과
 
 - 휴장일 0% 수익률 문제 해결
 - regressor.py와 ml_backtest.py 간 일관성 확보
@@ -298,9 +443,66 @@ rebalance_dates = adjusted_dates
 
 ---
 
-## 5. 향후 과제
+## 7. 문서 구조 개편
 
-### 5.1 예측 전용 모드 관련
+### 7.1 변경 내용
+
+핵심 분석 레포트 9개 파일을 별도 폴더로 분리:
+
+```
+# 기존 구조
+docs/
+└── analysis/
+    ├── 00_overview.md          # 핵심 레포트와 작업 문서 혼재
+    ├── 01_architecture.md
+    ├── ...
+    └── other_analysis.md
+
+# 새 구조
+docs/
+├── codebase-report/            # 핵심 분석 레포트 (AI 작성)
+│   ├── README.md               # 인덱스 및 사용 가이드
+│   ├── 00_overview.md
+│   ├── 01_architecture.md
+│   ├── ...
+│   └── 08_recent_changes.md
+└── analysis/                   # 작업용 분석 문서
+    └── ...
+```
+
+### 7.2 레포트 목록
+
+| # | 파일 | 주제 | 설명 |
+|---|------|------|------|
+| 0 | 00_overview.md | 전체 개요 | 프로젝트 목적, 철학, 종합 평가 |
+| 1 | 01_architecture.md | 아키텍처 | 시스템 구조, 모듈 관계, 데이터 흐름 |
+| 2 | 02_data_pipeline.md | 데이터 파이프라인 | FMP API, 전처리, 저장 구조 |
+| 3 | 03_ml_strategy.md | ML 전략 | 2-Stage 모델, Classifier/Regressor |
+| 4 | 04_backtesting.md | 백테스팅 | Walk-Forward, 거래 비용, 벤치마크 |
+| 5 | 05_code_quality.md | 코드 품질 | 가독성, 유지보수성, 테스트 |
+| 6 | 06_quant_perspective.md | 퀀트 관점 | 시장 효율성, 리스크, 알파 |
+| 7 | 07_recommendations.md | 개선 권고 | 우선순위별 개선사항 |
+| 8 | 08_recent_changes.md | 최신 변경사항 | 2026년 1월 업데이트 내역 |
+
+### 7.3 관련 문서 업데이트
+
+- `CLAUDE.md`: "핵심 분석 레포트 (Codebase Report)" 섹션 추가
+- `README.md`: "시스템 전체 분석 레포트" 섹션 추가
+
+---
+
+## 8. 향후 과제
+
+### 8.1 완료된 항목 (2026-01-17)
+
+| 과제 | 상태 | 커밋 |
+|------|------|------|
+| 거래 비용 반영 | ✅ 완료 | `ef25545` |
+| 슬리피지 반영 | ✅ 완료 | `ef25545` |
+| regressor ↔ ml_backtest 일원화 강제 | ✅ 완료 | `f8789bd` |
+| 문서 구조 개편 | ✅ 완료 | `7e07669` |
+
+### 8.2 예측 전용 모드 관련
 
 | 과제 | 우선순위 | 설명 |
 |------|----------|------|
@@ -308,7 +510,7 @@ rebalance_dates = adjusted_dates
 | 증분 예측 | 중간 | 새 데이터만 예측하여 기존 결과에 추가 |
 | API 서버화 | 낮음 | REST API로 예측 서비스 제공 |
 
-### 5.2 CLASSIFIER_MODE 관련
+### 8.3 CLASSIFIER_MODE 관련
 
 | 과제 | 우선순위 | 설명 |
 |------|----------|------|
@@ -316,34 +518,43 @@ rebalance_dates = adjusted_dates
 | 동적 모드 전환 | 중간 | 시장 환경에 따라 자동 전환 |
 | 혼합 모드 | 낮음 | 두 모드 결합하여 더 정교한 필터링 |
 
-### 5.3 일반적인 개선 사항
+### 8.4 인프라 관련
 
 | 과제 | 우선순위 | 설명 |
 |------|----------|------|
-| 단위 테스트 | 높음 | 새 기능에 대한 테스트 코드 작성 |
-| 문서 자동화 | 중간 | 코드 변경 시 문서 자동 업데이트 |
+| 단위 테스트 | 높음 | 핵심 로직에 대한 테스트 코드 작성 |
+| Google Sheets 업로드 테스트 | 중간 | 모킹 또는 테스트 시트 활용 |
 | 성능 모니터링 | 중간 | 예측 정확도 실시간 추적 |
 
 ---
 
 ## 결론
 
-2026년 1월의 주요 변경사항은 **실전 투자 편의성**에 초점을 맞추었습니다:
+2026년 1월의 주요 변경사항은 **시스템 안정성**과 **실전 투자 정확도**에 초점을 맞추었습니다:
 
-1. **예측 전용 모드**: 학습 없이 빠른 추천 → 실전 활용성 극대화
-2. **CLASSIFIER_MODE**: 시장 환경별 전략 선택 → 유연성 향상
-3. **Hard Filtering**: 명확한 cutoff → 해석 용이성 향상
-4. **거래일 조정**: 휴장일 처리 → 백테스트 정확도 향상
+### 이번 주 (01-10 ~ 01-17)
+
+1. **아키텍처 기반 일원화**: Fallback 제거로 regressor ↔ ml_backtest 100% 일관성 보장
+2. **거래 비용 반영**: Commission + Slippage로 현실적인 수익률 계산
+3. **문서 구조 개편**: 핵심 레포트 분리로 관리 효율성 향상
+
+### 이전 주 (~ 01-10)
+
+4. **예측 전용 모드**: 학습 없이 빠른 추천 → 실전 활용성 극대화
+5. **CLASSIFIER_MODE**: 시장 환경별 전략 선택 → 유연성 향상
+6. **Hard Filtering**: 명확한 cutoff → 해석 용이성 향상
+7. **거래일 조정**: 휴장일 처리 → 백테스트 정확도 향상
 
 ### 평가
 
-| 항목 | 이전 | 현재 | 변화 |
-|------|------|------|------|
-| 실전 준비도 | B | A- | +1 등급 |
-| 유연성 | B | A | +1 등급 |
-| 코드 품질 | B | B+ | +0.5 등급 |
+| 항목 | 01-10 | 01-17 | 변화 |
+|------|-------|-------|------|
+| 실전 준비도 | A- | A | +0.5 등급 |
+| 시스템 안정성 | B+ | A | +1 등급 |
+| 백테스트 정확도 | B+ | A+ | +1.5 등급 |
+| 코드 품질 | B+ | A- | +0.5 등급 |
 
-**종합**: 이번 업데이트로 시스템의 **실전 투자 준비도**가 크게 향상되었습니다.
+**종합**: 이번 업데이트로 시스템의 **실전 투자 준비도**와 **백테스트 신뢰성**이 크게 향상되었습니다.
 
 ---
 

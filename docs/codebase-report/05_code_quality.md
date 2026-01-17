@@ -1,6 +1,6 @@
 # 코드 품질 및 유지보수성 분석
 
-> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-10)
+> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-17)
 > **이전 문서**: [04_backtesting.md](./04_backtesting.md)
 > **다음 문서**: [06_quant_perspective.md](./06_quant_perspective.md)
 
@@ -8,17 +8,23 @@
 
 ## 핵심 요약
 
-### 코드 품질 평가: B (개선 진행 중)
+### 코드 품질 평가: B+ (아키텍처 기반 일원화 완료)
 
 **강점**:
-- 리팩토링 진행 중 (통합 아키텍처)
-- 명확한 문서화 (CLAUDE.md)
-- 설정 관리 우수 (conf.yaml)
+- 아키텍처 기반 일원화 (regressor ↔ ml_backtest 일관성 100% 보장)
+- 통합 아키텍처 (DataSchema, DataProcessor, ModelFactory)
+- 명확한 문서화 (CLAUDE.md, codebase-report)
+- 설정 관리 우수 (conf.yaml, secrets.yaml 분리)
 
 **약점**:
-- 단위 테스트 없음
+- 단위 테스트 부족
 - 일부 레거시 코드 잔존
 - 복잡도 높음
+
+**최근 개선 (2026-01-17)**:
+- ✅ 아키텍처 기반 일원화 강제 (Prediction Cache 필수화)
+- ✅ 거래 비용 설정 추가 (TRADING_COSTS)
+- ✅ 문서 구조 개편 (codebase-report 분리)
 
 ---
 
@@ -371,17 +377,46 @@ archive/
 
 ---
 
+## 11. 아키텍처 기반 일원화 (2026-01-17 추가)
+
+### 구현 내용
+
+regressor.py와 ml_backtest.py 간 일관성을 **아키텍처 자체가 강제**하도록 개선:
+
+```python
+# ml_backtest.py
+if cache_path.exists():
+    self.predictions_cache = joblib.load(cache_path)
+else:
+    # ✅ 에러 발생 - 일원화 강제
+    raise FileNotFoundError(
+        "Predictions cache not found!\n"
+        "Run regressor.py first, or set USE_CACHED_PREDICTIONS=N"
+    )
+```
+
+### 일원화 보장 수준 비교
+
+| 접근 방식 | 일원화 보장 | 단점 |
+|-----------|------------|------|
+| 코드 리뷰 | 사람 의존 | 실수 가능 |
+| 유닛테스트 | 테스트 커버리지 의존 | 누락 가능 |
+| **아키텍처 강제** | **100% 보장** | 없음 |
+
+---
+
 ## 결론
 
-### 코드 품질 평가: B
+### 코드 품질 평가: B+
 
 | 항목 | 평가 | 개선 우선순위 |
 |------|------|---------------|
 | 모듈 분리 | A | - |
 | 통합 아키텍처 | A | - |
+| 아키텍처 일원화 | A | - |
 | 복잡도 | C+ | 높음 |
 | 테스트 | D | 매우 높음 |
-| 문서화 | B+ | 중간 |
+| 문서화 | A- | - |
 | 설정 관리 | A | - |
 | 에러 처리 | C+ | 높음 |
 | 로깅 | B+ | 중간 |

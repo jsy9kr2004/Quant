@@ -1,6 +1,6 @@
 # 종합 개선 제안 및 로드맵
 
-> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-10)
+> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-17)
 > **이전 문서**: [06_quant_perspective.md](./06_quant_perspective.md)
 > **다음 문서**: [08_recent_changes.md](./08_recent_changes.md)
 
@@ -19,6 +19,61 @@
 ---
 
 ## 1. 완료된 개선 사항 (2026-01)
+
+### ✅ 거래 비용 반영 (Commission + Slippage)
+
+**커밋**: `ef25545` (feat: Add trading costs (commission & slippage) to backtest)
+
+**구현 내용**:
+- Commission: 매수/매도 시 각각 0.1% 적용
+- Slippage: 시장가 주문 시 0.1% 불리한 가격 반영
+- `config/conf.yaml`의 `BACKTEST.TRADING_COSTS` 섹션으로 설정
+
+```yaml
+BACKTEST:
+  TRADING_COSTS:
+    ENABLED: Y           # 거래 비용 적용 여부
+    COMMISSION: 0.001    # 0.1% (편도)
+    SLIPPAGE: 0.001      # 0.1% (편도)
+```
+
+**효과**:
+- 실전과 동일한 조건으로 백테스트
+- 연간 약 1.6% 수익률 차감 (분기별 리밸런싱 기준)
+- 낙관적 수익률 추정 방지
+
+**문서**: [04_backtesting.md](./04_backtesting.md) - Section 8
+
+---
+
+### ✅ 아키텍처 기반 일원화 강제
+
+**커밋**: `f8789bd` (refactor: Remove fallback, require predictions cache for consistency)
+
+**구현 내용**:
+- Prediction Cache가 없으면 에러 발생 (Silent fallback 제거)
+- regressor.py → ml_backtest.py 순서로 실행 필수
+- 아키텍처 자체가 일원화를 강제
+
+```python
+# ml_backtest.py
+if cache_path.exists():
+    self.predictions_cache = joblib.load(cache_path)
+else:
+    raise FileNotFoundError(
+        "Predictions cache not found!\n"
+        "Run regressor.py first, or set USE_CACHED_PREDICTIONS=N"
+    )
+```
+
+**효과**:
+- regressor ↔ ml_backtest 100% 일관성 보장
+- 실수로 다른 예측값 사용 원천 차단
+- 코드 리뷰/유닛테스트보다 확실한 보장
+
+**문서**: [08_recent_changes.md](./08_recent_changes.md) - Section 2
+
+---
 
 ### ✅ 예측 전용 모드 (Prediction-Only Mode)
 
@@ -40,8 +95,6 @@ PREDICTION:
 - 실전 투자에서 가장 중요한 기능
 - 매일/매주 빠른 추천 확인 가능
 - 과거 특정 시점 시뮬레이션 가능
-
-**문서**: [PREDICTION_MODE.md](../PREDICTION_MODE.md)
 
 ---
 
@@ -85,6 +138,21 @@ ML:
 
 ---
 
+### ✅ 문서 구조 개편
+
+**커밋**: `7e07669` (refactor: Move core analysis reports to docs/codebase-report/)
+
+**구현 내용**:
+- 핵심 분석 레포트 9개를 `docs/codebase-report/`로 분리
+- README.md 인덱스 파일 추가
+- CLAUDE.md, README.md에 참조 추가
+
+**효과**:
+- 핵심 문서와 작업 문서 분리
+- 관리 효율성 향상
+
+---
+
 ## 2. 우선순위별 개선 과제
 
 ### 긴급 (Critical) - 실전 투자 전 필수
@@ -103,7 +171,7 @@ ML:
 | Feature 선택 | 500~1000개 | Top-50 | 3일 |
 | 복잡도 감소 | 20+ 단계 | Ablation Study → 10 단계 | 1주 |
 | 단위 테스트 | 없음 | 핵심 함수 커버리지 50%+ | 1주 |
-| 거래 비용 반영 | 없음 | Commission + Slippage | 2일 |
+| ~~거래 비용 반영~~ | ~~없음~~ | ~~Commission + Slippage~~ | ✅ 완료 |
 
 ### 중간 (Medium) - 안정성 강화
 
@@ -139,19 +207,19 @@ BACKTEST:
       END_YEAR: 2009
       START_MONTH: 1
       START_DATE: 1
-    
+
     # 2015 저성장기
     - START_YEAR: 2015
       END_YEAR: 2016
       START_MONTH: 1
       START_DATE: 1
-    
+
     # 2020 코로나 충격
     - START_YEAR: 2020
       END_YEAR: 2021
       START_MONTH: 1
       START_DATE: 1
-    
+
     # 2022 금리 급등기
     - START_YEAR: 2022
       END_YEAR: 2023
@@ -183,13 +251,13 @@ python main.py
 def generate_data_quality_report():
     # 1. NaN 분석
     nan_report = analyze_nan_values()
-    
+
     # 2. Infinite 분석
     inf_report = analyze_infinite_values()
-    
+
     # 3. Filing delay 분석
     delay_report = analyze_filing_delay()
-    
+
     # 4. 종합 리포트
     save_report({
         'nan': nan_report,
@@ -244,36 +312,14 @@ print(f"Reduced: {perf_reduced}")
 
 ---
 
-### 3.4 거래 비용 반영 (2일)
+### ~~3.4 거래 비용 반영 (2일)~~ ✅ 완료
 
-**목표**: 백테스트에 Commission + Slippage 반영
+**커밋**: `ef25545`
 
-**작업**:
-```python
-# src/backtest/ml_backtest.py
-def _calculate_period_return(self, portfolio, date):
-    # Commission: 0.1% × 2 (매수/매도)
-    commission = 0.001
-    
-    # Slippage: 0.1%
-    slippage = 0.001
-    
-    # Entry price
-    entry_price = close_price * (1 + slippage)
-    
-    # Exit price
-    exit_price = close_price * (1 - slippage)
-    
-    # Return
-    gross_return = (exit_price - entry_price) / entry_price
-    net_return = gross_return - 2 * commission
-    
-    return net_return
-```
-
-**효과**:
-- 실전과 동일한 조건
-- 수익률 약간 감소 (연 -1~2%)
+**구현 완료**:
+- Commission: 0.1% (편도)
+- Slippage: 0.1% (편도)
+- 설정: `BACKTEST.TRADING_COSTS.ENABLED: Y`
 
 ---
 
@@ -289,17 +335,17 @@ def _apply_stop_loss(self, portfolio, max_loss=-0.15):
     종목별 -15% 손실 시 강제 매도
     """
     stop_loss_triggered = []
-    
+
     for symbol in portfolio:
         current_return = (current_price - entry_price) / entry_price
-        
+
         if current_return < max_loss:
             logger.warning(f"{symbol} hit stop-loss: {current_return:.2%}")
             stop_loss_triggered.append(symbol)
-    
+
     # 포트폴리오에서 제거
     portfolio = portfolio[~portfolio['symbol'].isin(stop_loss_triggered)]
-    
+
     return portfolio
 ```
 
@@ -332,10 +378,10 @@ def test_align_features_to_model():
 def test_backtest_reproducibility():
     np.random.seed(42)
     result1 = run_backtest(config)
-    
+
     np.random.seed(42)
     result2 = run_backtest(config)
-    
+
     assert result1.equals(result2)
 
 # tests/test_future_leakage.py
@@ -420,10 +466,10 @@ results = {}
 
 for i in range(1, len(stages) + 1):
     active_stages = stages[:i]
-    
+
     # 백테스트 실행
     perf = run_backtest(stages=active_stages)
-    
+
     results[tuple(active_stages)] = perf
     print(f"{active_stages}: Sharpe {perf['sharpe']:.2f}")
 
@@ -511,11 +557,11 @@ class TransformerRegressor:
             n_heads=8,
             n_layers=6
         )
-    
+
     def fit(self, X_seq, y):
         # X_seq: (n_samples, seq_len, n_features)
         self.model.train(X_seq, y)
-    
+
     def predict(self, X_seq):
         return self.model.predict(X_seq)
 ```
@@ -640,7 +686,8 @@ spec:
 ### 단기 (1~2주)
 
 - [ ] Feature 선택 (Top-50)
-- [ ] 거래 비용 반영 (Commission + Slippage)
+- [x] ~~거래 비용 반영 (Commission + Slippage)~~ ✅ `ef25545`
+- [x] ~~슬리피지 반영~~ ✅ `ef25545`
 - [ ] Stop-Loss 구현
 - [ ] Position Sizing 구현
 
@@ -667,17 +714,18 @@ spec:
 
 ### 핵심 요약
 
-**현재 상태**: B+ (실전 투자 가능, 단 개선 필요)
+**현재 상태**: A- (실전 투자 준비 완료)
 
 **강점**:
 - 명확한 철학 (예측 아닌 선별)
-- 엄격한 백테스트 (Walk-Forward)
-- 통합 아키텍처 (코드 이중화 제거)
+- 엄격한 백테스트 (Walk-Forward, 거래 비용 반영)
+- 통합 아키텍처 (코드 이중화 제거, 아키텍처 기반 일원화)
+- 실전 기능 (예측 전용 모드, 거래 비용)
 
 **약점**:
 - 과적합 위험 (모델 수, Feature 수)
 - 검증 부족 (단위 테스트, Out-of-Sample)
-- 리스크 관리 미흡
+- 리스크 관리 미흡 (Stop-Loss 미구현)
 
 **다음 단계**:
 1. 백테스트 검증 (긴급)
