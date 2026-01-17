@@ -1,30 +1,9 @@
-# 퀀트 트레이딩 시스템 설정 템플릿
-# 이 파일을 conf.yaml로 복사한 후 설정을 입력하세요
-#
-# ============================================================================
-# 민감 정보 분리 안내
-# ============================================================================
-# API 키, 인증 정보 등 민감한 설정은 별도 파일(secrets.yaml)에서 관리합니다.
-#
-# 설정 방법:
-#   1. cp config/conf.yaml.template config/conf.yaml
-#   2. cp config/secrets.yaml.template config/secrets.yaml
-#   3. secrets.yaml에 실제 API 키 등 입력
-#   4. conf.yaml은 일반 설정만 수정
-#
-# 장점:
-#   - conf.yaml을 실수로 커밋해도 API 키 유출 방지
-#   - 팀원 간 conf.yaml 공유 가능 (secrets.yaml만 개인 관리)
-#   - 민감 정보 관리 단순화
-#
-# ============================================================================
-
 # ============================================================================
 # 데이터 설정 (DATA Configuration)
 # ============================================================================
 DATA:
   # 처리할 연도 범위 (포괄적 학습을 위한 최대 히스토리)
-  START_YEAR: 1996  # FMP API는 약 30년의 히스토리 데이터 제공
+  START_YEAR: 1996
   END_YEAR: 2025
 
   # 데이터 저장 경로 (하위 디렉토리가 자동 생성됨)
@@ -39,8 +18,6 @@ DATA:
   GET_FMP: N  # Y = FMP에서 새 데이터 가져오기, N = 기존 데이터 사용
   MAKE_VIEW: N  # Y = 기존 데이터로 VIEW CSV 재생성 (GET_FMP=N일 때도 동작), N = 건너뛰기
   STORAGE_TYPE: PARQUET  # PARQUET (권장) 또는 DB
-
-  # Debug mode removed: SAVE_DEBUG_CSV not used in codebase
 
 # ============================================================================
 # 평가 설정 (EVALUATION Configuration - regressor & backtest 통합)
@@ -69,12 +46,6 @@ EVALUATION:
       END_YEAR: 2023
       START_MONTH: 1
       START_DATE: 1
-
-    # 추가 예시: 2024-2025년 백테스트
-    # - START_YEAR: 2024
-    #   END_YEAR: 2025
-    #   START_MONTH: 1
-    #   START_DATE: 1
 
   # 리밸런싱 주기 (개월)
   REBALANCE_PERIOD: 3  # 분기별 (3개월)
@@ -243,12 +214,6 @@ ML:
   # 분류기 필터링 설정 (Classifier Filtering Configuration)
   # ============================================================================
   # Stage 1: 위험한/약한 종목을 제거하여 Stage 2 회귀기에게 전달할 종목 결정
-  #
-  # 모드별 작동 방식:
-  # - negative_screen: BAD 확률이 높은 종목 제거 (위험 회피)
-  #   예: BAD 확률 상위 10% 제거 → 하위 90% 유지
-  # - positive_screen: GOOD 확률이 낮은 종목 제거 (유망주 선택)
-  #   예: GOOD 확률 하위 10% 제거 → 상위 90% 유지
 
   # 자동 임계값 최적화 (권장)
   CLASSIFIER_THRESHOLD_AUTO_SEARCH: Y  # Y = 최적 제거 비율 자동 탐색, N = 고정값 사용
@@ -467,8 +432,6 @@ BENCHMARK:
   # 추가 가능한 벤치마크 예시 (필요시 주석 해제):
   # - MSFT  # Microsoft
   # - GOOGL # Alphabet (Google)
-  # - AMZN  # Amazon
-  # - TSLA  # Tesla
   # - IWM   # Russell 2000 ETF (소형주)
   # - DIA   # Dow Jones ETF
   # - VTI   # Total Stock Market ETF
@@ -521,9 +484,6 @@ LOG_LVL: 20
 START_MONTH: 3
 START_DATE: 17
 
-# 사용 중지: ML.CLASSIFIER_THRESHOLD_PERCENTILE로 이동됨
-# THRESHOLD_PERCENTILE: 92  # ML.CLASSIFIER_THRESHOLD_PERCENTILE 사용
-
 # ============================================================================
 # 주요 워크플로우 (Common Workflows)
 # ============================================================================
@@ -531,14 +491,14 @@ START_DATE: 17
 # ML 학습: DATA.GET_FMP=N, ML.RUN_REGRESSION=Y, ML.EXIT_AFTER_ML=Y
 # 백테스트: DATA.GET_FMP=N, ML.RUN_REGRESSION=N, BACKTEST.RUN_BACKTEST=Y
 # 전체 파이프라인: 모두 Y, EXIT_AFTER_ML=N
-#
 
 # ============================================================================
 # 실험 추적 설정 (EXPERIMENT TRACKING Configuration)
 # ============================================================================
 EXPERIMENT_TRACKING:
   # 마스터 스위치 - 전체 실험 추적 활성화 여부
-  ENABLED: N  # Y = 구글 시트/드라이브에 자동 업로드, N = 비활성화
+  # 상세 가이드: docs/experiment_tracking_guide.md
+  ENABLED: Y  # Y = 구글 시트/드라이브에 자동 업로드, N = 비활성화
 
   # 업로드 조건
   UPLOAD_CONDITIONS:
@@ -562,43 +522,6 @@ EXPERIMENT_TRACKING:
   # Drive에 올라가는 Config에서 아래 키들이 "***MASKED***"로 변경됨
   MASK_KEYS:
     - API_KEY
-    - FMP_API_KEY
-    - OPENAI_API_KEY
-    - DATABASE_PASSWORD
-    - AWS_SECRET_KEY
-    - SECRET_KEY
     - GOOGLE_SHEETS_ID
     - GOOGLE_DRIVE_FOLDER_ID
     - GOOGLE_SERVICE_ACCOUNT_KEY_PATH
-    - MLFLOW_TRACKING_URI
-
-# ============================================================================
-# 실험 추적 사용법 (EXPERIMENT TRACKING USAGE)
-# ============================================================================
-#
-# 1. 초기 설정:
-#    - Google Cloud Console에서 Service Account 생성
-#    - JSON key 파일 다운로드 → ~/.credentials/quant_sheets.json 저장
-#    - 구글 시트/드라이브에 Service Account 이메일 편집 권한 부여
-#    - SHEET_ID, FOLDER_ID 입력
-#    - ENABLED: Y로 변경
-#
-# 2. 자동 업로드 조건:
-#    - ENABLED=Y
-#    - BACKTEST.RUN_BACKTEST=Y (백테스트 실행)
-#    - ONLY_MASTER_BRANCH=Y면 master 브랜치에서만
-#
-# 3. 업로드 내용:
-#    - 구글 시트: 실험 요약 (날짜, 변경사항, 결과, Git 정보)
-#    - Drive: 전체 Config 파일 (민감 정보 마스킹됨)
-#
-# 4. 에러 발생 시:
-#    - 경고 메시지만 출력하고 프로그램 계속 실행
-#    - 백테스트 결과는 로컬 log.txt에 저장됨
-#
-# 5. Feature 브랜치 실험:
-#    - ONLY_MASTER_BRANCH=Y면 자동 스킵
-#    - 로컬에서만 테스트 후 master에 merge하여 기록
-#
-# 상세 가이드: docs/experiment_tracking_guide.md
-#
