@@ -141,9 +141,20 @@ class MLBacktest:
                 self.logger.info(f"   Available periods: {len(self.predictions_cache)}")
                 self.logger.info(f"   Dates: {list(self.predictions_cache.keys())}")
             else:
-                self.logger.warning(f"⚠️  USE_CACHED_PREDICTIONS=Y but cache not found: {cache_path}")
-                self.logger.warning(f"   Falling back to normal training/prediction mode")
-                self.use_cached_predictions = False
+                # 캐시 파일이 없으면 에러 - 일원화 원칙 강제
+                # fallback으로 직접 학습하면 regressor와 ml_backtest 간 예측이 달라질 수 있음
+                raise FileNotFoundError(
+                    f"\n{'='*60}\n"
+                    f"❌ Predictions cache not found!\n"
+                    f"   Path: {cache_path}\n"
+                    f"\n"
+                    f"   USE_CACHED_PREDICTIONS=Y requires regressor.py to run first.\n"
+                    f"\n"
+                    f"   Solutions:\n"
+                    f"   1. Run regressor.py first to generate predictions cache\n"
+                    f"   2. Or set USE_CACHED_PREDICTIONS=N in config to train directly\n"
+                    f"{'='*60}"
+                )
 
     def _get_available_data_until(self, cutoff_date: datetime) -> pd.DataFrame:
         """
