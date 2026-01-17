@@ -28,6 +28,11 @@ from pathlib import Path
 from sklearn.preprocessing import RobustScaler, StandardScaler
 
 from src.constants.data_schema import DataSchema
+from src.training.data_quality import (
+    DataQualityReport,
+    DataCleaningValidator,
+    generate_data_quality_report
+)
 
 
 class DataProcessor:
@@ -1068,6 +1073,49 @@ class DataProcessor:
         rows_before = len(X)
         cols_before = len(X.columns)
 
+        # ===== Data Quality Report (BEFORE preprocessing) =====
+        # Generate report to capture original data state
+        data_quality_config = config.get('DATA_QUALITY', {}) if config else {}
+        generate_report = data_quality_config.get('GENERATE_REPORT', 'N') == 'Y'
+
+        if generate_report:
+            if logger:
+                logger.info("Generating Data Quality Report (before preprocessing)...")
+
+            y_series = y.iloc[:, 0] if isinstance(y, pd.DataFrame) else y
+            report = DataQualityReport(X, y_series, config, logger)
+            report.generate()
+
+            # Save report if path is configured
+            report_path = data_quality_config.get('REPORT_OUTPUT_PATH')
+            if report_path:
+                try:
+                    report.save(report_path)
+                except Exception as e:
+                    if logger:
+                        logger.warning(f"Failed to save data quality report: {e}")
+
+        # ===== A/B Test for Cleaning Effect (optional, config-controlled) =====
+        validate_cleaning = data_quality_config.get('VALIDATE_CLEANING_EFFECT', 'N') == 'Y'
+
+        if validate_cleaning:
+            if logger:
+                logger.info("Running A/B test for cleaning effect validation...")
+
+            try:
+                y_series = y.iloc[:, 0] if isinstance(y, pd.DataFrame) else y
+                validator = DataCleaningValidator(X, y_series, config, logger)
+                validation_results = validator.validate_cleaning_effect()
+
+                # Log recommendation
+                rec = validation_results.get('recommendation', {})
+                if logger:
+                    logger.info(f"A/B Test Result: {rec.get('preferred', 'N/A').upper()} preferred")
+                    logger.info(f"   Reason: {rec.get('reason', 'N/A')}")
+            except Exception as e:
+                if logger:
+                    logger.warning(f"A/B test validation failed: {e}")
+
         # ===== Step 0: Normalize feature names (Critical for model training) =====
         # Remove special JSON characters from feature names to prevent errors
         # in XGBoost, LightGBM, and CatBoost
@@ -1304,6 +1352,14 @@ class DataProcessor:
             logger.info(f"   Rows: {rows_before} → {rows_after} ({rows_after/rows_before*100:.1f}% retained)")
             logger.info(f"   Cols: {cols_before} → {cols_after} ({cols_after/cols_before*100:.1f}% retained)")
             logger.info(f"   Remaining NaN: {X_clean.isna().sum().sum()}")
+
+            # Summary of data quality settings
+            if config:
+                dq_config = config.get('DATA_QUALITY', {})
+                if dq_config:
+                    logger.info(f"   Data Quality Report: {'Enabled' if dq_config.get('GENERATE_REPORT', 'N') == 'Y' else 'Disabled'}")
+                    logger.info(f"   A/B Cleaning Test: {'Enabled' if dq_config.get('VALIDATE_CLEANING_EFFECT', 'N') == 'Y' else 'Disabled'}")
+
             logger.info("=" * 80)
 
         return X_clean, y_clean, y_cls_clean, selected_features
