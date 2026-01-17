@@ -4946,11 +4946,14 @@ class Regressor:
         display_cols = [c for c in display_cols if c in top_k_df.columns]
 
         for idx, row in top_k_df.iterrows():
-            symbol = row.get('symbol', 'N/A')
-            company = row.get('company', 'N/A')[:30] if pd.notna(row.get('company')) else 'N/A'
-            sector = row.get('sector', 'N/A')
-            ml_score = row.get('ml_score', 0)
-            pred_return = row.get('pred_return', 0)
+            symbol = row.get('symbol') or 'N/A'
+            company_raw = row.get('company')
+            company = str(company_raw)[:30] if pd.notna(company_raw) else 'N/A'
+            sector = row.get('sector') or 'N/A'
+            ml_score = row.get('ml_score')
+            ml_score = float(ml_score) if pd.notna(ml_score) else 0.0
+            pred_return = row.get('pred_return')
+            pred_return = float(pred_return) if pd.notna(pred_return) else 0.0
 
             logging.info(f"   {symbol:6s} | {company:30s} | {sector:20s} | Score: {ml_score:+.4f} | Return: {pred_return:+.2%}")
 
