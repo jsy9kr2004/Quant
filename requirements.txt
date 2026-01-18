@@ -44,6 +44,10 @@ optuna>=3.5.0
 mlflow>=2.9.0  # Local experiment tracking
 
 # Google Sheets & Drive integration
+# ⚠️ NOTE: If you have tensorflow<=2.9.x installed, you may see a dependency conflict warning.
+#    This is NOT an error - gspread will still work correctly.
+#    To resolve: either upgrade tensorflow (pip install --upgrade tensorflow)
+#    or uninstall it if not needed (pip uninstall tensorflow tensorboard)
 gspread>=6.0.0  # Google Sheets API wrapper
 google-auth>=2.25.0  # Google authentication
 google-auth-oauthlib>=1.2.0  # OAuth2 support
