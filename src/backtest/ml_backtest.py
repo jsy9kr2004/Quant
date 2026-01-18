@@ -1062,9 +1062,29 @@ class MLBacktest:
         sorted_df = predictions.sort_values('ml_score', ascending=False)
 
         # 상위 K개 선택 (symbol과 sector 모두 포함)
-        top_k_df = sorted_df.head(self.top_k)
+        top_k_df = sorted_df.head(self.top_k).copy()
 
-        return top_k_df[['symbol', 'sector']].copy()
+        # ✅ Task #2: Ensure sector has value (fix empty sector issue)
+        if 'sector' not in top_k_df.columns:
+            top_k_df['sector'] = 'Unknown'
+        else:
+            top_k_df['sector'] = top_k_df['sector'].fillna('Unknown')
+
+        # ✅ Task #3: Add category column using SECTOR_CATEGORIZATION config
+        top_k_df = DataProcessor.map_sectors_to_categories(
+            top_k_df,
+            self.config,
+            sector_column='sector',
+            logger=None  # Don't log during prediction
+        )
+        # Rename sector_category to category for clarity
+        if 'sector_category' in top_k_df.columns:
+            top_k_df['category'] = top_k_df['sector_category']
+            top_k_df.drop(columns=['sector_category'], inplace=True, errors='ignore')
+        else:
+            top_k_df['category'] = top_k_df['sector']  # Fallback: use sector as category
+
+        return top_k_df[['symbol', 'sector', 'category']].copy()
 
     def _calculate_period_return(
         self,
@@ -1109,10 +1129,11 @@ class MLBacktest:
         returns = []
         details = []
 
-        # ✅ 섹터 정보 포함하여 반복
+        # ✅ 섹터 + 카테고리 정보 포함하여 반복
         for _, stock in selected_stocks.iterrows():
             symbol = stock['symbol']
             sector = stock.get('sector', 'Unknown')  # sector가 없으면 'Unknown'
+            category = stock.get('category', sector)  # category가 없으면 sector 사용
 
             symbol_prices = price_table[price_table['symbol'] == symbol]
 
@@ -1164,10 +1185,11 @@ class MLBacktest:
             # 수익률 리스트에 추가 (상장폐지 포함) - 순수익률 사용
             returns.append(net_ret)
 
-            # 상세 정보 저장 (섹터 정보 + 상장폐지 여부 + 거래 비용)
+            # 상세 정보 저장 (섹터 + 카테고리 정보 + 상장폐지 여부 + 거래 비용)
             details.append({
                 'symbol': symbol,
-                'sector': sector,  # ✅ 섹터 정보 추가
+                'sector': sector,      # ✅ 섹터 정보 추가
+                'category': category,  # ✅ 카테고리 정보 추가
                 'buy_price': buy_price,
                 'sell_price': sell_price,
                 'gross_return': gross_ret,         # 순수 수익률
@@ -1476,7 +1498,8 @@ class MLBacktest:
         # ✅ 거래일 조정 (regressor.py/make_mldata.py와 일원화)
         # 휴장일(주말, 공휴일)을 실제 거래 가능일로 조정
         self.logger.info(f"\n📅 Adjusting rebalance dates to actual trading days...")
-        adjusted_dates = []
+        # (원래 날짜, 조정된 날짜) 튜플 리스트로 저장
+        date_pairs = []
 
         for i, target_date in enumerate(rebalance_dates):
             # DataProcessor.get_trade_date()로 월초/월말 구분하여 거래일 찾기
@@ -1499,32 +1522,38 @@ class MLBacktest:
             else:
                 self.logger.info(f"   {target_date.date()} (already a trading day)")
 
-            # pd.Timestamp를 datetime으로 변환
-            adjusted_dates.append(actual_trade_date.to_pydatetime())
+            # (원래 날짜, 조정된 날짜) 튜플로 저장
+            original_date = target_date if isinstance(target_date, datetime) else target_date.to_pydatetime()
+            adjusted_date = actual_trade_date.to_pydatetime()
+            date_pairs.append((original_date, adjusted_date))
 
-        rebalance_dates = adjusted_dates
-        self.logger.info(f"\n📅 Rebalance dates after adjustment: {len(rebalance_dates)}")
-        for date in rebalance_dates:
-            self.logger.info(f"   {date.date()}")
+        self.logger.info(f"\n📅 Rebalance dates after adjustment: {len(date_pairs)}")
+        for orig, adj in date_pairs:
+            if orig.date() != adj.date():
+                self.logger.info(f"   {orig.date()} → {adj.date()}")
+            else:
+                self.logger.info(f"   {orig.date()}")
 
         # Walk-Forward 백테스트
         last_train_date = None
         current_models = None
 
-        for i, rebalance_date in enumerate(rebalance_dates):
+        for i, (original_rebalance_date, actual_rebalance_date) in enumerate(date_pairs):
             self.logger.info(f"\n{'='*80}")
-            self.logger.info(f"Rebalance #{i+1}: {rebalance_date.date()}")
+            self.logger.info(f"Rebalance #{i+1}: {original_rebalance_date.date()} (actual: {actual_rebalance_date.date()})")
             self.logger.info(f"{'='*80}")
 
             # 1. 사용 가능한 데이터 로드 (미래 유출 방지!)
+            # 원래 리밸런싱 날짜 기준으로 데이터 cutoff
             try:
-                available_data = self._get_available_data_until(rebalance_date)
+                available_data = self._get_available_data_until(original_rebalance_date)
             except ValueError as e:
                 self.logger.warning(f"⚠️ {e}, skipping this period")
                 continue
 
             # 2. 캐시 사용 여부 확인 (Phase 4)
-            cache_key = rebalance_date.strftime('%Y-%m-%d')
+            # 캐시 키는 실제 거래일 기준
+            cache_key = actual_rebalance_date.strftime('%Y-%m-%d')
             use_cache_for_this_period = (
                 self.use_cached_predictions and
                 self.predictions_cache is not None and
@@ -1548,13 +1577,13 @@ class MLBacktest:
             if not use_cache_for_this_period:
                 # Normal training/prediction mode
                 # 2. 모델 재학습 필요 여부 판단
-                should_retrain = self._should_retrain(rebalance_date, last_train_date)
+                should_retrain = self._should_retrain(original_rebalance_date, last_train_date)
 
                 if should_retrain:
                     # Window 타입에 따라 학습 데이터 필터링
                     if self.window_type == 'rolling' and self.window_size:
                         # Rolling: 최근 N년만
-                        cutoff = rebalance_date - relativedelta(years=self.window_size)
+                        cutoff = original_rebalance_date - relativedelta(years=self.window_size)
                         train_data = available_data[
                             pd.to_datetime(available_data.get('fillingDate', available_data.index)) >= cutoff
                         ]
@@ -1563,13 +1592,13 @@ class MLBacktest:
                         train_data = available_data
 
                     # 모델 학습
-                    current_models = self._train_model(train_data, rebalance_date)
-                    last_train_date = rebalance_date
+                    current_models = self._train_model(train_data, original_rebalance_date)
+                    last_train_date = original_rebalance_date
                 else:
                     self.logger.info(f"📦 Reusing existing model from {last_train_date.date()}")
 
                 # 3. 예측용 데이터 로드 (현재 시점의 최신 데이터)
-                predict_file = self.data_path / f'rnorm_fs_{rebalance_date.year}_Q{(rebalance_date.month-1)//3 + 1}.parquet'
+                predict_file = self.data_path / f'rnorm_fs_{original_rebalance_date.year}_Q{(original_rebalance_date.month-1)//3 + 1}.parquet'
                 if not predict_file.exists():
                     self.logger.warning(f"⚠️ Prediction file not found: {predict_file}")
                     continue
@@ -1584,40 +1613,43 @@ class MLBacktest:
             self.logger.info(f"📊 Selected {len(selected_stocks)} stocks")
 
             # 6. 수익률 계산 (다음 리밸런싱 날짜까지)
-            if i < len(rebalance_dates) - 1:
-                next_rebalance = rebalance_dates[i + 1]
+            if i < len(date_pairs) - 1:
+                # 다음 리밸런싱의 실제 거래일 사용
+                next_actual_rebalance = date_pairs[i + 1][1]
                 period_result = self._calculate_period_return(
                     selected_stocks,  # ✅ DataFrame (symbol, sector 포함)
-                    rebalance_date,
-                    next_rebalance,
+                    actual_rebalance_date,  # 실제 매수일
+                    next_actual_rebalance,   # 실제 매도일
                     price_table
                 )
 
                 avg_return = period_result['avg_return']
                 self.logger.info(f"💰 Period return: {avg_return*100:.2f}%")
 
-                # 결과 저장 (요약)
+                # 결과 저장 (요약) - 원래 날짜와 실제 거래일 구분
                 self.backtest_results.append({
-                    'rebalance_date': rebalance_date,
+                    'rebalance_date': original_rebalance_date,  # 원래 리밸런싱 날짜
                     'actual_buy_date': period_result['actual_buy_date'],
                     'actual_sell_date': period_result['actual_sell_date'],
                     'num_stocks': len(selected_stocks),  # ✅ DataFrame 길이
                     'avg_return': avg_return,
-                    'retrained': should_retrain
+                    'retrained': should_retrain if not use_cache_for_this_period else False
                 })
 
-                # 상세 정보 저장 (각 종목별 + 섹터)
+                # 상세 정보 저장 (각 종목별 + 섹터 + 카테고리 + 상장폐지 여부)
                 for detail in period_result['details']:
                     self.detailed_results.append({
-                        'rebalance_date': rebalance_date,
+                        'rebalance_date': original_rebalance_date,  # 원래 리밸런싱 날짜
                         'actual_buy_date': period_result['actual_buy_date'],
                         'actual_sell_date': period_result['actual_sell_date'],
                         'symbol': detail['symbol'],
-                        'sector': detail.get('sector', 'Unknown'),  # ✅ 섹터 정보 추가
+                        'sector': detail.get('sector', 'Unknown'),      # ✅ 섹터 정보 추가
+                        'category': detail.get('category', 'Unknown'),  # ✅ 카테고리 정보 추가
                         'buy_price': detail['buy_price'],
                         'sell_price': detail['sell_price'],
                         'return': detail['return'],
-                        'return_pct': detail['return_pct']
+                        'return_pct': detail['return_pct'],
+                        'delisted': detail.get('delisted', False)  # ✅ Task #5: 상장폐지 여부 (sell_price=0 설명)
                     })
 
         # 7. 최종 리포트
@@ -1626,9 +1658,9 @@ class MLBacktest:
 
         # 8. 벤치마크 계산 (전체 백테스트 기간)
         benchmark_df = pd.DataFrame()
-        if len(rebalance_dates) > 0:
-            backtest_start = rebalance_dates[0]
-            backtest_end = rebalance_dates[-1]
+        if len(date_pairs) > 0:
+            backtest_start = date_pairs[0][1]  # 첫 번째 실제 거래일
+            backtest_end = date_pairs[-1][1]   # 마지막 실제 거래일
             benchmark_df = self._calculate_benchmark_returns(backtest_start, backtest_end, price_table)
 
             # ML 모델 성능 추가 (비교용)
@@ -1684,9 +1716,20 @@ class MLBacktest:
             if not detailed_df.empty:
                 detailed_df.to_excel(writer, sheet_name='Detailed', index=False)
 
-            # Sheet 3: Benchmark (벤치마크 비교)
+            # Sheet 3: Benchmark (벤치마크 비교) - 전체 기간 요약
             if not benchmark_df.empty:
                 benchmark_df.to_excel(writer, sheet_name='Benchmark', index=False)
+
+            # ✅ Task #7: Sheet 4 - Period-by-Period Benchmark Comparison
+            if not benchmark_df.empty and not results_df.empty:
+                period_comparison_df = self._create_period_benchmark_comparison(
+                    results_df, date_pairs, price_table
+                )
+                if not period_comparison_df.empty:
+                    period_comparison_df.to_excel(writer, sheet_name='Benchmark_Periods', index=False)
+
+            # ✅ Task #6: Auto-adjust column widths for all sheets
+            self._adjust_excel_column_widths(writer)
 
         self.logger.info(f"\n✅ Backtest report saved: {excel_file}")
         if not detailed_df.empty:
@@ -1723,3 +1766,117 @@ class MLBacktest:
         self.logger.info(f"Max Drawdown: {mdd*100:.2f}%")
         self.logger.info(f"Win Rate: {win_rate*100:.1f}%")
         self.logger.info(f"Models Retrained: {results['retrained'].sum()} times")
+
+    def _adjust_excel_column_widths(self, writer: pd.ExcelWriter):
+        """
+        ✅ Task #6: Auto-adjust Excel column widths for all sheets.
+        Date columns get minimum width of 12 to display YYYY-MM-DD properly.
+        """
+        from openpyxl.utils import get_column_letter
+
+        for sheet_name in writer.sheets:
+            ws = writer.sheets[sheet_name]
+            for col_idx, column_cells in enumerate(ws.columns, 1):
+                max_length = 0
+                column_letter = get_column_letter(col_idx)
+
+                for cell in column_cells:
+                    try:
+                        cell_value = str(cell.value) if cell.value else ""
+                        max_length = max(max_length, len(cell_value))
+                    except:
+                        pass
+
+                # Date columns need minimum width of 12 (YYYY-MM-DD)
+                header_cell = ws.cell(row=1, column=col_idx)
+                header_value = str(header_cell.value) if header_cell.value else ""
+                if 'date' in header_value.lower():
+                    max_length = max(max_length, 12)
+
+                # Add padding and set width
+                adjusted_width = min(max_length + 2, 50)  # Cap at 50
+                ws.column_dimensions[column_letter].width = adjusted_width
+
+    def _create_period_benchmark_comparison(
+        self,
+        results_df: pd.DataFrame,
+        date_pairs: list,
+        price_table: pd.DataFrame
+    ) -> pd.DataFrame:
+        """
+        ✅ Task #7: Create period-by-period comparison with benchmarks.
+
+        Returns a DataFrame with ML model returns vs benchmark returns for each period.
+        """
+        from src.backtest.etf_data_loader import ETFDataLoader
+
+        benchmark_config = self.config.get('BENCHMARK', {})
+        if not benchmark_config.get('ENABLED', 'N') == 'Y':
+            return pd.DataFrame()
+
+        benchmark_symbols = benchmark_config.get('SYMBOLS', [])
+        if not benchmark_symbols:
+            return pd.DataFrame()
+
+        # Load ETF data
+        try:
+            etf_loader = ETFDataLoader(
+                config=self.config,
+                root_path=self.main_ctx.root_path,
+                logger=self.logger
+            )
+
+            backtest_start = date_pairs[0][1]
+            backtest_end = date_pairs[-1][1]
+
+            etf_price_table = etf_loader.load_etf_prices(
+                symbols=benchmark_symbols,
+                start_date=backtest_start,
+                end_date=backtest_end
+            )
+
+            if etf_price_table is None or etf_price_table.empty:
+                self.logger.warning("⚠️ Could not load ETF prices for period comparison")
+                return pd.DataFrame()
+
+        except Exception as e:
+            self.logger.warning(f"⚠️ Error loading ETF data: {e}")
+            return pd.DataFrame()
+
+        # Calculate period-by-period returns
+        period_data = []
+
+        for i, (original_date, actual_date) in enumerate(date_pairs[:-1]):
+            next_actual_date = date_pairs[i + 1][1]
+
+            # Get ML model return for this period
+            ml_return = results_df.iloc[i]['avg_return'] if i < len(results_df) else 0.0
+
+            period_row = {
+                'period': i + 1,
+                'start_date': actual_date,
+                'end_date': next_actual_date,
+                'ml_model_return': ml_return,
+                'ml_model_return_pct': ml_return * 100
+            }
+
+            # Calculate benchmark returns for each symbol
+            for symbol in benchmark_symbols:
+                symbol_prices = etf_price_table[etf_price_table['symbol'] == symbol]
+
+                start_price_rows = symbol_prices[symbol_prices['date'] <= actual_date].tail(1)
+                end_price_rows = symbol_prices[symbol_prices['date'] <= next_actual_date].tail(1)
+
+                if not start_price_rows.empty and not end_price_rows.empty:
+                    start_price = start_price_rows.iloc[0]['close']
+                    end_price = end_price_rows.iloc[0]['close']
+                    bench_return = (end_price - start_price) / start_price
+                else:
+                    bench_return = 0.0
+
+                period_row[f'{symbol}_return'] = bench_return
+                period_row[f'{symbol}_return_pct'] = bench_return * 100
+
+            period_data.append(period_row)
+
+        return pd.DataFrame(period_data)
