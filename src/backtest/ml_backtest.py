@@ -170,6 +170,90 @@ class MLBacktest:
         else:
             self.logger.info("💰 Trading costs disabled (pure returns)")
 
+        # ✅ 상장폐지 데이터 로드 (검증용)
+        self.delisted_data = self._load_delisted_data()
+
+    def _load_delisted_data(self) -> pd.DataFrame:
+        """
+        상장폐지 종목 데이터 로드.
+
+        FMP의 delisted_companies 데이터를 로드하여 상장폐지 여부 검증에 사용.
+        데이터가 없으면 빈 DataFrame 반환 (검증 스킵).
+        """
+        delisted_dir = Path(self.main_ctx.root_path) / 'fmp_raw' / 'delisted_companies'
+
+        if not delisted_dir.exists():
+            self.logger.info("📋 No delisted_companies data found - delisting verification disabled")
+            return pd.DataFrame()
+
+        try:
+            all_delisted = []
+            for file in delisted_dir.glob('*.parquet'):
+                df = pd.read_parquet(file)
+                if not df.empty:
+                    all_delisted.append(df)
+
+            if not all_delisted:
+                self.logger.info("📋 delisted_companies directory is empty - delisting verification disabled")
+                return pd.DataFrame()
+
+            delisted_df = pd.concat(all_delisted, ignore_index=True)
+
+            # 필요한 컬럼만 유지
+            required_cols = ['symbol', 'delistedDate']
+            available_cols = [c for c in required_cols if c in delisted_df.columns]
+
+            if 'symbol' not in available_cols:
+                self.logger.warning("⚠️ delisted_companies data missing 'symbol' column")
+                return pd.DataFrame()
+
+            delisted_df = delisted_df[available_cols].drop_duplicates(subset=['symbol'])
+
+            if 'delistedDate' in delisted_df.columns:
+                delisted_df['delistedDate'] = pd.to_datetime(delisted_df['delistedDate'], errors='coerce')
+
+            self.logger.info(f"📋 Loaded {len(delisted_df)} delisted companies for verification")
+            return delisted_df
+
+        except Exception as e:
+            self.logger.warning(f"⚠️ Error loading delisted data: {e}")
+            return pd.DataFrame()
+
+    def _is_truly_delisted(self, symbol: str, check_date: pd.Timestamp) -> tuple:
+        """
+        종목이 특정 날짜에 실제로 상장폐지되었는지 검증.
+
+        Returns:
+        -------
+        tuple: (is_delisted: bool, delisted_date: str or None, status: str)
+            - is_delisted: 상장폐지 여부
+            - delisted_date: 상장폐지 날짜 (있으면)
+            - status: 'confirmed_delisted', 'data_missing', 'active'
+        """
+        if self.delisted_data.empty:
+            # 검증 데이터 없음 - 가격 없으면 data_missing으로 처리
+            return (False, None, 'unverified')
+
+        symbol_data = self.delisted_data[self.delisted_data['symbol'] == symbol]
+
+        if symbol_data.empty:
+            # 상장폐지 리스트에 없음 - 아직 상장 중이거나 데이터 누락
+            return (False, None, 'not_in_delisted_list')
+
+        # 상장폐지 리스트에 있음
+        if 'delistedDate' in symbol_data.columns:
+            delisted_date = symbol_data.iloc[0]['delistedDate']
+            if pd.notna(delisted_date):
+                # 상장폐지 날짜가 체크 날짜 이전인지 확인
+                if delisted_date <= check_date:
+                    return (True, delisted_date.strftime('%Y-%m-%d'), 'confirmed_delisted')
+                else:
+                    # 아직 상장폐지 전
+                    return (False, delisted_date.strftime('%Y-%m-%d'), 'will_be_delisted')
+
+        # 상장폐지 날짜 정보 없음
+        return (True, None, 'delisted_no_date')
+
     def _get_available_data_until(self, cutoff_date: datetime) -> pd.DataFrame:
         """
         특정 날짜까지 사용 가능한 데이터 로드 (Filing Date 고려)
@@ -1148,16 +1232,50 @@ class MLBacktest:
             # 매도 가격 (실제 거래일)
             sell_price_rows = symbol_prices[symbol_prices['date'] == actual_sell_date]
             if sell_price_rows.empty:
-                # ✅ 상장폐지: -100% 수익률로 처리
-                gross_ret = -1.0
-                net_ret = -1.0
-                sell_price = 0.0
-                is_delisted = True
-                trading_cost = 0.0  # 상장폐지 시 거래 비용 없음
-                self.logger.warning(
-                    f"   ⚠️  {symbol}: DELISTED (no price at {actual_sell_date.date()}) "
-                    f"→ -100% return"
+                # ✅ 가격 데이터 없음 - 상장폐지 여부 검증
+                is_delisted_verified, delisted_date, status = self._is_truly_delisted(
+                    symbol, actual_sell_date
                 )
+
+                # 디버그 로그: 가격이 없는 종목의 상세 정보
+                last_price_date = symbol_prices['date'].max() if not symbol_prices.empty else None
+                self.logger.warning(
+                    f"   🔍 {symbol}: No price at {actual_sell_date.date()} | "
+                    f"Last price: {last_price_date.date() if last_price_date else 'N/A'} | "
+                    f"Delisting status: {status}"
+                    + (f" (delisted: {delisted_date})" if delisted_date else "")
+                )
+
+                if is_delisted_verified or status in ('confirmed_delisted', 'delisted_no_date'):
+                    # 확인된 상장폐지: -100% 수익률
+                    gross_ret = -1.0
+                    net_ret = -1.0
+                    sell_price = 0.0
+                    is_delisted = True
+                    delisted_status = 'confirmed'
+                    trading_cost = 0.0
+                    self.logger.warning(f"      → CONFIRMED DELISTED: -100% return")
+                else:
+                    # 상장폐지 미확인: 데이터 누락으로 처리 (스킵하거나 마지막 가격 사용)
+                    # 옵션 1: 스킵 (보수적)
+                    # 옵션 2: 마지막 가격 사용 (낙관적)
+                    if not symbol_prices.empty:
+                        # 마지막 가격 사용 (가장 최근 거래 가격)
+                        last_price_row = symbol_prices.sort_values('date').iloc[-1]
+                        sell_price = last_price_row['close']
+                        gross_ret = (sell_price - buy_price) / buy_price
+                        net_ret = gross_ret  # 거래 비용은 별도 계산
+                        is_delisted = False
+                        delisted_status = 'data_missing_used_last_price'
+                        trading_cost = 0.0
+                        self.logger.warning(
+                            f"      → DATA MISSING: Using last available price ${sell_price:.2f} "
+                            f"from {last_price_row['date'].date()} (return: {gross_ret*100:.2f}%)"
+                        )
+                    else:
+                        # 가격 데이터가 전혀 없음 - 스킵
+                        self.logger.warning(f"      → NO PRICE DATA: Skipping {symbol}")
+                        continue
             else:
                 sell_price = sell_price_rows.iloc[0]['close']
 
@@ -1181,6 +1299,7 @@ class MLBacktest:
                     trading_cost = 0.0
 
                 is_delisted = False
+                delisted_status = 'active'  # 정상 거래
 
             # 수익률 리스트에 추가 (상장폐지 포함) - 순수익률 사용
             returns.append(net_ret)
@@ -1196,7 +1315,8 @@ class MLBacktest:
                 'trading_cost': trading_cost,       # 거래 비용
                 'return': net_ret,                  # 순수익률 (거래 비용 차감)
                 'return_pct': net_ret * 100,
-                'delisted': is_delisted  # ✅ 상장폐지 여부 추가
+                'delisted': is_delisted,           # 상장폐지 여부 (boolean)
+                'delisted_status': delisted_status  # ✅ 상세 상태 (confirmed/data_missing_used_last_price/active)
             })
 
         if not returns:
@@ -1649,7 +1769,8 @@ class MLBacktest:
                         'sell_price': detail['sell_price'],
                         'return': detail['return'],
                         'return_pct': detail['return_pct'],
-                        'delisted': detail.get('delisted', False)  # ✅ Task #5: 상장폐지 여부 (sell_price=0 설명)
+                        'delisted': detail.get('delisted', False),              # 상장폐지 여부
+                        'delisted_status': detail.get('delisted_status', 'active')  # ✅ 상세 상태
                     })
 
         # 7. 최종 리포트
