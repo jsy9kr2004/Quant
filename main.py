@@ -697,12 +697,60 @@ def main() -> None:
         results = ml_backtest.run()
 
         logger.info("✅ ML backtesting completed")
-        logger.info(f"  Results saved to: {results.get('report_path', 'reports/')}")
+        logger.info("  Results saved to: reports/")
+
+        # 백테스트 결과에서 지표 추출 (구글 시트 업로드용)
+        backtest_results = None
+        if results is not None and len(results) > 0:
+            try:
+                import numpy as np
+                total_return = (1 + results['avg_return']).prod() - 1
+                avg_return = results['avg_return'].mean()
+                std_return = results['avg_return'].std()
+                sharpe = avg_return / std_return * np.sqrt(12/ml_backtest.rebalance_period) if std_return > 0 else 0
+
+                cumulative = (1 + results['avg_return']).cumprod()
+                running_max = cumulative.cummax()
+                drawdown = (cumulative - running_max) / running_max
+                mdd = drawdown.min()
+
+                win_rate = (results['avg_return'] > 0).sum() / len(results)
+
+                backtest_results = {
+                    'total_return': total_return * 100,
+                    'sharpe_ratio': sharpe,
+                    'max_drawdown': mdd * 100,
+                    'win_rate': win_rate * 100
+                }
+            except Exception as e:
+                logger.warning(f"⚠️  Failed to extract backtest metrics: {e}")
 
         # Cleanup
         del ml_backtest
 
-    # 8. Pipeline completed
+    else:
+        backtest_results = None
+
+    # 8. Experiment Tracking (Google Sheets upload)
+    tracking_config = config.get('EXPERIMENT_TRACKING', {})
+    if tracking_config.get('ENABLED') in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'TRUE', 'True'):
+        try:
+            from src.experiment import upload_experiment_result
+            logger.info("="*80)
+            logger.info("Step 4: Uploading experiment to Google Sheets...")
+            logger.info("="*80)
+            upload_experiment_result(
+                config=config,
+                backtest_results=backtest_results,
+                prediction_metrics=None,  # TODO: 향후 regressor 평가 결과 추가
+                experiment_name=None  # 자동 생성
+            )
+        except ImportError as e:
+            logger.warning(f"⚠️  Google Sheets upload skipped: {e}")
+        except Exception as e:
+            logger.warning(f"⚠️  Google Sheets upload failed: {e}")
+
+    # 9. Pipeline completed
     logger.info("="*80)
     logger.info("Pipeline completed successfully!")
     logger.info("="*80)
