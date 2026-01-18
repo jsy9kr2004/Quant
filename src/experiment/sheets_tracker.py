@@ -23,6 +23,9 @@ try:
     GOOGLE_LIBS_AVAILABLE = True
 except ImportError:
     GOOGLE_LIBS_AVAILABLE = False
+    # 타입 힌트용 더미 클래스 (실제로 사용되지 않음)
+    Credentials = None
+    gspread = None
 
 from src.experiment.config_masker import ConfigMasker
 
