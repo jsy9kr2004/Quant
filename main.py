@@ -669,6 +669,7 @@ def main() -> None:
 
     # 7. ML Walk-Forward Backtesting (Optional)
     backtest_config = config.get('BACKTEST', {})
+    eval_config = config.get('EVALUATION', {})
     # Support both 'Y'/True and 'N'/False from YAML parsing (default True)
     run_backtest_val = backtest_config.get('RUN_BACKTEST', True)
     if run_backtest_val not in ('N', False, 'no', 'NO', 'No', 'OFF', 'Off', 'off', 'FALSE', 'False'):
@@ -676,12 +677,16 @@ def main() -> None:
         logger.info("Step 3: ML Walk-Forward Backtesting")
         logger.info("="*80)
 
+        # ✅ Task #4: Read from EVALUATION first, then fallback to BACKTEST
+        top_k_num = eval_config.get('TOP_K_NUM', backtest_config.get('TOP_K_NUM', 20))
+        rebalance_period = eval_config.get('REBALANCE_PERIOD', backtest_config.get('REBALANCE_PERIOD', 3))
+
         # Initialize ML-based walk-forward backtesting
         ml_backtest = MLBacktest(
             config=config,
             main_ctx=main_ctx,
-            rebalance_period=backtest_config.get('REBALANCE_PERIOD', 3),
-            top_k=backtest_config.get('TOP_K_NUM', 20),
+            rebalance_period=rebalance_period,
+            top_k=top_k_num,
             retrain_frequency=backtest_config.get('RETRAIN_FREQUENCY', 'quarterly'),
             window_type=backtest_config.get('WINDOW_TYPE', 'expanding'),
             window_size=backtest_config.get('WINDOW_SIZE', 3)
@@ -689,8 +694,8 @@ def main() -> None:
 
         # Run walk-forward backtest
         logger.info("Starting ML walk-forward backtest...")
-        logger.info(f"  Rebalance period: {backtest_config.get('REBALANCE_PERIOD', 3)} months")
-        logger.info(f"  Top K: {backtest_config.get('TOP_K_NUM', 20)}")
+        logger.info(f"  Rebalance period: {rebalance_period} months")
+        logger.info(f"  Top K: {top_k_num}")
         logger.info(f"  Retrain frequency: {backtest_config.get('RETRAIN_FREQUENCY', 'quarterly')}")
         logger.info(f"  Window type: {backtest_config.get('WINDOW_TYPE', 'expanding')}")
 
