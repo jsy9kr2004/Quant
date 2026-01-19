@@ -9,10 +9,15 @@ import subprocess
 import yaml
 import logging
 from datetime import datetime
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, TYPE_CHECKING
 from pathlib import Path
 
-# Google API 라이브러리
+# Google API 라이브러리 (타입 힌트용)
+if TYPE_CHECKING:
+    import gspread
+    from google.oauth2.service_account import Credentials
+
+# Google API 라이브러리 (런타임)
 try:
     import gspread
     from google.oauth2.service_account import Credentials
@@ -22,6 +27,12 @@ try:
     import requests
     GOOGLE_LIBS_AVAILABLE = True
 except ImportError:
+    gspread = None  # type: ignore
+    Credentials = None  # type: ignore
+    build = None  # type: ignore
+    MediaFileUpload = None  # type: ignore
+    HttpError = None  # type: ignore
+    requests = None  # type: ignore
     GOOGLE_LIBS_AVAILABLE = False
 
 from src.experiment.config_masker import ConfigMasker
@@ -326,7 +337,7 @@ class SheetsTracker:
         creds = Credentials.from_service_account_file(key_path, scopes=self.SCOPES)
         return creds
 
-    def _get_sheets_client(self) -> gspread.Client:
+    def _get_sheets_client(self) -> "gspread.Client":
         """
         Google Sheets 클라이언트 가져오기 (lazy initialization)
 
