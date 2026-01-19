@@ -49,6 +49,8 @@ google-auth>=2.25.0  # Google authentication
 google-auth-oauthlib>=1.2.0  # OAuth2 support
 google-auth-httplib2>=0.2.0  # HTTP support
 google-api-python-client>=2.100.0  # Google Drive API
+httplib2>=0.22.0  # HTTP client (required for google-api-python-client)
+pyparsing>=3.0.0  # Parser library (httplib2 dependency, 3.x required for DelimitedList)
 
 # ============================================
 # Feature Engineering
