@@ -408,7 +408,8 @@ class SheetsTracker:
         file = drive_service.files().create(
             body=file_metadata,
             media_body=media,
-            fields='id,webViewLink'
+            fields='id,webViewLink',
+            supportsAllDrives=True  # 공유 드라이브 지원
         ).execute()
 
         file_id = file.get('id')
