@@ -52,6 +52,7 @@ gspread>=6.0.0  # Google Sheets API wrapper
 google-auth>=2.25.0  # Google authentication
 google-auth-oauthlib>=1.2.0  # OAuth2 support
 google-auth-httplib2>=0.2.0  # HTTP support
+google-api-python-client>=2.100.0  # Google Drive API
 
 # ============================================
 # Feature Engineering

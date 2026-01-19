@@ -8,6 +8,7 @@ import os
 import subprocess
 import yaml
 import logging
+import tempfile
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, TYPE_CHECKING
 from pathlib import Path
@@ -384,8 +385,8 @@ class SheetsTracker:
         prefix = self.tracking_config.get('GOOGLE_DRIVE', {}).get('CONFIG_PREFIX', 'config_')
         filename = f"{prefix}{timestamp}_{experiment_name}.yaml"
 
-        temp_dir = Path("/tmp/quant_experiment")
-        temp_dir.mkdir(exist_ok=True)
+        temp_dir = Path(tempfile.gettempdir()) / "quant_experiment"
+        temp_dir.mkdir(parents=True, exist_ok=True)
         temp_path = temp_dir / filename
 
         # YAML로 저장
