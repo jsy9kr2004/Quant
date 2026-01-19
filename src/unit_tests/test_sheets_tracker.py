@@ -457,14 +457,3 @@ class TestSheetsTrackerIntegration:
         )
 
         print("\n✅ Full upload_experiment completed successfully")
-
-
-# ============================================================================
-# conftest.py에 필요한 pytest 마커 등록
-# ============================================================================
-
-def pytest_configure(config):
-    """pytest 마커 등록"""
-    config.addinivalue_line(
-        "markers", "integration: marks tests as integration tests (실제 Google API 호출)"
-    )
