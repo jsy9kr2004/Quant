@@ -2,10 +2,10 @@
 SheetsTracker 유닛테스트
 
 테스트 실행:
-    # Mock 테스트만 (Google API 호출 없음, 빠름)
+    # Mock 테스트만 (Google/GitHub API 호출 없음, 빠름)
     pytest src/unit_tests/test_sheets_tracker.py -v -m "not integration"
 
-    # 실제 Google API 연동 테스트 (secrets.yaml 필요)
+    # 실제 API 연동 테스트 (secrets.yaml 필요)
     pytest src/unit_tests/test_sheets_tracker.py -v -m integration
 
     # 전체 테스트
@@ -53,11 +53,12 @@ def sample_config():
                 'SHEET_NAME': 'Experiments',
                 'KEY_PATH': '~/.credentials/test_key.json',
             },
-            'GOOGLE_DRIVE': {
-                'FOLDER_ID': 'test_folder_id_456',
+            'GITHUB_GIST': {
+                'PAT': 'test_github_pat_12345',
                 'CONFIG_PREFIX': 'config_',
+                'PUBLIC': False,
             },
-            'MASK_KEYS': ['API_KEY', 'FMP_API_KEY'],
+            'MASK_KEYS': ['API_KEY', 'FMP_API_KEY', 'GITHUB_PAT'],
         },
     }
 
@@ -107,7 +108,6 @@ class TestSheetsTrackerInit:
         assert tracker.config == sample_config
         assert tracker.tracking_config == sample_config['EXPERIMENT_TRACKING']
         assert tracker.sheets_client is None  # lazy init
-        assert tracker.drive_client is None   # lazy init
 
     def test_init_without_experiment_tracking(self):
         """EXPERIMENT_TRACKING 없는 config"""
@@ -241,26 +241,26 @@ class TestConfigMasking:
 class TestUploadExperimentMocked:
     """upload_experiment 메서드 테스트 (Mock)"""
 
-    @patch.object(SheetsTracker, '_upload_config_to_drive')
+    @patch.object(SheetsTracker, '_upload_config_to_gist')
     @patch.object(SheetsTracker, '_append_to_sheet')
     @patch.object(SheetsTracker, '_get_git_info')
     def test_upload_calls_methods_in_order(
         self,
         mock_git_info,
         mock_append_sheet,
-        mock_upload_drive,
+        mock_upload_gist,
         sample_config,
         sample_backtest_results
     ):
         """업로드 시 필요한 메서드들이 순서대로 호출되는지"""
         mock_git_info.return_value = ('test_user', 'test@email.com', 'abc123', 'master')
-        mock_upload_drive.return_value = 'https://drive.google.com/file/123'
+        mock_upload_gist.return_value = 'https://gist.github.com/user/abc123'
 
         tracker = SheetsTracker(sample_config)
         tracker.upload_experiment(sample_backtest_results, experiment_name='test_exp')
 
-        # Drive 업로드 호출 확인
-        mock_upload_drive.assert_called_once()
+        # Gist 업로드 호출 확인
+        mock_upload_gist.assert_called_once()
 
         # Sheet 추가 호출 확인
         mock_append_sheet.assert_called_once()
@@ -289,12 +289,13 @@ class TestUploadExperimentMocked:
 @pytest.mark.integration
 class TestSheetsTrackerIntegration:
     """
-    실제 Google API 연동 테스트
+    실제 Google API / GitHub API 연동 테스트
 
     실행 전 필요 사항:
     1. config/secrets.yaml에 실제 값 설정
     2. Google Service Account 키 파일 존재
-    3. Google Sheets/Drive에 Service Account 권한 부여
+    3. Google Sheets에 Service Account 권한 부여
+    4. GitHub PAT (gist 스코프)
 
     실행:
         pytest src/unit_tests/test_sheets_tracker.py -v -m integration
@@ -337,43 +338,29 @@ class TestSheetsTrackerIntegration:
         client = tracker._get_sheets_client()
         assert client is not None
 
-    def test_drive_client_connection(self, real_config):
-        """Google Drive 클라이언트 연결 테스트"""
-        tracker = SheetsTracker(real_config)
-
-        key_path = real_config.get('EXPERIMENT_TRACKING', {}).get('GOOGLE_SHEETS', {}).get('KEY_PATH')
-        if not key_path or not os.path.exists(os.path.expanduser(key_path)):
-            pytest.skip("Service account key not found")
-
-        # Drive 클라이언트 생성
-        drive = tracker._get_drive_client()
-        assert drive is not None
-
-    def test_upload_config_to_drive(self, real_config):
+    def test_upload_config_to_gist(self, real_config):
         """
-        실제 Drive에 Config 업로드 테스트
+        실제 GitHub Gist에 Config 업로드 테스트
 
-        주의: 실제로 파일이 업로드됩니다!
+        주의: 실제로 Gist가 생성됩니다!
         """
         tracker = SheetsTracker(real_config)
 
-        key_path = real_config.get('EXPERIMENT_TRACKING', {}).get('GOOGLE_SHEETS', {}).get('KEY_PATH')
-        folder_id = real_config.get('EXPERIMENT_TRACKING', {}).get('GOOGLE_DRIVE', {}).get('FOLDER_ID')
+        github_pat = real_config.get('EXPERIMENT_TRACKING', {}).get('GITHUB_GIST', {}).get('PAT')
 
-        if not key_path or not os.path.exists(os.path.expanduser(key_path)):
-            pytest.skip("Service account key not found")
-        if not folder_id or folder_id.startswith('YOUR_'):
-            pytest.skip("GOOGLE_DRIVE.FOLDER_ID not configured")
+        if not github_pat or github_pat.startswith('YOUR_'):
+            pytest.skip("GITHUB_GIST.PAT not configured")
 
         # 마스킹된 config
         masked_config = tracker.masker.mask_config(real_config)
 
-        # Drive에 업로드
-        url = tracker._upload_config_to_drive(masked_config, 'unittest_exp')
+        # Gist에 업로드
+        url = tracker._upload_config_to_gist(masked_config, 'unittest_exp')
 
         assert url is not None
-        assert 'drive.google.com' in url
-        print(f"\n✅ Config uploaded to: {url}")
+        assert url != ''
+        assert 'gist.github.com' in url
+        print(f"\n✅ Config uploaded to Gist: {url}")
 
     def test_append_to_sheet(self, real_config):
         """
@@ -397,7 +384,7 @@ class TestSheetsTrackerIntegration:
             git_user='pytest',
             git_commit='test123',
             git_branch='test',
-            config_url='https://example.com/config',
+            config_url='https://gist.github.com/test/config',
             changes_str='UNITTEST: test run',
             backtest_results={
                 'total_return': 10.0,
@@ -422,18 +409,18 @@ class TestSheetsTrackerIntegration:
         """
         전체 upload_experiment 플로우 테스트
 
-        주의: 실제로 Drive 업로드 + Sheets 기록이 됩니다!
+        주의: 실제로 Gist 업로드 + Sheets 기록이 됩니다!
         """
         key_path = real_config.get('EXPERIMENT_TRACKING', {}).get('GOOGLE_SHEETS', {}).get('KEY_PATH')
         sheet_id = real_config.get('EXPERIMENT_TRACKING', {}).get('GOOGLE_SHEETS', {}).get('SHEET_ID')
-        folder_id = real_config.get('EXPERIMENT_TRACKING', {}).get('GOOGLE_DRIVE', {}).get('FOLDER_ID')
+        github_pat = real_config.get('EXPERIMENT_TRACKING', {}).get('GITHUB_GIST', {}).get('PAT')
 
         if not key_path or not os.path.exists(os.path.expanduser(key_path)):
             pytest.skip("Service account key not found")
         if not sheet_id or sheet_id.startswith('YOUR_'):
             pytest.skip("GOOGLE_SHEETS.SHEET_ID not configured")
-        if not folder_id or folder_id.startswith('YOUR_'):
-            pytest.skip("GOOGLE_DRIVE.FOLDER_ID not configured")
+        if not github_pat or github_pat.startswith('YOUR_'):
+            pytest.skip("GITHUB_GIST.PAT not configured")
 
         # 전체 플로우 실행
         upload_experiment_result(
