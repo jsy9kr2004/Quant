@@ -966,7 +966,7 @@ current_quarter_data['filling_delay_days'] = (
 - `FMP_API_KEY`: FMP API 키
 - `GOOGLE_SERVICE_ACCOUNT_KEY_PATH`: Google 서비스 계정 키 파일 경로
 - `GOOGLE_SHEETS_ID`: Google Sheets ID
-- `GOOGLE_DRIVE_FOLDER_ID`: Google Drive 폴더 ID
+- `GITHUB_PAT`: GitHub Personal Access Token (Gist용)
 - `MLFLOW_TRACKING_URI`: MLflow 서버 URL (내부 인프라)
 
 **초기 설정 방법**:

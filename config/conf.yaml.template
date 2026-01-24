@@ -550,12 +550,14 @@ EXPERIMENT_TRACKING:
     RETRY_ON_FAILURE: 3  # API 실패 시 재시도 횟수
     TIMEOUT_SECONDS: 30  # API 타임아웃 (초)
 
-  # Google Drive 설정 (Config 파일 저장용)
-  GOOGLE_DRIVE:
+  # GitHub Gist 설정 (Config 파일 저장용)
+  # Google Drive 대신 GitHub Gist 사용 (무료, Service Account 제한 없음)
+  GITHUB_GIST:
     CONFIG_PREFIX: "config_"  # 예: config_2025-12-30_baseline.yaml
+    PUBLIC: N  # Y = 공개 Gist, N = Secret Gist (URL 아는 사람만 접근)
 
   # 민감 정보 마스킹 (Config 업로드 전 자동 처리)
-  # Drive에 올라가는 Config에서 아래 키들이 "***MASKED***"로 변경됨
+  # Gist에 올라가는 Config에서 아래 키들이 "***MASKED***"로 변경됨
   MASK_KEYS:
     - API_KEY
     - GOOGLE_SHEETS_ID

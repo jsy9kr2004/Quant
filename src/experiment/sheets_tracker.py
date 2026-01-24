@@ -1,14 +1,14 @@
 """
 Google Sheets 실험 추적기
 
-백테스트 결과를 구글 시트에 자동 기록하고 Config 파일을 Drive에 업로드
+백테스트 결과를 구글 시트에 자동 기록하고 Config 파일을 GitHub Gist에 업로드
 """
 
 import os
 import subprocess
 import yaml
 import logging
-import tempfile
+import json
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, TYPE_CHECKING
 from pathlib import Path
@@ -22,17 +22,11 @@ if TYPE_CHECKING:
 try:
     import gspread
     from google.oauth2.service_account import Credentials
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload
-    from googleapiclient.errors import HttpError
     import requests
     GOOGLE_LIBS_AVAILABLE = True
 except ImportError:
     gspread = None  # type: ignore
     Credentials = None  # type: ignore
-    build = None  # type: ignore
-    MediaFileUpload = None  # type: ignore
-    HttpError = None  # type: ignore
     requests = None  # type: ignore
     GOOGLE_LIBS_AVAILABLE = False
     # 타입 힌트용 더미 클래스 (실제로 사용되지 않음)
@@ -45,13 +39,15 @@ logger = logging.getLogger(__name__)
 
 
 class SheetsTracker:
-    """실험 결과를 구글 시트/드라이브에 자동 기록하는 클래스"""
+    """실험 결과를 구글 시트에 기록하고 Config를 GitHub Gist에 업로드하는 클래스"""
 
     # Google Sheets API 스코프
     SCOPES = [
         'https://www.googleapis.com/auth/spreadsheets',  # Sheets 읽기/쓰기
-        'https://www.googleapis.com/auth/drive.file',    # Drive 파일 업로드
     ]
+
+    # GitHub Gist API URL
+    GITHUB_GIST_API = "https://api.github.com/gists"
 
     def __init__(self, config: Dict[str, Any]):
         """
@@ -69,7 +65,6 @@ class SheetsTracker:
 
         # Google API 클라이언트 (lazy initialization)
         self.sheets_client = None
-        self.drive_client = None
 
         logger.debug("SheetsTracker initialized")
 
@@ -126,8 +121,8 @@ class SheetsTracker:
             changes = self._extract_config_changes()
             changes_str = self.masker.format_changes_for_display(changes)
 
-            # 6. Config 파일 Drive에 업로드
-            config_url = self._upload_config_to_drive(
+            # 6. Config 파일을 GitHub Gist에 업로드
+            config_url = self._upload_config_to_gist(
                 masked_config,
                 experiment_name
             )
@@ -353,77 +348,75 @@ class SheetsTracker:
             self.sheets_client = gspread.authorize(creds)
         return self.sheets_client
 
-    def _get_drive_client(self):
-        """
-        Google Drive 클라이언트 가져오기 (lazy initialization)
-
-        Returns:
-            Google Drive service
-        """
-        if self.drive_client is None:
-            creds = self._get_credentials()
-            self.drive_client = build('drive', 'v3', credentials=creds)
-        return self.drive_client
-
-    def _upload_config_to_drive(
+    def _upload_config_to_gist(
         self,
         masked_config: Dict[str, Any],
         experiment_name: str
     ) -> str:
         """
-        마스킹된 Config를 Google Drive에 업로드
+        마스킹된 Config를 GitHub Gist에 업로드
 
         Args:
             masked_config: 마스킹된 config dict
             experiment_name: 실험 이름
 
         Returns:
-            업로드된 파일의 URL
+            업로드된 Gist의 URL (실패 시 빈 문자열)
         """
-        # 임시 파일로 저장
+        # GitHub PAT 확인
+        gist_config = self.tracking_config.get('GITHUB_GIST', {})
+        github_pat = gist_config.get('PAT')
+
+        if not github_pat:
+            logger.warning("GITHUB_GIST.PAT not configured - skipping config upload")
+            return ""
+
+        # 파일 이름 생성
         timestamp = datetime.now().strftime("%Y-%m-%d")
-        prefix = self.tracking_config.get('GOOGLE_DRIVE', {}).get('CONFIG_PREFIX', 'config_')
+        prefix = gist_config.get('CONFIG_PREFIX', 'config_')
         filename = f"{prefix}{timestamp}_{experiment_name}.yaml"
 
-        temp_dir = Path(tempfile.gettempdir()) / "quant_experiment"
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        temp_path = temp_dir / filename
+        # YAML 문자열로 변환
+        yaml_content = yaml.dump(masked_config, default_flow_style=False, allow_unicode=True)
 
-        # YAML로 저장
-        with open(temp_path, 'w', encoding='utf-8') as f:
-            yaml.dump(masked_config, f, default_flow_style=False, allow_unicode=True)
-
-        logger.debug(f"Config saved to temp file: {temp_path}")
-
-        # Drive에 업로드
-        folder_id = self.tracking_config.get('GOOGLE_DRIVE', {}).get('FOLDER_ID')
-        if not folder_id:
-            raise ValueError("GOOGLE_DRIVE.FOLDER_ID not configured")
-
-        drive_service = self._get_drive_client()
-
-        file_metadata = {
-            'name': filename,
-            'parents': [folder_id]
+        # Gist 생성 요청
+        headers = {
+            'Authorization': f'token {github_pat}',
+            'Accept': 'application/vnd.github.v3+json',
         }
-        media = MediaFileUpload(str(temp_path), mimetype='text/yaml')
 
-        file = drive_service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id,webViewLink',
-            supportsAllDrives=True  # 공유 드라이브 지원
-        ).execute()
+        # public=False로 설정하면 secret gist (URL 아는 사람만 접근 가능)
+        is_public = gist_config.get('PUBLIC', False)
+        description = f"Quant Experiment Config: {experiment_name}"
 
-        file_id = file.get('id')
-        file_url = file.get('webViewLink')
+        payload = {
+            'description': description,
+            'public': is_public,
+            'files': {
+                filename: {
+                    'content': yaml_content
+                }
+            }
+        }
 
-        logger.debug(f"Config uploaded to Drive: {file_url}")
+        try:
+            response = requests.post(
+                self.GITHUB_GIST_API,
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+            response.raise_for_status()
 
-        # 임시 파일 삭제
-        temp_path.unlink()
+            gist_data = response.json()
+            gist_url = gist_data.get('html_url', '')
 
-        return file_url
+            logger.debug(f"Config uploaded to Gist: {gist_url}")
+            return gist_url
+
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Failed to upload config to Gist: {e}")
+            return ""
 
     def _append_to_sheet(
         self,
