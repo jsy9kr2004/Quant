@@ -295,6 +295,36 @@ class RegressorIntegrated:
         elif self.legacy_regressor:
             self.legacy_regressor.latest_prediction()
 
+    def predict_for_date(self, target_date: str = "latest", top_k: int = 10) -> 'pd.DataFrame':
+        """
+        특정 날짜 기준으로 주식 추천을 생성합니다 (학습 없이 예측만).
+
+        이미 학습된 모델을 로드하여 target_date 기준으로 사용 가능한 데이터로
+        예측을 수행합니다.
+
+        Parameters:
+        ----------
+        target_date : str
+            예측 기준 날짜:
+            - "latest": 가장 최근 데이터 사용
+            - "2025-01-11": 해당 날짜 기준으로 filingDate <= target_date인 최신 데이터 사용
+        top_k : int
+            추천할 종목 수 (기본값: 10)
+
+        Returns:
+        -------
+        pd.DataFrame
+            추천 종목 DataFrame (symbol, company, sector, ml_score, pred_return 등)
+        """
+        import pandas as pd
+
+        if self.legacy_regressor:
+            return self.legacy_regressor.predict_for_date(target_date=target_date, top_k=top_k)
+        else:
+            logger = get_logger('RegressorIntegrated')
+            logger.error("Legacy regressor not available, cannot run predict_for_date")
+            return pd.DataFrame()
+
 
 def get_config_path() -> str:
     """
@@ -639,6 +669,7 @@ def main() -> None:
 
     # 7. ML Walk-Forward Backtesting (Optional)
     backtest_config = config.get('BACKTEST', {})
+    eval_config = config.get('EVALUATION', {})
     # Support both 'Y'/True and 'N'/False from YAML parsing (default True)
     run_backtest_val = backtest_config.get('RUN_BACKTEST', True)
     if run_backtest_val not in ('N', False, 'no', 'NO', 'No', 'OFF', 'Off', 'off', 'FALSE', 'False'):
@@ -646,12 +677,16 @@ def main() -> None:
         logger.info("Step 3: ML Walk-Forward Backtesting")
         logger.info("="*80)
 
+        # ✅ Task #4: Read from EVALUATION first, then fallback to BACKTEST
+        top_k_num = eval_config.get('TOP_K_NUM', backtest_config.get('TOP_K_NUM', 20))
+        rebalance_period = eval_config.get('REBALANCE_PERIOD', backtest_config.get('REBALANCE_PERIOD', 3))
+
         # Initialize ML-based walk-forward backtesting
         ml_backtest = MLBacktest(
             config=config,
             main_ctx=main_ctx,
-            rebalance_period=backtest_config.get('REBALANCE_PERIOD', 3),
-            top_k=backtest_config.get('TOP_K_NUM', 20),
+            rebalance_period=rebalance_period,
+            top_k=top_k_num,
             retrain_frequency=backtest_config.get('RETRAIN_FREQUENCY', 'quarterly'),
             window_type=backtest_config.get('WINDOW_TYPE', 'expanding'),
             window_size=backtest_config.get('WINDOW_SIZE', 3)
@@ -659,20 +694,68 @@ def main() -> None:
 
         # Run walk-forward backtest
         logger.info("Starting ML walk-forward backtest...")
-        logger.info(f"  Rebalance period: {backtest_config.get('REBALANCE_PERIOD', 3)} months")
-        logger.info(f"  Top K: {backtest_config.get('TOP_K_NUM', 20)}")
+        logger.info(f"  Rebalance period: {rebalance_period} months")
+        logger.info(f"  Top K: {top_k_num}")
         logger.info(f"  Retrain frequency: {backtest_config.get('RETRAIN_FREQUENCY', 'quarterly')}")
         logger.info(f"  Window type: {backtest_config.get('WINDOW_TYPE', 'expanding')}")
 
         results = ml_backtest.run()
 
         logger.info("✅ ML backtesting completed")
-        logger.info(f"  Results saved to: {results.get('report_path', 'reports/')}")
+        logger.info("  Results saved to: reports/")
+
+        # 백테스트 결과에서 지표 추출 (구글 시트 업로드용)
+        backtest_results = None
+        if results is not None and len(results) > 0:
+            try:
+                import numpy as np
+                total_return = (1 + results['avg_return']).prod() - 1
+                avg_return = results['avg_return'].mean()
+                std_return = results['avg_return'].std()
+                sharpe = avg_return / std_return * np.sqrt(12/ml_backtest.rebalance_period) if std_return > 0 else 0
+
+                cumulative = (1 + results['avg_return']).cumprod()
+                running_max = cumulative.cummax()
+                drawdown = (cumulative - running_max) / running_max
+                mdd = drawdown.min()
+
+                win_rate = (results['avg_return'] > 0).sum() / len(results)
+
+                backtest_results = {
+                    'total_return': total_return * 100,
+                    'sharpe_ratio': sharpe,
+                    'max_drawdown': mdd * 100,
+                    'win_rate': win_rate * 100
+                }
+            except Exception as e:
+                logger.warning(f"⚠️  Failed to extract backtest metrics: {e}")
 
         # Cleanup
         del ml_backtest
 
-    # 8. Pipeline completed
+    else:
+        backtest_results = None
+
+    # 8. Experiment Tracking (Google Sheets upload)
+    tracking_config = config.get('EXPERIMENT_TRACKING', {})
+    if tracking_config.get('ENABLED') in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'TRUE', 'True'):
+        try:
+            from src.experiment import upload_experiment_result
+            logger.info("="*80)
+            logger.info("Step 4: Uploading experiment to Google Sheets...")
+            logger.info("="*80)
+            upload_experiment_result(
+                config=config,
+                backtest_results=backtest_results,
+                prediction_metrics=None,  # TODO: 향후 regressor 평가 결과 추가
+                experiment_name=None  # 자동 생성
+            )
+        except ImportError as e:
+            logger.warning(f"⚠️  Google Sheets upload skipped: {e}")
+        except Exception as e:
+            logger.warning(f"⚠️  Google Sheets upload failed: {e}")
+
+    # 9. Pipeline completed
     logger.info("="*80)
     logger.info("Pipeline completed successfully!")
     logger.info("="*80)

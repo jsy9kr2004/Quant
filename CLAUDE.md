@@ -714,6 +714,67 @@ ml_score = y_pred_proba * y_pred_return
 2. **검증 무효화**: 실수로 한쪽만 달라지면 종합 평가가 무의미해짐
 3. **신뢰성 하락**: 백테스트 결과를 믿을 수 없게 됨
 
+### 해결 방법: 아키텍처 기반 일원화 ✅
+
+**핵심 아이디어**: 코드 중복을 줄이는 것을 넘어, **아키텍처 자체가 일원화를 강제**하도록 설계
+
+#### 1단계: Prediction Cache 공유 (2025-12-21)
+
+regressor.py가 생성한 예측 결과를 ml_backtest.py가 **재사용**하는 구조:
+
+```
+regressor.py (학습 & 예측)
+    ↓
+    예측 결과 저장: MODELS/regressor_predictions.pkl
+    ↓
+ml_backtest.py (수익률 계산만)
+    ↑
+    캐시 로드 & 재사용 (모델 학습/예측 스킵)
+```
+
+**효과**:
+- 두 시스템이 **물리적으로 동일한 예측값** 사용
+- 코드가 달라도 결과는 동일 (캐시 공유)
+
+#### 2단계: Fallback 제거로 강제 (2025-01-17)
+
+**문제**: 캐시가 없을 때 ml_backtest.py가 자체 학습하면 일원화 깨짐
+
+**기존 코드 (위험)**:
+```python
+if cache_path.exists():
+    self.predictions_cache = joblib.load(cache_path)
+else:
+    # ❌ Silent fallback - 일원화 위반 가능!
+    self.logger.warning("Falling back to normal training mode")
+    self.use_cached_predictions = False
+```
+
+**수정된 코드 (안전)**:
+```python
+if cache_path.exists():
+    self.predictions_cache = joblib.load(cache_path)
+else:
+    # ✅ 에러 발생 - 일원화 강제
+    raise FileNotFoundError(
+        "Predictions cache not found!\n"
+        "Run regressor.py first, or set USE_CACHED_PREDICTIONS=N"
+    )
+```
+
+**효과**:
+- 캐시 없이 백테스트 실행 자체가 **불가능**
+- 실수로 다른 예측값 사용하는 것 **원천 차단**
+- 유닛테스트로 일원화 검증할 필요 없음 (아키텍처가 보장)
+
+#### 결과: 일원화 보장 수준
+
+| 접근 방식 | 일원화 보장 | 단점 |
+|-----------|------------|------|
+| 코드 리뷰 | ⚠️ 사람 의존 | 실수 가능 |
+| 유닛테스트 | ⚠️ 테스트 커버리지 의존 | 누락 가능 |
+| **아키텍처 강제** | ✅ 100% 보장 | 없음 |
+
 ### 작업 시 필수 체크리스트
 
 **모든 수정 작업 시 다음을 확인:**
@@ -849,6 +910,43 @@ current_quarter_data['filling_delay_days'] = (
 ⚠️ **통합 필요**:
 - Feature alignment 로직 (현재 regressor.py, ml_backtest.py에 중복)
 
+---
+
+## 📊 핵심 분석 레포트 (Codebase Report)
+
+> **위치**: `docs/codebase-report/`
+
+프로젝트의 전반적인 코드 분석 레포트입니다. 자주 참조하고 업데이트합니다.
+
+### 레포트 목록
+
+| 파일 | 주제 | 용도 |
+|------|------|------|
+| `00_overview.md` | 전체 개요 | 프로젝트 철학, 종합 평가, 핵심 요약 |
+| `01_architecture.md` | 아키텍처 | 시스템 구조, 모듈 관계, 데이터 흐름 |
+| `02_data_pipeline.md` | 데이터 파이프라인 | FMP API, 전처리, 저장 구조 |
+| `03_ml_strategy.md` | ML 전략 | 2-Stage 모델, Classifier/Regressor |
+| `04_backtesting.md` | 백테스팅 | Walk-Forward, 거래 비용, 벤치마크 |
+| `05_code_quality.md` | 코드 품질 | 가독성, 유지보수성, 테스트 |
+| `06_quant_perspective.md` | 퀀트 관점 | 시장 효율성, 리스크, 알파 |
+| `07_recommendations.md` | 개선 권고 | 우선순위별 TODO 목록 |
+| `08_recent_changes.md` | 최신 변경사항 | 최근 업데이트 내역 |
+
+### 업데이트 규칙
+
+1. **기능 추가/변경 시**: 관련 레포트 업데이트
+2. **버그 수정 시**: `08_recent_changes.md`에 기록
+3. **TODO 완료 시**: `07_recommendations.md`에서 체크
+4. **날짜 갱신**: 각 문서 헤더의 "최종 업데이트" 수정
+
+### 활용 방법
+
+- **프로젝트 이해**: 00 → 01 → 02 순서로 읽기
+- **작업 계획**: 07_recommendations.md 참조
+- **변경 추적**: 08_recent_changes.md 확인
+
+---
+
 ## 🗂️ 프로젝트 관리 (Project Management)
 
 ### Configuration 파일 관리 (민감 정보 분리)
@@ -965,9 +1063,13 @@ config = load_config('config/conf.yaml')
 ├── requirements.txt       ✅ 의존성
 ├── main.py                ✅ 실행 파일
 ├── docs/                  📁 모든 문서 파일
-│   ├── TROUBLESHOOTING.md
+│   ├── codebase-report/   🔍 핵심 분석 레포트 (AI 작성)
+│   │   ├── 00_overview.md
+│   │   ├── 01_architecture.md
+│   │   ├── ...
+│   │   └── 08_recent_changes.md
+│   ├── analysis/          📊 작업용 분석 문서
 │   ├── QUICK_START.md
-│   ├── API_REFERENCE.md
 │   └── ...
 ├── src/                   📁 소스 코드
 └── config/                📁 설정 파일

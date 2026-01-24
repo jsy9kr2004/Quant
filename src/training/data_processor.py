@@ -28,6 +28,11 @@ from pathlib import Path
 from sklearn.preprocessing import RobustScaler, StandardScaler
 
 from src.constants.data_schema import DataSchema
+from src.training.data_quality import (
+    DataQualityReport,
+    DataCleaningValidator,
+    generate_data_quality_report
+)
 
 
 class DataProcessor:
@@ -1068,6 +1073,49 @@ class DataProcessor:
         rows_before = len(X)
         cols_before = len(X.columns)
 
+        # ===== Data Quality Report (BEFORE preprocessing) =====
+        # Generate report to capture original data state
+        data_quality_config = config.get('DATA_QUALITY', {}) if config else {}
+        generate_report = data_quality_config.get('GENERATE_REPORT', 'N') == 'Y'
+
+        if generate_report:
+            if logger:
+                logger.info("Generating Data Quality Report (before preprocessing)...")
+
+            y_series = y.iloc[:, 0] if isinstance(y, pd.DataFrame) else y
+            report = DataQualityReport(X, y_series, config, logger)
+            report.generate()
+
+            # Save report if path is configured
+            report_path = data_quality_config.get('REPORT_OUTPUT_PATH')
+            if report_path:
+                try:
+                    report.save(report_path)
+                except Exception as e:
+                    if logger:
+                        logger.warning(f"Failed to save data quality report: {e}")
+
+        # ===== A/B Test for Cleaning Effect (optional, config-controlled) =====
+        validate_cleaning = data_quality_config.get('VALIDATE_CLEANING_EFFECT', 'N') == 'Y'
+
+        if validate_cleaning:
+            if logger:
+                logger.info("Running A/B test for cleaning effect validation...")
+
+            try:
+                y_series = y.iloc[:, 0] if isinstance(y, pd.DataFrame) else y
+                validator = DataCleaningValidator(X, y_series, config, logger)
+                validation_results = validator.validate_cleaning_effect()
+
+                # Log recommendation
+                rec = validation_results.get('recommendation', {})
+                if logger:
+                    logger.info(f"A/B Test Result: {rec.get('preferred', 'N/A').upper()} preferred")
+                    logger.info(f"   Reason: {rec.get('reason', 'N/A')}")
+            except Exception as e:
+                if logger:
+                    logger.warning(f"A/B test validation failed: {e}")
+
         # ===== Step 0: Normalize feature names (Critical for model training) =====
         # Remove special JSON characters from feature names to prevent errors
         # in XGBoost, LightGBM, and CatBoost
@@ -1304,6 +1352,14 @@ class DataProcessor:
             logger.info(f"   Rows: {rows_before} → {rows_after} ({rows_after/rows_before*100:.1f}% retained)")
             logger.info(f"   Cols: {cols_before} → {cols_after} ({cols_after/cols_before*100:.1f}% retained)")
             logger.info(f"   Remaining NaN: {X_clean.isna().sum().sum()}")
+
+            # Summary of data quality settings
+            if config:
+                dq_config = config.get('DATA_QUALITY', {})
+                if dq_config:
+                    logger.info(f"   Data Quality Report: {'Enabled' if dq_config.get('GENERATE_REPORT', 'N') == 'Y' else 'Disabled'}")
+                    logger.info(f"   A/B Cleaning Test: {'Enabled' if dq_config.get('VALIDATE_CLEANING_EFFECT', 'N') == 'Y' else 'Disabled'}")
+
             logger.info("=" * 80)
 
         return X_clean, y_clean, y_cls_clean, selected_features
@@ -2572,7 +2628,9 @@ class DataProcessor:
     def get_trade_date(
         pdate: pd.Timestamp,
         price_table: pd.DataFrame,
-        date_column: str = 'date'
+        date_column: str = 'date',
+        min_stocks: int = 100,
+        debug: bool = True
     ) -> Optional[pd.Timestamp]:
         """
         달력 날짜를 실제 거래 날짜로 변환합니다.
@@ -2588,6 +2646,11 @@ class DataProcessor:
             가격 데이터 (date 컬럼 필요)
         date_column : str
             날짜 컬럼명 (기본값: 'date')
+        min_stocks : int
+            거래일로 인정하기 위한 최소 종목 수 (기본값: 100)
+            휴장일에 일부 종목만 데이터가 있는 경우를 필터링
+        debug : bool
+            디버그 로깅 활성화 여부 (기본값: True)
 
         Returns:
         -------
@@ -2608,6 +2671,7 @@ class DataProcessor:
         - 월초/월말 구분: 15일 기준
         - 월초: pdate 이후 10일 내 첫 거래일
         - 월말: pdate 이전 10일 내 마지막 거래일
+        - 최소 min_stocks개 이상 종목이 거래되어야 유효한 거래일로 인정
         - regressor.py와 ml_backtest.py에서 동일하게 사용
         """
         from dateutil.relativedelta import relativedelta
@@ -2619,20 +2683,39 @@ class DataProcessor:
             # 월초: 날짜 이후 10일 내에서 가장 가까운 거래일 찾기
             future_date = pdate + relativedelta(days=10)
             res = price_table.query(f"{date_column} >= @pdate and {date_column} <= @future_date")
-            if res.empty:
-                return None
-            else:
-                # ✅ min() 사용: price_table 정렬 순서와 무관하게 가장 가까운 미래 거래일
-                return res[date_column].min()
         else:
             # 월말: 날짜 이전 10일 내에서 가장 가까운 거래일 찾기
             past_date = pdate - relativedelta(days=10)
             res = price_table.query(f"{date_column} >= @past_date and {date_column} <= @pdate")
-            if res.empty:
-                return None
-            else:
-                # ✅ max() 사용: price_table 정렬 순서와 무관하게 가장 가까운 과거 거래일
-                return res[date_column].max()
+
+        if res.empty:
+            return None
+
+        # 날짜별 종목 수 계산
+        date_counts = res.groupby(date_column).size()
+
+        # 디버그 로깅: 날짜별 종목 수와 샘플 종목 출력
+        if debug:
+            logging.info(f"      [DEBUG] Checking dates around {pdate.date()} (direction: {'future' if is_month_start else 'past'}):")
+            # 날짜 정렬 (월초: 오름차순, 월말: 내림차순)
+            sorted_dates = date_counts.sort_index(ascending=is_month_start)
+            for date_val, count in sorted_dates.head(5).items():
+                sample_symbols = res[res[date_column] == date_val]['symbol'].head(5).tolist()
+                status = "✓" if count >= min_stocks else "✗"
+                logging.info(f"      [DEBUG]   {date_val.date()}: {count:4d} stocks {status} - samples: {sample_symbols}")
+
+        # 최소 종목 수 이상인 날짜만 유효한 거래일로 인정
+        valid_dates = date_counts[date_counts >= min_stocks]
+
+        if valid_dates.empty:
+            logging.warning(f"      [DEBUG] No valid trading day found (min_stocks={min_stocks})")
+            return None
+
+        # 가장 가까운 유효 거래일 반환
+        if is_month_start:
+            return valid_dates.index.min()  # 미래 방향: 가장 작은 날짜
+        else:
+            return valid_dates.index.max()  # 과거 방향: 가장 큰 날짜
 
     # ========================================================================
     # Sector Categorization Utilities

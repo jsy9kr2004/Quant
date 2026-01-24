@@ -141,9 +141,118 @@ class MLBacktest:
                 self.logger.info(f"   Available periods: {len(self.predictions_cache)}")
                 self.logger.info(f"   Dates: {list(self.predictions_cache.keys())}")
             else:
-                self.logger.warning(f"⚠️  USE_CACHED_PREDICTIONS=Y but cache not found: {cache_path}")
-                self.logger.warning(f"   Falling back to normal training/prediction mode")
-                self.use_cached_predictions = False
+                # 캐시 파일이 없으면 에러 - 일원화 원칙 강제
+                # fallback으로 직접 학습하면 regressor와 ml_backtest 간 예측이 달라질 수 있음
+                raise FileNotFoundError(
+                    f"\n{'='*60}\n"
+                    f"❌ Predictions cache not found!\n"
+                    f"   Path: {cache_path}\n"
+                    f"\n"
+                    f"   USE_CACHED_PREDICTIONS=Y requires regressor.py to run first.\n"
+                    f"\n"
+                    f"   Solutions:\n"
+                    f"   1. Run regressor.py first to generate predictions cache\n"
+                    f"   2. Or set USE_CACHED_PREDICTIONS=N in config to train directly\n"
+                    f"{'='*60}"
+                )
+
+        # 거래 비용 설정 (Trading Costs)
+        backtest_config = config.get('BACKTEST', {})
+        trading_costs = backtest_config.get('TRADING_COSTS', {})
+        self.trading_costs_enabled = trading_costs.get('ENABLED', 'N') == 'Y'
+        self.commission = trading_costs.get('COMMISSION', 0.001)  # 0.1% 기본값
+        self.slippage = trading_costs.get('SLIPPAGE', 0.001)      # 0.1% 기본값
+
+        if self.trading_costs_enabled:
+            total_cost = 2 * (self.commission + self.slippage)
+            self.logger.info(f"💰 Trading costs enabled: commission={self.commission*100:.2f}%, "
+                           f"slippage={self.slippage*100:.2f}%, total={total_cost*100:.2f}%/trade")
+        else:
+            self.logger.info("💰 Trading costs disabled (pure returns)")
+
+        # ✅ 상장폐지 데이터 로드 (검증용)
+        self.delisted_data = self._load_delisted_data()
+
+    def _load_delisted_data(self) -> pd.DataFrame:
+        """
+        상장폐지 종목 데이터 로드.
+
+        FMP의 delisted_companies 데이터를 로드하여 상장폐지 여부 검증에 사용.
+        데이터가 없으면 빈 DataFrame 반환 (검증 스킵).
+        """
+        delisted_dir = Path(self.main_ctx.root_path) / 'fmp_raw' / 'delisted_companies'
+
+        if not delisted_dir.exists():
+            self.logger.info("📋 No delisted_companies data found - delisting verification disabled")
+            return pd.DataFrame()
+
+        try:
+            all_delisted = []
+            for file in delisted_dir.glob('*.parquet'):
+                df = pd.read_parquet(file)
+                if not df.empty:
+                    all_delisted.append(df)
+
+            if not all_delisted:
+                self.logger.info("📋 delisted_companies directory is empty - delisting verification disabled")
+                return pd.DataFrame()
+
+            delisted_df = pd.concat(all_delisted, ignore_index=True)
+
+            # 필요한 컬럼만 유지
+            required_cols = ['symbol', 'delistedDate']
+            available_cols = [c for c in required_cols if c in delisted_df.columns]
+
+            if 'symbol' not in available_cols:
+                self.logger.warning("⚠️ delisted_companies data missing 'symbol' column")
+                return pd.DataFrame()
+
+            delisted_df = delisted_df[available_cols].drop_duplicates(subset=['symbol'])
+
+            if 'delistedDate' in delisted_df.columns:
+                delisted_df['delistedDate'] = pd.to_datetime(delisted_df['delistedDate'], errors='coerce')
+
+            self.logger.info(f"📋 Loaded {len(delisted_df)} delisted companies for verification")
+            return delisted_df
+
+        except Exception as e:
+            self.logger.warning(f"⚠️ Error loading delisted data: {e}")
+            return pd.DataFrame()
+
+    def _is_truly_delisted(self, symbol: str, check_date: pd.Timestamp) -> tuple:
+        """
+        종목이 특정 날짜에 실제로 상장폐지되었는지 검증.
+
+        Returns:
+        -------
+        tuple: (is_delisted: bool, delisted_date: str or None, status: str)
+            - is_delisted: 상장폐지 여부
+            - delisted_date: 상장폐지 날짜 (있으면)
+            - status: 'confirmed_delisted', 'data_missing', 'active'
+        """
+        if self.delisted_data.empty:
+            # 검증 데이터 없음 - 가격 없으면 data_missing으로 처리
+            return (False, None, 'unverified')
+
+        symbol_data = self.delisted_data[self.delisted_data['symbol'] == symbol]
+
+        if symbol_data.empty:
+            # 상장폐지 리스트에 없음 - 아직 상장 중이거나 데이터 누락
+            return (False, None, 'not_in_delisted_list')
+
+        # 상장폐지 리스트에 있음
+        if 'delistedDate' in symbol_data.columns:
+            delisted_date = symbol_data.iloc[0]['delistedDate']
+            if pd.notna(delisted_date):
+                # 상장폐지 날짜가 체크 날짜 이전인지 확인
+                if delisted_date <= check_date:
+                    return (True, delisted_date.strftime('%Y-%m-%d'), 'confirmed_delisted')
+                else:
+                    # 아직 상장폐지 전
+                    return (False, delisted_date.strftime('%Y-%m-%d'), 'will_be_delisted')
+
+        # 상장폐지 날짜 정보 없음
+        return (True, None, 'delisted_no_date')
 
     def _get_available_data_until(self, cutoff_date: datetime) -> pd.DataFrame:
         """
@@ -1037,9 +1146,29 @@ class MLBacktest:
         sorted_df = predictions.sort_values('ml_score', ascending=False)
 
         # 상위 K개 선택 (symbol과 sector 모두 포함)
-        top_k_df = sorted_df.head(self.top_k)
+        top_k_df = sorted_df.head(self.top_k).copy()
 
-        return top_k_df[['symbol', 'sector']].copy()
+        # ✅ Task #2: Ensure sector has value (fix empty sector issue)
+        if 'sector' not in top_k_df.columns:
+            top_k_df['sector'] = 'Unknown'
+        else:
+            top_k_df['sector'] = top_k_df['sector'].fillna('Unknown')
+
+        # ✅ Task #3: Add category column using SECTOR_CATEGORIZATION config
+        top_k_df = DataProcessor.map_sectors_to_categories(
+            top_k_df,
+            self.config,
+            sector_column='sector',
+            logger=None  # Don't log during prediction
+        )
+        # Rename sector_category to category for clarity
+        if 'sector_category' in top_k_df.columns:
+            top_k_df['category'] = top_k_df['sector_category']
+            top_k_df.drop(columns=['sector_category'], inplace=True, errors='ignore')
+        else:
+            top_k_df['category'] = top_k_df['sector']  # Fallback: use sector as category
+
+        return top_k_df[['symbol', 'sector', 'category']].copy()
 
     def _calculate_period_return(
         self,
@@ -1084,10 +1213,11 @@ class MLBacktest:
         returns = []
         details = []
 
-        # ✅ 섹터 정보 포함하여 반복
+        # ✅ 섹터 + 카테고리 정보 포함하여 반복
         for _, stock in selected_stocks.iterrows():
             symbol = stock['symbol']
             sector = stock.get('sector', 'Unknown')  # sector가 없으면 'Unknown'
+            category = stock.get('category', sector)  # category가 없으면 sector 사용
 
             symbol_prices = price_table[price_table['symbol'] == symbol]
 
@@ -1102,31 +1232,91 @@ class MLBacktest:
             # 매도 가격 (실제 거래일)
             sell_price_rows = symbol_prices[symbol_prices['date'] == actual_sell_date]
             if sell_price_rows.empty:
-                # ✅ 상장폐지: -100% 수익률로 처리
-                ret = -1.0
-                sell_price = 0.0
-                is_delisted = True
-                self.logger.warning(
-                    f"   ⚠️  {symbol}: DELISTED (no price at {actual_sell_date.date()}) "
-                    f"→ -100% return"
+                # ✅ 가격 데이터 없음 - 상장폐지 여부 검증
+                is_delisted_verified, delisted_date, status = self._is_truly_delisted(
+                    symbol, actual_sell_date
                 )
+
+                # 디버그 로그: 가격이 없는 종목의 상세 정보
+                last_price_date = symbol_prices['date'].max() if not symbol_prices.empty else None
+                self.logger.warning(
+                    f"   🔍 {symbol}: No price at {actual_sell_date.date()} | "
+                    f"Last price: {last_price_date.date() if last_price_date else 'N/A'} | "
+                    f"Delisting status: {status}"
+                    + (f" (delisted: {delisted_date})" if delisted_date else "")
+                )
+
+                if is_delisted_verified or status in ('confirmed_delisted', 'delisted_no_date'):
+                    # 확인된 상장폐지: -100% 수익률
+                    gross_ret = -1.0
+                    net_ret = -1.0
+                    sell_price = 0.0
+                    is_delisted = True
+                    delisted_status = 'confirmed'
+                    trading_cost = 0.0
+                    self.logger.warning(f"      → CONFIRMED DELISTED: -100% return")
+                else:
+                    # 상장폐지 미확인: 데이터 누락으로 처리 (스킵하거나 마지막 가격 사용)
+                    # 옵션 1: 스킵 (보수적)
+                    # 옵션 2: 마지막 가격 사용 (낙관적)
+                    if not symbol_prices.empty:
+                        # 마지막 가격 사용 (가장 최근 거래 가격)
+                        last_price_row = symbol_prices.sort_values('date').iloc[-1]
+                        sell_price = last_price_row['close']
+                        gross_ret = (sell_price - buy_price) / buy_price
+                        net_ret = gross_ret  # 거래 비용은 별도 계산
+                        is_delisted = False
+                        delisted_status = 'data_missing_used_last_price'
+                        trading_cost = 0.0
+                        self.logger.warning(
+                            f"      → DATA MISSING: Using last available price ${sell_price:.2f} "
+                            f"from {last_price_row['date'].date()} (return: {gross_ret*100:.2f}%)"
+                        )
+                    else:
+                        # 가격 데이터가 전혀 없음 - 스킵
+                        self.logger.warning(f"      → NO PRICE DATA: Skipping {symbol}")
+                        continue
             else:
                 sell_price = sell_price_rows.iloc[0]['close']
-                ret = (sell_price - buy_price) / buy_price
+
+                # 순수 수익률 (거래 비용 미반영)
+                gross_ret = (sell_price - buy_price) / buy_price
+
+                # 거래 비용 반영
+                if self.trading_costs_enabled:
+                    # 슬리피지: 매수 시 높게, 매도 시 낮게
+                    effective_buy_price = buy_price * (1 + self.slippage)
+                    effective_sell_price = sell_price * (1 - self.slippage)
+
+                    # 슬리피지 적용 후 수익률
+                    ret_after_slippage = (effective_sell_price - effective_buy_price) / effective_buy_price
+
+                    # 거래 수수료 (매수 + 매도)
+                    net_ret = ret_after_slippage - 2 * self.commission
+                    trading_cost = gross_ret - net_ret
+                else:
+                    net_ret = gross_ret
+                    trading_cost = 0.0
+
                 is_delisted = False
+                delisted_status = 'active'  # 정상 거래
 
-            # 수익률 리스트에 추가 (상장폐지 포함)
-            returns.append(ret)
+            # 수익률 리스트에 추가 (상장폐지 포함) - 순수익률 사용
+            returns.append(net_ret)
 
-            # 상세 정보 저장 (섹터 정보 + 상장폐지 여부)
+            # 상세 정보 저장 (섹터 + 카테고리 정보 + 상장폐지 여부 + 거래 비용)
             details.append({
                 'symbol': symbol,
-                'sector': sector,  # ✅ 섹터 정보 추가
+                'sector': sector,      # ✅ 섹터 정보 추가
+                'category': category,  # ✅ 카테고리 정보 추가
                 'buy_price': buy_price,
                 'sell_price': sell_price,
-                'return': ret,
-                'return_pct': ret * 100,
-                'delisted': is_delisted  # ✅ 상장폐지 여부 추가
+                'gross_return': gross_ret,         # 순수 수익률
+                'trading_cost': trading_cost,       # 거래 비용
+                'return': net_ret,                  # 순수익률 (거래 비용 차감)
+                'return_pct': net_ret * 100,
+                'delisted': is_delisted,           # 상장폐지 여부 (boolean)
+                'delisted_status': delisted_status  # ✅ 상세 상태 (confirmed/data_missing_used_last_price/active)
             })
 
         if not returns:
@@ -1428,7 +1618,8 @@ class MLBacktest:
         # ✅ 거래일 조정 (regressor.py/make_mldata.py와 일원화)
         # 휴장일(주말, 공휴일)을 실제 거래 가능일로 조정
         self.logger.info(f"\n📅 Adjusting rebalance dates to actual trading days...")
-        adjusted_dates = []
+        # (원래 날짜, 조정된 날짜) 튜플 리스트로 저장
+        date_pairs = []
 
         for i, target_date in enumerate(rebalance_dates):
             # DataProcessor.get_trade_date()로 월초/월말 구분하여 거래일 찾기
@@ -1451,32 +1642,38 @@ class MLBacktest:
             else:
                 self.logger.info(f"   {target_date.date()} (already a trading day)")
 
-            # pd.Timestamp를 datetime으로 변환
-            adjusted_dates.append(actual_trade_date.to_pydatetime())
+            # (원래 날짜, 조정된 날짜) 튜플로 저장
+            original_date = target_date if isinstance(target_date, datetime) else target_date.to_pydatetime()
+            adjusted_date = actual_trade_date.to_pydatetime()
+            date_pairs.append((original_date, adjusted_date))
 
-        rebalance_dates = adjusted_dates
-        self.logger.info(f"\n📅 Rebalance dates after adjustment: {len(rebalance_dates)}")
-        for date in rebalance_dates:
-            self.logger.info(f"   {date.date()}")
+        self.logger.info(f"\n📅 Rebalance dates after adjustment: {len(date_pairs)}")
+        for orig, adj in date_pairs:
+            if orig.date() != adj.date():
+                self.logger.info(f"   {orig.date()} → {adj.date()}")
+            else:
+                self.logger.info(f"   {orig.date()}")
 
         # Walk-Forward 백테스트
         last_train_date = None
         current_models = None
 
-        for i, rebalance_date in enumerate(rebalance_dates):
+        for i, (original_rebalance_date, actual_rebalance_date) in enumerate(date_pairs):
             self.logger.info(f"\n{'='*80}")
-            self.logger.info(f"Rebalance #{i+1}: {rebalance_date.date()}")
+            self.logger.info(f"Rebalance #{i+1}: {original_rebalance_date.date()} (actual: {actual_rebalance_date.date()})")
             self.logger.info(f"{'='*80}")
 
             # 1. 사용 가능한 데이터 로드 (미래 유출 방지!)
+            # 원래 리밸런싱 날짜 기준으로 데이터 cutoff
             try:
-                available_data = self._get_available_data_until(rebalance_date)
+                available_data = self._get_available_data_until(original_rebalance_date)
             except ValueError as e:
                 self.logger.warning(f"⚠️ {e}, skipping this period")
                 continue
 
             # 2. 캐시 사용 여부 확인 (Phase 4)
-            cache_key = rebalance_date.strftime('%Y-%m-%d')
+            # 캐시 키는 실제 거래일 기준
+            cache_key = actual_rebalance_date.strftime('%Y-%m-%d')
             use_cache_for_this_period = (
                 self.use_cached_predictions and
                 self.predictions_cache is not None and
@@ -1500,13 +1697,13 @@ class MLBacktest:
             if not use_cache_for_this_period:
                 # Normal training/prediction mode
                 # 2. 모델 재학습 필요 여부 판단
-                should_retrain = self._should_retrain(rebalance_date, last_train_date)
+                should_retrain = self._should_retrain(original_rebalance_date, last_train_date)
 
                 if should_retrain:
                     # Window 타입에 따라 학습 데이터 필터링
                     if self.window_type == 'rolling' and self.window_size:
                         # Rolling: 최근 N년만
-                        cutoff = rebalance_date - relativedelta(years=self.window_size)
+                        cutoff = original_rebalance_date - relativedelta(years=self.window_size)
                         train_data = available_data[
                             pd.to_datetime(available_data.get('fillingDate', available_data.index)) >= cutoff
                         ]
@@ -1515,13 +1712,13 @@ class MLBacktest:
                         train_data = available_data
 
                     # 모델 학습
-                    current_models = self._train_model(train_data, rebalance_date)
-                    last_train_date = rebalance_date
+                    current_models = self._train_model(train_data, original_rebalance_date)
+                    last_train_date = original_rebalance_date
                 else:
                     self.logger.info(f"📦 Reusing existing model from {last_train_date.date()}")
 
                 # 3. 예측용 데이터 로드 (현재 시점의 최신 데이터)
-                predict_file = self.data_path / f'rnorm_fs_{rebalance_date.year}_Q{(rebalance_date.month-1)//3 + 1}.parquet'
+                predict_file = self.data_path / f'rnorm_fs_{original_rebalance_date.year}_Q{(original_rebalance_date.month-1)//3 + 1}.parquet'
                 if not predict_file.exists():
                     self.logger.warning(f"⚠️ Prediction file not found: {predict_file}")
                     continue
@@ -1536,40 +1733,44 @@ class MLBacktest:
             self.logger.info(f"📊 Selected {len(selected_stocks)} stocks")
 
             # 6. 수익률 계산 (다음 리밸런싱 날짜까지)
-            if i < len(rebalance_dates) - 1:
-                next_rebalance = rebalance_dates[i + 1]
+            if i < len(date_pairs) - 1:
+                # 다음 리밸런싱의 실제 거래일 사용
+                next_actual_rebalance = date_pairs[i + 1][1]
                 period_result = self._calculate_period_return(
                     selected_stocks,  # ✅ DataFrame (symbol, sector 포함)
-                    rebalance_date,
-                    next_rebalance,
+                    actual_rebalance_date,  # 실제 매수일
+                    next_actual_rebalance,   # 실제 매도일
                     price_table
                 )
 
                 avg_return = period_result['avg_return']
                 self.logger.info(f"💰 Period return: {avg_return*100:.2f}%")
 
-                # 결과 저장 (요약)
+                # 결과 저장 (요약) - 원래 날짜와 실제 거래일 구분
                 self.backtest_results.append({
-                    'rebalance_date': rebalance_date,
+                    'rebalance_date': original_rebalance_date,  # 원래 리밸런싱 날짜
                     'actual_buy_date': period_result['actual_buy_date'],
                     'actual_sell_date': period_result['actual_sell_date'],
                     'num_stocks': len(selected_stocks),  # ✅ DataFrame 길이
                     'avg_return': avg_return,
-                    'retrained': should_retrain
+                    'retrained': should_retrain if not use_cache_for_this_period else False
                 })
 
-                # 상세 정보 저장 (각 종목별 + 섹터)
+                # 상세 정보 저장 (각 종목별 + 섹터 + 카테고리 + 상장폐지 여부)
                 for detail in period_result['details']:
                     self.detailed_results.append({
-                        'rebalance_date': rebalance_date,
+                        'rebalance_date': original_rebalance_date,  # 원래 리밸런싱 날짜
                         'actual_buy_date': period_result['actual_buy_date'],
                         'actual_sell_date': period_result['actual_sell_date'],
                         'symbol': detail['symbol'],
-                        'sector': detail.get('sector', 'Unknown'),  # ✅ 섹터 정보 추가
+                        'sector': detail.get('sector', 'Unknown'),      # ✅ 섹터 정보 추가
+                        'category': detail.get('category', 'Unknown'),  # ✅ 카테고리 정보 추가
                         'buy_price': detail['buy_price'],
                         'sell_price': detail['sell_price'],
                         'return': detail['return'],
-                        'return_pct': detail['return_pct']
+                        'return_pct': detail['return_pct'],
+                        'delisted': detail.get('delisted', False),              # 상장폐지 여부
+                        'delisted_status': detail.get('delisted_status', 'active')  # ✅ 상세 상태
                     })
 
         # 7. 최종 리포트
@@ -1578,9 +1779,9 @@ class MLBacktest:
 
         # 8. 벤치마크 계산 (전체 백테스트 기간)
         benchmark_df = pd.DataFrame()
-        if len(rebalance_dates) > 0:
-            backtest_start = rebalance_dates[0]
-            backtest_end = rebalance_dates[-1]
+        if len(date_pairs) > 0:
+            backtest_start = date_pairs[0][1]  # 첫 번째 실제 거래일
+            backtest_end = date_pairs[-1][1]   # 마지막 실제 거래일
             benchmark_df = self._calculate_benchmark_returns(backtest_start, backtest_end, price_table)
 
             # ML 모델 성능 추가 (비교용)
@@ -1636,9 +1837,20 @@ class MLBacktest:
             if not detailed_df.empty:
                 detailed_df.to_excel(writer, sheet_name='Detailed', index=False)
 
-            # Sheet 3: Benchmark (벤치마크 비교)
+            # Sheet 3: Benchmark (벤치마크 비교) - 전체 기간 요약
             if not benchmark_df.empty:
                 benchmark_df.to_excel(writer, sheet_name='Benchmark', index=False)
+
+            # ✅ Task #7: Sheet 4 - Period-by-Period Benchmark Comparison
+            if not benchmark_df.empty and not results_df.empty:
+                period_comparison_df = self._create_period_benchmark_comparison(
+                    results_df, date_pairs, price_table
+                )
+                if not period_comparison_df.empty:
+                    period_comparison_df.to_excel(writer, sheet_name='Benchmark_Periods', index=False)
+
+            # ✅ Task #6: Auto-adjust column widths for all sheets
+            self._adjust_excel_column_widths(writer)
 
         self.logger.info(f"\n✅ Backtest report saved: {excel_file}")
         if not detailed_df.empty:
@@ -1675,3 +1887,117 @@ class MLBacktest:
         self.logger.info(f"Max Drawdown: {mdd*100:.2f}%")
         self.logger.info(f"Win Rate: {win_rate*100:.1f}%")
         self.logger.info(f"Models Retrained: {results['retrained'].sum()} times")
+
+    def _adjust_excel_column_widths(self, writer: pd.ExcelWriter):
+        """
+        ✅ Task #6: Auto-adjust Excel column widths for all sheets.
+        Date columns get minimum width of 12 to display YYYY-MM-DD properly.
+        """
+        from openpyxl.utils import get_column_letter
+
+        for sheet_name in writer.sheets:
+            ws = writer.sheets[sheet_name]
+            for col_idx, column_cells in enumerate(ws.columns, 1):
+                max_length = 0
+                column_letter = get_column_letter(col_idx)
+
+                for cell in column_cells:
+                    try:
+                        cell_value = str(cell.value) if cell.value else ""
+                        max_length = max(max_length, len(cell_value))
+                    except:
+                        pass
+
+                # Date columns need minimum width of 12 (YYYY-MM-DD)
+                header_cell = ws.cell(row=1, column=col_idx)
+                header_value = str(header_cell.value) if header_cell.value else ""
+                if 'date' in header_value.lower():
+                    max_length = max(max_length, 12)
+
+                # Add padding and set width
+                adjusted_width = min(max_length + 2, 50)  # Cap at 50
+                ws.column_dimensions[column_letter].width = adjusted_width
+
+    def _create_period_benchmark_comparison(
+        self,
+        results_df: pd.DataFrame,
+        date_pairs: list,
+        price_table: pd.DataFrame
+    ) -> pd.DataFrame:
+        """
+        ✅ Task #7: Create period-by-period comparison with benchmarks.
+
+        Returns a DataFrame with ML model returns vs benchmark returns for each period.
+        """
+        from src.backtest.etf_data_loader import ETFDataLoader
+
+        benchmark_config = self.config.get('BENCHMARK', {})
+        if not benchmark_config.get('ENABLED', 'N') == 'Y':
+            return pd.DataFrame()
+
+        benchmark_symbols = benchmark_config.get('SYMBOLS', [])
+        if not benchmark_symbols:
+            return pd.DataFrame()
+
+        # Load ETF data
+        try:
+            etf_loader = ETFDataLoader(
+                config=self.config,
+                root_path=self.main_ctx.root_path,
+                logger=self.logger
+            )
+
+            backtest_start = date_pairs[0][1]
+            backtest_end = date_pairs[-1][1]
+
+            etf_price_table = etf_loader.load_etf_prices(
+                symbols=benchmark_symbols,
+                start_date=backtest_start,
+                end_date=backtest_end
+            )
+
+            if etf_price_table is None or etf_price_table.empty:
+                self.logger.warning("⚠️ Could not load ETF prices for period comparison")
+                return pd.DataFrame()
+
+        except Exception as e:
+            self.logger.warning(f"⚠️ Error loading ETF data: {e}")
+            return pd.DataFrame()
+
+        # Calculate period-by-period returns
+        period_data = []
+
+        for i, (original_date, actual_date) in enumerate(date_pairs[:-1]):
+            next_actual_date = date_pairs[i + 1][1]
+
+            # Get ML model return for this period
+            ml_return = results_df.iloc[i]['avg_return'] if i < len(results_df) else 0.0
+
+            period_row = {
+                'period': i + 1,
+                'start_date': actual_date,
+                'end_date': next_actual_date,
+                'ml_model_return': ml_return,
+                'ml_model_return_pct': ml_return * 100
+            }
+
+            # Calculate benchmark returns for each symbol
+            for symbol in benchmark_symbols:
+                symbol_prices = etf_price_table[etf_price_table['symbol'] == symbol]
+
+                start_price_rows = symbol_prices[symbol_prices['date'] <= actual_date].tail(1)
+                end_price_rows = symbol_prices[symbol_prices['date'] <= next_actual_date].tail(1)
+
+                if not start_price_rows.empty and not end_price_rows.empty:
+                    start_price = start_price_rows.iloc[0]['close']
+                    end_price = end_price_rows.iloc[0]['close']
+                    bench_return = (end_price - start_price) / start_price
+                else:
+                    bench_return = 0.0
+
+                period_row[f'{symbol}_return'] = bench_return
+                period_row[f'{symbol}_return_pct'] = bench_return * 100
+
+            period_data.append(period_row)
+
+        return pd.DataFrame(period_data)

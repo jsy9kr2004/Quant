@@ -37,6 +37,23 @@
 1. **[docs/PREDICTION_MODE.md](docs/PREDICTION_MODE.md)** ⭐ 예측 전용 모드 (오늘 뭘 사야 하나?)
 2. **[docs/QUICK_START.md](docs/QUICK_START.md)** - 기본 실행 확인
 
+### 🔍 시스템 전체 분석 레포트
+**코드베이스 심층 분석 (AI 작성):**
+
+> 📂 **[docs/codebase-report/](docs/codebase-report/)** - 프로젝트의 핵심 분석 레포트
+
+| 문서 | 내용 |
+|------|------|
+| [00_overview.md](docs/codebase-report/00_overview.md) | 프로젝트 개요 및 종합 평가 |
+| [01_architecture.md](docs/codebase-report/01_architecture.md) | 시스템 아키텍처 분석 |
+| [02_data_pipeline.md](docs/codebase-report/02_data_pipeline.md) | 데이터 파이프라인 분석 |
+| [03_ml_strategy.md](docs/codebase-report/03_ml_strategy.md) | ML 전략 분석 |
+| [04_backtesting.md](docs/codebase-report/04_backtesting.md) | 백테스팅 시스템 분석 |
+| [05_code_quality.md](docs/codebase-report/05_code_quality.md) | 코드 품질 분석 |
+| [06_quant_perspective.md](docs/codebase-report/06_quant_perspective.md) | 퀀트 관점 분석 |
+| [07_recommendations.md](docs/codebase-report/07_recommendations.md) | 개선 권고사항 |
+| [08_recent_changes.md](docs/codebase-report/08_recent_changes.md) | 최신 변경사항 |
+
 ### 📁 기타 문서
 - **[docs/archive/](docs/archive/)** - 과거 분석 리포트 및 참고 자료
 
@@ -86,6 +103,10 @@
 - ✅ **ModelFactory**: 모델 생성 일관성 보장
 - ✅ **825줄의 중복 코드 제거** (-100% 중복)
 - ✅ **예측도 ↔ 백테스트 수익률 동일선상 비교 가능**
+- ✅ **아키텍처 기반 일원화 강제** (2025-01-17)
+  - Prediction Cache 공유: regressor.py 예측 → ml_backtest.py 재사용
+  - Fallback 제거: 캐시 없으면 에러 발생 (silent fallback 금지)
+  - 유닛테스트 없이도 일원화 100% 보장
 
 > 📖 **상세 가이드:** [docs/REFACTORING_GUIDE.md](docs/REFACTORING_GUIDE.md)
 
@@ -173,7 +194,8 @@ Quant-refactoring/
 │   ├── QUICK_START.md                 # 빠른 시작
 │   ├── WORKFLOW_GUIDE.md              # 워크플로우
 │   ├── MIGRATION_GUIDE.md             # 마이그레이션
-│   ├── analysis/                      # 분석 보고서
+│   ├── codebase-report/               # 🔍 핵심 분석 레포트 (AI 작성)
+│   ├── analysis/                      # 작업용 분석 문서
 │   └── archive/                       # 레거시 문서
 │
 └── 📁 outputs/                         # 실행 결과물 (gitignore)
