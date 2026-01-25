@@ -41,10 +41,10 @@ from pathlib import Path
 # Add current directory to path for module imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config.context_loader import load_config, MainContext
-from config.logger import get_logger
-from src.storage import ParquetStorage
-from src.data_collector.fmp import FMP
+from src.infra.context_loader import load_config, MainContext
+from src.infra.logger import get_logger
+from src.data import ParquetStorage
+from src.data.fmp import FMP
 from src.training.make_mldata import AIDataMaker
 from src.models import XGBoostModel, LightGBMModel, CatBoostModel, StackingEnsemble
 from src.training import OptunaOptimizer, MLflowTracker
@@ -531,7 +531,7 @@ def main() -> None:
         logger.info("="*80)
 
         try:
-            from src.data_collector.fmp import FMP
+            from src.data.fmp import FMP
             fmp = FMP(main_ctx)
             fmp.collect()
 
@@ -546,7 +546,7 @@ def main() -> None:
                 )
 
                 # Use legacy converter to process CSV files
-                from src.storage.parquet_converter import Parquet
+                from src.data.parquet_converter import Parquet
                 df_engine = Parquet(main_ctx)
                 df_engine.insert_csv()
                 df_engine.rebuild_table_view()
@@ -581,7 +581,7 @@ def main() -> None:
                 )
 
                 # Use legacy converter to rebuild VIEW tables
-                from src.storage.parquet_converter import Parquet
+                from src.data.parquet_converter import Parquet
                 df_engine = Parquet(main_ctx)
                 df_engine.insert_csv()
                 df_engine.rebuild_table_view()
@@ -740,7 +740,7 @@ def main() -> None:
     tracking_config = config.get('EXPERIMENT_TRACKING', {})
     if tracking_config.get('ENABLED') in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'TRUE', 'True'):
         try:
-            from src.experiment import upload_experiment_result
+            from src.tracking import upload_experiment_result
             logger.info("="*80)
             logger.info("Step 4: Uploading experiment to Google Sheets...")
             logger.info("="*80)

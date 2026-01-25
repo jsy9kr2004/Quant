@@ -117,7 +117,7 @@ class SectorEnsemble:
                 # 피처 선택 (선택 사항)
                 selected_features = config['feature_cols']
                 if use_feature_selection and config.get('feature_selection_params'):
-                    from src.feature_engineering.feature_selector import FeatureSelector
+                    from src.training.feature_selector import FeatureSelector
 
                     selector = FeatureSelector(**config['feature_selection_params'])
                     selected_features = selector.select_features(X, y)

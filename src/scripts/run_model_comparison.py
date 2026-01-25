@@ -16,7 +16,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from src.optimization.model_comparator import ModelComparator
+from src.backtest.model_comparator import ModelComparator
 from src.models.xgboost_model import XGBoostModel
 from src.models.lightgbm_model import LightGBMModel
 from src.models.catboost_model import CatBoostModel

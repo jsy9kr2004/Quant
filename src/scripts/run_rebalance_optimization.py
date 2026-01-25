@@ -17,7 +17,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from src.optimization.rebalance_optimizer import RebalancingOptimizer
+from src.backtest.rebalance_optimizer import RebalancingOptimizer
 
 # 로깅 설정
 logging.basicConfig(

@@ -17,9 +17,9 @@ import logging
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-from src.optimization.rebalance_optimizer import RebalancingOptimizer
-from src.optimization.model_comparator import ModelComparator
-from src.strategy.sector_ensemble import SectorEnsemble, create_default_sector_configs
+from src.backtest.rebalance_optimizer import RebalancingOptimizer
+from src.backtest.model_comparator import ModelComparator
+from src.backtest.sector_ensemble import SectorEnsemble, create_default_sector_configs
 from src.models.xgboost_model import XGBoostModel
 from src.models.lightgbm_model import LightGBMModel
 

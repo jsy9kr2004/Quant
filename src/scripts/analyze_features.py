@@ -31,8 +31,8 @@ import numpy as np
 from datetime import datetime
 import matplotlib.pyplot as plt
 
-from config.context_loader import load_config, MainContext
-from config.logger import get_logger
+from src.infra.context_loader import load_config, MainContext
+from src.infra.logger import get_logger
 
 
 def parse_args():

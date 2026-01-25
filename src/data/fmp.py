@@ -18,8 +18,8 @@ FMP 클래스는 전체 데이터 수집 워크플로우를 조율합니다:
     fmp.collect()  # 데이터 수집 프로세스 시작
 """
 
-from src.data_collector.fmp_api import FMPAPI
-from src.data_collector.fmp_fetch_worker import fetch_fmp
+from src.data.fmp_api import FMPAPI
+from src.data.fmp_fetch_worker import fetch_fmp
 
 import datetime
 import dateutil.utils
@@ -30,7 +30,7 @@ from dateutil.relativedelta import relativedelta
 from typing import List, Optional
 
 # Import Windows-safe filename utility
-from config.file_utils import safe_filename, restore_symbol_from_filename
+from src.infra.file_utils import safe_filename, restore_symbol_from_filename
 
 
 class FMP:

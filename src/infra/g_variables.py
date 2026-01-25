@@ -30,7 +30,7 @@ feature engineering, backtesting 컴포넌트에서 사용됩니다.
 사용법:
     Feature 선택::
 
-        from config.g_variables import ratio_col_list, meaning_col_list
+        from src.infra.g_variables import ratio_col_list, meaning_col_list
 
         # 모델 훈련을 위해 ratio feature만 선택
         ratio_features = df[ratio_col_list]
@@ -40,7 +40,7 @@ feature engineering, backtesting 컴포넌트에서 사용됩니다.
 
     섹터 분류::
 
-        from config.g_variables import sector_map
+        from src.infra.g_variables import sector_map
 
         # Industry를 sector로 매핑
         industry = "Software—Application"
@@ -49,7 +49,7 @@ feature engineering, backtesting 컴포넌트에서 사용됩니다.
 
     데이터 품질 처리::
 
-        from config.g_variables import sparse_col_list
+        from src.infra.g_variables import sparse_col_list
 
         # 데이터셋에서 희소 컬럼 제거
         df_clean = df.drop(columns=sparse_col_list, errors='ignore')

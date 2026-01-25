@@ -10,10 +10,10 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config.context_loader import load_config, MainContext
-from storage import ParquetStorage
-from models import XGBoostModel, LightGBMModel, CatBoostModel, StackingEnsemble
-from training import OptunaOptimizer, MLflowTracker
+from src.infra.context_loader import load_config, MainContext
+from src.data import ParquetStorage
+from src.models import XGBoostModel, LightGBMModel, CatBoostModel, StackingEnsemble
+from src.training import OptunaOptimizer, MLflowTracker
 from src.models.config import OPTUNA_SEARCH_SPACE
 
 

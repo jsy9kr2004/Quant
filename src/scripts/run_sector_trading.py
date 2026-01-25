@@ -18,7 +18,7 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from pathlib import Path
 
-from src.strategy.sector_ensemble import SectorEnsemble, create_default_sector_configs
+from src.backtest.sector_ensemble import SectorEnsemble, create_default_sector_configs
 from src.models.xgboost_model import XGBoostModel
 
 # 로깅 설정

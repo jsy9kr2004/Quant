@@ -11,8 +11,8 @@ Main Components:
 Example:
     ML Walk-Forward backtesting workflow (RECOMMENDED)::
 
-        from backtest import MLBacktest
-        from config.context_loader import load_config, MainContext
+        from src.backtest import MLBacktest
+        from src.infra.context_loader import load_config, MainContext
 
         # Load configuration
         config = load_config('config/conf.yaml')

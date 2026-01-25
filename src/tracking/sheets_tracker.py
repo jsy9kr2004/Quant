@@ -33,7 +33,7 @@ except ImportError:
     Credentials = None
     gspread = None
 
-from src.experiment.config_masker import ConfigMasker
+from src.tracking.config_masker import ConfigMasker
 
 logger = logging.getLogger(__name__)
 

@@ -93,9 +93,10 @@
 - ✅ API rate limit 최적화 (8 workers)
 
 ### 7. 깔끔한 프로젝트 구조 (NEW)
-- ✅ 모듈별 명확한 분리
+- ✅ 모듈별 명확한 분리 (16개 → 9개 모듈로 통합)
 - ✅ 루트 디렉토리 정리 (7개 → 2개 파일)
 - ✅ 일관된 패키지 구조
+- ✅ config/ 에서 Python 코드 분리 → src/infra/
 
 ### 8. 코드 이중화 제거 리팩토링 (2025-12-01) ✨ NEW
 - ✅ **DataSchema**: 컬럼 정의 단일화 (regressor ↔ ml_backtest 동기화)
@@ -120,37 +121,41 @@
 
 ## 프로젝트 구조
 
-### 📂 로컬 프로젝트 (Quant-refactoring/)
+### 📂 로컬 프로젝트 (Quant/)
 
 ```
-Quant-refactoring/
+Quant/
 │
 ├── 📜 main.py                          # 🎯 메인 실행 진입점
 ├── 📄 README.md                        # 프로젝트 문서
+├── 📄 CLAUDE.md                        # AI 작업 가이드
 ├── 📄 requirements.txt                 # Python 패키지 의존성
 │
 ├── 📁 src/                             # 모든 소스코드
-│   ├── 📁 data_collector/              # 📡 데이터 수집 (Ray)
+│   │
+│   ├── 📁 infra/                       # ⚙️ 인프라 (설정, 로깅)
+│   │   ├── context_loader.py          # 설정 로더
+│   │   ├── logger.py                  # 로깅 시스템
+│   │   ├── g_variables.py             # 전역 변수
+│   │   └── file_utils.py              # 파일 유틸리티
+│   │
+│   ├── 📁 data/                        # 📡 데이터 수집 + 저장
 │   │   ├── fmp.py                     # FMP 메인
 │   │   ├── fmp_api.py                 # API 관리
-│   │   ├── fmp_fetch_worker.py        # 병렬 처리
-│   │   └── target_api_list.csv        # API 목록
-│   │
-│   ├── 📁 storage/                     # 💾 데이터 저장소
+│   │   ├── fmp_fetch_worker.py        # 병렬 처리 (Ray)
 │   │   ├── parquet_storage.py         # Parquet 저장
 │   │   ├── parquet_converter.py       # 변환기
-│   │   └── data_validator.py          # 검증
+│   │   ├── data_validator.py          # 검증
+│   │   └── target_api_list.csv        # API 목록
 │   │
-│   ├── 📁 constants/                   # ✨ NEW: 통합 상수 정의
-│   │   ├── __init__.py
-│   │   └── data_schema.py             # 컬럼 정의 단일화
-│   │
-│   ├── 📁 training/                    # 🎓 ML 학습
-│   │   ├── data_processor.py          # ✨ NEW: 통합 전처리
+│   ├── 📁 training/                    # 🎓 ML 학습 + 검증
+│   │   ├── regressor.py               # 학습 모델
 │   │   ├── make_mldata.py             # 데이터 전처리
-│   │   ├── regressor.py               # 학습 모델 (DataSchema 사용)
+│   │   ├── data_processor.py          # 통합 전처리
 │   │   ├── optimizer.py               # Optuna 튜닝
-│   │   └── mlflow_tracker.py          # MLflow 추적
+│   │   ├── walk_forward.py            # Walk-Forward 검증
+│   │   ├── time_series_cv.py          # 시계열 CV
+│   │   └── feature_selector.py        # 피처 선택
 │   │
 │   ├── 📁 models/                      # 🤖 ML 모델
 │   │   ├── base_model.py              # 기본 클래스
@@ -159,49 +164,51 @@ Quant-refactoring/
 │   │   ├── catboost_model.py          # CatBoost
 │   │   └── ensemble.py                # 앙상블
 │   │
-│   ├── 📁 backtest/                    # 📊 백테스트
-│   │   └── ml_backtest.py             # Walk-Forward
+│   ├── 📁 backtest/                    # 📊 백테스트 + 최적화
+│   │   ├── ml_backtest.py             # Walk-Forward 백테스트
+│   │   ├── backtest.py                # 레거시 백테스트
+│   │   ├── rebalance_optimizer.py     # 리밸런싱 최적화
+│   │   ├── model_comparator.py        # 모델 비교
+│   │   └── sector_ensemble.py         # 섹터 앙상블
 │   │
-│   ├── 📁 validation/                  # ✅ 검증
-│   │   ├── walk_forward.py
-│   │   └── time_series_cv.py
+│   ├── 📁 tracking/                    # 📈 실험 추적 + 리포팅
+│   │   ├── sheets_tracker.py          # Google Sheets 추적
+│   │   ├── config_masker.py           # 설정 마스킹
+│   │   ├── performance_monitor.py     # 성능 모니터링
+│   │   └── integrated_report.py       # 통합 리포트
 │   │
-│   ├── 📁 optimization/                # 🎯 최적화
-│   │   ├── rebalance_optimizer.py
-│   │   └── model_comparator.py
-│   │
-│   ├── 📁 scripts/                     # 🚀 실행 스크립트
+│   ├── 📁 scripts/                     # 🚀 실행 스크립트 + 도구
 │   │   ├── run_ml_backtest.py
 │   │   ├── run_model_comparison.py
-│   │   └── debug/
+│   │   ├── run_rebalance_optimization.py
+│   │   ├── parquet_viewer.py          # Parquet 뷰어
+│   │   ├── rank_processing.py         # 랭킹 처리
+│   │   ├── memory_profiler.py         # 메모리 프로파일러
+│   │   └── debug/                     # 디버그 스크립트
+│   │
+│   ├── 📁 constants/                   # 📋 상수 정의
+│   │   └── data_schema.py             # 컬럼 정의 단일화
 │   │
 │   ├── 📁 examples/                    # 📚 예제
 │   │   └── example_complete_pipeline.py
 │   │
-│   └── 📁 tools/                       # 🔧 도구
-│       ├── parquet_viewer.py
-│       └── rank_processing.py
+│   └── 📁 unit_tests/                  # 🧪 테스트
+│       └── test_sheets_tracker.py
 │
-├── 📁 config/                          # ⚙️ 설정 (코드 + 파일)
-│   ├── context_loader.py              # 설정 로더
-│   ├── logger.py                      # 로깅 시스템
-│   ├── g_variables.py                 # 전역 변수
-│   ├── file_utils.py                  # 파일 유틸리티
+├── 📁 config/                          # ⚙️ 설정 파일만 (YAML)
 │   ├── conf.yaml.template             # 설정 템플릿
+│   ├── secrets.yaml.template          # 민감정보 템플릿
 │   └── config_quick_test.json         # 테스트 설정
 │
 ├── 📁 docs/                            # 📖 문서
 │   ├── QUICK_START.md                 # 빠른 시작
 │   ├── WORKFLOW_GUIDE.md              # 워크플로우
-│   ├── MIGRATION_GUIDE.md             # 마이그레이션
 │   ├── codebase-report/               # 🔍 핵심 분석 레포트 (AI 작성)
 │   ├── analysis/                      # 작업용 분석 문서
 │   └── archive/                       # 레거시 문서
 │
 └── 📁 outputs/                         # 실행 결과물 (gitignore)
     ├── logs/                          # 로그 파일
-    │   ├── main.log
-    │   └── archived/
     ├── reports/                       # 백테스트 결과
     ├── debug/                         # 디버그 파일
     ├── mlruns/                        # MLflow 추적
@@ -261,7 +268,10 @@ Quant-refactoring/
 | 파일/디렉토리 | 설명 | 필수 여부 |
 |--------------|------|----------|
 | `main.py` | 메인 실행 진입점 | ✅ 필수 |
-| `src/` | 모든 소스코드 | ✅ 필수 |
+| `src/infra/` | 인프라 (설정 로더, 로깅) | ✅ 필수 |
+| `src/data/` | 데이터 수집 및 저장 | ✅ 필수 |
+| `src/training/` | ML 학습 및 검증 | ✅ 필수 |
+| `src/backtest/` | 백테스트 및 최적화 | ✅ 필수 |
 | `config/conf.yaml` | 설정 파일 (생성 필요) | ✅ 필수 |
 | `docs/` | 문서 | ⚪ 권장 |
 | `outputs/` | 실행 결과 (자동 생성, gitignore) | ⚪ 자동 |
@@ -533,7 +543,7 @@ requests>=2.31.0
 ### 1. 데이터 수집 (Ray 기반 병렬 처리)
 
 ```python
-from data_collector.fmp import FMP
+from src.data.fmp import FMP
 
 # FMP 데이터 수집 (자동으로 Ray workers 생성)
 fmp = FMP(config, main_ctx)
@@ -545,7 +555,7 @@ fmp.collect()  # Ray로 병렬 데이터 수집
 ### 2. Parquet 저장소 사용
 
 ```python
-from storage import ParquetStorage
+from src.data import ParquetStorage
 
 # 초기화 (자동 검증 활성화)
 storage = ParquetStorage(
@@ -570,25 +580,25 @@ results = storage.validate_all_tables()
 
 ```bash
 # 기본 사용 (처음 10개 행)
-python tools/parquet_viewer.py data/parquet/price.parquet
+python src/scripts/parquet_viewer.py data/parquet/price.parquet
 
 # 자세한 정보
-python tools/parquet_viewer.py data/parquet/price.parquet -a
+python src/scripts/parquet_viewer.py data/parquet/price.parquet -a
 
 # 특정 컬럼만 보기
-python tools/parquet_viewer.py data/parquet/price.parquet -c "symbol,date,close"
+python src/scripts/parquet_viewer.py data/parquet/price.parquet -c "symbol,date,close"
 
 # 쿼리 필터링
-python tools/parquet_viewer.py data/parquet/price.parquet -q "close > 100"
+python src/scripts/parquet_viewer.py data/parquet/price.parquet -q "close > 100"
 
 # 랜덤 샘플
-python tools/parquet_viewer.py data/parquet/price.parquet -s 50
+python src/scripts/parquet_viewer.py data/parquet/price.parquet -s 50
 ```
 
 ### 4. 모델 학습
 
 ```python
-from models import XGBoostModel, LightGBMModel, CatBoostModel
+from src.models import XGBoostModel, LightGBMModel, CatBoostModel
 
 # XGBoost
 xgb = XGBoostModel(task='classification', config_name='default')
@@ -610,9 +620,9 @@ print(importance)
 ### 5. Optuna 하이퍼파라미터 튜닝
 
 ```python
-from training import OptunaOptimizer
-from models import CatBoostModel
-from models.config import OPTUNA_SEARCH_SPACE
+from src.training import OptunaOptimizer
+from src.models import CatBoostModel
+from src.models.config import OPTUNA_SEARCH_SPACE
 
 # Optimizer 초기화
 optimizer = OptunaOptimizer(
@@ -636,8 +646,8 @@ optimizer.plot_optimization_history('optimization_history.png')
 ### 6. Stacking 앙상블
 
 ```python
-from models import StackingEnsemble
-from models import XGBoostModel, LightGBMModel, CatBoostModel
+from src.models import StackingEnsemble
+from src.models import XGBoostModel, LightGBMModel, CatBoostModel
 
 # Base models 생성
 xgb1 = XGBoostModel(task='classification', config_name='default')
@@ -671,7 +681,7 @@ predictions = ensemble.predict(X_test)
 ### 7. MLflow 실험 추적
 
 ```python
-from training import MLflowTracker
+from src.training import MLflowTracker
 
 # Tracker 초기화
 tracker = MLflowTracker(experiment_name='quant_trading_v2')
@@ -727,9 +737,18 @@ print(comparison)
 
 ## 최근 업데이트 (2025)
 
+### v2.2 - 프로젝트 구조 대규모 개편 (2025-01)
+- ✅ **16개 → 9개 모듈로 통합** (명확한 책임 분리)
+- ✅ **config/ Python 코드 분리**: `config/*.py` → `src/infra/`
+- ✅ **데이터 모듈 통합**: `data_collector/` + `storage/` → `src/data/`
+- ✅ **학습 모듈 통합**: `training/` + `validation/` + `feature_engineering/`
+- ✅ **백테스트 모듈 통합**: `backtest/` + `optimization/` + `strategy/`
+- ✅ **추적 모듈 통합**: `experiment/` + `monitoring/` + `reporting/` → `src/tracking/`
+- ✅ **스크립트 통합**: `scripts/` + `tools/` + `utils/`
+
 ### v2.1 - 프로젝트 구조 개선
 - ✅ 루트 디렉토리 정리: 7개 → 2개 파일
-- ✅ 모듈별 명확한 분리 (config, storage, models, training, tools)
+- ✅ 모듈별 명확한 분리
 - ✅ 일관된 패키지 구조 (모든 폴더에 `__init__.py`)
 - ✅ Import 경로 최적화
 
@@ -742,35 +761,43 @@ print(comparison)
 
 기존 코드에서 리팩토링 버전으로 마이그레이션:
 
-### 파일 위치 변경
+### 파일 위치 변경 (2025-01 구조 개편)
 | 기존 | 신규 |
 |------|------|
-| `g_variables.py` | `config/g_variables.py` |
-| `make_mldata.py` | `training/make_mldata.py` |
-| `regressor.py` | `training/regressor.py` |
-| `parquet.py` | `storage/parquet_converter.py` |
-| `rank_processing.py` | `tools/rank_processing.py` |
+| `config/g_variables.py` | `src/infra/g_variables.py` |
+| `config/context_loader.py` | `src/infra/context_loader.py` |
+| `config/logger.py` | `src/infra/logger.py` |
+| `src/data_collector/fmp.py` | `src/data/fmp.py` |
+| `src/storage/parquet_storage.py` | `src/data/parquet_storage.py` |
+| `src/validation/walk_forward.py` | `src/training/walk_forward.py` |
+| `src/optimization/rebalance_optimizer.py` | `src/backtest/rebalance_optimizer.py` |
+| `src/experiment/sheets_tracker.py` | `src/tracking/sheets_tracker.py` |
+| `src/tools/parquet_viewer.py` | `src/scripts/parquet_viewer.py` |
 
 ### Import 변경
 ```python
 # 기존
-from g_variables import ratio_col_list
-from make_mldata import AIDataMaker
-from regressor import Regressor
-from parquet import Parquet
+from config.g_variables import ratio_col_list
+from config.context_loader import load_config, MainContext
+from src.data_collector.fmp import FMP
+from src.storage import ParquetStorage
+from src.validation.walk_forward import WalkForwardValidator
+from src.optimization.rebalance_optimizer import RebalancingOptimizer
 
 # 신규
-from config.g_variables import ratio_col_list
-from training.make_mldata import AIDataMaker
-from training.regressor import Regressor
-from storage.parquet_converter import Parquet
+from src.infra.g_variables import ratio_col_list
+from src.infra.context_loader import load_config, MainContext
+from src.data.fmp import FMP
+from src.data import ParquetStorage
+from src.training.walk_forward import WalkForwardValidator
+from src.backtest.rebalance_optimizer import RebalancingOptimizer
 ```
 
 ### 설정 파일
 ```yaml
 # config/conf.yaml
 DATA:
-  TARGET_API_LIST: src/data_collector/target_api_list.csv  # 경로 변경
+  TARGET_API_LIST: src/data/target_api_list.csv  # 경로 변경
   STORAGE_TYPE: PARQUET
 
 ML:
