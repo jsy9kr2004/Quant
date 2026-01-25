@@ -27,7 +27,7 @@ Architecture:
 Usage:
     Basic setup (call once at application start)::
 
-        from config.logger import setup_logging, get_logger
+        from src.infra.logger import setup_logging, get_logger
 
         # Setup logging system once
         setup_logging(
@@ -44,7 +44,7 @@ Usage:
 
     Multiprocessing usage::
 
-        from config.logger import setup_logger_for_multiprocessing, get_logger
+        from src.infra.logger import setup_logger_for_multiprocessing, get_logger
         import multiprocessing as mp
 
         def worker_function(symbol):
@@ -69,7 +69,7 @@ Module Attributes:
     _initialized (bool): Flag indicating if logging system is initialized.
 
 See Also:
-    - config.context_loader: For MainContext that auto-configures logging
+    - src.infra.context_loader: For MainContext that auto-configures logging
     - Python logging documentation: https://docs.python.org/3/library/logging.html
     - QueueHandler/QueueListener: For multiprocessing details
 """
@@ -576,7 +576,7 @@ def setup_logger_for_multiprocessing() -> None:
     사용 예시:
         multiprocessing.Pool과 함께 사용::
 
-            from config.logger import setup_logging, setup_logger_for_multiprocessing, get_logger
+            from src.infra.logger import setup_logging, setup_logger_for_multiprocessing, get_logger
             import multiprocessing as mp
 
             def process_symbol(symbol):

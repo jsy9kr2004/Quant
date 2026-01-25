@@ -20,8 +20,8 @@ from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
 
 # 테스트 대상 모듈
-from src.experiment.sheets_tracker import SheetsTracker, upload_experiment_result
-from src.experiment.config_masker import ConfigMasker
+from src.tracking.sheets_tracker import SheetsTracker, upload_experiment_result
+from src.tracking.config_masker import ConfigMasker
 
 
 # ============================================================================
@@ -304,7 +304,7 @@ class TestSheetsTrackerIntegration:
     @pytest.fixture
     def real_config(self):
         """실제 secrets.yaml을 로드한 config"""
-        from config.context_loader import load_config
+        from src.infra.context_loader import load_config
 
         try:
             config = load_config('config/conf.yaml')

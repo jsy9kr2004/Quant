@@ -495,7 +495,7 @@ class BaseModel(ABC):
                 X, y, dates=date_series, cv_splits=5
             )
         """
-        from src.validation.time_series_cv import TimeSeriesCV
+        from src.training.time_series_cv import TimeSeriesCV
 
         cv = TimeSeriesCV(n_splits=cv_splits)
         avg_scores, all_scores = cv.cross_validate_model(

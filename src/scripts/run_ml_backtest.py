@@ -22,8 +22,8 @@ import logging
 import argparse
 from datetime import datetime
 
-from config.context_loader import load_config, MainContext
-from config.logger import get_logger
+from src.infra.context_loader import load_config, MainContext
+from src.infra.logger import get_logger
 from src.backtest.ml_backtest import MLBacktest
 
 

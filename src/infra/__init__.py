@@ -1,9 +1,9 @@
-"""Quant Trading System의 Configuration 모듈입니다.
+"""Quant Trading System의 Infrastructure 모듈입니다.
 
 이 패키지는 Quant Trading System을 위한 configuration 관리, logging 인프라, 그리고
 전역 변수를 제공합니다. 애플리케이션 전체의 설정과 유틸리티를 위한 중앙 허브 역할을 합니다.
 
-config 패키지는 다음을 포함합니다:
+infra 패키지는 다음을 포함합니다:
 
 1. **Configuration Loading** (context_loader.py):
    - ConfigLoader: dot notation을 지원하는 현대적인 YAML configuration loader
@@ -30,7 +30,7 @@ config 패키지는 다음을 포함합니다:
 사용법:
     기본 application 설정::
 
-        from config import load_config, MainContext
+        from src.infra import load_config, MainContext
 
         # Configuration 파일 로드
         config = load_config('config/conf.yaml')
@@ -49,7 +49,7 @@ config 패키지는 다음을 포함합니다:
 
     현대적인 config loader 사용::
 
-        from config.context_loader import ConfigLoader
+        from src.infra.context_loader import ConfigLoader
 
         # Configuration 로드 및 접근
         config = ConfigLoader('config/conf.yaml')
@@ -64,7 +64,7 @@ config 패키지는 다음을 포함합니다:
 
     Logging system 직접 사용::
 
-        from config.logger import setup_logging, get_logger
+        from src.infra.logger import setup_logging, get_logger
 
         # Logging 설정 (애플리케이션 시작 시 한 번 호출)
         setup_logging(
@@ -81,7 +81,7 @@ config 패키지는 다음을 포함합니다:
 
     전역 변수 사용::
 
-        from config.g_variables import ratio_col_list, sector_map
+        from src.infra.g_variables import ratio_col_list, sector_map
 
         # Financial ratio feature 선택
         ratio_features = df[ratio_col_list]
@@ -90,12 +90,12 @@ config 패키지는 다음을 포함합니다:
         sector = sector_map.get(industry, 'Unknown')
 
 모듈 구조:
-    config/
+    src/infra/
     ├── __init__.py           # 이 파일 - 패키지 초기화
     ├── context_loader.py     # Configuration 로딩 및 context 관리
     ├── logger.py            # Unified logging system
     ├── g_variables.py       # 전역 변수 및 상수
-    └── conf.yaml            # Configuration 파일 (Python 패키지 외부)
+    └── file_utils.py        # 파일 유틸리티
 
 Configuration 파일 형식 (conf.yaml):
     Configuration 파일은 다음 섹션을 포함해야 합니다::
@@ -130,12 +130,12 @@ Configuration 파일 형식 (conf.yaml):
     레거시 ContextLoader에서 현대적인 방식으로::
 
         # 기존 코드
-        from config.context_loader import ContextLoader
+        from src.infra.context_loader import ContextLoader
         context = ContextLoader()
         logger = context.get_logger('MyModule')
 
         # 새 코드 (권장)
-        from config import load_config, MainContext
+        from src.infra import load_config, MainContext
         config = load_config('config/conf.yaml')
         context = MainContext(config)
         logger = context.get_logger('MyModule')
@@ -154,8 +154,8 @@ Configuration 파일 형식 (conf.yaml):
 예제:
     완전한 application 초기화::
 
-        from config import load_config, MainContext
-        from config.logger import get_logger
+        from src.infra import load_config, MainContext
+        from src.infra.logger import get_logger
 
         def main():
             # Configuration 로드
@@ -183,8 +183,8 @@ Configuration 파일 형식 (conf.yaml):
 
     Multiprocessing application::
 
-        from config import load_config, MainContext
-        from config.logger import setup_logger_for_multiprocessing, get_logger
+        from src.infra import load_config, MainContext
+        from src.infra.logger import setup_logger_for_multiprocessing, get_logger
         import multiprocessing as mp
 
         def worker_function(symbol, config):

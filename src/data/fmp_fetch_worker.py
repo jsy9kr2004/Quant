@@ -13,7 +13,7 @@
 - 멀티프로세싱 환경을 위한 통합 로깅
 
 사용 예제:
-    from src.data_collector.fmp_fetch_worker import fetch_fmp
+    from src.data.fmp_fetch_worker import fetch_fmp
 
     # api_list에는 URL 설정이 포함된 FMPAPI 객체들이 있습니다
     fetch_fmp(main_ctx, api_list)
@@ -32,9 +32,9 @@ import logging
 from typing import List, Any, Tuple
 
 # Import unified logging
-from config.logger import get_logger, setup_logger_for_multiprocessing
+from src.infra.logger import get_logger, setup_logger_for_multiprocessing
 # Import Windows-safe filename utility
-from config.file_utils import safe_filename
+from src.infra.file_utils import safe_filename
 
 
 def __flatten_json(js: Any, expand_all: bool = False) -> pd.DataFrame:
@@ -232,7 +232,7 @@ def fetch_fmp(main_ctx, api_list: List[Any]) -> None:
 
     Example:
         # FMP API에서 데이터 가져오기
-        from src.data_collector.fmp_api import FMPAPI
+        from src.data.fmp_api import FMPAPI
 
         api1 = FMPAPI(main_ctx, "https://fmp.com/api/v3/profile/AAPL?apikey=xxx")
         api2 = FMPAPI(main_ctx, "https://fmp.com/api/v3/income-statement/AAPL")

@@ -19,7 +19,7 @@
     - 상위 K개 주식 선택을 통한 종합적인 평가
 
 사용 예시:
-    from config.config_loader import load_config
+    from src.infra.config_loader import load_config
     conf = load_config('config/config.yaml')
 
     # 회귀 모델 초기화
@@ -78,7 +78,7 @@ from typing import Dict, List, Tuple, Optional, Any
 
 # datasets 라이브러리는 사용되지 않으므로 import 제거됨
 # from datasets import Dataset
-from config.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, sparse_col_list
+from src.infra.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, sparse_col_list
 from src.constants.data_schema import DataSchema  # ✨ Unified column definitions
 from src.training.data_processor import DataProcessor  # ✨ Unified preprocessing
 from sklearn.ensemble import RandomForestRegressor
@@ -659,7 +659,7 @@ class Regressor:
         sector_y_train (Dict[str, pd.DataFrame]): 섹터별 학습 레이블
 
     사용 예시:
-        from config.config_loader import load_config
+        from src.infra.config_loader import load_config
         conf = load_config('config/config.yaml')
 
         # 회귀 모델 생성
@@ -2975,7 +2975,7 @@ class Regressor:
         - Handles OOM by invalidating profile and retrying conservatively
         """
         from src.training.data_processor import DataProcessor
-        from src.utils.memory_profiler import MemoryProfiler
+        from src.scripts.memory_profiler import MemoryProfiler
 
         MODEL_SAVE_PATH = self.root_path + '/MODELS/'
         if not os.path.exists(MODEL_SAVE_PATH):
@@ -3159,7 +3159,7 @@ class Regressor:
 
     def _train_walk_forward_parallel(self, model_save_path: str, top_k: int, num_workers_config: str, profile_file: str) -> None:
         """Parallel walk-forward training using Ray and MemoryProfiler."""
-        from src.utils.memory_profiler import MemoryProfiler
+        from src.scripts.memory_profiler import MemoryProfiler
 
         logging.info("="*80)
         logging.info("⚡ Parallel Mode (Ray)")
