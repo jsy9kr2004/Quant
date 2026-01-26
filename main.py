@@ -51,6 +51,20 @@ from src.training import OptunaOptimizer, MLflowTracker
 from src.backtest import MLBacktest
 
 
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+def _is_enabled(value: Any) -> bool:
+    """Check if a YAML config value represents 'enabled/true'."""
+    return value in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
+
+
+def _is_disabled(value: Any) -> bool:
+    """Check if a YAML config value represents 'disabled/false'."""
+    return value in ('N', False, 'no', 'NO', 'No', 'OFF', 'Off', 'off', 'FALSE', 'False')
+
+
 class RegressorIntegrated:
     """
     레거시와 새로운 모델 아키텍처를 결합한 통합 ML 학습 파이프라인입니다.
@@ -154,15 +168,9 @@ class RegressorIntegrated:
             ValueError: 사용 가능한 학습 방법이 없는 경우
             RuntimeError: 모델 학습 실패 시
         """
-        # Fix: Handle both boolean and string Y/N values from YAML config
         ml_config = self.conf.get('ML', {})
-
-        # Support both 'Y'/True and 'N'/False from YAML parsing
-        use_new_models_val = ml_config.get('USE_NEW_MODELS')
-        use_new_models = use_new_models_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
-
-        use_mlflow_val = ml_config.get('USE_MLFLOW')
-        use_mlflow = use_mlflow_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
+        use_new_models = _is_enabled(ml_config.get('USE_NEW_MODELS'))
+        use_mlflow = _is_enabled(ml_config.get('USE_MLFLOW'))
 
         if use_new_models and use_mlflow:
             self._train_with_new_models()
@@ -192,10 +200,7 @@ class RegressorIntegrated:
 
         ml_config = self.conf.get('ML', {})
 
-        # Initialize MLflow tracker
-        # Support both 'Y'/True and 'N'/False from YAML parsing
-        use_mlflow_val = ml_config.get('USE_MLFLOW')
-        if use_mlflow_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True'):
+        if _is_enabled(ml_config.get('USE_MLFLOW')):
             tracker = MLflowTracker(
                 experiment_name=ml_config.get('MLFLOW_EXPERIMENT', 'quant_trading')
             )
@@ -237,15 +242,9 @@ class RegressorIntegrated:
         Raises:
             FileNotFoundError: 테스트 데이터 파일이 누락된 경우
         """
-        # Fix: Use same logic as train() to ensure consistency
         ml_config = self.conf.get('ML', {})
-
-        # Support both 'Y'/True and 'N'/False from YAML parsing
-        use_new_models_val = ml_config.get('USE_NEW_MODELS')
-        use_new_models = use_new_models_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
-
-        use_mlflow_val = ml_config.get('USE_MLFLOW')
-        use_mlflow = use_mlflow_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
+        use_new_models = _is_enabled(ml_config.get('USE_NEW_MODELS'))
+        use_mlflow = _is_enabled(ml_config.get('USE_MLFLOW'))
 
         if use_new_models and use_mlflow:
             logger = get_logger('RegressorIntegrated')
@@ -277,15 +276,9 @@ class RegressorIntegrated:
         Raises:
             FileNotFoundError: 최신 데이터 파일이 누락된 경우
         """
-        # Fix: Use same logic as train() to ensure consistency
         ml_config = self.conf.get('ML', {})
-
-        # Support both 'Y'/True and 'N'/False from YAML parsing
-        use_new_models_val = ml_config.get('USE_NEW_MODELS')
-        use_new_models = use_new_models_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
-
-        use_mlflow_val = ml_config.get('USE_MLFLOW')
-        use_mlflow = use_mlflow_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
+        use_new_models = _is_enabled(ml_config.get('USE_NEW_MODELS'))
+        use_mlflow = _is_enabled(ml_config.get('USE_MLFLOW'))
 
         if use_new_models and use_mlflow:
             logger = get_logger('RegressorIntegrated')
@@ -402,6 +395,302 @@ def conf_check(config: Dict[str, Any]) -> None:
     logger.info("✅ Configuration validated")
 
 
+# =============================================================================
+# Pipeline Step Functions
+# =============================================================================
+
+def _initialize_pipeline() -> tuple:
+    """
+    Initialize the pipeline: load config, create context, setup logging.
+
+    Returns:
+        tuple: (config, main_ctx, logger)
+    """
+    print("="*80)
+    print("Quant Trading System - Refactored Version")
+    print("="*80)
+
+    try:
+        config_path = get_config_path()
+        config = load_config(config_path)
+    except FileNotFoundError as e:
+        print(f"\n❌ {e}")
+        print("\nPlease create config/conf.yaml with your settings.")
+        print("See config/conf.yaml.template for reference.")
+        sys.exit(1)
+
+    main_ctx = MainContext(config)
+    logger = get_logger('main')
+
+    conf_check(config)
+    main_ctx.create_dir("./reports")
+
+    return config, main_ctx, logger
+
+
+def _collect_data(config: Dict[str, Any], main_ctx: 'MainContext', logger: logging.Logger) -> None:
+    """
+    Collect data from FMP API or rebuild VIEW tables.
+
+    Handles two modes:
+    - GET_FMP=Y: Fetch new data from FMP API and convert to Parquet
+    - MAKE_VIEW=Y: Rebuild VIEW tables from existing data
+    """
+    data_config = config.get('DATA', {})
+    storage_type = data_config.get('STORAGE_TYPE', 'PARQUET')
+
+    if data_config.get('GET_FMP') == 'Y':
+        logger.info("="*80)
+        logger.info("Step 1: FMP Data Collection")
+        logger.info("="*80)
+        _run_fmp_collection(main_ctx, storage_type, logger)
+
+    elif data_config.get('MAKE_VIEW') == 'Y':
+        logger.info("="*80)
+        logger.info("Step 1: Rebuild VIEW CSVs from existing data")
+        logger.info("="*80)
+        _run_view_rebuild(main_ctx, storage_type, logger)
+
+
+def _run_fmp_collection(main_ctx: 'MainContext', storage_type: str, logger: logging.Logger) -> None:
+    """Execute FMP data collection and conversion."""
+    try:
+        from src.data.fmp import FMP
+        fmp = FMP(main_ctx)
+        fmp.collect()
+
+        if storage_type == 'PARQUET':
+            logger.info("Converting to Parquet format...")
+            storage = ParquetStorage(root_path=main_ctx.root_path, auto_validate=True)
+
+            from src.data.parquet_converter import Parquet
+            df_engine = Parquet(main_ctx)
+            df_engine.insert_csv()
+            df_engine.rebuild_table_view()
+            logger.info("✅ Data saved in Parquet format")
+
+        elif storage_type == 'DB':
+            logger.warning("Database storage not recommended. Use PARQUET instead.")
+            from src.database import Database
+            db = Database(main_ctx)
+            db.insert_csv()
+            db.rebuild_table_view()
+
+    except Exception as e:
+        logger.error(f"FMP data collection failed: {e}")
+        logger.info("Continuing with existing data...")
+
+
+def _run_view_rebuild(main_ctx: 'MainContext', storage_type: str, logger: logging.Logger) -> None:
+    """Rebuild VIEW tables from existing data."""
+    try:
+        if storage_type == 'PARQUET':
+            logger.info("Rebuilding VIEW tables from existing data...")
+            storage = ParquetStorage(root_path=main_ctx.root_path, auto_validate=True)
+
+            from src.data.parquet_converter import Parquet
+            df_engine = Parquet(main_ctx)
+            df_engine.insert_csv()
+            df_engine.rebuild_table_view()
+            logger.info("✅ VIEW CSVs rebuilt successfully")
+
+        elif storage_type == 'DB':
+            logger.warning("Database storage not recommended. Use PARQUET instead.")
+            from src.database import Database
+            db = Database(main_ctx)
+            db.insert_csv()
+            db.rebuild_table_view()
+
+    except Exception as e:
+        logger.error(f"VIEW rebuild failed: {e}")
+        logger.info("Please check if raw data files exist...")
+
+
+def _run_prediction_only(config: Dict[str, Any], logger: logging.Logger) -> None:
+    """
+    Run prediction-only mode using pre-trained models.
+
+    This mode skips training/evaluation/backtest and only generates predictions.
+    """
+    prediction_config = config.get('PREDICTION', {})
+
+    logger.info("="*80)
+    logger.info("🎯 PREDICTION-ONLY MODE")
+    logger.info("="*80)
+    logger.info("Skipping training/evaluation/backtest - using pre-trained models")
+
+    target_date = prediction_config.get('TARGET_DATE', 'latest')
+    top_k = prediction_config.get('TOP_K', 10)
+
+    logger.info(f"  Target Date: {target_date}")
+    logger.info(f"  Top-K: {top_k}")
+
+    regressor = RegressorIntegrated(config, use_new_models=False)
+    top_stocks = regressor.predict_for_date(target_date=target_date, top_k=top_k)
+
+    if len(top_stocks) > 0:
+        logger.info(f"✅ Prediction completed! {len(top_stocks)} stocks recommended")
+        logger.info(f"   Results saved to: MODELS/prediction_{target_date.replace('-', '')}_top{top_k}.csv")
+    else:
+        logger.error("❌ Prediction failed - check logs for details")
+
+    logger.info("="*80)
+    logger.info("Exiting after prediction (PREDICTION.ENABLED=Y)")
+    sys.exit(0)
+
+
+def _run_ml_pipeline(config: Dict[str, Any], main_ctx: 'MainContext', logger: logging.Logger) -> bool:
+    """
+    Run the ML training pipeline.
+
+    Returns:
+        bool: True if should exit after ML, False to continue to backtest
+    """
+    ml_config = config.get('ML', {})
+
+    if not _is_enabled(ml_config.get('RUN_REGRESSION')):
+        return False
+
+    logger.info("="*80)
+    logger.info("Step 2: ML Pipeline")
+    logger.info("="*80)
+
+    # Prepare ML training data
+    logger.info("Preparing ML training data...")
+    AIDataMaker(main_ctx, config)
+
+    # Train and evaluate models
+    logger.info("Training models...")
+    use_new_models = _is_enabled(ml_config.get('USE_NEW_MODELS'))
+    regressor = RegressorIntegrated(config, use_new_models=use_new_models)
+    regressor.dataload()
+    regressor.train()
+    regressor.evaluation()
+    regressor.latest_prediction()
+
+    logger.info("✅ ML pipeline completed")
+
+    # Check if should exit after ML
+    exit_after_ml = not _is_disabled(ml_config.get('EXIT_AFTER_ML', True))
+    if exit_after_ml:
+        logger.info("Exiting after ML (set EXIT_AFTER_ML=N to continue to backtest)")
+
+    return exit_after_ml
+
+
+def _run_backtest(config: Dict[str, Any], main_ctx: 'MainContext', logger: logging.Logger) -> Optional[Dict[str, float]]:
+    """
+    Run ML walk-forward backtesting.
+
+    Returns:
+        Optional[Dict[str, float]]: Backtest metrics or None if skipped
+    """
+    backtest_config = config.get('BACKTEST', {})
+    eval_config = config.get('EVALUATION', {})
+
+    if _is_disabled(backtest_config.get('RUN_BACKTEST', True)):
+        return None
+
+    logger.info("="*80)
+    logger.info("Step 3: ML Walk-Forward Backtesting")
+    logger.info("="*80)
+
+    # Get parameters (EVALUATION takes precedence over BACKTEST)
+    top_k_num = eval_config.get('TOP_K_NUM', backtest_config.get('TOP_K_NUM', 20))
+    rebalance_period = eval_config.get('REBALANCE_PERIOD', backtest_config.get('REBALANCE_PERIOD', 3))
+    retrain_frequency = backtest_config.get('RETRAIN_FREQUENCY', 'quarterly')
+    window_type = backtest_config.get('WINDOW_TYPE', 'expanding')
+    window_size = backtest_config.get('WINDOW_SIZE', 3)
+
+    logger.info(f"  Rebalance period: {rebalance_period} months")
+    logger.info(f"  Top K: {top_k_num}")
+    logger.info(f"  Retrain frequency: {retrain_frequency}")
+    logger.info(f"  Window type: {window_type}")
+
+    # Initialize and run backtest
+    ml_backtest = MLBacktest(
+        config=config,
+        main_ctx=main_ctx,
+        rebalance_period=rebalance_period,
+        top_k=top_k_num,
+        retrain_frequency=retrain_frequency,
+        window_type=window_type,
+        window_size=window_size
+    )
+
+    logger.info("Starting ML walk-forward backtest...")
+    results = ml_backtest.run()
+
+    logger.info("✅ ML backtesting completed")
+    logger.info("  Results saved to: reports/")
+
+    # Extract metrics for experiment tracking
+    backtest_results = _extract_backtest_metrics(results, ml_backtest.rebalance_period, logger)
+
+    del ml_backtest
+    return backtest_results
+
+
+def _extract_backtest_metrics(results: Optional['pd.DataFrame'], rebalance_period: int,
+                               logger: logging.Logger) -> Optional[Dict[str, float]]:
+    """Extract performance metrics from backtest results."""
+    if results is None or len(results) == 0:
+        return None
+
+    try:
+        import numpy as np
+        total_return = (1 + results['avg_return']).prod() - 1
+        avg_return = results['avg_return'].mean()
+        std_return = results['avg_return'].std()
+        sharpe = avg_return / std_return * np.sqrt(12/rebalance_period) if std_return > 0 else 0
+
+        cumulative = (1 + results['avg_return']).cumprod()
+        running_max = cumulative.cummax()
+        drawdown = (cumulative - running_max) / running_max
+        mdd = drawdown.min()
+
+        win_rate = (results['avg_return'] > 0).sum() / len(results)
+
+        return {
+            'total_return': total_return * 100,
+            'sharpe_ratio': sharpe,
+            'max_drawdown': mdd * 100,
+            'win_rate': win_rate * 100
+        }
+    except Exception as e:
+        logger.warning(f"⚠️  Failed to extract backtest metrics: {e}")
+        return None
+
+
+def _upload_experiment(config: Dict[str, Any], backtest_results: Optional[Dict[str, float]],
+                       logger: logging.Logger) -> None:
+    """Upload experiment results to Google Sheets."""
+    tracking_config = config.get('EXPERIMENT_TRACKING', {})
+
+    if not _is_enabled(tracking_config.get('ENABLED')):
+        return
+
+    try:
+        from src.tracking import upload_experiment_result
+        logger.info("="*80)
+        logger.info("Step 4: Uploading experiment to Google Sheets...")
+        logger.info("="*80)
+        upload_experiment_result(
+            config=config,
+            backtest_results=backtest_results,
+            prediction_metrics=None,
+            experiment_name=None
+        )
+    except ImportError as e:
+        logger.warning(f"⚠️  Google Sheets upload skipped: {e}")
+    except Exception as e:
+        logger.warning(f"⚠️  Google Sheets upload failed: {e}")
+
+
+# =============================================================================
+# Main Entry Point
+# =============================================================================
+
 def main() -> None:
     """
     전체 퀀트 트레이딩 워크플로우를 조율하는 메인 파이프라인입니다.
@@ -497,265 +786,27 @@ def main() -> None:
         - README.md: 빠른 시작 가이드
         - config/conf.yaml.template: 설정 템플릿
     """
-    print("="*80)
-    print("Quant Trading System - Refactored Version")
-    print("="*80)
+    # 1. Initialize pipeline
+    config, main_ctx, logger = _initialize_pipeline()
 
-    # 1. Load and validate configuration
-    try:
-        config_path = get_config_path()
-        config = load_config(config_path)
-    except FileNotFoundError as e:
-        print(f"\n❌ {e}")
-        print("\nPlease create config/conf.yaml with your settings.")
-        print("See config/conf.yaml.template for reference.")
-        sys.exit(1)
+    # 2. Data collection (optional)
+    _collect_data(config, main_ctx, logger)
 
-    # 2. Initialize context (automatically sets up logging)
-    main_ctx = MainContext(config)
-    logger = get_logger('main')
+    # 3. Prediction-only mode (optional, exits early)
+    if _is_enabled(config.get('PREDICTION', {}).get('ENABLED')):
+        _run_prediction_only(config, logger)
 
-    conf_check(config)
+    # 4. ML pipeline (optional)
+    if _run_ml_pipeline(config, main_ctx, logger):
+        sys.exit(0)  # Exit after ML if configured
 
-    # 3. Create output directories
-    main_ctx.create_dir("./reports")
+    # 5. Backtesting (optional)
+    backtest_results = _run_backtest(config, main_ctx, logger)
 
-    # 4. Configure data storage
-    data_config = config.get('DATA', {})
-    storage_type = data_config.get('STORAGE_TYPE', 'PARQUET')
+    # 6. Experiment tracking (optional)
+    _upload_experiment(config, backtest_results, logger)
 
-    # 5. FMP Data Collection (Optional)
-    if data_config.get('GET_FMP') == 'Y':
-        logger.info("="*80)
-        logger.info("Step 1: FMP Data Collection")
-        logger.info("="*80)
-
-        try:
-            from src.data.fmp import FMP
-            fmp = FMP(main_ctx)
-            fmp.collect()
-
-            # Convert to Parquet format for efficient storage and retrieval
-            if storage_type == 'PARQUET':
-                logger.info("Converting to Parquet format...")
-
-                # Initialize Parquet storage with auto-validation
-                storage = ParquetStorage(
-                    root_path=main_ctx.root_path,
-                    auto_validate=True
-                )
-
-                # Use legacy converter to process CSV files
-                from src.data.parquet_converter import Parquet
-                df_engine = Parquet(main_ctx)
-                df_engine.insert_csv()
-                df_engine.rebuild_table_view()
-
-                logger.info("✅ Data saved in Parquet format")
-
-            elif storage_type == 'DB':
-                logger.warning("Database storage not recommended. Use PARQUET instead.")
-                from src.database import Database
-                db = Database(main_ctx)
-                db.insert_csv()
-                db.rebuild_table_view()
-
-        except Exception as e:
-            logger.error(f"FMP data collection failed: {e}")
-            logger.info("Continuing with existing data...")
-
-    # 5-1. Rebuild VIEW CSVs only (without FMP data collection)
-    elif data_config.get('MAKE_VIEW') == 'Y':
-        logger.info("="*80)
-        logger.info("Step 1: Rebuild VIEW CSVs from existing data")
-        logger.info("="*80)
-
-        try:
-            if storage_type == 'PARQUET':
-                logger.info("Rebuilding VIEW tables from existing data...")
-
-                # Initialize Parquet storage with auto-validation
-                storage = ParquetStorage(
-                    root_path=main_ctx.root_path,
-                    auto_validate=True
-                )
-
-                # Use legacy converter to rebuild VIEW tables
-                from src.data.parquet_converter import Parquet
-                df_engine = Parquet(main_ctx)
-                df_engine.insert_csv()
-                df_engine.rebuild_table_view()
-
-                logger.info("✅ VIEW CSVs rebuilt successfully")
-
-            elif storage_type == 'DB':
-                logger.warning("Database storage not recommended. Use PARQUET instead.")
-                from src.database import Database
-                db = Database(main_ctx)
-                db.insert_csv()
-                db.rebuild_table_view()
-
-        except Exception as e:
-            logger.error(f"VIEW rebuild failed: {e}")
-            logger.info("Please check if raw data files exist...")
-
-    # 5.5 Prediction-Only Mode (Optional)
-    # 이미 학습된 모델로 특정 날짜 기준 예측만 수행
-    prediction_config = config.get('PREDICTION', {})
-    prediction_enabled_val = prediction_config.get('ENABLED')
-    if prediction_enabled_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True'):
-        logger.info("="*80)
-        logger.info("🎯 PREDICTION-ONLY MODE")
-        logger.info("="*80)
-        logger.info("Skipping training/evaluation/backtest - using pre-trained models")
-
-        target_date = prediction_config.get('TARGET_DATE', 'latest')
-        top_k = prediction_config.get('TOP_K', 10)
-
-        logger.info(f"  Target Date: {target_date}")
-        logger.info(f"  Top-K: {top_k}")
-
-        # Regressor 인스턴스 생성 (학습 없이 예측만)
-        regressor = RegressorIntegrated(config, use_new_models=False)
-
-        # 예측 수행
-        top_stocks = regressor.predict_for_date(target_date=target_date, top_k=top_k)
-
-        if len(top_stocks) > 0:
-            logger.info(f"✅ Prediction completed! {len(top_stocks)} stocks recommended")
-            logger.info(f"   Results saved to: MODELS/prediction_{target_date.replace('-', '')}_top{top_k}.csv")
-        else:
-            logger.error("❌ Prediction failed - check logs for details")
-
-        logger.info("="*80)
-        logger.info("Exiting after prediction (PREDICTION.ENABLED=Y)")
-        sys.exit(0)
-
-    # 6. ML Pipeline (Optional)
-    ml_config = config.get('ML', {})
-    # Support both 'Y'/True and 'N'/False from YAML parsing
-    run_regression_val = ml_config.get('RUN_REGRESSION')
-    if run_regression_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True'):
-        logger.info("="*80)
-        logger.info("Step 2: ML Pipeline")
-        logger.info("="*80)
-
-        # 6.1 Prepare ML training data
-        logger.info("Preparing ML training data...")
-        AIDataMaker(main_ctx, config)
-
-        # 6.2 Train models
-        logger.info("Training models...")
-        # Fix: Support both boolean and string Y/N values from YAML parsing
-        use_new_models_val = ml_config.get('USE_NEW_MODELS')
-        use_new_models = use_new_models_val in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
-        regressor = RegressorIntegrated(
-            config,
-            use_new_models=use_new_models
-        )
-        regressor.dataload()
-        regressor.train()
-        regressor.evaluation()
-        regressor.latest_prediction()
-
-        logger.info("✅ ML pipeline completed")
-
-        # Exit after ML if configured (allows running ML without backtest)
-        # Support both 'Y'/True and 'N'/False from YAML parsing (default True)
-        exit_after_ml_val = ml_config.get('EXIT_AFTER_ML', True)
-        if exit_after_ml_val not in ('N', False, 'no', 'NO', 'No', 'OFF', 'Off', 'off', 'FALSE', 'False'):
-            logger.info("Exiting after ML (set EXIT_AFTER_ML=N to continue to backtest)")
-            sys.exit(0)
-
-    # 7. ML Walk-Forward Backtesting (Optional)
-    backtest_config = config.get('BACKTEST', {})
-    eval_config = config.get('EVALUATION', {})
-    # Support both 'Y'/True and 'N'/False from YAML parsing (default True)
-    run_backtest_val = backtest_config.get('RUN_BACKTEST', True)
-    if run_backtest_val not in ('N', False, 'no', 'NO', 'No', 'OFF', 'Off', 'off', 'FALSE', 'False'):
-        logger.info("="*80)
-        logger.info("Step 3: ML Walk-Forward Backtesting")
-        logger.info("="*80)
-
-        # ✅ Task #4: Read from EVALUATION first, then fallback to BACKTEST
-        top_k_num = eval_config.get('TOP_K_NUM', backtest_config.get('TOP_K_NUM', 20))
-        rebalance_period = eval_config.get('REBALANCE_PERIOD', backtest_config.get('REBALANCE_PERIOD', 3))
-
-        # Initialize ML-based walk-forward backtesting
-        ml_backtest = MLBacktest(
-            config=config,
-            main_ctx=main_ctx,
-            rebalance_period=rebalance_period,
-            top_k=top_k_num,
-            retrain_frequency=backtest_config.get('RETRAIN_FREQUENCY', 'quarterly'),
-            window_type=backtest_config.get('WINDOW_TYPE', 'expanding'),
-            window_size=backtest_config.get('WINDOW_SIZE', 3)
-        )
-
-        # Run walk-forward backtest
-        logger.info("Starting ML walk-forward backtest...")
-        logger.info(f"  Rebalance period: {rebalance_period} months")
-        logger.info(f"  Top K: {top_k_num}")
-        logger.info(f"  Retrain frequency: {backtest_config.get('RETRAIN_FREQUENCY', 'quarterly')}")
-        logger.info(f"  Window type: {backtest_config.get('WINDOW_TYPE', 'expanding')}")
-
-        results = ml_backtest.run()
-
-        logger.info("✅ ML backtesting completed")
-        logger.info("  Results saved to: reports/")
-
-        # 백테스트 결과에서 지표 추출 (구글 시트 업로드용)
-        backtest_results = None
-        if results is not None and len(results) > 0:
-            try:
-                import numpy as np
-                total_return = (1 + results['avg_return']).prod() - 1
-                avg_return = results['avg_return'].mean()
-                std_return = results['avg_return'].std()
-                sharpe = avg_return / std_return * np.sqrt(12/ml_backtest.rebalance_period) if std_return > 0 else 0
-
-                cumulative = (1 + results['avg_return']).cumprod()
-                running_max = cumulative.cummax()
-                drawdown = (cumulative - running_max) / running_max
-                mdd = drawdown.min()
-
-                win_rate = (results['avg_return'] > 0).sum() / len(results)
-
-                backtest_results = {
-                    'total_return': total_return * 100,
-                    'sharpe_ratio': sharpe,
-                    'max_drawdown': mdd * 100,
-                    'win_rate': win_rate * 100
-                }
-            except Exception as e:
-                logger.warning(f"⚠️  Failed to extract backtest metrics: {e}")
-
-        # Cleanup
-        del ml_backtest
-
-    else:
-        backtest_results = None
-
-    # 8. Experiment Tracking (Google Sheets upload)
-    tracking_config = config.get('EXPERIMENT_TRACKING', {})
-    if tracking_config.get('ENABLED') in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'TRUE', 'True'):
-        try:
-            from src.tracking import upload_experiment_result
-            logger.info("="*80)
-            logger.info("Step 4: Uploading experiment to Google Sheets...")
-            logger.info("="*80)
-            upload_experiment_result(
-                config=config,
-                backtest_results=backtest_results,
-                prediction_metrics=None,  # TODO: 향후 regressor 평가 결과 추가
-                experiment_name=None  # 자동 생성
-            )
-        except ImportError as e:
-            logger.warning(f"⚠️  Google Sheets upload skipped: {e}")
-        except Exception as e:
-            logger.warning(f"⚠️  Google Sheets upload failed: {e}")
-
-    # 9. Pipeline completed
+    # 7. Done
     logger.info("="*80)
     logger.info("Pipeline completed successfully!")
     logger.info("="*80)
