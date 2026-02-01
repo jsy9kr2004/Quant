@@ -26,6 +26,20 @@ from datetime import datetime, timedelta
 import tempfile
 from pathlib import Path
 
+# Try to import MLBacktest, skip tests if dependencies unavailable
+try:
+    from src.backtest.ml_backtest import MLBacktest
+    MLBACKTEST_AVAILABLE = True
+except ImportError as e:
+    MLBACKTEST_AVAILABLE = False
+    MLBacktest = None
+
+# Skip all tests in this module if MLBacktest is unavailable
+pytestmark = pytest.mark.skipif(
+    not MLBACKTEST_AVAILABLE,
+    reason="MLBacktest unavailable (missing tqdm or other dependencies)"
+)
+
 
 # ============================================================================
 # Fixtures (테스트 데이터)

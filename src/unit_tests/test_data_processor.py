@@ -602,6 +602,9 @@ class TestDataQualityIntegration:
 
     def test_load_quarterly_data_integration(self, tmp_path):
         """분기별 데이터 로드 통합 테스트"""
+        # pyarrow가 없으면 스킵
+        pytest.importorskip("pyarrow")
+
         # 임시 parquet 파일 생성
         df = pd.DataFrame({
             'symbol': ['AAPL', 'MSFT'],
