@@ -77,6 +77,32 @@ from src.training.data_processor import DataProcessor
 import xgboost
 from sklearn.metrics import accuracy_score, classification_report, precision_score, recall_score
 
+# ==============================================================================
+# 현재 미사용 import (향후 모델 확장/실험용으로 보존)
+# ==============================================================================
+# --- 시각화: Feature importance 분석, 학습 곡선 시각화 등 ---
+# import seaborn as sns
+# import matplotlib.pyplot as plt
+#
+# --- 대안 모델: 앙상블 다양성 확보, 벤치마크 비교용 ---
+# from sklearn.ensemble import RandomForestRegressor
+# from sklearn.linear_model import LinearRegression
+# from sklearn.neural_network import MLPRegressor
+#
+# --- PyTorch 기반 모델: 딥러닝 회귀/분류 실험용 ---
+# import torch.nn as nn
+# import torch.nn.functional as nn_f
+# import torch.optim as optim
+# from torch.utils.data import DataLoader
+#
+# --- 하이퍼파라미터 탐색: GridSearchCV/RandomizedSearchCV 실험용 ---
+# from sklearn.model_selection import GridSearchCV, KFold, RandomizedSearchCV
+# from sklearn.metrics import mean_squared_error, precision_recall_fscore_support
+#
+# --- g_variables 확장 컬럼: 섹터별 feature 그룹 분석용 ---
+# from src.infra.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sparse_col_list
+# ==============================================================================
+
 # Optuna for hyperparameter optimization
 try:
     import optuna
