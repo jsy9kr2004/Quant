@@ -1,7 +1,7 @@
 # Codebase Analysis Report
 
 > **작성자**: Claude AI
-> **최종 업데이트**: 2026-01-17
+> **최종 업데이트**: 2026-02-07
 
 이 폴더는 Quant 프로젝트의 **핵심 분석 레포트**를 담고 있습니다.
 
@@ -20,6 +20,7 @@
 | 6 | [06_quant_perspective.md](./06_quant_perspective.md) | 퀀트 관점 | 시장 효율성, 리스크, 알파 |
 | 7 | [07_recommendations.md](./07_recommendations.md) | 개선 권고 | 우선순위별 개선사항 |
 | 8 | [08_recent_changes.md](./08_recent_changes.md) | 최신 변경사항 | 2026년 1월 업데이트 내역 |
+| 9 | [09_refactoring.md](./09_refactoring.md) | 리팩토링 분석 | 파일별 리팩토링 평가, PEP8, 가독성, TODO |
 
 ---
 
@@ -37,6 +38,8 @@
 07_recommendations (개선 방향)
     ↓
 08_recent_changes (최신 상태)
+    ↓
+09_refactoring (리팩토링 분석)
 ```
 
 ---
