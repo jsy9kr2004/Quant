@@ -1284,9 +1284,52 @@ class Regressor:
         # ========================================================================
         logging.info("📊 Traditional mode: Loading train/test files...")
 
-        # ========================================================================
         # STEP 1: Load all training files from parquet
+        train_dfs = self._load_training_files()
+
+        # Concatenate all training data
+        self.train_df = pd.concat(train_dfs, axis=0, ignore_index=True)
+        logging.info(f"✅ Combined training data: {len(self.train_df)} rows from {len(train_dfs)} files")
+
+        # STEP 2: Calculate sector-based features (BEFORE preprocessing)
+        sector_list = self._calculate_sector_features()
+
+        # STEP 3-4: Unified preprocessing and store training data
+        self._preprocess_and_split_training_data()
+
+        # STEP 5: Load and preprocess test files
+        self._load_and_preprocess_test_files(sector_list)
+
         # ========================================================================
+        # Final validation and logging
+        # ========================================================================
+        logging.info("\n" + "=" * 80)
+        logging.info("✅ DATALOAD COMPLETE")
+        logging.info("=" * 80)
+        logging.info(f"Training data: {len(self.train_df)} rows, {len(self.x_train.columns)} features")
+        logging.info(f"Test data: {len(self.test_df)} rows")
+        logging.info(f"Dropped columns: {len(self.drop_col_list)}")
+
+        # Class distribution
+        positive_count = (self.y_train_cls.iloc[:, 0] > 0).sum()
+        negative_count = (self.y_train_cls.iloc[:, 0] <= 0).sum()
+        logging.info(f"Class distribution: positive={positive_count}, negative={negative_count} "
+                    f"({positive_count/(positive_count+negative_count)*100:.1f}% positive)")
+
+        if self.use_sector_model:
+            logging.info(f"Sector models: {len(self.sector_list)} sectors")
+
+        logging.info("=" * 80)
+
+    def _load_training_files(self) -> list:
+        """Load all training parquet files with fillingDate filtering.
+
+        Returns:
+            List of DataFrames loaded from parquet files.
+
+        Raises:
+            ValueError: If no training data files are found.
+        """
         logging.info("STEP 1/5: Loading training parquet files...")
         train_dfs = []
 
@@ -1326,59 +1369,74 @@ class Regressor:
             logging.error(error_msg)
             raise ValueError("No training data files found. Please check your data directory and configuration.")
 
-        # Concatenate all training data
-        self.train_df = pd.concat(train_dfs, axis=0, ignore_index=True)
-        logging.info(f"✅ Combined training data: {len(self.train_df)} rows from {len(train_dfs)} files")
+        return train_dfs
 
-        # ========================================================================
-        # STEP 2: Calculate sector-based features (BEFORE preprocessing)
-        # ========================================================================
+    def _calculate_sector_features(self) -> list:
+        """Calculate sector-based price deviation features on training data.
+
+        Computes sec_price_dev_subavg (sector-adjusted price deviation) for each sector.
+
+        Returns:
+            List of valid sector names found in the data.
+        """
         # TODO: Move this to make_mldata.py (should be done during data generation)
         logging.info("\nSTEP 2/5: Calculating sector-based features...")
 
-        if 'industry' in self.train_df.columns:
-            self.train_df["sector"] = self.train_df["industry"].map(sector_map)
-            all_sectors = list(self.train_df['sector'].unique())
-            sector_list = [
-                x for x in all_sectors
-                if pd.notna(x) and x is not None and isinstance(x, str) and x.strip()
-            ]
-
-            # Log invalid sectors and affected rows
-            invalid_sectors = [
-                x for x in all_sectors
-                if not (pd.notna(x) and x is not None and isinstance(x, str) and x.strip())
-            ]
-            if invalid_sectors:
-                logging.warning(f"  ⚠️  Found {len(invalid_sectors)} invalid sector value(s) in training data")
-                total_invalid_rows = 0
-                for inv_sec in invalid_sectors:
-                    if pd.isna(inv_sec):
-                        count = self.train_df['sector'].isna().sum()
-                        logging.warning(f"     - NaN/None: {count} rows excluded from sector calculations")
-                        total_invalid_rows += count
-                    else:
-                        count = (self.train_df['sector'] == inv_sec).sum()
-                        logging.warning(f"     - '{inv_sec}': {count} rows excluded from sector calculations")
-                        total_invalid_rows += count
-                logging.warning(f"  Total rows excluded: {total_invalid_rows} / {len(self.train_df)}")
-
-            logging.info(f"  Found {len(sector_list)} valid sectors: {sector_list}")
-
-            # Calculate sector-adjusted price deviation
-            for sec in sector_list:
-                sec_mask = self.train_df['sector'] == sec
-                sec_count = sec_mask.sum()
-                sec_mean = self.train_df.loc[sec_mask, 'price_dev'].mean()
-                self.train_df.loc[sec_mask, 'sec_price_dev_subavg'] = \
-                    self.train_df.loc[sec_mask, 'price_dev'] - sec_mean
-                logging.debug(f"    {sec}: {sec_count} stocks, mean price_dev={sec_mean:.4f}")
-
-            logging.info(f"✅ Sector features calculated")
-        else:
+        if 'industry' not in self.train_df.columns:
             logging.warning("⚠️  'industry' column not found, skipping sector calculation")
-            sector_list = []
+            return []
 
+        self.train_df["sector"] = self.train_df["industry"].map(sector_map)
+        all_sectors = list(self.train_df['sector'].unique())
+        sector_list = [
+            x for x in all_sectors
+            if pd.notna(x) and x is not None and isinstance(x, str) and x.strip()
+        ]
+
+        # Log invalid sectors and affected rows
+        invalid_sectors = [
+            x for x in all_sectors
+            if not (pd.notna(x) and x is not None and isinstance(x, str) and x.strip())
+        ]
+        if invalid_sectors:
+            logging.warning(f"  ⚠️  Found {len(invalid_sectors)} invalid sector value(s) in training data")
+            total_invalid_rows = 0
+            for inv_sec in invalid_sectors:
+                if pd.isna(inv_sec):
+                    count = self.train_df['sector'].isna().sum()
+                    logging.warning(f"     - NaN/None: {count} rows excluded from sector calculations")
+                    total_invalid_rows += count
+                else:
+                    count = (self.train_df['sector'] == inv_sec).sum()
+                    logging.warning(f"     - '{inv_sec}': {count} rows excluded from sector calculations")
+                    total_invalid_rows += count
+            logging.warning(f"  Total rows excluded: {total_invalid_rows} / {len(self.train_df)}")
+
+        logging.info(f"  Found {len(sector_list)} valid sectors: {sector_list}")
+
+        # Calculate sector-adjusted price deviation
+        for sec in sector_list:
+            sec_mask = self.train_df['sector'] == sec
+            sec_count = sec_mask.sum()
+            sec_mean = self.train_df.loc[sec_mask, 'price_dev'].mean()
+            self.train_df.loc[sec_mask, 'sec_price_dev_subavg'] = \
+                self.train_df.loc[sec_mask, 'price_dev'] - sec_mean
+            logging.debug(f"    {sec}: {sec_count} stocks, mean price_dev={sec_mean:.4f}")
+
+        logging.info(f"✅ Sector features calculated")
+        return sector_list
+
+    def _preprocess_and_split_training_data(self) -> None:
+        """Apply unified preprocessing, store training data, and split by sector.
+
+        Performs DataProcessor.preprocess_training_data() and splits data into
+        sector-specific subsets if USE_SECTOR_MODEL is enabled.
+
+        Side effects:
+            Sets self.x_train, self.y_train, self.y_train_cls, self.selected_features,
+            self.drop_col_list, self.sector_list, self.sector_train_dfs,
+            self.sector_x_train, self.sector_y_train, self.sector_y_train_cls.
+        """
         # ========================================================================
         # STEP 3: Unified preprocessing using DataProcessor
         # ========================================================================
@@ -1506,10 +1564,22 @@ class Regressor:
 
             logging.info(f"  ✅ Split into {len(self.sector_list)} sectors")
 
-        # ========================================================================
-        # STEP 5: Load and preprocess test files
-        # ========================================================================
+    def _load_and_preprocess_test_files(self, sector_list: list) -> None:
+        """Load test files and apply same preprocessing as training data.
+
+        Args:
+            sector_list: List of valid sector names (from _calculate_sector_features,
+                         used for test data sector feature calculation).
+
+        Side effects:
+            Sets self.test_df_list, self.test_df, self.x_test, self.y_test,
+            self.y_test_cls, self.sector_test_df_lists.
+        """
         logging.info("\nSTEP 5/5: Loading and preprocessing test files...")
+
+        excluded_cols = DataSchema.get_excluded_cols()
+        metadata_cols = ['symbol', 'sector', 'industry'] if 'sector' in self.train_df.columns else ['symbol', 'industry']
+        metadata_cols = [col for col in metadata_cols if col in self.train_df.columns]
 
         self.test_df_list = []
         test_dfs = []
@@ -1601,26 +1671,6 @@ class Regressor:
             self.y_test = pd.DataFrame(columns=[DataSchema.REGRESSION_TARGET])
             self.y_test_cls = pd.DataFrame(columns=[DataSchema.CLASSIFICATION_TARGET])
 
-        # ========================================================================
-        # Final validation and logging
-        # ========================================================================
-        logging.info("\n" + "=" * 80)
-        logging.info("✅ DATALOAD COMPLETE")
-        logging.info("=" * 80)
-        logging.info(f"Training data: {len(self.train_df)} rows, {len(self.x_train.columns)} features")
-        logging.info(f"Test data: {len(self.test_df)} rows")
-        logging.info(f"Dropped columns: {len(self.drop_col_list)}")
-
-        # Class distribution
-        positive_count = (self.y_train_cls.iloc[:, 0] > 0).sum()
-        negative_count = (self.y_train_cls.iloc[:, 0] <= 0).sum()
-        logging.info(f"Class distribution: positive={positive_count}, negative={negative_count} "
-                    f"({positive_count/(positive_count+negative_count)*100:.1f}% positive)")
-
-        if self.use_sector_model:
-            logging.info(f"Sector models: {len(self.sector_list)} sectors")
-
-        logging.info("=" * 80)
 
     def def_model(
         self,
@@ -2210,15 +2260,43 @@ class Regressor:
 
         # 모델 저장 경로 설정
         MODEL_SAVE_PATH = self.root_path + '/MODELS/'
-
-        # 필요시 저장 디렉토리 생성
         if not os.path.exists(MODEL_SAVE_PATH):
             logging.info("creating MODELS path: %s", MODEL_SAVE_PATH)
             os.makedirs(MODEL_SAVE_PATH)
 
-        # ========== Optuna Hyperparameter Optimization ==========
         ml_config = self.conf.get('ML', {})
         use_optuna = ml_config.get('USE_OPTUNA', False)
+
+        # Step 1: Optuna hyperparameter optimization (global)
+        optuna_best_params = self._run_optuna_optimization(ml_config, use_optuna)
+
+        # Step 2: Sector-specific Optuna optimization
+        sector_optuna_params = self._run_sector_optuna_optimization(ml_config, use_optuna)
+
+        # Step 3: Define models with Optuna results
+        self.def_model(optuna_params=optuna_best_params, sector_optuna_params=sector_optuna_params)
+
+        # LightGBM 호환성을 위해 특성 이름 정리 (Optuna를 사용하지 않은 경우에만)
+        if not (use_optuna and OPTUNA_AVAILABLE):
+            self.x_train = self.clean_feature_names(self.x_train)
+
+        # Step 4: Train global models (classifiers + regressors)
+        self._train_global_models(MODEL_SAVE_PATH, ml_config)
+
+        # Step 5: Train sector models (if enabled)
+        if self.use_sector_model:
+            self._train_sector_models(MODEL_SAVE_PATH, ml_config)
+
+    def _run_optuna_optimization(self, ml_config: dict, use_optuna) -> dict:
+        """Run Optuna hyperparameter optimization for global classification model.
+
+        Args:
+            ml_config: ML configuration dictionary.
+            use_optuna: Whether Optuna optimization is enabled.
+
+        Returns:
+            Best parameters dict from Optuna, or None if not available.
+        """
         optuna_best_params = None
 
         # ========== Step 1: 항상 기존 Optuna 파라미터 로드 시도 ==========
@@ -2428,7 +2506,18 @@ class Regressor:
             logging.warning("⚠️  USE_OPTUNA=Y but Optuna not installed. Using default params.")
             logging.warning("   Install with: pip install optuna plotly kaleido")
 
-        # ========== Sector-specific Optuna Optimization ==========
+        return optuna_best_params
+
+    def _run_sector_optuna_optimization(self, ml_config: dict, use_optuna) -> dict:
+        """Run Optuna hyperparameter optimization for sector-specific models.
+
+        Args:
+            ml_config: ML configuration dictionary.
+            use_optuna: Whether Optuna optimization is enabled.
+
+        Returns:
+            Dictionary mapping sector names to their best Optuna parameters.
+        """
         sector_optuna_params = {}
         optuna_optimize_sectors = ml_config.get('OPTUNA_OPTIMIZE_SECTORS', 'N') == 'Y'
 
@@ -2494,6 +2583,9 @@ class Regressor:
                 'colsample_bytree': search_space_config.get('colsample_bytree', [0.5, 1.0]),
                 'gamma': search_space_config.get('gamma', [0, 10])
             }
+
+            save_report = ml_config.get('OPTUNA_SAVE_REPORT', True)
+            save_plots = ml_config.get('OPTUNA_SAVE_PLOTS', True)
 
             # self.x_train에 sector 정보 임시 추가 (인덱스 기반으로)
             x_train_with_sector = self.x_train.copy()
@@ -2618,13 +2710,18 @@ class Regressor:
         elif self.use_sector_model and optuna_optimize_sectors and not (use_optuna and OPTUNA_AVAILABLE):
             logging.warning("⚠️  OPTUNA_OPTIMIZE_SECTORS=Y but Optuna not available. Using SECTOR_CONFIG only.")
 
-        # ========== 모델 정의 (Optuna 결과 반영) ==========
-        self.def_model(optuna_params=optuna_best_params, sector_optuna_params=sector_optuna_params)
+        return sector_optuna_params
 
-        # LightGBM 호환성을 위해 특성 이름 정리 (Optuna를 사용하지 않은 경우에만)
-        if not (use_optuna and OPTUNA_AVAILABLE):
-            self.x_train = self.clean_feature_names(self.x_train)
+    def _train_global_models(self, model_save_path: str, ml_config: dict) -> None:
+        """Train global classifiers and regressors using 2-stage pipeline.
 
+        Stage 1: Train classifiers on all data, find optimal threshold.
+        Stage 2: Filter data by threshold, train regressors on filtered data.
+
+        Args:
+            model_save_path: Directory path where models will be saved.
+            ml_config: ML configuration dictionary.
+        """
         # ========================================
         # 🎯 UNIFIED PREPROCESSING (Single Source of Truth)
         # ========================================
@@ -2668,13 +2765,12 @@ class Regressor:
         for i, model in self.clsmodels.items():
             logging.info(f"Training classifier {i}...")
             model.fit(self.x_train, y_train_binary)
-            filename = MODEL_SAVE_PATH + 'clsmodel_{}.sav'.format(str(i))
+            filename = model_save_path + 'clsmodel_{}.sav'.format(str(i))
             joblib.dump(model, filename)
             score = model.score(self.x_train, y_train_binary)
             logging.info(f"  Classifier {i} accuracy: {score:.4f}")
 
         # ===== Optimal Threshold Search (자동 탐색 or 고정값) =====
-        ml_config = self.conf.get('ML', {})
         auto_search = ml_config.get('CLASSIFIER_THRESHOLD_AUTO_SEARCH', 'Y') == 'Y'
 
         if auto_search:
@@ -2720,7 +2816,7 @@ class Regressor:
             }
 
         # Threshold config 저장
-        threshold_config_file = MODEL_SAVE_PATH + 'threshold_config.pkl'
+        threshold_config_file = model_save_path + 'threshold_config.pkl'
         joblib.dump(threshold_config, threshold_config_file)
         logging.info(f"✅ Saved threshold config to {threshold_config_file}")
         logging.info("")
@@ -2757,7 +2853,7 @@ class Regressor:
         for i, model in self.models.items():
             logging.info(f"Training regressor {i}...")
             model.fit(x_train_filtered, y_train_filtered.values.ravel())
-            filename = MODEL_SAVE_PATH + 'model_{}.sav'.format(str(i))
+            filename = model_save_path + 'model_{}.sav'.format(str(i))
             joblib.dump(model, filename)
             score = model.score(x_train_filtered, y_train_filtered.values.ravel())
             logging.info(f"  Regressor {i} R² score: {score:.4f}")
@@ -2770,197 +2866,208 @@ class Regressor:
         # ===== Feature columns 저장 (예측 시 피처 정렬용) =====
         # 필터링 전 전체 feature 저장 (예측 시에는 전체 데이터 사용)
         feature_columns = self.x_train.columns.tolist()
-        feature_columns_file = MODEL_SAVE_PATH + 'feature_columns.pkl'
+        feature_columns_file = model_save_path + 'feature_columns.pkl'
         joblib.dump(feature_columns, feature_columns_file)
         logging.info(f"✅ Saved {len(feature_columns)} feature columns to {feature_columns_file}")
 
-            # 주석 처리됨: 특성 중요도 분석
-            # logging.info("end fitting RandomForestRegressor")
-            # ftr_importances_values = model.feature_importances_
-            # ftr_importances = pd.Series(ftr_importances_values, index=self.x_train.columns)
-            # ftr_importances.to_csv(MODEL_SAVE_PATH+'model_importances.csv')
-            # ftr_top20 = ftr_importances.sort_values(ascending=False)[:20]
-            # logging.info(ftr_top20)
+        # 주석 처리됨: 특성 중요도 분석
+        # logging.info("end fitting RandomForestRegressor")
+        # ftr_importances_values = model.feature_importances_
+        # ftr_importances = pd.Series(ftr_importances_values, index=self.x_train.columns)
+        # ftr_importances.to_csv(model_save_path+'model_importances.csv')
+        # ftr_top20 = ftr_importances.sort_values(ascending=False)[:20]
+        # logging.info(ftr_top20)
 
-        # 섹터별 모델 학습 (PER_SECTOR=True인 경우)
-        if self.use_sector_model:
+    def _train_sector_models(self, model_save_path: str, ml_config: dict) -> None:
+        """Train sector-specific classifiers and regressors using 2-stage pipeline.
+
+        Applies unified preprocessing to each sector, trains sector classifiers
+        (if USE_CLASSIFIER=Y), finds sector thresholds, filters data, and trains
+        sector regressors on filtered data.
+
+        Args:
+            model_save_path: Directory path where models will be saved.
+            ml_config: ML configuration dictionary.
+        """
+        logging.info("="*80)
+        logging.info("🎯 SECTOR MODELS: Applying unified preprocessing to each sector")
+        logging.info("="*80)
+
+        for sec in self.sector_list:
+            logging.info(f"\n📊 Processing sector: {sec}")
+            logging.info("-" * 60)
+
+            # ✅ UNIFIED: Use SAME preprocessing as unified model (SINGLE SOURCE OF TRUTH)
+            # Pass y_cls if USE_CLASSIFIER=Y, otherwise None
+            y_cls_input = self.sector_y_train_cls.get(sec) if self.use_classifier else None
+            x_sector_clean, y_sector_clean, y_cls_clean, _ = DataProcessor.preprocess_training_data(
+                self.sector_x_train[sec],
+                self.sector_y_train[sec],
+                y_cls=y_cls_input,
+                config=self.conf,
+                logger=logging.getLogger()
+            )
+
+            # Update sector training data with preprocessed results
+            self.sector_x_train[sec] = x_sector_clean
+            self.sector_y_train[sec] = y_sector_clean
+            if self.use_classifier and y_cls_clean is not None:
+                self.sector_y_train_cls[sec] = y_cls_clean
+
+        logging.info("="*80)
+        logging.info("✅ All sector preprocessing complete")
+        logging.info("="*80)
+        logging.info("")
+
+        # ===== Train sector classifiers (if USE_CLASSIFIER=Y) =====
+        if self.use_classifier:
             logging.info("="*80)
-            logging.info("🎯 SECTOR MODELS: Applying unified preprocessing to each sector")
+            logging.info("🎯 SECTOR CLASSIFIERS: Training sector-specific classifiers")
             logging.info("="*80)
 
-            for sec in self.sector_list:
-                logging.info(f"\n📊 Processing sector: {sec}")
-                logging.info("-" * 60)
+            for sec_idx, sec in enumerate(self.sector_list):
+                logging.info(f"\n📊 Training classifiers for sector: {sec}")
 
-                # ✅ UNIFIED: Use SAME preprocessing as unified model (SINGLE SOURCE OF TRUTH)
-                # Pass y_cls if USE_CLASSIFIER=Y, otherwise None
-                y_cls_input = self.sector_y_train_cls.get(sec) if self.use_classifier else None
-                x_sector_clean, y_sector_clean, y_cls_clean, _ = DataProcessor.preprocess_training_data(
-                    self.sector_x_train[sec],
-                    self.sector_y_train[sec],
-                    y_cls=y_cls_input,
-                    config=self.conf,
-                    logger=logging.getLogger()
-                )
+                # Get preprocessed classification target and create binary target
+                y_cls_sector = self.sector_y_train_cls[sec]
+                y_train_binary = DataProcessor.create_binary_target(y_cls_sector, config=self.conf, logger=logging.getLogger())
 
-                # Update sector training data with preprocessed results
-                self.sector_x_train[sec] = x_sector_clean
-                self.sector_y_train[sec] = y_sector_clean
-                if self.use_classifier and y_cls_clean is not None:
-                    self.sector_y_train_cls[sec] = y_cls_clean
+                # Train all 4 classifiers for this sector
+                for i in range(4):
+                    k = (sec, i)
+                    model = self.sector_classifiers[k]
+                    logging.info(f"  Training sector classifier {i} for {sec}...")
+
+                    # Use numpy arrays for consistent sklearn API behavior across model families
+                    # (CatBoost/XGBoost both support DataFrame too, but numpy avoids edge cases)
+                    X_train = self.sector_x_train[sec].values
+
+                    model.fit(X_train, y_train_binary)
+                    filename = model_save_path + '{}_clsmodel_{}.sav'.format(sec, str(i))
+                    joblib.dump(model, filename)
+
+                    # Score calculation (use values for consistency)
+                    score = model.score(X_train, y_train_binary)
+                    logging.info(f"  Sector classifier {i} score: {score:.4f}")
+
+                logging.info(f"✅ Trained and saved 4 classifiers for {sec}")
 
             logging.info("="*80)
-            logging.info("✅ All sector preprocessing complete")
+            logging.info(f"✅ All sector classifiers complete ({len(self.sector_list)} sectors x 4 classifiers)")
             logging.info("="*80)
             logging.info("")
 
-            # ===== Train sector classifiers (if USE_CLASSIFIER=Y) =====
+        # ===== Train sector regressors (2-stage with filtering) =====
+        logging.info("="*80)
+        logging.info("🎯 SECTOR REGRESSORS: Training with 2-stage filtering")
+        logging.info("="*80)
+
+        # Store sector threshold configs
+        sector_threshold_configs = {}
+        auto_search = ml_config.get('CLASSIFIER_THRESHOLD_AUTO_SEARCH', 'Y') == 'Y'
+
+        for sec_idx, sec in enumerate(self.sector_list):
+            logging.info(f"\n📊 Training regressors for sector: {sec}")
+            logging.info("-" * 60)
+
             if self.use_classifier:
-                logging.info("="*80)
-                logging.info("🎯 SECTOR CLASSIFIERS: Training sector-specific classifiers")
-                logging.info("="*80)
+                # ===== Sector-specific threshold search =====
+                y_cls_sector = self.sector_y_train_cls[sec]
+                y_train_binary_sector = DataProcessor.create_binary_target(y_cls_sector, config=self.conf, logger=logging.getLogger())
 
-                for sec_idx, sec in enumerate(self.sector_list):
-                    logging.info(f"\n📊 Training classifiers for sector: {sec}")
-
-                    # Get preprocessed classification target and create binary target
-                    y_cls_sector = self.sector_y_train_cls[sec]
-                    y_train_binary = DataProcessor.create_binary_target(y_cls_sector, config=self.conf, logger=logging.getLogger())
-
-                    # Train all 4 classifiers for this sector
-                    for i in range(4):
-                        k = (sec, i)
-                        model = self.sector_classifiers[k]
-                        logging.info(f"  Training sector classifier {i} for {sec}...")
-
-                        # Use numpy arrays for consistent sklearn API behavior across model families
-                        # (CatBoost/XGBoost both support DataFrame too, but numpy avoids edge cases)
-                        X_train = self.sector_x_train[sec].values
-
-                        model.fit(X_train, y_train_binary)
-                        filename = MODEL_SAVE_PATH + '{}_clsmodel_{}.sav'.format(sec, str(i))
-                        joblib.dump(model, filename)
-
-                        # Score calculation (use values for consistency)
-                        score = model.score(X_train, y_train_binary)
-                        logging.info(f"  Sector classifier {i} score: {score:.4f}")
-
-                    logging.info(f"✅ Trained and saved 4 classifiers for {sec}")
-
-                logging.info("="*80)
-                logging.info(f"✅ All sector classifiers complete ({len(self.sector_list)} sectors x 4 classifiers)")
-                logging.info("="*80)
-                logging.info("")
-
-            # ===== Train sector regressors (2-stage with filtering) =====
-            logging.info("="*80)
-            logging.info("🎯 SECTOR REGRESSORS: Training with 2-stage filtering")
-            logging.info("="*80)
-
-            # Store sector threshold configs
-            sector_threshold_configs = {}
-
-            for sec_idx, sec in enumerate(self.sector_list):
-                logging.info(f"\n📊 Training regressors for sector: {sec}")
-                logging.info("-" * 60)
-
-                if self.use_classifier:
-                    # ===== Sector-specific threshold search =====
-                    y_cls_sector = self.sector_y_train_cls[sec]
-                    y_train_binary_sector = DataProcessor.create_binary_target(y_cls_sector, config=self.conf, logger=logging.getLogger())
-
-                    if auto_search:
-                        # Use sector-specific classifier (0) for threshold search
-                        sector_threshold_config = self._find_optimal_threshold(
-                            classifier=self.sector_classifiers[(sec, 0)],
-                            x_train=self.sector_x_train[sec],
-                            y_train_binary=y_train_binary_sector
-                        )
-                    else:
-                        # Use same fixed remove percentage for all sectors
-                        fixed_remove_pct = int(ml_config.get('CLASSIFIER_REMOVE_PCT', 8))
-                        classifier_mode = ml_config.get('CLASSIFIER_MODE', 'positive_screen')
-                        y_probs_sector = predict_proba_with_gpu_support(
-                            self.sector_classifiers[(sec, 0)],
-                            self.sector_x_train[sec],
-                            self.use_gpu_prediction
-                        )[:, 1]
-
-                        # 모드별 percentile 및 mask 계산
-                        if classifier_mode == "negative_screen":
-                            percentile = 100 - fixed_remove_pct
-                            threshold_sector = np.percentile(y_probs_sector, percentile)
-                            mask_sector = y_probs_sector < threshold_sector
-                        else:  # positive_screen
-                            percentile = fixed_remove_pct
-                            threshold_sector = np.percentile(y_probs_sector, percentile)
-                            mask_sector = y_probs_sector > threshold_sector
-
-                        n_selected_sector = mask_sector.sum()
-
-                        logging.info(f"  Using fixed filtering: Remove {fixed_remove_pct}%")
-                        logging.info(f"  Selected: {n_selected_sector}/{len(y_train_binary_sector)}")
-
-                        sector_threshold_config = {
-                            'remove_pct': fixed_remove_pct,
-                            'percentile': percentile,
-                            'threshold_value': threshold_sector,
-                            'n_selected': n_selected_sector,
-                            'mode': classifier_mode,
-                            'auto_search': False
-                        }
-
-                    # Save sector threshold config
-                    sector_threshold_configs[sec] = sector_threshold_config
-
-                    # Filter data by threshold
+                if auto_search:
+                    # Use sector-specific classifier (0) for threshold search
+                    sector_threshold_config = self._find_optimal_threshold(
+                        classifier=self.sector_classifiers[(sec, 0)],
+                        x_train=self.sector_x_train[sec],
+                        y_train_binary=y_train_binary_sector
+                    )
+                else:
+                    # Use same fixed remove percentage for all sectors
+                    fixed_remove_pct = int(ml_config.get('CLASSIFIER_REMOVE_PCT', 8))
+                    classifier_mode = ml_config.get('CLASSIFIER_MODE', 'positive_screen')
                     y_probs_sector = predict_proba_with_gpu_support(
                         self.sector_classifiers[(sec, 0)],
                         self.sector_x_train[sec],
                         self.use_gpu_prediction
                     )[:, 1]
-                    threshold_sector = sector_threshold_config['threshold_value']
-                    classifier_mode_sector = sector_threshold_config.get('mode', 'positive_screen')
 
-                    # 모드별 mask 계산
-                    if classifier_mode_sector == "negative_screen":
-                        safe_mask_sector = y_probs_sector < threshold_sector
+                    # 모드별 percentile 및 mask 계산
+                    if classifier_mode == "negative_screen":
+                        percentile = 100 - fixed_remove_pct
+                        threshold_sector = np.percentile(y_probs_sector, percentile)
+                        mask_sector = y_probs_sector < threshold_sector
                     else:  # positive_screen
-                        safe_mask_sector = y_probs_sector > threshold_sector
+                        percentile = fixed_remove_pct
+                        threshold_sector = np.percentile(y_probs_sector, percentile)
+                        mask_sector = y_probs_sector > threshold_sector
 
-                    x_train_sector_filtered = self.sector_x_train[sec][safe_mask_sector]
-                    y_train_sector_filtered = self.sector_y_train[sec][safe_mask_sector]
+                    n_selected_sector = mask_sector.sum()
 
-                    logging.info(f"  Filtered: {len(x_train_sector_filtered)}/{len(self.sector_x_train[sec])} stocks")
-                else:
-                    # No classifier: use all data
-                    x_train_sector_filtered = self.sector_x_train[sec]
-                    y_train_sector_filtered = self.sector_y_train[sec]
-                    logging.info(f"  No classifier: using all {len(x_train_sector_filtered)} stocks")
+                    logging.info(f"  Using fixed filtering: Remove {fixed_remove_pct}%")
+                    logging.info(f"  Selected: {n_selected_sector}/{len(y_train_binary_sector)}")
 
-                # Train 2 regressors on filtered data
-                for i in range(2):
-                    k = (sec, i)
-                    model = self.sector_models[k]
-                    model.fit(x_train_sector_filtered, y_train_sector_filtered.values.ravel())
-                    filename = MODEL_SAVE_PATH + '{}_model_{}.sav'.format(sec, str(i))
-                    joblib.dump(model, filename)
+                    sector_threshold_config = {
+                        'remove_pct': fixed_remove_pct,
+                        'percentile': percentile,
+                        'threshold_value': threshold_sector,
+                        'n_selected': n_selected_sector,
+                        'mode': classifier_mode,
+                        'auto_search': False
+                    }
 
-                    score = model.score(x_train_sector_filtered, y_train_sector_filtered.values.ravel())
-                    logging.info(f"  Regressor {i} R² score: {score:.4f}")
+                # Save sector threshold config
+                sector_threshold_configs[sec] = sector_threshold_config
 
-                logging.info(f"✅ Sector {sec} complete")
+                # Filter data by threshold
+                y_probs_sector = predict_proba_with_gpu_support(
+                    self.sector_classifiers[(sec, 0)],
+                    self.sector_x_train[sec],
+                    self.use_gpu_prediction
+                )[:, 1]
+                threshold_sector = sector_threshold_config['threshold_value']
+                classifier_mode_sector = sector_threshold_config.get('mode', 'positive_screen')
 
-            # Save all sector threshold configs
-            if self.use_classifier:
-                sector_threshold_file = MODEL_SAVE_PATH + 'sector_threshold_configs.pkl'
-                joblib.dump(sector_threshold_configs, sector_threshold_file)
-                logging.info(f"\n✅ Saved sector threshold configs to {sector_threshold_file}")
+                # 모드별 mask 계산
+                if classifier_mode_sector == "negative_screen":
+                    safe_mask_sector = y_probs_sector < threshold_sector
+                else:  # positive_screen
+                    safe_mask_sector = y_probs_sector > threshold_sector
 
-            logging.info("="*80)
-            logging.info(f"✅ All sector regressors complete ({len(self.sector_list)} sectors x 2 regressors)")
-            logging.info("="*80)
-            logging.info("")
+                x_train_sector_filtered = self.sector_x_train[sec][safe_mask_sector]
+                y_train_sector_filtered = self.sector_y_train[sec][safe_mask_sector]
+
+                logging.info(f"  Filtered: {len(x_train_sector_filtered)}/{len(self.sector_x_train[sec])} stocks")
+            else:
+                # No classifier: use all data
+                x_train_sector_filtered = self.sector_x_train[sec]
+                y_train_sector_filtered = self.sector_y_train[sec]
+                logging.info(f"  No classifier: using all {len(x_train_sector_filtered)} stocks")
+
+            # Train 2 regressors on filtered data
+            for i in range(2):
+                k = (sec, i)
+                model = self.sector_models[k]
+                model.fit(x_train_sector_filtered, y_train_sector_filtered.values.ravel())
+                filename = model_save_path + '{}_model_{}.sav'.format(sec, str(i))
+                joblib.dump(model, filename)
+
+                score = model.score(x_train_sector_filtered, y_train_sector_filtered.values.ravel())
+                logging.info(f"  Regressor {i} R² score: {score:.4f}")
+
+            logging.info(f"✅ Sector {sec} complete")
+
+        # Save all sector threshold configs
+        if self.use_classifier:
+            sector_threshold_file = model_save_path + 'sector_threshold_configs.pkl'
+            joblib.dump(sector_threshold_configs, sector_threshold_file)
+            logging.info(f"\n✅ Saved sector threshold configs to {sector_threshold_file}")
+
+        logging.info("="*80)
+        logging.info(f"✅ All sector regressors complete ({len(self.sector_list)} sectors x 2 regressors)")
+        logging.info("="*80)
+        logging.info("")
+
 
     def _train_walk_forward(self) -> None:
         """
@@ -3875,34 +3982,15 @@ class Regressor:
 
             총: 2개 회귀 모델 × 8개 변형 = 16개 예측 방법
 
-        앙상블 투표 로직:
-            - prediction_wbinary_0: 분류기 0의 예측 사용
-              cls0이 하락(0)을 예측하면 회귀 출력을 -1로 설정
-            - prediction_wbinary_1: 분류기 1의 예측 사용
-            - prediction_wbinary_2: 분류기 2의 예측 사용
-            - prediction_wbinary_3: 분류기 3의 예측 사용
-            - prediction_wbinary_ensemble: cls1 AND cls3 모두 상승을 예측해야 함
-              둘 중 하나라도 하락을 예측하면 회귀 출력을 -1로 설정
-            - prediction_wbinary_ensemble2: cls1 AND cls2 모두 상승을 예측해야 함
-            - prediction_wbinary_ensemble3: 다수결 투표 - 3개 중 최소 2개가 상승을 예측해야 함
-              cls1, cls2, cls3를 투표에 사용
-
         출력 파일 (MODEL_SAVE_PATH에 저장):
             - prediction_ai_{date}.csv: 각 테스트 기간의 예측
             - prediction_ai.csv: 모든 예측 연결
             - pred_df_topk.csv: 모든 모델의 상위 K개 평가 메트릭
             - prediction_{date}_{model}_{col}_top{s}-{e}.csv: 모델당 상위 K개 주식
 
-        부작용:
-            - MODEL_SAVE_PATH/*.sav에서 모델 로드
-            - MODEL_SAVE_PATH에 평가 CSV 파일 생성
-            - 분류 보고서 및 메트릭 로깅
-            - 각 예측 방법의 상위 K개 수익 로깅
-
         참고:
             - 분류기 확률을 이진으로 변환하기 위해 THRESHOLD (기본값 92) 사용
             - 상위 8%의 주식 (100-92=8%)이 양성으로 예측됨
-            - 평가에는 기간별 및 누적 메트릭이 모두 포함됨
             - PER_SECTOR=True인 경우 섹터별 모델도 평가합니다
         """
         MODEL_SAVE_PATH = self.root_path + '/MODELS/'
@@ -3910,13 +3998,52 @@ class Regressor:
         # 학습된 분류 모델 로드
         self.models = dict()
         self.clsmodels = dict()
-
-        # 통합 모델 로딩 메서드 사용
         self._load_classifiers(MODEL_SAVE_PATH)
         self._load_regressors(MODEL_SAVE_PATH)
 
-        # ===== Load threshold config (저장된 threshold 설정 로드) =====
-        threshold_config_file = MODEL_SAVE_PATH + 'threshold_config.pkl'
+        # Load threshold configs
+        threshold_config, THRESHOLD_PERCENTILE = self._load_threshold_config(MODEL_SAVE_PATH)
+        sector_threshold_configs = self._load_sector_threshold_configs(MODEL_SAVE_PATH)
+
+        # 통합 메서드로 예측 컬럼 이름 생성
+        pred_col_list = self._build_prediction_column_names()
+
+        # Evaluate global models across all test periods
+        full_df, model_eval_hist = self._evaluate_global_models(
+            MODEL_SAVE_PATH, threshold_config, THRESHOLD_PERCENTILE, pred_col_list
+        )
+
+        # Generate global evaluation report
+        col_name = ['start_date', 'model', 'krange', 'avg_earning_per_stock', 'cur_model_pred',
+                   'loss_y_and_pred', 'cur_model_pred_ispositive', 'avg_pred', 'model0_pred',
+                   'model1_pred', 'model0_pred_wbinary_0', 'model1_pred_wbinary_0',
+                   'model0_pred_wbinary_1', 'model1_pred_wbinary_1', 'model0_pred_wbinary_2',
+                   'model1_pred_wbinary_2', 'model0_pred_wbinary_3', 'model1_pred_wbinary_3',
+                   'model0_pred_wbinary_ensemble', 'model1_pred_wbinary_ensemble',
+                   'model0_pred_wbinary_ensemble2', 'model1_pred_wbinary_ensemble2',
+                   'model0_pred_wbinary_ensemble3', 'model1_pred_wbinary_ensemble3']
+
+        pred_df = pd.DataFrame(model_eval_hist, columns=col_name)
+        logging.info(pred_df)
+        pred_df.to_csv(MODEL_SAVE_PATH+'pred_df_topk.csv', index=False)
+        full_df.to_csv(MODEL_SAVE_PATH+'prediction_ai.csv', index=False)
+
+        # Evaluate sector models (if enabled)
+        if self.use_sector_model:
+            self._evaluate_sector_models(
+                MODEL_SAVE_PATH, threshold_config, THRESHOLD_PERCENTILE, sector_threshold_configs
+            )
+
+    def _load_threshold_config(self, model_save_path: str) -> tuple:
+        """Load threshold configuration from saved file.
+
+        Args:
+            model_save_path: Directory path where model files are saved.
+
+        Returns:
+            Tuple of (threshold_config dict, THRESHOLD_PERCENTILE int).
+        """
+        threshold_config_file = model_save_path + 'threshold_config.pkl'
         try:
             threshold_config = joblib.load(threshold_config_file)
             THRESHOLD_PERCENTILE = threshold_config['percentile']
@@ -3937,19 +4064,44 @@ class Regressor:
             logging.warning(f"⚠️  Threshold config not found, using default: {THRESHOLD_PERCENTILE}")
             threshold_config = {'percentile': THRESHOLD_PERCENTILE}
 
-        # ===== Load sector threshold configs (if exists) =====
+        return threshold_config, THRESHOLD_PERCENTILE
+
+    def _load_sector_threshold_configs(self, model_save_path: str) -> dict:
+        """Load sector-specific threshold configurations.
+
+        Args:
+            model_save_path: Directory path where model files are saved.
+
+        Returns:
+            Dictionary mapping sector names to their threshold configs.
+        """
         sector_threshold_configs = {}
         if self.use_sector_model and self.use_classifier:
-            sector_threshold_file = MODEL_SAVE_PATH + 'sector_threshold_configs.pkl'
+            sector_threshold_file = model_save_path + 'sector_threshold_configs.pkl'
             try:
                 sector_threshold_configs = joblib.load(sector_threshold_file)
                 logging.info(f"✅ Loaded sector threshold configs for {len(sector_threshold_configs)} sectors")
             except FileNotFoundError:
                 logging.warning("⚠️  Sector threshold configs not found, will use global threshold")
 
-        # 통합 메서드로 예측 컬럼 이름 생성
-        pred_col_list = self._build_prediction_column_names()
+        return sector_threshold_configs
 
+    def _evaluate_global_models(self, model_save_path: str, threshold_config: dict,
+                                threshold_percentile: int, pred_col_list: list) -> tuple:
+        """Evaluate global models across all test periods.
+
+        Runs classifiers and regressors on each test period, generates ensemble
+        predictions, and evaluates top-K stock selection.
+
+        Args:
+            model_save_path: Directory path for saving evaluation results.
+            threshold_config: Threshold configuration dict.
+            threshold_percentile: Percentile for classifier threshold.
+            pred_col_list: List of prediction column names.
+
+        Returns:
+            Tuple of (full_df DataFrame with all predictions, model_eval_hist list).
+        """
         model_eval_hist = []  # 모든 기간의 평가 결과 저장
         full_df = pd.DataFrame()  # 예측이 포함된 모든 테스트 데이터 누적
 
@@ -3979,7 +4131,7 @@ class Regressor:
 
             # ===== Feature Alignment (피처 정렬) =====
             # 학습 시 사용한 피처 리스트 로드
-            feature_columns_file = MODEL_SAVE_PATH + 'feature_columns.pkl'
+            feature_columns_file = model_save_path + 'feature_columns.pkl'
             try:
                 train_feature_columns = joblib.load(feature_columns_file)
                 logging.info(f"✅ Loaded {len(train_feature_columns)} train feature columns")
@@ -4060,7 +4212,7 @@ class Regressor:
 
                 # 백분위수 임계값을 사용하여 확률을 이진 예측으로 변환
                 # 학습 시 자동 탐색된 threshold 사용
-                threshold = np.percentile(y_probs, THRESHOLD_PERCENTILE)
+                threshold = np.percentile(y_probs, threshold_percentile)
                 classifier_mode = threshold_config.get('mode', 'positive_screen')
 
                 # 모드별 binary 예측
@@ -4133,7 +4285,7 @@ class Regressor:
 
             # 결과 누적
             full_df = pd.concat([full_df, df], ignore_index=True)
-            df.to_csv(MODEL_SAVE_PATH + "prediction_ai_{}.csv".format(tdate))
+            df.to_csv(model_save_path + "prediction_ai_{}.csv".format(tdate))
 
             # === 상위 K개 주식 선택 ===
             # 각 예측 방법에 대해 상위 K개 주식을 선택하고 평균 수익 계산
@@ -4158,7 +4310,7 @@ class Regressor:
                     topk_period_earning_sums.append(top_k_df['price_dev'].sum())
 
                     # 상위 K개 주식을 CSV로 저장
-                    top_k_df.to_csv(MODEL_SAVE_PATH+'prediction_{}_{}_top{}-{}.csv'.format(tdate, col, s, e))
+                    top_k_df.to_csv(model_save_path+'prediction_{}_{}_top{}-{}.csv'.format(tdate, col, s, e))
 
                     # 이 모델 및 상위 K개 범위에 대한 평가 메트릭 기록
                     model_eval_hist.append([
@@ -4186,162 +4338,158 @@ class Regressor:
                         top_k_df['model_1_prediction_wbinary_ensemble3'].sum()/(e-s+1)
                     ])
 
-        # 종합 평가 보고서 생성
-        col_name = ['start_date', 'model', 'krange', 'avg_earning_per_stock', 'cur_model_pred',
-                   'loss_y_and_pred', 'cur_model_pred_ispositive', 'avg_pred', 'model0_pred',
-                   'model1_pred', 'model0_pred_wbinary_0', 'model1_pred_wbinary_0',
-                   'model0_pred_wbinary_1', 'model1_pred_wbinary_1', 'model0_pred_wbinary_2',
-                   'model1_pred_wbinary_2', 'model0_pred_wbinary_3', 'model1_pred_wbinary_3',
-                   'model0_pred_wbinary_ensemble', 'model1_pred_wbinary_ensemble',
-                   'model0_pred_wbinary_ensemble2', 'model1_pred_wbinary_ensemble2',
-                   'model0_pred_wbinary_ensemble3', 'model1_pred_wbinary_ensemble3']
+        return full_df, model_eval_hist
 
-        pred_df = pd.DataFrame(model_eval_hist, columns=col_name)
-        logging.info(pred_df)
-        pred_df.to_csv(MODEL_SAVE_PATH+'pred_df_topk.csv', index=False)
-        full_df.to_csv(MODEL_SAVE_PATH+'prediction_ai.csv', index=False)
+    def _evaluate_sector_models(self, model_save_path: str, threshold_config: dict,
+                                threshold_percentile: int, sector_threshold_configs: dict) -> None:
+        """Evaluate sector-specific models and generate sector evaluation report.
 
-        # === 섹터 기반 평가 (PER_SECTOR=True인 경우) ===
-        if self.use_sector_model:
-            testdates = set()
-            allsector_topk_df = pd.DataFrame()
-            self.sector_models = dict()
-            self.sector_classifiers = dict()
+        Args:
+            model_save_path: Directory path for saving evaluation results.
+            threshold_config: Global threshold configuration dict.
+            threshold_percentile: Global percentile for classifier threshold.
+            sector_threshold_configs: Sector-specific threshold configs.
+        """
+        testdates = set()
+        allsector_topk_df = pd.DataFrame()
+        self.sector_models = dict()
+        self.sector_classifiers = dict()
 
-            # 통합 섹터 모델 로딩 메서드 사용
-            self._load_sector_models(MODEL_SAVE_PATH, self.sector_list)
-            self._load_sector_classifiers(MODEL_SAVE_PATH, self.sector_list)
+        # 통합 섹터 모델 로딩 메서드 사용
+        self._load_sector_models(model_save_path, self.sector_list)
+        self._load_sector_classifiers(model_save_path, self.sector_list)
 
-            sector_model_eval_hist = []
+        sector_model_eval_hist = []
 
-            # 각 섹터 및 테스트 기간 평가
-            for test_idx, (testdate, df, sec) in enumerate(self.sector_test_df_lists):
-                print("sec evaluation date : ")
-                # 파일 경로에서 날짜 추출 (통합 유틸리티 메서드 사용)
-                tdate = self._extract_date_from_filepath(testdate)
-                if tdate == "unknown_period":
-                    logging.warning(f"⚠️  Skipping sector evaluation due to unknown period: {testdate}")
-                    continue
-                print(tdate)
-                print(sec)
-                testdates.add(tdate)
+        # 각 섹터 및 테스트 기간 평가
+        for test_idx, (testdate, df, sec) in enumerate(self.sector_test_df_lists):
+            print("sec evaluation date : ")
+            # 파일 경로에서 날짜 추출 (통합 유틸리티 메서드 사용)
+            tdate = self._extract_date_from_filepath(testdate)
+            if tdate == "unknown_period":
+                logging.warning(f"⚠️  Skipping sector evaluation due to unknown period: {testdate}")
+                continue
+            print(tdate)
+            print(sec)
+            testdates.add(tdate)
 
-                x_test_full = df[df.columns.difference(y_col_list)]
-                y_test = df[['price_dev_subavg']]
-                y_test_2 = df[['price_dev_subavg']]
+            x_test_full = df[df.columns.difference(y_col_list)]
+            y_test = df[['price_dev_subavg']]
+            y_test_2 = df[['price_dev_subavg']]
 
-                if len(x_test_full) == 0:
-                    continue
+            if len(x_test_full) == 0:
+                continue
 
-                # ===== Feature Alignment (Unified via DataProcessor) =====
-                # Uses DataProcessor.align_features_to_model() to ensure consistency
-                # with ml_backtest.py and eliminate code duplication
+            # ===== Feature Alignment (Unified via DataProcessor) =====
+            # Uses DataProcessor.align_features_to_model() to ensure consistency
+            # with ml_backtest.py and eliminate code duplication
 
-                # Align for global classifier
-                logging.info(f"   Global classifier: Aligning features...")
-                x_test_full = DataProcessor.align_features_to_model(
-                    x_test_full,
-                    self.clsmodels[2],
-                    logging.getLogger()
-                )
+            # Align for global classifier
+            logging.info(f"   Global classifier: Aligning features...")
+            x_test_full = DataProcessor.align_features_to_model(
+                x_test_full,
+                self.clsmodels[2],
+                logging.getLogger()
+            )
 
-                # Align for sector models
-                logging.info(f"   Sector {sec}: Aligning features...")
-                x_test_sector = DataProcessor.align_features_to_model(
-                    x_test_full.copy(),
-                    self.sector_models[(sec, 0)],
-                    logging.getLogger()
-                )
+            # Align for sector models
+            logging.info(f"   Sector {sec}: Aligning features...")
+            x_test_sector = DataProcessor.align_features_to_model(
+                x_test_full.copy(),
+                self.sector_models[(sec, 0)],
+                logging.getLogger()
+            )
 
-                sector_preds = np.empty((0, x_test_sector.shape[0]))
-                df['label'] = y_test
+            sector_preds = np.empty((0, x_test_sector.shape[0]))
+            df['label'] = y_test
 
-                # 섹터 기반 필터링을 위해 분류기 2 사용 (GLOBAL classifier - use aligned full features!)
+            # 섹터 기반 필터링을 위해 분류기 2 사용 (GLOBAL classifier - use aligned full features!)
+            # GPU 지원으로 device mismatch 워닝 방지
+            y_probs = predict_proba_with_gpu_support(self.clsmodels[2], x_test_full, self.use_gpu_prediction)[:, 1]
+
+            # Use sector-specific threshold if available, otherwise use global threshold
+            if sec in sector_threshold_configs:
+                sector_config = sector_threshold_configs[sec]
+                sector_threshold_pct = sector_config['percentile']
+                threshold = np.percentile(y_probs, sector_threshold_pct)
+                sector_mode = sector_config.get('mode', 'positive_screen')
+            else:
+                threshold = np.percentile(y_probs, threshold_percentile)
+                sector_mode = threshold_config.get('mode', 'positive_screen')
+
+            # 모드별 binary 예측
+            if sector_mode == "negative_screen":
+                y_predict_binary = (y_probs < threshold).astype(int)
+            else:  # positive_screen
+                y_predict_binary = (y_probs > threshold).astype(int)
+
+            # 섹터별 모델 실행 (use sector-specific features!)
+            for i in range(2):
+                k = (sec, i)
+                model = self.sector_models[k]
+                pred_col_name = 'model_' + str(i) + '_prediction'
+                pred_col_name_wbin = 'model_' + str(i) + '_prediction_wbinary_2'
                 # GPU 지원으로 device mismatch 워닝 방지
-                y_probs = predict_proba_with_gpu_support(self.clsmodels[2], x_test_full, self.use_gpu_prediction)[:, 1]
+                y_predict = predict_with_gpu_support(model, x_test_sector, self.use_gpu_prediction)
+                df[pred_col_name] = y_predict
 
-                # Use sector-specific threshold if available, otherwise use global threshold
-                if sec in sector_threshold_configs:
-                    sector_config = sector_threshold_configs[sec]
-                    sector_threshold_pct = sector_config['percentile']
-                    threshold = np.percentile(y_probs, sector_threshold_pct)
-                    sector_mode = sector_config.get('mode', 'positive_screen')
-                else:
-                    threshold = np.percentile(y_probs, THRESHOLD_PERCENTILE)
-                    sector_mode = threshold_config.get('mode', 'positive_screen')
+                df[pred_col_name_wbin] = np.where(y_predict_binary == 0, -1, y_predict)
+                print(f"i{i} sec {sec}")
+                print(x_test_sector.shape)
+                print(sector_preds.shape)
+                print(y_predict[None,:].shape)
+                sector_preds = np.vstack((sector_preds, y_predict[None,:]))
 
-                # 모드별 binary 예측
-                if sector_mode == "negative_screen":
-                    y_predict_binary = (y_probs < threshold).astype(int)
-                else:  # positive_screen
-                    y_predict_binary = (y_probs > threshold).astype(int)
+            df['ai_pred_avg'] = np.average(sector_preds, axis=0)
+            df.to_csv(model_save_path+ "sec_{}_prediction_ai_{}.csv".format(sec, tdate))
 
-                # 섹터별 모델 실행 (use sector-specific features!)
-                for i in range(2):
-                    k = (sec, i)
-                    model = self.sector_models[k]
-                    pred_col_name = 'model_' + str(i) + '_prediction'
-                    pred_col_name_wbin = 'model_' + str(i) + '_prediction_wbinary_2'
-                    # GPU 지원으로 device mismatch 워닝 방지
-                    y_predict = predict_with_gpu_support(model, x_test_sector, self.use_gpu_prediction)
-                    df[pred_col_name] = y_predict
+            # 섹터별 예측의 상위 K개 평가
+            # Sector models only have basic predictions (no ensemble variants)
+            sector_pred_col_list = [
+                'ai_pred_avg',
+                'model_0_prediction',
+                'model_0_prediction_wbinary_2',
+                'model_1_prediction',
+                'model_1_prediction_wbinary_2'
+            ]
+            topk_period_earning_sums = []
+            topk_list = [(0,3), (0,7)]
+            for s, e in topk_list:
+                logging.info("top" + str(s) + " ~ "  + str(e) )
+                k = str(s) + '~' + str(e)
+                for col in sector_pred_col_list:
+                    top_k_df = df.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
+                    logging.info(col)
+                    logging.info(("label"))
+                    logging.info((top_k_df['price_dev'].sum()/(e-s+1)))
+                    logging.info(("pred"))
+                    logging.info((top_k_df[col].sum()/(e-s+1)))
+                    topk_period_earning_sums.append(top_k_df['price_dev'].sum())
+                    top_k_df.to_csv(model_save_path+'prediction_{}_{}_{}_top{}-{}.csv'.format(tdate, sec, col, s, e))
+                    top_k_df['start_date'] = tdate
+                    top_k_df['col'] = col
+                    allsector_topk_df = pd.concat([allsector_topk_df, top_k_df])
+                    sector_model_eval_hist.append([
+                        tdate, sec, col, k,
+                        top_k_df['price_dev'].sum()/(e-s+1),
+                        top_k_df[col].sum()/(e-s+1),
+                        abs(top_k_df[col].sum()/(e-s+1) - top_k_df['price_dev'].sum()/(e-s+1)),
+                        int(top_k_df[col].sum()/(e-s+1) > 0),
+                        top_k_df['ai_pred_avg'].sum()/(e-s+1),
+                        top_k_df['model_0_prediction'].sum()/(e-s+1),
+                        top_k_df['model_1_prediction'].sum()/(e-s+1),
+                        top_k_df['model_0_prediction_wbinary_2'].sum()/(e-s+1),
+                        top_k_df['model_1_prediction_wbinary_2'].sum()/(e-s+1)
+                    ])
 
-                    df[pred_col_name_wbin] = np.where(y_predict_binary == 0, -1, y_predict)
-                    print(f"i{i} sec {sec}")
-                    print(x_test_sector.shape)
-                    print(sector_preds.shape)
-                    print(y_predict[None,:].shape)
-                    sector_preds = np.vstack((sector_preds, y_predict[None,:]))
+        col_name = ['start_date', 'sector', 'model', 'krange', 'avg_earning_per_stock',
+                   'cur_model_pred', 'loss_y_and_pred', 'cur_model_pred_ispositive',
+                   'avg_pred', 'model0_pred', 'model1_pred',
+                   'model0_pred_wbinary_2', 'model1_pred_wbinary_2']
+        pred_df = pd.DataFrame(sector_model_eval_hist, columns=col_name)
+        print(pred_df)
+        pred_df.to_csv(model_save_path+'allsector_pred_df.csv', index=False)
 
-                df['ai_pred_avg'] = np.average(sector_preds, axis=0)
-                df.to_csv(MODEL_SAVE_PATH+ "sec_{}_prediction_ai_{}.csv".format(sec, tdate))
-
-                # 섹터별 예측의 상위 K개 평가
-                # Sector models only have basic predictions (no ensemble variants)
-                sector_pred_col_list = [
-                    'ai_pred_avg',
-                    'model_0_prediction',
-                    'model_0_prediction_wbinary_2',
-                    'model_1_prediction',
-                    'model_1_prediction_wbinary_2'
-                ]
-                topk_period_earning_sums = []
-                topk_list = [(0,3), (0,7)]
-                for s, e in topk_list:
-                    logging.info("top" + str(s) + " ~ "  + str(e) )
-                    k = str(s) + '~' + str(e)
-                    for col in sector_pred_col_list:
-                        top_k_df = df.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
-                        logging.info(col)
-                        logging.info(("label"))
-                        logging.info((top_k_df['price_dev'].sum()/(e-s+1)))
-                        logging.info(("pred"))
-                        logging.info((top_k_df[col].sum()/(e-s+1)))
-                        topk_period_earning_sums.append(top_k_df['price_dev'].sum())
-                        top_k_df.to_csv(MODEL_SAVE_PATH+'prediction_{}_{}_{}_top{}-{}.csv'.format(tdate, sec, col, s, e))
-                        top_k_df['start_date'] = tdate
-                        top_k_df['col'] = col
-                        allsector_topk_df = pd.concat([allsector_topk_df, top_k_df])
-                        sector_model_eval_hist.append([
-                            tdate, sec, col, k,
-                            top_k_df['price_dev'].sum()/(e-s+1),
-                            top_k_df[col].sum()/(e-s+1),
-                            abs(top_k_df[col].sum()/(e-s+1) - top_k_df['price_dev'].sum()/(e-s+1)),
-                            int(top_k_df[col].sum()/(e-s+1) > 0),
-                            top_k_df['ai_pred_avg'].sum()/(e-s+1),
-                            top_k_df['model_0_prediction'].sum()/(e-s+1),
-                            top_k_df['model_1_prediction'].sum()/(e-s+1),
-                            top_k_df['model_0_prediction_wbinary_2'].sum()/(e-s+1),
-                            top_k_df['model_1_prediction_wbinary_2'].sum()/(e-s+1)
-                        ])
-
-            col_name = ['start_date', 'sector', 'model', 'krange', 'avg_earning_per_stock',
-                       'cur_model_pred', 'loss_y_and_pred', 'cur_model_pred_ispositive',
-                       'avg_pred', 'model0_pred', 'model1_pred',
-                       'model0_pred_wbinary_2', 'model1_pred_wbinary_2']
-            pred_df = pd.DataFrame(sector_model_eval_hist, columns=col_name)
-            print(pred_df)
-            pred_df.to_csv(MODEL_SAVE_PATH+'allsector_pred_df.csv', index=False)
 
 
     def latest_prediction(self) -> None:
@@ -4358,7 +4506,7 @@ class Regressor:
             4. 4개의 분류 모델을 실행하여 이진 예측 얻기
             5. 2개의 회귀 모델을 실행하여 가격 변동 크기 얻기
             6. 다양한 투표 전략을 사용하여 앙상블 예측 생성
-            7. 상위 K개 주식 추천 생성 (K=3, 7, 15)
+            7. 상위 K개 주식 추천 생성
             8. 예측을 CSV 파일로 저장
 
         출력 파일 (MODEL_SAVE_PATH에 저장):
@@ -4366,17 +4514,6 @@ class Regressor:
             - latest_prediction_{model}_{col}_top{s}-{e}.csv: 모델당 상위 K개 주식
             - sec_{sector}_latest_prediction.csv: 섹터별 예측 (PER_SECTOR=True인 경우)
             - allsector_latest_pred_df.csv: 섹터 기반 상위 K개 요약 (PER_SECTOR=True인 경우)
-
-        부작용:
-            - MODEL_SAVE_PATH/*.sav에서 모델 로드
-            - MODEL_SAVE_PATH에 예측 CSV 파일 생성
-            - 예측 임계값 및 상위 K개 범위 로깅
-
-        참고:
-            - year_period를 사용하여 심볼당 가장 최근 데이터만 유지
-            - 분류에는 evaluation()과 동일한 THRESHOLD (92) 적용
-            - PER_SECTOR=True인 경우 섹터별 예측 사용 가능
-            - FIXME: 2024 데이터를 읽도록 하드코딩됨 (설정 가능해야 함)
         """
         MODEL_SAVE_PATH = self.root_path + '/MODELS/'
 
@@ -4386,21 +4523,36 @@ class Regressor:
         self._load_classifiers(MODEL_SAVE_PATH)
         self._load_regressors(MODEL_SAVE_PATH)
 
-        # ===== Load threshold config =====
-        threshold_config_file = MODEL_SAVE_PATH + 'threshold_config.pkl'
-        try:
-            threshold_config = joblib.load(threshold_config_file)
-            THRESHOLD_PERCENTILE = threshold_config['percentile']
-            logging.info(f"✅ Loaded threshold config: Percentile {THRESHOLD_PERCENTILE}")
-        except FileNotFoundError:
-            ml_config = self.conf.get('ML', {})
-            THRESHOLD_PERCENTILE = int(ml_config.get('CLASSIFIER_THRESHOLD_PERCENTILE', 92))
-            logging.warning(f"⚠️  Threshold config not found, using default: {THRESHOLD_PERCENTILE}")
+        # Load threshold config
+        threshold_config, THRESHOLD_PERCENTILE = self._load_threshold_config(MODEL_SAVE_PATH)
 
-        aidata_dir = self.root_path + '/processed/ml_data/per_year/'
+        # Load and prepare latest data
+        ldf, ldf_with_sector = self._load_latest_data(MODEL_SAVE_PATH)
+        if ldf is None:
+            return
 
-        # 통합 메서드로 예측 컬럼 이름 생성
+        # Run global predictions
         pred_col_list = self._build_prediction_column_names()
+        self._predict_latest_global(ldf, MODEL_SAVE_PATH, threshold_config, THRESHOLD_PERCENTILE, pred_col_list)
+
+        # Run sector predictions (if enabled)
+        if self.use_sector_model and ldf_with_sector is not None:
+            self._predict_latest_sectors(ldf_with_sector, ldf, MODEL_SAVE_PATH)
+
+    def _load_latest_data(self, model_save_path: str) -> tuple:
+        """Load and prepare latest quarterly data for prediction.
+
+        Loads the most recent year's data, deduplicates by symbol, applies
+        sector categorization, and filters rows with excessive NaN values.
+
+        Args:
+            model_save_path: Directory path where models are saved.
+
+        Returns:
+            Tuple of (ldf DataFrame without sector, ldf_with_sector DataFrame or None).
+            Returns (None, None) if data loading fails.
+        """
+        aidata_dir = self.root_path + '/processed/ml_data/per_year/'
 
         # 최신 연도 데이터(모든 분기)를 로드하고 심볼당 가장 최근 것 유지
         # 자동으로 가장 최근 연도 감지 및 Parquet 형식 로드
@@ -4412,7 +4564,7 @@ class Regressor:
         if not fs_files:
             logging.error(f"No rnorm_fs files found in {aidata_dir}")
             logging.error("Cannot generate latest prediction without feature data")
-            return
+            return None, None
 
         # 파일명에서 연도 추출하여 가장 최근 연도 찾기
         try:
@@ -4421,7 +4573,7 @@ class Regressor:
             logging.info(f"Latest year detected: {latest_year}")
         except (IndexError, ValueError) as e:
             logging.error(f"Failed to parse year from filenames: {e}")
-            return
+            return None, None
 
         # ✅ Use unified data loading (DataProcessor.load_quarterly_data)
         # This ensures consistency with ml_backtest.py and prevents duplicate indices
@@ -4434,7 +4586,7 @@ class Regressor:
             )
         except ValueError as e:
             logging.error(f"Failed to load latest data: {e}")
-            return
+            return None, None
 
         # year_period를 기준으로 내림차순 정렬하고 심볼당 첫 번째(가장 최근) 유지
         ldf = ldf.sort_values(by='year_period', ascending=False)
@@ -4442,8 +4594,6 @@ class Regressor:
         logging.info(f"  After deduplication: {len(ldf)} unique symbols")
 
         ldf = ldf.drop(columns=self.drop_col_list, errors='ignore')
-
-        # Parquet 파일은 인덱스 컬럼 없음 (CSV와 달리)
 
         # ✅ 섹터 카테고리화 적용 (학습 시와 동일하게)
         # CATEGORIZATION.ENABLED=Y일 때 원본 섹터를 카테고리로 통합
@@ -4505,13 +4655,30 @@ class Regressor:
         # sector 컬럼 제거 (global 모델은 sector를 사용하지 않음)
         ldf = ldf.drop('sector', axis=1)
 
+        return ldf, ldf_with_sector
+
+    def _predict_latest_global(self, ldf: pd.DataFrame, model_save_path: str,
+                               threshold_config: dict, threshold_percentile: int,
+                               pred_col_list: list) -> None:
+        """Run global classification and regression predictions on latest data.
+
+        Performs feature alignment, runs all classifiers and regressors,
+        generates ensemble predictions, and saves top-K recommendations.
+
+        Args:
+            ldf: DataFrame with latest data (sector column removed).
+            model_save_path: Directory path for saving predictions.
+            threshold_config: Threshold configuration dict.
+            threshold_percentile: Percentile for classifier threshold.
+            pred_col_list: List of prediction column names.
+        """
         # 입력 특성 준비
         input = ldf[ldf.columns.difference(y_col_list)]
         input = self.clean_feature_names(input)
 
         # ===== Feature Alignment (피처 정렬) =====
         # 학습 시 사용한 피처 리스트 로드 (evaluation()과 동일한 방식)
-        feature_columns_file = MODEL_SAVE_PATH + 'feature_columns.pkl'
+        feature_columns_file = model_save_path + 'feature_columns.pkl'
         try:
             train_feature_columns = joblib.load(feature_columns_file)
             logging.info(f"✅ Loaded {len(train_feature_columns)} train feature columns")
@@ -4575,7 +4742,7 @@ class Regressor:
             # GPU 지원으로 device mismatch 워닝 방지
             y_probs = predict_proba_with_gpu_support(model, input, self.use_gpu_prediction)[:, 1]
             # 백분위수 임계값을 사용하여 이진으로 변환 (학습 시 자동 탐색된 threshold 사용)
-            threshold = np.percentile(y_probs, THRESHOLD_PERCENTILE)
+            threshold = np.percentile(y_probs, threshold_percentile)
             y_predict_binary = (y_probs > threshold).astype(int)
             logging.info(f"20% positive threshold == {threshold}")
             ldf[pred_col_name] = y_predict_binary
@@ -4609,7 +4776,7 @@ class Regressor:
 
         # 평균 예측 계산
         ldf['ai_pred_avg'] = np.average(preds, axis=0)
-        ldf.to_csv(MODEL_SAVE_PATH+"latest_prediction.csv")
+        ldf.to_csv(model_save_path+"latest_prediction.csv")
 
         # 상위 K개 주식 추천 생성 (config의 TOP_K_NUM 사용, ml_backtest.py와 동일)
         topk_list = [(0, self.top_k_num - 1)]
@@ -4617,95 +4784,106 @@ class Regressor:
             logging.info("top" + str(s) + " ~ " + str(e))
             for col in pred_col_list:
                 top_k_df = ldf.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
-                top_k_df.to_csv(MODEL_SAVE_PATH+'latest_prediction_{}_top{}-{}.csv'.format(col, s, e))
+                top_k_df.to_csv(model_save_path+'latest_prediction_{}_top{}-{}.csv'.format(col, s, e))
 
-        # === 섹터별 예측 (PER_SECTOR=True인 경우) ===
-        if self.use_sector_model:
-            self.sector_models = dict()
-            self.sector_classifiers = dict()
-            # Use the saved copy with sector information
-            ldf = ldf_with_sector.copy()
+    def _predict_latest_sectors(self, ldf_with_sector: pd.DataFrame,
+                                ldf: pd.DataFrame, model_save_path: str) -> None:
+        """Run sector-specific predictions on latest data.
 
-            # 섹터별 모델 로드
-            # 통합 섹터 모델 로딩 메서드 사용
-            self._load_sector_models(MODEL_SAVE_PATH, self.sector_list)
-            self._load_sector_classifiers(MODEL_SAVE_PATH, self.sector_list)
+        Loads sector models, runs predictions per sector, generates top-K
+        recommendations, and restores original sector names for reports.
 
-            all_preds = []
+        Args:
+            ldf_with_sector: DataFrame with sector column preserved.
+            ldf: DataFrame used for sector name restoration.
+            model_save_path: Directory path for saving predictions.
+        """
+        self.sector_models = dict()
+        self.sector_classifiers = dict()
+        # Use the saved copy with sector information
+        ldf = ldf_with_sector.copy()
 
-            # 섹터별로 예측 수행
-            for sec in self.sector_list:
-                sec_df = ldf[ldf['sector']==sec].copy()
+        # 섹터별 모델 로드
+        # 통합 섹터 모델 로딩 메서드 사용
+        self._load_sector_models(model_save_path, self.sector_list)
+        self._load_sector_classifiers(model_save_path, self.sector_list)
 
-                # ✅ Use unified preprocessing (DataProcessor.prepare_sector_data)
-                # Ensures consistency with ml_backtest.py
-                first_sector_model = self.sector_models[(sec, 0)]
-                sec_input = DataProcessor.prepare_sector_data(
-                    sector_df=sec_df,
-                    sector_model=first_sector_model,
-                    y_col_list=y_col_list,
-                    use_winsorization=self.use_winsorization,
-                    logger=logging.getLogger()
-                )
+        all_preds = []
 
-                # 전처리된 데이터를 indata로 사용
-                indata = sec_input
-                preds = np.empty((0, indata.shape[0]))
+        # 섹터별로 예측 수행
+        for sec in self.sector_list:
+            sec_df = ldf[ldf['sector']==sec].copy()
 
-                # 섹터별 모델 실행
-                for i in range(2):
-                    k = (sec, i)
-                    model = self.sector_models[k]
-                    pred_col_name = 'model_' + str(i) + '_prediction'
-                    # GPU 지원으로 device mismatch 워닝 방지
-                    y_predict3 = predict_with_gpu_support(model, indata, self.use_gpu_prediction)
-                    # 원본 sec_df에 예측 결과 추가 (인덱스 정렬)
-                    sec_df.loc[sec_input.index, pred_col_name] = y_predict3
-                    preds = np.vstack((preds, y_predict3[None,:]))
+            # ✅ Use unified preprocessing (DataProcessor.prepare_sector_data)
+            # Ensures consistency with ml_backtest.py
+            first_sector_model = self.sector_models[(sec, 0)]
+            sec_input = DataProcessor.prepare_sector_data(
+                sector_df=sec_df,
+                sector_model=first_sector_model,
+                y_col_list=y_col_list,
+                use_winsorization=self.use_winsorization,
+                logger=logging.getLogger()
+            )
 
-                sec_df.loc[sec_input.index, 'ai_pred_avg'] = np.average(preds, axis=0)
-                sec_df.to_csv(MODEL_SAVE_PATH+"sec_{}_latest_prediction.csv".format(sec))
+            # 전처리된 데이터를 indata로 사용
+            indata = sec_input
+            preds = np.empty((0, indata.shape[0]))
 
-                # 섹터별 상위 K개 (config의 TOP_K_NUM 사용, ml_backtest.py와 동일)
-                # ⚠️ 섹터 예측은 wbinary 컬럼을 생성하지 않으므로, 실제 생성된 컬럼만 사용
-                sector_pred_col_list = ['ai_pred_avg', 'model_0_prediction', 'model_1_prediction']
-                topk_list = [(0, self.top_k_num - 1)]
-                for s, e in topk_list:
-                    logging.info("top" + str(s) + " ~ " + str(e))
-                    for col in sector_pred_col_list:
-                        top_k_df = sec_df.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
-                        top_k_df.to_csv(MODEL_SAVE_PATH+'latest_prediction_{}_{}_top{}-{}.csv'.format(col, sec, s, e))
-                        symbols = top_k_df['symbol'].to_list()
-                        preds = top_k_df[col].to_list()
-                        for i, sym in enumerate(symbols):
-                            all_preds.append([(e-s), sec, col, i, sym, preds[i]])
+            # 섹터별 모델 실행
+            for i in range(2):
+                k = (sec, i)
+                model = self.sector_models[k]
+                pred_col_name = 'model_' + str(i) + '_prediction'
+                # GPU 지원으로 device mismatch 워닝 방지
+                y_predict3 = predict_with_gpu_support(model, indata, self.use_gpu_prediction)
+                # 원본 sec_df에 예측 결과 추가 (인덱스 정렬)
+                sec_df.loc[sec_input.index, pred_col_name] = y_predict3
+                preds = np.vstack((preds, y_predict3[None,:]))
 
-            # ✅ 원본 섹터 이름 복원 (레포트용)
-            # 카테고리 이름으로 학습/예측했지만, 사용자에게는 원본 섹터 이름 표시
-            if 'sector_original' in ldf.columns:
-                # all_preds의 섹터 이름을 원본으로 매핑
-                category_to_original = {}
-                for cat in ldf['sector_category'].unique():
-                    originals = ldf[ldf['sector_category'] == cat]['sector_original'].unique()
-                    if len(originals) > 0:
-                        # 카테고리에 포함된 원본 섹터들을 쉼표로 구분하여 표시
-                        # None 값 필터링 (섹터 정보가 없는 종목 제외)
-                        valid_originals = [o for o in originals if o is not None]
-                        if valid_originals:
-                            category_to_original[cat] = ', '.join(sorted(valid_originals))
-                        else:
-                            category_to_original[cat] = 'Unknown'
+            sec_df.loc[sec_input.index, 'ai_pred_avg'] = np.average(preds, axis=0)
+            sec_df.to_csv(model_save_path+"sec_{}_latest_prediction.csv".format(sec))
 
-                # all_preds에서 섹터 이름 변환
-                for pred_row in all_preds:
-                    cat_name = pred_row[1]  # sector는 index 1
-                    if cat_name in category_to_original:
-                        pred_row[1] = category_to_original[cat_name]
+            # 섹터별 상위 K개 (config의 TOP_K_NUM 사용, ml_backtest.py와 동일)
+            # ⚠️ 섹터 예측은 wbinary 컬럼을 생성하지 않으므로, 실제 생성된 컬럼만 사용
+            sector_pred_col_list = ['ai_pred_avg', 'model_0_prediction', 'model_1_prediction']
+            topk_list = [(0, self.top_k_num - 1)]
+            for s, e in topk_list:
+                logging.info("top" + str(s) + " ~ " + str(e))
+                for col in sector_pred_col_list:
+                    top_k_df = sec_df.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
+                    top_k_df.to_csv(model_save_path+'latest_prediction_{}_{}_top{}-{}.csv'.format(col, sec, s, e))
+                    symbols = top_k_df['symbol'].to_list()
+                    preds = top_k_df[col].to_list()
+                    for i, sym in enumerate(symbols):
+                        all_preds.append([(e-s), sec, col, i, sym, preds[i]])
 
-            # 섹터 기반 요약 저장
-            col_name = ['k', 'sector', 'model', 'i', 'symbol', 'pred']
-            pred_df = pd.DataFrame(all_preds, columns=col_name)
-            pred_df.to_csv(MODEL_SAVE_PATH+'allsector_latest_pred_df.csv', index=False)
+        # ✅ 원본 섹터 이름 복원 (레포트용)
+        # 카테고리 이름으로 학습/예측했지만, 사용자에게는 원본 섹터 이름 표시
+        if 'sector_original' in ldf.columns:
+            # all_preds의 섹터 이름을 원본으로 매핑
+            category_to_original = {}
+            for cat in ldf['sector_category'].unique():
+                originals = ldf[ldf['sector_category'] == cat]['sector_original'].unique()
+                if len(originals) > 0:
+                    # 카테고리에 포함된 원본 섹터들을 쉼표로 구분하여 표시
+                    # None 값 필터링 (섹터 정보가 없는 종목 제외)
+                    valid_originals = [o for o in originals if o is not None]
+                    if valid_originals:
+                        category_to_original[cat] = ', '.join(sorted(valid_originals))
+                    else:
+                        category_to_original[cat] = 'Unknown'
+
+            # all_preds에서 섹터 이름 변환
+            for pred_row in all_preds:
+                cat_name = pred_row[1]  # sector는 index 1
+                if cat_name in category_to_original:
+                    pred_row[1] = category_to_original[cat_name]
+
+        # 섹터 기반 요약 저장
+        col_name = ['k', 'sector', 'model', 'i', 'symbol', 'pred']
+        pred_df = pd.DataFrame(all_preds, columns=col_name)
+        pred_df.to_csv(model_save_path+'allsector_latest_pred_df.csv', index=False)
+
 
     def predict_for_date(self, target_date: str = "latest", top_k: int = 10) -> pd.DataFrame:
         """
@@ -4727,16 +4905,6 @@ class Regressor:
         -------
         pd.DataFrame
             추천 종목 DataFrame (symbol, company, sector, ml_score, pred_return 등)
-
-        출력 파일:
-            - MODELS/prediction_{target_date}.csv: 전체 예측 결과
-            - MODELS/prediction_{target_date}_top{K}.csv: 상위 K개 추천
-
-        사용 예시:
-            >>> regressor = Regressor(config)
-            >>> # 오늘 날짜 기준 추천
-            >>> top_stocks = regressor.predict_for_date("2025-01-11", top_k=10)
-            >>> print(top_stocks[['symbol', 'company', 'ml_score']])
         """
         from datetime import datetime as dt
 
@@ -4750,7 +4918,6 @@ class Regressor:
         logging.info(f"   Top-K: {top_k}")
         logging.info("="*80)
 
-        # 분류기 및 회귀기 로드
         self.clsmodels = dict()
         self.models = dict()
 
@@ -4764,17 +4931,8 @@ class Regressor:
             return pd.DataFrame()
 
         # Threshold config 로드
-        threshold_config_file = MODEL_SAVE_PATH + 'threshold_config.pkl'
-        try:
-            threshold_config = joblib.load(threshold_config_file)
-            THRESHOLD_PERCENTILE = threshold_config['percentile']
-            classifier_mode = threshold_config.get('mode', 'positive_screen')
-            logging.info(f"✅ Threshold config loaded: Percentile {THRESHOLD_PERCENTILE}, Mode: {classifier_mode}")
-        except FileNotFoundError:
-            ml_config = self.conf.get('ML', {})
-            THRESHOLD_PERCENTILE = int(ml_config.get('CLASSIFIER_THRESHOLD_PERCENTILE', 92))
-            classifier_mode = ml_config.get('CLASSIFIER_MODE', 'positive_screen')
-            logging.warning(f"⚠️ Threshold config not found, using defaults")
+        threshold_config, THRESHOLD_PERCENTILE = self._load_threshold_config(MODEL_SAVE_PATH)
+        classifier_mode = threshold_config.get('mode', self.conf.get('ML', {}).get('CLASSIFIER_MODE', 'positive_screen'))
 
         # Feature columns 로드
         feature_columns_file = MODEL_SAVE_PATH + 'feature_columns.pkl'
@@ -4786,7 +4944,58 @@ class Regressor:
             logging.error("   Please run training first")
             return pd.DataFrame()
 
-        # ===== 2. 데이터 로드 =====
+        # ===== 2. 데이터 로드 및 필터링 =====
+        ldf, date_str = self._load_data_for_date_prediction(aidata_dir, target_date)
+        if ldf is None:
+            return pd.DataFrame()
+
+        # ===== 3. 전처리 =====
+        input_data, meta_df = self._prepare_prediction_features(ldf, train_feature_columns)
+
+        # ===== 4. 예측 =====
+        logging.info("")
+        logging.info("🔮 Running predictions...")
+
+        result_df = meta_df.copy()
+
+        # 분류기 실행
+        clf_probs_list = []
+        for i, model in self.clsmodels.items():
+            y_probs = predict_proba_with_gpu_support(model, input_data, self.use_gpu_prediction)[:, 1]
+            clf_probs_list.append(y_probs)
+            result_df[f'clf_{i}_proba'] = y_probs
+
+        # 앙상블 평균 확률
+        avg_proba = np.mean(clf_probs_list, axis=0)
+        result_df['pred_up_proba'] = avg_proba
+
+        # 회귀 예측
+        reg_preds_list = []
+        for i, model in self.models.items():
+            y_pred = predict_with_gpu_support(model, input_data, self.use_gpu_prediction)
+            reg_preds_list.append(y_pred)
+            result_df[f'reg_{i}_pred'] = y_pred
+
+        # 앙상블 평균 수익률 예측
+        avg_return = np.mean(reg_preds_list, axis=0)
+        result_df['pred_return'] = avg_return
+
+        # ===== 5. ML Score 계산 및 결과 저장 =====
+        return self._compute_scores_and_save(
+            result_df, avg_proba, avg_return, THRESHOLD_PERCENTILE,
+            classifier_mode, top_k, date_str, target_date, MODEL_SAVE_PATH
+        )
+
+    def _load_data_for_date_prediction(self, aidata_dir: str, target_date: str) -> tuple:
+        """Load and filter data for prediction based on target date.
+
+        Args:
+            aidata_dir: Directory path containing ML data files.
+            target_date: Target date string ("latest" or "YYYY-MM-DD").
+
+        Returns:
+            Tuple of (ldf DataFrame, date_str string) or (None, None) on failure.
+        """
         logging.info("")
         logging.info("📊 Loading data...")
 
@@ -4794,7 +5003,7 @@ class Regressor:
         fs_files = sorted(glob.glob(aidata_dir + 'rnorm_fs_*.parquet'))
         if not fs_files:
             logging.error(f"❌ No data files found in {aidata_dir}")
-            return pd.DataFrame()
+            return None, None
 
         # 모든 연도 데이터 로드
         all_data = []
@@ -4807,12 +5016,12 @@ class Regressor:
 
         if not all_data:
             logging.error("❌ No data loaded")
-            return pd.DataFrame()
+            return None, None
 
         ldf = pd.concat(all_data, ignore_index=True)
         logging.info(f"   Loaded {len(ldf)} rows from {len(all_data)} files")
 
-        # ===== 3. 날짜 필터링 =====
+        # 날짜 필터링
         if target_date.lower() != "latest":
             # 특정 날짜 기준 필터링
             try:
@@ -4832,7 +5041,7 @@ class Regressor:
             except Exception as e:
                 logging.error(f"❌ Invalid date format: {target_date}")
                 logging.error(f"   Expected format: YYYY-MM-DD (e.g., 2025-01-11)")
-                return pd.DataFrame()
+                return None, None
         else:
             date_str = "latest"
             logging.info("   Using latest available data")
@@ -4845,9 +5054,21 @@ class Regressor:
 
         if len(ldf) == 0:
             logging.error("❌ No data available for the specified date")
-            return pd.DataFrame()
+            return None, None
 
-        # ===== 4. 전처리 =====
+        return ldf, date_str
+
+    def _prepare_prediction_features(self, ldf: pd.DataFrame,
+                                     train_feature_columns: list) -> tuple:
+        """Prepare input features for prediction with alignment and preprocessing.
+
+        Args:
+            ldf: Raw data DataFrame.
+            train_feature_columns: List of feature column names from training.
+
+        Returns:
+            Tuple of (input_data DataFrame, meta_df DataFrame with metadata).
+        """
         # 과도한 NaN 행 제거
         ldf = DataProcessor.drop_many_nan_row(ldf, threshold=0.6)
         logging.info(f"   After NaN filter: {len(ldf)} rows")
@@ -4887,37 +5108,31 @@ class Regressor:
                 enabled=True
             )
 
-        # ===== 5. 분류 예측 =====
-        logging.info("")
-        logging.info("🔮 Running predictions...")
+        return input_data, meta_df
 
-        classifier_cols = self._get_classifier_column_names()
-        result_df = meta_df.copy()
+    def _compute_scores_and_save(self, result_df: pd.DataFrame,
+                                 avg_proba: np.ndarray, avg_return: np.ndarray,
+                                 threshold_percentile: int, classifier_mode: str,
+                                 top_k: int, date_str: str, target_date: str,
+                                 model_save_path: str) -> pd.DataFrame:
+        """Compute ML scores, apply filtering, save results and display recommendations.
 
-        # 분류기 실행
-        clf_probs_list = []
-        for i, model in self.clsmodels.items():
-            y_probs = predict_proba_with_gpu_support(model, input_data, self.use_gpu_prediction)[:, 1]
-            clf_probs_list.append(y_probs)
-            result_df[f'clf_{i}_proba'] = y_probs
+        Args:
+            result_df: DataFrame with prediction results.
+            avg_proba: Average classifier probabilities.
+            avg_return: Average regressor predictions.
+            threshold_percentile: Percentile for classifier threshold.
+            classifier_mode: Classifier mode ("positive_screen" or "negative_screen").
+            top_k: Number of top stocks to recommend.
+            date_str: Date string for file naming.
+            target_date: Original target date string for display.
+            model_save_path: Directory path for saving results.
 
-        # 앙상블 평균 확률
-        avg_proba = np.mean(clf_probs_list, axis=0)
-        result_df['pred_up_proba'] = avg_proba
-
-        # ===== 6. 회귀 예측 =====
-        reg_preds_list = []
-        for i, model in self.models.items():
-            y_pred = predict_with_gpu_support(model, input_data, self.use_gpu_prediction)
-            reg_preds_list.append(y_pred)
-            result_df[f'reg_{i}_pred'] = y_pred
-
-        # 앙상블 평균 수익률 예측
-        avg_return = np.mean(reg_preds_list, axis=0)
-        result_df['pred_return'] = avg_return
-
-        # ===== 7. ML Score 계산 (Hard Filtering) =====
-        threshold = np.percentile(avg_proba, THRESHOLD_PERCENTILE)
+        Returns:
+            DataFrame with top-K recommended stocks.
+        """
+        # ML Score 계산 (Hard Filtering)
+        threshold = np.percentile(avg_proba, threshold_percentile)
 
         if classifier_mode == "negative_screen":
             # BAD 확률이 threshold 이상이면 제외
@@ -4932,17 +5147,17 @@ class Regressor:
         n_passed = pass_mask.sum()
         logging.info(f"   Classifier filter ({classifier_mode}): {n_passed}/{len(pass_mask)} passed")
 
-        # ===== 8. 결과 정렬 및 저장 =====
+        # 결과 정렬 및 저장
         result_df = result_df.sort_values('ml_score', ascending=False)
 
         # 전체 예측 저장
-        output_file = f"{MODEL_SAVE_PATH}prediction_{date_str}.csv"
+        output_file = f"{model_save_path}prediction_{date_str}.csv"
         result_df.to_csv(output_file, index=False)
         logging.info(f"✅ Full predictions saved: {output_file}")
 
         # Top-K 추천 저장
         top_k_df = result_df[result_df['passed_filter']].head(top_k)
-        top_k_file = f"{MODEL_SAVE_PATH}prediction_{date_str}_top{top_k}.csv"
+        top_k_file = f"{model_save_path}prediction_{date_str}_top{top_k}.csv"
         top_k_df.to_csv(top_k_file, index=False)
         logging.info(f"✅ Top-{top_k} recommendations saved: {top_k_file}")
 
@@ -4970,3 +5185,4 @@ class Regressor:
         logging.info("="*80)
 
         return top_k_df
+
