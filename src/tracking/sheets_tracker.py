@@ -244,7 +244,7 @@ class SheetsTracker:
                 ["git", "config", "user.name"],
                 stderr=subprocess.DEVNULL
             ).decode().strip()
-        except:
+        except Exception:
             git_user = "unknown"
 
         try:
@@ -252,7 +252,7 @@ class SheetsTracker:
                 ["git", "config", "user.email"],
                 stderr=subprocess.DEVNULL
             ).decode().strip()
-        except:
+        except Exception:
             git_email = "unknown"
 
         try:
@@ -260,7 +260,7 @@ class SheetsTracker:
                 ["git", "rev-parse", "--short", "HEAD"],
                 stderr=subprocess.DEVNULL
             ).decode().strip()
-        except:
+        except Exception:
             git_commit = "unknown"
 
         try:
@@ -268,7 +268,7 @@ class SheetsTracker:
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
                 stderr=subprocess.DEVNULL
             ).decode().strip()
-        except:
+        except Exception:
             git_branch = "unknown"
 
         return git_user, git_email, git_commit, git_branch

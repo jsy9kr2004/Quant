@@ -61,8 +61,8 @@ class FMP:
                 메인 컨텍스트 객체.
         """
         self.main_ctx = main_ctx
-        self.symbol_list: List[str] = pd.DataFrame()
-        self.current_list: List[str] = pd.DataFrame()
+        self.symbol_list: List[str] = []
+        self.current_list: List[str] = []
 
         self.logger = self.main_ctx.get_logger('fmp')
 

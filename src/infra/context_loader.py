@@ -400,7 +400,7 @@ class ContextLoader:
                         setattr(self, key, value)
                     else:
                         raise Exception('클래스 변수 내 중복 키 존재')
-        except:
+        except Exception:
             raise Exception('conf.yaml 파일 없음')
         finally:
             logger = self.get_logger('contextLoader')

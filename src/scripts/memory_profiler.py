@@ -76,7 +76,7 @@ class MemoryProfiler:
             )
             if result.returncode == 0:
                 return f"git:{result.stdout.strip()}"
-        except:
+        except Exception:
             pass
         return "unknown"
 
@@ -491,5 +491,5 @@ class MemoryProfiler:
         try:
             import cupy
             return True
-        except:
+        except ImportError:
             return False

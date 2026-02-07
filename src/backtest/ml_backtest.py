@@ -872,7 +872,7 @@ class MLBacktest:
         try:
             import cupy
             return True
-        except:
+        except ImportError:
             return False
 
     def _predict(self, models: Dict[str, Any], test_data: pd.DataFrame) -> pd.DataFrame:
@@ -1905,7 +1905,7 @@ class MLBacktest:
                     try:
                         cell_value = str(cell.value) if cell.value else ""
                         max_length = max(max_length, len(cell_value))
-                    except:
+                    except (TypeError, ValueError):
                         pass
 
                 # Date columns need minimum width of 12 (YYYY-MM-DD)

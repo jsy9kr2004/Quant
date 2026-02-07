@@ -19,7 +19,6 @@ from src.infra.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_l
 from multiprocessing import Pool
 from multiprocessing_logging import install_mp_handler
 from sklearn.preprocessing import StandardScaler
-from collections import defaultdict
 from pmdarima import auto_arima
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.stattools import acf, pacf
@@ -557,10 +556,10 @@ class DateHandler:
             print(extracted_features.head())
             extracted_features.columns = ['fresh_' + col for col in extracted_features.columns]
             fs_metrics = fs_metrics.reset_index().merge(extracted_features, left_on='symbol', right_index=True).set_index('index')
-        except:
+        except Exception as e:
             print("failed extract features : ")
             print(str(self.date.year) + '_' + str(self.date.month) + '_' + str(self.date.day))
-            pass
+            print(f"Error: {e}")
 
         # prev column 제거
         # prev는 diff 값 및 시계열 특성 추출을 위해 쓸 뿐 나중에 입력으로 쓰기엔 별 의미가 없으므로 drop 시킴

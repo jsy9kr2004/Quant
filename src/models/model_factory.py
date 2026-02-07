@@ -537,7 +537,7 @@ class ModelFactory:
         try:
             import cupy
             return True
-        except:
+        except ImportError:
             return False
 
 

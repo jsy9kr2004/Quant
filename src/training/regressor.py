@@ -64,34 +64,18 @@ import logging
 import torch
 import os
 import re
-import seaborn as sns
 import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
-import torch.nn as nn
-import torch.nn.functional as nn_f
-import torch.optim as optim
 from dateutil.relativedelta import relativedelta
 import datetime
 import lightgbm as lgb
 from typing import Dict, List, Tuple, Optional, Any
 
-# datasets 라이브러리는 사용되지 않으므로 import 제거됨
-# from datasets import Dataset
-from src.infra.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, sparse_col_list
-from src.constants.data_schema import DataSchema  # ✨ Unified column definitions
-from src.training.data_processor import DataProcessor  # ✨ Unified preprocessing
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import LinearRegression
-from sklearn.neural_network import MLPRegressor
-
-from torch.utils.data import DataLoader
+from src.infra.g_variables import sector_map
+from src.constants.data_schema import DataSchema
+from src.training.data_processor import DataProcessor
 import xgboost
-from sklearn.model_selection import GridSearchCV
-from sklearn.model_selection import KFold
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import RandomizedSearchCV
-from sklearn.metrics import accuracy_score, classification_report, precision_recall_fscore_support, precision_score, recall_score
+from sklearn.metrics import accuracy_score, classification_report, precision_score, recall_score
 
 # Optuna for hyperparameter optimization
 try:
@@ -706,7 +690,7 @@ class Regressor:
         self.y_train: Optional[pd.DataFrame] = None
         self.x_test: Optional[pd.DataFrame] = None
         self.y_test: Optional[pd.DataFrame] = None
-        print(self.conf)
+        logging.debug("Config: %s", self.conf)
 
         # 중첩된 구조에서 설정 값 추출
         data_config = conf.get('DATA', {})
@@ -745,9 +729,9 @@ class Regressor:
             logging.info("📊 Traditional train/test split mode (legacy)")
 
         aidata_dir = self.root_path + '/processed/ml_data/per_year/'
-        print("aidata path : " + aidata_dir)
+        logging.info("aidata path: %s", aidata_dir)
         if not os.path.exists(aidata_dir):
-            print("there is no ai data : " + aidata_dir)
+            logging.error("there is no ai data: %s", aidata_dir)
             return
 
         # 학습 파일 리스트 생성 (분기별 parquet 파일)
@@ -770,8 +754,8 @@ class Regressor:
                 path = aidata_dir + "rnorm_ml_" + str(year) + f"_{Q}.parquet"
                 self.test_files.append(path)
 
-        print("train file list : ", self.train_files)
-        print("test file list : ", self.test_files)
+        logging.info("train file list: %s", self.train_files)
+        logging.info("test file list: %s", self.test_files)
 
         # 데이터 컨테이너 초기화
         self.train_df = pd.DataFrame()
@@ -2203,7 +2187,7 @@ class Regressor:
 
         # 필요시 저장 디렉토리 생성
         if not os.path.exists(MODEL_SAVE_PATH):
-            print("creating MODELS path : " + MODEL_SAVE_PATH)
+            logging.info("creating MODELS path: %s", MODEL_SAVE_PATH)
             os.makedirs(MODEL_SAVE_PATH)
 
         # ========== Optuna Hyperparameter Optimization ==========

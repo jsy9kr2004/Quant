@@ -47,7 +47,7 @@ class MLflowTracker:
         # 실험 설정 (있으면 가져오고, 없으면 생성)
         try:
             self.experiment_id = mlflow.create_experiment(experiment_name)
-        except:
+        except Exception:
             experiment = mlflow.get_experiment_by_name(experiment_name)
             self.experiment_id = experiment.experiment_id
 
