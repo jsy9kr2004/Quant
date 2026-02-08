@@ -1073,6 +1073,53 @@ class DataProcessor:
         rows_before = len(X)
         cols_before = len(X.columns)
 
+        # Phase 1: Data quality checks (optional reports)
+        DataProcessor._preprocess_quality_checks(X, y, config, logger)
+
+        # Phase 2: Normalize feature names & remove non-feature columns
+        X = DataProcessor._preprocess_normalize_columns(X, logger)
+
+        # Phase 3: Remove infinities and clean targets (Steps 1-3)
+        X_clean, y_clean, y_cls_clean = DataProcessor._preprocess_remove_infinities(
+            X, y, y_cls, rows_before, logger
+        )
+
+        # Phase 4: Transform features and filter NaN (Steps 4-6)
+        X_clean, y_clean, y_cls_clean = DataProcessor._preprocess_transform_and_filter(
+            X_clean, y_clean, y_cls_clean, y.columns, logger
+        )
+
+        # Phase 5: Optional processing and feature selection (Steps 7-8)
+        X_clean, selected_features = DataProcessor._preprocess_optional_steps(
+            X_clean, y_clean, config, logger
+        )
+
+        # ===== Final summary =====
+        rows_after = len(X_clean)
+        cols_after = len(X_clean.columns)
+
+        if logger:
+            logger.info("=" * 80)
+            logger.info("✅ PREPROCESSING COMPLETE")
+            logger.info(f"   Rows: {rows_before} → {rows_after} ({rows_after/rows_before*100:.1f}% retained)")
+            logger.info(f"   Cols: {cols_before} → {cols_after} ({cols_after/cols_before*100:.1f}% retained)")
+            logger.info(f"   Remaining NaN: {X_clean.isna().sum().sum()}")
+
+            # Summary of data quality settings
+            if config:
+                dq_config = config.get('DATA_QUALITY', {})
+                if dq_config:
+                    logger.info(f"   Data Quality Report: {'Enabled' if dq_config.get('GENERATE_REPORT', 'N') == 'Y' else 'Disabled'}")
+                    logger.info(f"   A/B Cleaning Test: {'Enabled' if dq_config.get('VALIDATE_CLEANING_EFFECT', 'N') == 'Y' else 'Disabled'}")
+
+            logger.info("=" * 80)
+
+        return X_clean, y_clean, y_cls_clean, selected_features
+
+    @staticmethod
+    def _preprocess_quality_checks(X: pd.DataFrame, y: pd.DataFrame,
+                                    config: Optional[Dict], logger) -> None:
+        """Phase 1: Data Quality Report 및 A/B Cleaning Test (optional)"""
         # ===== Data Quality Report (BEFORE preprocessing) =====
         # Generate report to capture original data state
         data_quality_config = config.get('DATA_QUALITY', {}) if config else {}
@@ -1116,6 +1163,9 @@ class DataProcessor:
                 if logger:
                     logger.warning(f"A/B test validation failed: {e}")
 
+    @staticmethod
+    def _preprocess_normalize_columns(X: pd.DataFrame, logger) -> pd.DataFrame:
+        """Phase 2: Feature name 정규화, metadata 컬럼 제거, non-numeric 컬럼 제거"""
         # ===== Step 0: Normalize feature names (Critical for model training) =====
         # Remove special JSON characters from feature names to prevent errors
         # in XGBoost, LightGBM, and CatBoost
@@ -1171,6 +1221,14 @@ class DataProcessor:
             else:
                 logger.info("✅ All columns are numeric")
 
+        return X
+
+    @staticmethod
+    def _preprocess_remove_infinities(X: pd.DataFrame, y: pd.DataFrame,
+                                       y_cls: Optional[pd.DataFrame],
+                                       rows_before: int,
+                                       logger) -> Tuple[pd.DataFrame, pd.Series, Optional[pd.DataFrame]]:
+        """Phase 3: 무한값 제거 및 타겟 변수 정리 (Steps 1-3)"""
         # ===== Step 1: Remove infinite values from X and y =====
         if logger:
             logger.info("Step 1/8: Removing infinite values from X and y...")
@@ -1210,6 +1268,13 @@ class DataProcessor:
                 y_cls_series, y_cls.columns, X_clean.index
             )
 
+        return X_clean, y_clean, y_cls_clean
+
+    @staticmethod
+    def _preprocess_transform_and_filter(X_clean: pd.DataFrame, y_clean,
+                                          y_cls_clean: Optional[pd.DataFrame],
+                                          y_columns, logger) -> Tuple[pd.DataFrame, pd.DataFrame, Optional[pd.DataFrame]]:
+        """Phase 4: Log 변환, 고NaN 컬럼 제거, NaN 라벨 행 제거 (Steps 4-6)"""
         # ===== Step 4: Log transformation =====
         if logger:
             logger.info("Step 4/8: Applying log transformation...")
@@ -1259,7 +1324,7 @@ class DataProcessor:
         nan_mask_y = y_clean.isna() if isinstance(y_clean, pd.Series) else False
         if isinstance(y_clean, pd.DataFrame):
             # Reconstruct y as DataFrame
-            y_df = DataProcessor.create_clean_dataframe(y_clean, y.columns, X_clean.index)
+            y_df = DataProcessor.create_clean_dataframe(y_clean, y_columns, X_clean.index)
             nan_mask_y = y_df.isna().any(axis=1)
 
         nan_mask_y_cls = False
@@ -1284,10 +1349,17 @@ class DataProcessor:
 
         # Reconstruct y as DataFrame
         if isinstance(y_clean, pd.Series):
-            y_clean = DataProcessor.create_clean_dataframe(y_clean, y.columns, X_clean.index)
+            y_clean = DataProcessor.create_clean_dataframe(y_clean, y_columns, X_clean.index)
         else:
             y_clean = y_df
 
+        return X_clean, y_clean, y_cls_clean
+
+    @staticmethod
+    def _preprocess_optional_steps(X_clean: pd.DataFrame, y_clean: pd.DataFrame,
+                                    config: Optional[Dict],
+                                    logger) -> Tuple[pd.DataFrame, List[str]]:
+        """Phase 5: Winsorization 및 Feature Selection (Steps 7-8, optional)"""
         # ===== Step 7: Winsorization (optional, config-driven) =====
         use_winsorization = False
         if config:
@@ -1342,27 +1414,8 @@ class DataProcessor:
                 logger.info("Step 8/8: Skipping feature selection (disabled in config)")
             selected_features = X_clean.columns.tolist()
 
-        # ===== Final summary =====
-        rows_after = len(X_clean)
-        cols_after = len(X_clean.columns)
+        return X_clean, selected_features
 
-        if logger:
-            logger.info("=" * 80)
-            logger.info("✅ PREPROCESSING COMPLETE")
-            logger.info(f"   Rows: {rows_before} → {rows_after} ({rows_after/rows_before*100:.1f}% retained)")
-            logger.info(f"   Cols: {cols_before} → {cols_after} ({cols_after/cols_before*100:.1f}% retained)")
-            logger.info(f"   Remaining NaN: {X_clean.isna().sum().sum()}")
-
-            # Summary of data quality settings
-            if config:
-                dq_config = config.get('DATA_QUALITY', {})
-                if dq_config:
-                    logger.info(f"   Data Quality Report: {'Enabled' if dq_config.get('GENERATE_REPORT', 'N') == 'Y' else 'Disabled'}")
-                    logger.info(f"   A/B Cleaning Test: {'Enabled' if dq_config.get('VALIDATE_CLEANING_EFFECT', 'N') == 'Y' else 'Disabled'}")
-
-            logger.info("=" * 80)
-
-        return X_clean, y_clean, y_cls_clean, selected_features
 
     @staticmethod
     def clip_extreme_values(

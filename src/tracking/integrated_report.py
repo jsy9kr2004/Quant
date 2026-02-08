@@ -176,7 +176,7 @@ class IntegratedReportWriter:
                 try:
                     if cell.value:
                         max_length = max(max_length, len(str(cell.value)))
-                except:
+                except (TypeError, ValueError):
                     pass
 
             # Set width (max 50 chars)

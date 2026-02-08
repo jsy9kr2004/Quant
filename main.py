@@ -86,10 +86,9 @@ class RegressorIntegrated:
         regressor.train()
         regressor.evaluation()
 
-    TODO:
-        - 레거시 의존성 없이 네이티브 데이터 로딩 구현
-        - 커스텀 모델 아키텍처 지원 추가
-        - 학습 파이프라인에 교차 검증 구현
+    Note:
+        현재 모든 기능은 legacy_regressor를 통해 동작합니다.
+        USE_NEW_MODELS=Y 경로는 미구현 상태이며 NotImplementedError를 발생시킵니다.
     """
 
     def __init__(self, conf: Dict[str, Any], use_new_models: bool = True) -> None:
@@ -133,18 +132,15 @@ class RegressorIntegrated:
         Raises:
             ValueError: 학습 데이터 파일을 찾을 수 없는 경우
             FileNotFoundError: 필수 데이터 파일이 누락된 경우
-
-        TODO:
-            - 레거시 의존성 없이 네이티브 데이터 로딩 구현
-            - 데이터 검증 및 품질 체크 추가
+            NotImplementedError: Legacy regressor가 없는 경우
         """
         if self.legacy_regressor:
             self.legacy_regressor.dataload()
         else:
-            logger = get_logger('RegressorIntegrated')
-            logger.warning("Using new data loading method")
-            # TODO: Implement new data loading method
-            # Should load from /data/ml_per_year/rnorm_ml_*.parquet
+            raise NotImplementedError(
+                "Native data loading not yet implemented. "
+                "Legacy regressor is required. Check that src.training.regressor is importable."
+            )
 
     def train(self) -> None:
         """
@@ -177,8 +173,10 @@ class RegressorIntegrated:
         elif self.legacy_regressor:
             self.legacy_regressor.train()
         else:
-            logger = get_logger('RegressorIntegrated')
-            logger.error("No training method available")
+            raise RuntimeError(
+                "No training method available. Either enable USE_NEW_MODELS+USE_MLFLOW "
+                "or ensure legacy regressor is importable."
+            )
 
     def _train_with_new_models(self) -> None:
         """
@@ -190,10 +188,8 @@ class RegressorIntegrated:
         - 설정 가능한 하이퍼파라미터
         - 스태킹 앙상블 지원
 
-        TODO:
-            - 완전한 학습 파이프라인 구현
-            - 커스텀 모델 설정 지원 추가
-            - HPO를 위한 OptunaOptimizer 통합
+        Raises:
+            NotImplementedError: 항상 (아직 미구현)
         """
         logger = get_logger('RegressorIntegrated')
         logger.info("Training with new model structure + MLflow")
@@ -205,17 +201,11 @@ class RegressorIntegrated:
                 experiment_name=ml_config.get('MLFLOW_EXPERIMENT', 'quant_trading')
             )
 
-        # TODO: Load training data from legacy regressor or implement native loading
-        # X_train = self.legacy_regressor.x_train
-        # y_train = self.legacy_regressor.y_train
-
-        # TODO: Build and train models
-        # - Create base models (XGBoost, LightGBM, CatBoost)
-        # - Train each model with early stopping
-        # - Create stacking ensemble
-        # - Log to MLflow
-
-        logger.info("New model training completed (placeholder)")
+        raise NotImplementedError(
+            "New model training pipeline is not yet implemented.\n"
+            "To use the working pipeline, set USE_NEW_MODELS=N in config.\n"
+            "The legacy regressor provides full training functionality."
+        )
 
     def evaluation(self) -> None:
         """
@@ -246,13 +236,13 @@ class RegressorIntegrated:
         use_new_models = _is_enabled(ml_config.get('USE_NEW_MODELS'))
         use_mlflow = _is_enabled(ml_config.get('USE_MLFLOW'))
 
-        if use_new_models and use_mlflow:
-            logger = get_logger('RegressorIntegrated')
-            logger.warning("New model evaluation not implemented yet, using legacy evaluation")
-            if self.legacy_regressor:
-                self.legacy_regressor.evaluation()
-        elif self.legacy_regressor:
+        if self.legacy_regressor:
             self.legacy_regressor.evaluation()
+        else:
+            raise NotImplementedError(
+                "Evaluation requires legacy regressor. "
+                "Ensure src.training.regressor is importable."
+            )
 
     def latest_prediction(self) -> None:
         """
@@ -280,13 +270,13 @@ class RegressorIntegrated:
         use_new_models = _is_enabled(ml_config.get('USE_NEW_MODELS'))
         use_mlflow = _is_enabled(ml_config.get('USE_MLFLOW'))
 
-        if use_new_models and use_mlflow:
-            logger = get_logger('RegressorIntegrated')
-            logger.warning("New model prediction not implemented yet, using legacy prediction")
-            if self.legacy_regressor:
-                self.legacy_regressor.latest_prediction()
-        elif self.legacy_regressor:
+        if self.legacy_regressor:
             self.legacy_regressor.latest_prediction()
+        else:
+            raise NotImplementedError(
+                "Latest prediction requires legacy regressor. "
+                "Ensure src.training.regressor is importable."
+            )
 
     def predict_for_date(self, target_date: str = "latest", top_k: int = 10) -> 'pd.DataFrame':
         """
@@ -598,24 +588,16 @@ def _run_backtest(config: Dict[str, Any], main_ctx: 'MainContext', logger: loggi
     # Get parameters (EVALUATION takes precedence over BACKTEST)
     top_k_num = eval_config.get('TOP_K_NUM', backtest_config.get('TOP_K_NUM', 20))
     rebalance_period = eval_config.get('REBALANCE_PERIOD', backtest_config.get('REBALANCE_PERIOD', 3))
-    retrain_frequency = backtest_config.get('RETRAIN_FREQUENCY', 'quarterly')
-    window_type = backtest_config.get('WINDOW_TYPE', 'expanding')
-    window_size = backtest_config.get('WINDOW_SIZE', 3)
 
     logger.info(f"  Rebalance period: {rebalance_period} months")
     logger.info(f"  Top K: {top_k_num}")
-    logger.info(f"  Retrain frequency: {retrain_frequency}")
-    logger.info(f"  Window type: {window_type}")
 
-    # Initialize and run backtest
+    # Initialize and run backtest (cache-based, requires regressor.py to run first)
     ml_backtest = MLBacktest(
         config=config,
         main_ctx=main_ctx,
         rebalance_period=rebalance_period,
         top_k=top_k_num,
-        retrain_frequency=retrain_frequency,
-        window_type=window_type,
-        window_size=window_size
     )
 
     logger.info("Starting ML walk-forward backtest...")

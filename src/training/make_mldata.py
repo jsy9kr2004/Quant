@@ -553,789 +553,945 @@ class AIDataMaker:
             - rnorm_fs_{year}_{quarter}.parquet: 특성만 (최신 예측용)
             - rnorm_ml_{year}_{quarter}.parquet: 특성 + 타겟 (학습용)
 
-        사용 예시:
-            maker.make_ml_data(2015, 2023)
-            # 생성: rnorm_ml_2015_Q1.parquet, rnorm_ml_2015_Q2.parquet, ...
-
         Notes:
-            - 12개 이상의 분기 데이터가 있는 주식만 처리
-            - 저유동성 주식 필터링 (거래량 하위 50%)
-            - 데이터가 불충분한 분기는 건너뜀 (경고 로그)
-            - 아웃라이어 저항성 정규화를 위해 RobustScaler 사용
-            - 섹터 조정 수익률 계산 (sec_price_dev_subavg)
-
-        TODO:
-            - 룩백 윈도우 커스터마이즈 옵션 추가 (현재 12로 고정)
-            - 유동성 임계값 커스터마이즈 옵션 추가 (현재 50%)
-            - 커스텀 특성 추출 파라미터 지원 추가
+            파이프라인 단계:
+            Phase 1: _prepare_year_data() - 연도별 데이터 준비
+            Phase 2: _prepare_quarter_window() - 분기별 윈도우 생성
+            Phase 3: _validate_filing_delay() - 공시 지연 검증
+            Phase 4: _extract_timeseries_features() - tsfresh 시계열 특성 추출
+            Phase 5: _merge_and_filter_features() - 특성 병합 및 필터링
+            Phase 6: _scale_and_clean_data() - 스케일링 및 정제
+            Phase 7: _resolve_rebalance_date() - 리밸런싱 날짜 결정
+            Phase 8: _save_quarter_data() - 분기별 데이터 저장
+            Phase 9: _validate_quarterly_balance() - 분기 균형 검증
         """
         # 출력 디렉토리 생성
         ml_dir = os.path.join(self.main_ctx.root_path, "processed/ml_data/per_year")
         self.main_ctx.create_dir(ml_dir)
 
-        for cur_year in range(start_year, end_year+1):
-            # 종목 테이블로 시작
-            table_for_ai = self.symbol_table.copy()
+        for cur_year in range(start_year, end_year + 1):
+            # Phase 1: 연도별 데이터 준비 (유동성 필터링, 데이터 병합, 비율 계산)
+            table_for_ai, fs_metrics = self._prepare_year_data(cur_year)
+            self._save_debug_snapshot(fs_metrics, cur_year)
 
-            # 가격 데이터를 현재 연도 ± 4년으로 필터링 (시계열 특성용)
-            cur_price_table = self.price_table.copy()
-            cur_price_table = self.filter_dates(cur_price_table, 'date', cur_year-4, cur_year)
-
-            # 고유동성 주식으로 필터링 (평균 거래 금액 기준)
-            # Config-driven: FEATURES.MIN_VOLUME_PERCENTILE (default: 10%)
-            # Removes bottom X% of stocks by volume (e.g., 10 = remove bottom 10%, keep top 90%)
-            min_volume_pct = self.conf.get('FEATURES', {}).get('MIN_VOLUME_PERCENTILE', 10)
-            symbol_means = cur_price_table.groupby('symbol')['volume_mul_price'].mean().reset_index()
-
-            # Calculate volume threshold at the Xth percentile
-            volume_threshold = symbol_means['volume_mul_price'].quantile(min_volume_pct / 100)
-
-            # Keep stocks with volume >= threshold (removes bottom X%)
-            top_symbols = symbol_means[symbol_means['volume_mul_price'] >= volume_threshold]
-            cur_price_table = cur_price_table[cur_price_table['symbol'].isin(top_symbols['symbol'])]
-
-            filtered_count = len(symbol_means) - len(top_symbols)
-            keep_pct = 100 - min_volume_pct
-            self.logger.info(f"   📊 Volume filter (removes bottom {min_volume_pct}%, keeps top {keep_pct}%): "
-                           f"{len(symbol_means)} → {len(top_symbols)} stocks "
-                           f"({filtered_count} low-liquidity stocks removed)")
-
-            # 종목 테이블과 병합
-            table_for_ai = pd.merge(table_for_ai, cur_price_table, how='inner', on='symbol')
-            table_for_ai.rename(columns={'date': 'rebalance_date'}, inplace=True)
-
-            # 재무제표 준비
-            fs = self.fs_table.copy()
-            fs = fs[fs['symbol'].isin(top_symbols['symbol'])]
-            fs = self.filter_dates(fs, 'fillingDate', cur_year-4, cur_year)
-            fs = fs.drop_duplicates(['symbol', 'date'], keep='first')
-
-            # 메트릭 준비
-            metrics = self.metrics_table.copy()
-            metrics = metrics[metrics['symbol'].isin(top_symbols['symbol'])]
-            metrics = metrics.drop_duplicates(['symbol', 'date'], keep='first')
-
-            # 재무제표와 메트릭 병합
-            common_columns = fs.columns.intersection(metrics.columns)
-            fs = fs.drop(columns=common_columns.difference(['symbol', 'date']))
-            fs_metrics = pd.merge(fs, metrics, how='inner', on=['symbol', 'date'])
-            fs_metrics = fs_metrics.drop_duplicates(['symbol', 'date'], keep='first')
-
-            # 날짜 준비
-            fs_metrics['date'] = pd.to_datetime(fs_metrics['date'])
-            fs_metrics.rename(columns={'date': 'report_date'}, inplace=True)
-            fs_metrics['fillingDate'] = pd.to_datetime(fs_metrics['fillingDate'])
-
-            # 각 신고 날짜를 다음 리밸런싱 날짜에 매핑
-            # 이는 각 리밸런싱에서 사용 가능한 정보만 사용하도록 보장
-            date_index = np.sort(pd.DatetimeIndex(self.trade_date_list.copy()))
-            indices = np.searchsorted(date_index, fs_metrics['fillingDate'], side='right')
-            fs_metrics['rebalance_date'] = [date_index[i] if i < len(date_index) else pd.NaT for i in indices]
-
-            # 시간 순서를 위한 year_period 생성
-            # 정수 기반: Q1=202401, Q2=202402, Q3=202403, Q4=202404 (부동소수점 오차 방지)
-            fs_metrics = fs_metrics.dropna(subset=['calendarYear'])
-
-            # period 값 검증 및 로깅
-            unique_periods = fs_metrics['period'].unique()
-            self.logger.info(f"   Unique period values in data: {sorted([str(p) for p in unique_periods])}")
-
-            period_map = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
-            unmapped_periods = set(unique_periods) - set(period_map.keys())
-            if unmapped_periods:
-                self.logger.warning(f"⚠️  Found unexpected period values: {unmapped_periods}")
-                self.logger.warning(f"   These will result in NaN year_period and be filtered out")
-                self.logger.warning(f"   Expected values: {list(period_map.keys())}")
-
-            fs_metrics['year_period'] = (fs_metrics['calendarYear'].astype(int) * 100 +
-                                         fs_metrics['period'].map(period_map).astype(int))
-
-            # NaN year_period 체크 및 필터링
-            nan_count = fs_metrics['year_period'].isna().sum()
-            if nan_count > 0:
-                self.logger.warning(f"⚠️  Found {nan_count} rows with NaN year_period (unmapped periods)")
-                self.logger.warning(f"   Dropping these rows...")
-                fs_metrics = fs_metrics.dropna(subset=['year_period'])
-
-            fs_metrics = fs_metrics.sort_values(by=['symbol', 'year_period'])
-
-            # tsfresh를 위한 시간 인덱스 할당 (12분기 윈도우의 경우 0, 1, 2, ..., 11)
-            def assign_time(group):
-                group = group.sort_values(by='year_period').reset_index(drop=True)
-                group['time_for_sort'] = range(len(group))
-                return group
-
-            fs_metrics = fs_metrics.groupby('symbol', group_keys=False).apply(assign_time).reset_index(drop=True)
-
-            # 커스텀 비율 계산: OverMC_* (메트릭 / 시가총액)
-            for col in meaning_col_list:
-                if col not in fs_metrics.columns:
-                    continue
-                new_col_name = 'OverMC_' + col
-                # 무한대 값 방지: 분자와 분모 모두 유한한 값이어야 함
-                valid_mask = (
-                    (fs_metrics['marketCap'] > 0) &
-                    np.isfinite(fs_metrics['marketCap']) &
-                    np.isfinite(fs_metrics[col])
-                )
-                fs_metrics[new_col_name] = np.where(valid_mask,
-                                                    fs_metrics[col]/fs_metrics['marketCap'], np.nan)
-
-            # 커스텀 비율 계산: adaptiveMC_* (EV / 메트릭)
-            # EV (기업가치) = 시가총액 + 순부채
-            fs_metrics["adaptiveMC_ev"] = fs_metrics['marketCap'] + fs_metrics["netDebt"]
-            for col in cal_ev_col_list:
-                new_col_name = 'adaptiveMC_' + col
-                # 무한대 값 방지: 분자와 분모 모두 유한한 값이어야 함
-                valid_mask = (
-                    (fs_metrics[col] > 0) &
-                    np.isfinite(fs_metrics[col]) &
-                    np.isfinite(fs_metrics['adaptiveMC_ev'])
-                )
-                fs_metrics[new_col_name] = np.where(valid_mask,
-                                                    fs_metrics['adaptiveMC_ev']/fs_metrics[col], np.nan)
-
-            # ✅ UNIFIED: Use DataProcessor to replace infinite with NaN (same as regressor.py/ml_backtest.py)
-            numeric_cols = fs_metrics.select_dtypes(include=[np.number]).columns
-            inf_count = np.isinf(fs_metrics[numeric_cols]).sum().sum()
-            if inf_count > 0:
-                self.logger.info(f"📊 [{cur_year}] Replacing {inf_count} infinite values with NaN in fs_metrics")
-                fs_metrics[numeric_cols], _ = DataProcessor.replace_infinite_with_nan(
-                    fs_metrics[numeric_cols], None
-                )
-
-            # 디버깅을 위한 스냅샷 저장
-            print("*** fs_metrics w/ rebalance_date")
-            print(fs_metrics)
-            debug_dir = os.path.join(self.main_ctx.root_path, "debug")
-            self.main_ctx.create_dir(debug_dir)
-            fs_metrics.head(1000).to_parquet(os.path.join(debug_dir, f"fs_metric_wdate_{str(cur_year)}.parquet"), index=False)
-            if self.main_ctx.save_debug_csv:
-                fs_metrics.head(1000).to_csv(os.path.join(debug_dir, f"fs_metric_wdate_{str(cur_year)}.csv"), index=False)
-
-            # 분기별 통계 수집 (균형 검증용)
             quarterly_stats = []
 
-            # 각 분기 처리
+            # Phase 2-8: 각 분기 처리
             for quarter_str, quarter_num in [('Q1', 1), ('Q2', 2), ('Q3', 3), ('Q4', 4)]:
-                base_year_period = cur_year * 100 + quarter_num  # 예: 202401, 202402, 202403, 202404
-
-                # 출력 파일 경로
-                file_path = os.path.join(ml_dir, f"rnorm_fs_{str(cur_year)}_{quarter_str}.parquet")
-                file2_path = os.path.join(ml_dir, f"rnorm_ml_{str(cur_year)}_{quarter_str}.parquet")
+                base_year_period = cur_year * 100 + quarter_num
+                file_path = os.path.join(ml_dir, f"rnorm_fs_{cur_year}_{quarter_str}.parquet")
+                file2_path = os.path.join(ml_dir, f"rnorm_ml_{cur_year}_{quarter_str}.parquet")
 
                 # 이미 존재하면 건너뛰기 (둘 다 체크)
                 if os.path.isfile(file_path) and os.path.isfile(file2_path):
-                    print(f"*** there is parquet file {str(cur_year)}_{quarter_str}")
+                    print(f"*** there is parquet file {cur_year}_{quarter_str}")
                     continue
 
                 print(base_year_period)
 
-                # 현재 분기까지의 데이터 가져오기
-                filtered_data = fs_metrics[fs_metrics['year_period'] <= base_year_period]
-
-                # 12분기 룩백 윈도우 생성
-                def get_last_12_rows(group):
-                    return group.tail(12)
-
-                window_data = filtered_data.groupby('symbol', group_keys=False).apply(get_last_12_rows).reset_index(drop=True)
-                print(window_data)
-
-                # 데이터가 없으면 건너뛰기
-                if window_data.empty:
-                    self.logger.warning(f"No data available for {cur_year}_{quarter_str}. Skipping...")
-                    print(f"⚠️  WARNING: No data for {cur_year}_{quarter_str} - skipping file generation")
+                # Phase 2: 분기별 윈도우 데이터 준비
+                window_data = self._prepare_quarter_window(fs_metrics, base_year_period, quarter_str)
+                if window_data is None:
                     continue
 
-                # 12분기 미만의 데이터를 가진 종목 필터링
-                symbol_counts = window_data['symbol'].value_counts()
-                symbols_to_remove = symbol_counts[symbol_counts < 12].index
-                window_data = window_data[~window_data['symbol'].isin(symbols_to_remove)]
+                # Phase 3: 공시 지연 검증
+                self._validate_filing_delay(window_data, base_year_period, quarter_str)
 
-                if window_data.empty:
-                    self.logger.warning(f"No symbols with sufficient data (12+ rows) for {cur_year}_{quarter_str}. Skipping...")
-                    print(f"⚠️  WARNING: No symbols with 12+ data points for {cur_year}_{quarter_str} - skipping")
+                # Phase 4: 시계열 특성 추출
+                extraction_result = self._extract_timeseries_features(window_data, base_year_period)
+                if extraction_result is None:
                     continue
-
-                # ===================================================================
-                # 공시 지연 검증: fillingDate와 분기 종료일 간격 분석
-                # ===================================================================
-                if 'fillingDate' in window_data.columns and 'report_date' in window_data.columns:
-                    # 현재 분기의 데이터만 추출
-                    current_quarter_data = window_data[window_data['year_period'] == base_year_period]
-
-                    if not current_quarter_data.empty and 'fillingDate' in current_quarter_data.columns:
-                        # report_date (분기 종료일)와 fillingDate (공시일) 간격 계산
-                        current_quarter_data_copy = current_quarter_data.copy()
-                        current_quarter_data_copy['filling_delay_days'] = (
-                            pd.to_datetime(current_quarter_data_copy['fillingDate']) -
-                            pd.to_datetime(current_quarter_data_copy['report_date'])
-                        ).dt.days
-
-                        avg_delay = current_quarter_data_copy['filling_delay_days'].mean()
-                        max_delay = current_quarter_data_copy['filling_delay_days'].max()
-
-                        self.logger.info(f"📋 [{base_year_period}] Filing delay analysis:")
-                        self.logger.info(f"   Average delay: {avg_delay:.1f} days")
-                        self.logger.info(f"   Maximum delay: {max_delay:.0f} days")
-
-                        # Q4는 특히 공시 지연이 길 것으로 예상
-                        if quarter_str == 'Q4' and avg_delay > 60:
-                            self.logger.warning(f"⚠️  [{base_year_period}] Q4 has long filing delay (avg {avg_delay:.1f} days)")
-                            self.logger.warning(f"   This is expected - Q4 reports typically filed in Feb-Mar next year")
-
-                # ===================================================================
-
-                # tsfresh를 사용하여 시계열 특성 추출
-                df_for_extract_feature = pd.DataFrame()
-
-                # 디버깅: 시계열 특성 추출 시작
-                self.logger.info(f"🔍 [{base_year_period}] Starting time series feature extraction")
-                self.logger.info(f"   Total columns to process: {len(cal_timefeature_col_list)}")
-                self.logger.info(f"   Window data shape: {window_data.shape}")
-                self.logger.info(f"   Unique symbols in window: {window_data['symbol'].nunique()}")
-
-                # NaN 진단: 각 컬럼별 NaN 비율 출력
-                self.logger.info(f"📊 [{base_year_period}] NaN analysis by column:")
-                nan_analysis = {}
-                for col in cal_timefeature_col_list:
-                    if col in window_data.columns:
-                        nan_count = window_data[col].isna().sum()
-                        nan_ratio = nan_count / len(window_data) * 100
-                        inf_count = np.isinf(window_data[col]).sum()
-                        nan_analysis[col] = {'nan_ratio': nan_ratio, 'inf_count': inf_count}
-                        if nan_ratio > 0 or inf_count > 0:
-                            self.logger.info(f"      {col}: NaN {nan_ratio:.1f}%, Inf {inf_count}")
-                    else:
-                        nan_analysis[col] = {'nan_ratio': 100, 'inf_count': 0}
-                        self.logger.info(f"      {col}: NOT IN DATA")
-
-                # NaN 0%인 깨끗한 컬럼 찾기
-                clean_cols = [col for col, stats in nan_analysis.items()
-                             if col in window_data.columns and stats['nan_ratio'] == 0 and stats['inf_count'] == 0]
-                self.logger.info(f"   Completely clean columns (NaN=0%, Inf=0): {len(clean_cols)}")
-                if clean_cols:
-                    self.logger.info(f"   Clean column names: {clean_cols}")
-
-                filtered_col_count = 0
-                accepted_col_count = 0
-                filter_reasons = {'not_in_columns': 0, 'has_nan_above_threshold': 0, 'has_infinite': 0}
-
-                # NaN 허용 임계값 (30% 미만이면 허용)
-                NAN_THRESHOLD = 0.30
-
-                for target_col in cal_timefeature_col_list:
-                    # 방법 2: 동적 필터링 - 컬럼이 존재하지 않으면 스킵
-                    if target_col not in window_data.columns:
-                        filtered_col_count += 1
-                        filter_reasons['not_in_columns'] += 1
-                        continue
-
-                    # 방법 5: NaN 허용 임계값 - NaN이 30% 이상이면 스킵
-                    nan_ratio = window_data[target_col].isna().sum() / len(window_data)
-                    if nan_ratio >= NAN_THRESHOLD:
-                        filtered_col_count += 1
-                        filter_reasons['has_nan_above_threshold'] += 1
-                        continue
-
-                    # Infinite 값 체크 (NaN은 위에서 이미 30% 임계값으로 체크했으므로 무한대만 체크)
-                    if np.isinf(window_data[target_col]).any():
-                        filtered_col_count += 1
-                        filter_reasons['has_infinite'] += 1
-                        continue
-
-                    # tsfresh 형식으로 데이터 준비
-                    temp_df = pd.DataFrame({
-                        'id': window_data['symbol'],
-                        'kind': target_col,
-                        'time': window_data['time_for_sort'],
-                        'value': window_data[target_col].values,
-                        'year_period': window_data['year_period']
-                    })
-                    df_for_extract_feature = pd.concat([df_for_extract_feature, temp_df])
-                    accepted_col_count += 1
-
-                # 디버깅: 필터링 결과
-                self.logger.info(f"   Columns accepted: {accepted_col_count}/{len(cal_timefeature_col_list)}")
-                self.logger.info(f"   Columns filtered: {filtered_col_count} (not_in_data={filter_reasons['not_in_columns']}, nan>={int(NAN_THRESHOLD*100)}%={filter_reasons['has_nan_above_threshold']}, has_infinite={filter_reasons['has_infinite']})")
-                self.logger.info(f"   df_for_extract_feature shape (before dropna): {df_for_extract_feature.shape}")
-
-                if not df_for_extract_feature.empty:
-                    # tsfresh는 NaN 값을 허용하지 않으므로 제거
-                    # (컬럼별 30% 임계값은 통과했지만 일부 NaN이 남아있을 수 있음)
-                    nan_count_before = df_for_extract_feature['value'].isna().sum()
-                    if nan_count_before > 0:
-                        self.logger.info(f"   NaN values in 'value' column: {nan_count_before} ({nan_count_before/len(df_for_extract_feature)*100:.2f}%)")
-
-                        # NaN 제거 상세 정보 저장 (config 플래그로 제어)
-                        if self.export_nan_removal_details:
-                            self._export_nan_removal_details(
-                                base_year_period,
-                                df_for_extract_feature,
-                                nan_analysis,
-                                window_data
-                            )
-
-                        df_for_extract_feature = df_for_extract_feature.dropna(subset=['value'])
-                        rows_removed = nan_count_before
-                        self.logger.info(f"   After dropna: {df_for_extract_feature.shape} (removed {rows_removed} rows)")
-                    else:
-                        self.logger.info(f"   No NaN values found, skipping dropna")
-
-                    # tsfresh로 특성 추출
-                    # ✅ FIX: Use MinimalFCParameters to reduce overfitting
-                    # EfficientFCParameters → 794 features (too many, causes overfitting)
-                    # MinimalFCParameters → 20-30 features (reduces overfitting + 2-3x faster)
-                    self.logger.info(f"🔄 [{base_year_period}] Running tsfresh feature extraction...")
-                    features = extract_features(df_for_extract_feature,
-                                               column_id='id',
-                                               column_kind='kind',
-                                               column_sort='time',
-                                               column_value='value',
-                                               default_fc_parameters=MinimalFCParameters())
-
-                    self.logger.info(f"   Extracted features shape: {features.shape}")
-                    self.logger.info(f"   Unique symbols in features: {len(features.index)}")
-
-                    # [무한대 체크 #1] tsfresh 추출 직후
-                    self._check_infinite_values(features, base_year_period, "after tsfresh extraction")
-
-                    # ===================================================================
-                    # FEATURE NAME NORMALIZATION (Critical for model training)
-                    # ===================================================================
-                    # Remove special JSON characters from feature names to avoid errors
-                    # in XGBoost, LightGBM, and CatBoost model training
-                    self.logger.info(f"🔧 [{base_year_period}] Normalizing feature names...")
-                    features = DataProcessor.normalize_feature_names(features, logger=self.logger)
-
-                    # '_ts_' 마커를 포함하도록 컬럼명 변경
-                    features = features.rename(columns=lambda x: f"{x.partition('__')[0]}_ts_{x.partition('__')[2]}")
-
-                    # 차원 축소를 위해 접미사로 특성 필터링
-                    self.logger.info(f"🔄 [{base_year_period}] Filtering columns by suffixes...")
-                    self.logger.info(f"   Before suffix filtering: {features.shape[1]} columns")
-                    filtered_columns = self.filter_columns_by_suffixes(features)
-                    self.logger.info(f"   After suffix filtering: {len(filtered_columns)} columns")
-
-                    df_w_time_feature = features[filtered_columns].copy()
-                    df_w_time_feature['symbol'] = features.index
-
-                    # [무한대 체크 #2] suffix 필터링 후
-                    self._check_infinite_values(df_w_time_feature.drop(columns=['symbol']), base_year_period, "after suffix filtering")
-
-                    # 현재 분기만으로 필터링
-                    self.logger.info(f"🔄 [{base_year_period}] Merging with window_data...")
-                    window_data_before = window_data.copy()
-
-                    # 디버깅: window_data의 year_period 값들 확인
-                    unique_periods = sorted(window_data['year_period'].unique())
-                    self.logger.info(f"   window_data BEFORE filter - year_period values: {unique_periods[:20]}")
-                    self.logger.info(f"   Total unique year_periods: {len(unique_periods)}")
-                    self.logger.info(f"   Looking for year_period: {base_year_period}")
-                    self.logger.info(f"   Is {base_year_period} in window_data? {base_year_period in window_data['year_period'].values}")
-
-                    window_data = window_data[window_data['year_period'] == base_year_period]
-                    self.logger.info(f"   window_data after year_period filter: {window_data.shape[0]} rows, {window_data['symbol'].nunique() if not window_data.empty else 0} symbols")
-                    self.logger.info(f"   df_w_time_feature before merge: {df_w_time_feature.shape[0]} rows")
-
-                    df_w_time_feature = pd.merge(window_data, df_w_time_feature, how='inner', on='symbol')
-                    self.logger.info(f"   After merge: {df_w_time_feature.shape}")
-
-                    # [무한대 체크 #3] window_data와 merge 후
-                    numeric_cols_after_merge = df_w_time_feature.select_dtypes(include=[np.number]).columns
-                    self._check_infinite_values(df_w_time_feature[numeric_cols_after_merge], base_year_period, "after merge with window_data")
-
-                    # 절대값 컬럼 제거 (ML에 유용하지 않음, 비율만 중요)
-                    abs_col_list = list(set(meaning_col_list) - set(ratio_col_list))
-                    self.logger.info(f"🔄 [{base_year_period}] Removing absolute value columns...")
-                    self.logger.info(f"   Absolute columns to remove: {len(abs_col_list)}")
-                    cols_before_abs_removal = df_w_time_feature.shape[1]
-
-                    for col in abs_col_list:
-                        df_w_time_feature = df_w_time_feature.drop([col], axis=1, errors='ignore')
-
-                    self.logger.info(f"   Columns before removal: {cols_before_abs_removal}, after: {df_w_time_feature.shape[1]}")
-
-                    # [무한대 체크 #4] 절대값 컬럼 제거 후
-                    numeric_cols_after_abs_removal = df_w_time_feature.select_dtypes(include=[np.number]).columns
-                    self._check_infinite_values(df_w_time_feature[numeric_cols_after_abs_removal], base_year_period, "after removing absolute columns")
-
-                    # 정규화하지 않을 컬럼 분리
-                    excluded_columns = ['symbol', 'rebalance_date', 'report_date', 'fillingDate_x', 'year_period']
-                    excluded_df = df_w_time_feature[excluded_columns]
-
-                    # 정규화할 컬럼 선택
-                    self.logger.info(f"🔄 [{base_year_period}] Selecting columns for normalization...")
-                    self.logger.info(f"   Total columns in df_w_time_feature: {len(df_w_time_feature.columns)}")
-
-                    # 각 조건별로 매칭되는 컬럼 분석
-                    ts_cols = [col for col in df_w_time_feature.columns if '_ts_' in col]
-                    ratio_cols = [col for col in df_w_time_feature.columns if col in ratio_col_list]
-                    overmc_cols = [col for col in df_w_time_feature.columns if col.startswith('OverMC_')]
-                    adaptive_cols = [col for col in df_w_time_feature.columns if col.startswith('adaptiveMC_')]
-
-                    self.logger.info(f"   Columns by type:")
-                    self.logger.info(f"     - Time series (_ts_): {len(ts_cols)}")
-                    self.logger.info(f"     - Ratio columns: {len(ratio_cols)}")
-                    self.logger.info(f"     - OverMC_ columns: {len(overmc_cols)}")
-                    self.logger.info(f"     - adaptiveMC_ columns: {len(adaptive_cols)}")
-
-                    filtered_columns = [
-                        col for col in df_w_time_feature.columns
-                        if ('_ts_' in col) or  # 시계열 특성
-                        (col in ratio_col_list) or  # 재무 비율
-                        col.startswith('OverMC_') or  # 커스텀 비율
-                        col.startswith('adaptiveMC_')  # 커스텀 EV 비율
-                    ]
-                    filtered_df = df_w_time_feature[filtered_columns]
-
-                    self.logger.info(f"   Total columns selected for scaling: {len(filtered_columns)}")
-                    self.logger.info(f"   Filtered df shape: {filtered_df.shape}")
-
-                    # 빈 데이터 체크
-                    if filtered_df.empty or len(filtered_df) == 0:
-                        self.logger.warning(f"❌ [{base_year_period}] No data to scale - SKIPPING")
-                        self.logger.warning(f"   Available columns in df_w_time_feature: {len(df_w_time_feature.columns)}")
-                        self.logger.warning(f"   Columns after filtering: {len(filtered_columns)}")
-                        self.logger.warning(f"   Rows in filtered_df: {len(filtered_df)}")
-
-                        # 샘플 컬럼 이름 출력 (디버깅용)
-                        sample_cols = list(df_w_time_feature.columns[:20])
-                        self.logger.warning(f"   Sample column names (first 20): {sample_cols}")
-
-                        self.logger.warning(f"   REASON: No columns matched the scaling criteria")
-                        continue
-
-                    # [무한대 체크 #5] 스케일링 직전 (최종 체크)
-                    self._check_infinite_values(filtered_df, base_year_period, "BEFORE scaling (final check)")
-
-                    # Phase 3: Winsorization 적용 (선택적, config 플래그 확인)
-                    filtered_df = self._apply_winsorization(filtered_df, base_year_period)
-
-                    # ✅ UNIFIED: Use DataProcessor to remove infinite (same as regressor.py/ml_backtest.py)
-                    rows_before = len(filtered_df)
-                    filtered_df_before = filtered_df.copy()  # Save for export if needed
-
-                    # Remove infinite values using DataProcessor
-                    filtered_df_clean, _ = DataProcessor.remove_infinite_values(filtered_df, None)
-
-                    # Check if any rows were removed and log details
-                    if len(filtered_df_clean) < rows_before:
-                        rows_removed = rows_before - len(filtered_df_clean)
-                        inf_removal_ratio = rows_removed / rows_before * 100
-
-                        self.logger.warning(f"⚠️  [{base_year_period}] Removing {rows_removed} rows with infinite values ({inf_removal_ratio:.2f}%)")
-
-                        # 너무 많은 row가 제거되면 경고
-                        if inf_removal_ratio > 10.0:
-                            self.logger.error(f"❌ [{base_year_period}] WARNING: Removing >10% of data due to infinite values!")
-                            self.logger.error(f"   This may indicate a serious data quality issue")
-                        elif inf_removal_ratio > 5.0:
-                            self.logger.warning(f"⚠️  [{base_year_period}] CAUTION: Removing >5% of data due to infinite values")
-
-                        # 제거될 row 상세 정보 저장 (config 플래그로 제어)
-                        if self.export_nan_removal_details:
-                            # Calculate masks from the before-removal DataFrame
-                            inf_mask = np.isinf(filtered_df_before)
-                            rows_with_inf_mask = inf_mask.any(axis=1)
-
-                            # excluded_df와 filtered_df를 결합하여 전체 정보 포함
-                            full_df_before_removal = pd.concat([excluded_df.reset_index(drop=True), filtered_df_before.reset_index(drop=True)], axis=1)
-                            self._export_infinite_removal_details(
-                                base_year_period,
-                                full_df_before_removal,
-                                rows_with_inf_mask,
-                                inf_mask
-                            )
-
-                        # Update DataFrames (align excluded_df with cleaned filtered_df)
-                        filtered_df = filtered_df_clean
-                        excluded_df = excluded_df.loc[filtered_df.index]
-
-                        self.logger.info(f"   After infinite removal: {len(filtered_df)} rows remaining ({rows_removed} removed)")
-
-                    # RobustScaler로 정규화 (아웃라이어에 강함)
-                    self.logger.info(f"✅ [{base_year_period}] Scaling {filtered_df.shape[1]} columns for {filtered_df.shape[0]} symbols")
-                    scaler = RobustScaler()
-                    scaled_data = scaler.fit_transform(filtered_df)
-                    scaled_df = pd.DataFrame(scaled_data, columns=filtered_df.columns)
-
-                    # ✅ UNIFIED: [무한대 체크 #6] 스케일링 직후 (RobustScaler가 infinite 생성 가능성)
-                    rows_before_scaling = len(scaled_df)
-                    scaled_df_before = scaled_df.copy()  # Save for export if needed
-
-                    # Remove infinite values using DataProcessor
-                    scaled_df_clean, _ = DataProcessor.remove_infinite_values(scaled_df, None)
-
-                    # Check if any rows were removed and log details
-                    if len(scaled_df_clean) < rows_before_scaling:
-                        rows_removed = rows_before_scaling - len(scaled_df_clean)
-                        inf_removal_ratio = rows_removed / rows_before_scaling * 100
-
-                        self.logger.warning(f"⚠️  [{base_year_period}] RobustScaler produced {rows_removed} rows with infinite values ({inf_removal_ratio:.2f}%)")
-
-                        # 심각한 경우 에러 로그
-                        if inf_removal_ratio > 5.0:
-                            self.logger.error(f"❌ [{base_year_period}] WARNING: Scaler produced >5% infinite values!")
-                            self.logger.error(f"   This indicates potential data quality or scaling issues")
-
-                        # 무한대가 있는 컬럼 분석 (from before-removal DataFrame)
-                        inf_mask_after_scaling = np.isinf(scaled_df_before)
-                        inf_cols = inf_mask_after_scaling.any(axis=0)
-                        cols_with_inf = inf_cols[inf_cols].index.tolist()
-                        self.logger.warning(f"   Columns with infinite values after scaling ({len(cols_with_inf)}):")
-                        for col in cols_with_inf[:5]:  # 상위 5개만 표시
-                            count = inf_mask_after_scaling[col].sum()
-                            self.logger.warning(f"      {col}: {count} infinite values")
-
-                        # 제거될 row 상세 정보 저장
-                        if self.export_nan_removal_details:
-                            # Calculate masks from the before-removal DataFrame
-                            rows_with_inf_mask = inf_mask_after_scaling.any(axis=1)
-
-                            # excluded_df와 scaled_df를 결합하여 전체 정보 포함
-                            full_df_with_excluded = pd.concat([excluded_df.reset_index(drop=True),
-                                                               scaled_df_before.reset_index(drop=True)], axis=1)
-                            self._export_infinite_removal_details(
-                                base_year_period,
-                                full_df_with_excluded,
-                                rows_with_inf_mask,
-                                inf_mask_after_scaling,
-                                suffix="_after_scaling"
-                            )
-
-                        # Update DataFrames (align excluded_df with cleaned scaled_df)
-                        scaled_df = scaled_df_clean
-                        excluded_df = excluded_df.loc[scaled_df.index]
-
-                        self.logger.info(f"   After post-scaling infinite removal: {len(scaled_df)} rows remaining ({rows_removed} removed)")
-                    else:
-                        self.logger.info(f"   ✅ [{base_year_period}] No infinite values after scaling")
-
-                    # 정규화된 컬럼과 제외된 컬럼 결합
-                    scaled_df = pd.concat([excluded_df, scaled_df], axis=1)
-
-                    # ===================================================================
-                    # FIX: Q4 데이터 손실 문제 해결
-                    # 문제: fs_metrics의 rebalance_date(공시일 기반)와
-                    #      table_for_ai의 rebalance_date(거래일 기반)가 불일치
-                    # 해결: 현재 분기의 대표 rebalance_date를 table_for_ai에서 찾아 통일
-                    # ===================================================================
-
-                    # 현재 분기의 리밸런싱 날짜 결정
-                    quarter_rebalance_dates = table_for_ai['rebalance_date'].unique()
-
-                    # 연도와 분기 추출 (예: 202401 → year=2024, quarter_num=1)
-                    target_year = base_year_period // 100
-                    quarter_num = base_year_period % 100
-
-                    # 분기별 월 범위
-                    quarter_months = {
-                        1: (1, 3),   # Q1: Jan-Mar
-                        2: (4, 6),   # Q2: Apr-Jun
-                        3: (7, 9),   # Q3: Jul-Sep
-                        4: (10, 12)  # Q4: Oct-Dec
-                    }
-
-                    if quarter_num in quarter_months:
-                        start_month, end_month = quarter_months[quarter_num]
-
-                        # 해당 분기의 rebalance_date 찾기
-                        target_rebalance_date = None
-                        for date in quarter_rebalance_dates:
-                            date_obj = pd.to_datetime(date)
-                            if (date_obj.year == target_year and
-                                start_month <= date_obj.month <= end_month):
-                                target_rebalance_date = date
-                                break
-
-                        if target_rebalance_date is None:
-                            self.logger.warning(f"❌ [{base_year_period}] No rebalance_date found for quarter {target_year} Q{quarter_num}")
-                            self.logger.warning(f"   Available dates: {sorted([pd.to_datetime(d) for d in quarter_rebalance_dates[:5]])}")
-
-                            # 기본 날짜 사용: 분기 말일 (학습 데이터로는 사용 불가, 예측용으로만 저장)
-                            # Q1: 3/31, Q2: 6/30, Q3: 9/30, Q4: 12/31
-                            default_day = {1: 31, 2: 30, 3: 30, 4: 31}[quarter_num]
-                            target_rebalance_date = pd.Timestamp(target_year, end_month, default_day)
-
-                            self.logger.warning(f"   Using default quarter-end date: {target_rebalance_date}")
-                            self.logger.warning(f"   ⚠️  This quarter will be saved for prediction only (no training labels)")
-
-                            # 플래그 설정: 이 분기는 학습 데이터로 사용하지 않음
-                            skip_training_data = True
-                        else:
-                            skip_training_data = False
-
-                        # scaled_df의 모든 행에 통일된 rebalance_date 적용
-                        scaled_df['rebalance_date'] = target_rebalance_date
-
-                        if not skip_training_data:
-                            self.logger.info(f"📅 [{base_year_period}] Using unified rebalance_date: {target_rebalance_date}")
-                            self.logger.info(f"   This fixes Q4 data loss issue by matching fs_metrics to table_for_ai")
-                    else:
-                        self.logger.error(f"❌ [{base_year_period}] Invalid quarter_num: {quarter_num}")
-                        continue
-
-                    # ===================================================================
-
-                    # 타겟 변수 없이 특성 저장 (최신 예측용)
-                    symbol_industry = table_for_ai[['symbol', 'industry', 'volume_mul_price']]
-                    symbol_industry = symbol_industry.drop_duplicates('symbol', keep='first')
-                    fs_df = pd.merge(symbol_industry, scaled_df, how='inner', on=['symbol'])
-                    fs_df["sector"] = fs_df["industry"].map(sector_map)
-                    fs_df.to_parquet(file_path, engine='pyarrow', compression='snappy', index=False)
-
-                    # rebalance_date가 있는 경우에만 학습 데이터 생성
-                    if not skip_training_data:
-                        # 학습 데이터를 위한 타겟 변수 추가
-                        cur_table_for_ai = pd.merge(table_for_ai, scaled_df, how='inner', on=['symbol','rebalance_date'])
-                        cur_table_for_ai["sector"] = cur_table_for_ai["industry"].map(sector_map)
-
-                        # 시장 조정 수익률 계산
-                        cur_table_for_ai['price_dev_subavg'] = cur_table_for_ai['price_dev'] - cur_table_for_ai['price_dev'].mean()
-
-                        # 섹터 조정 수익률 계산
-                        sector_list = list(cur_table_for_ai['sector'].unique())
-                        sector_list = [x for x in sector_list if str(x) != 'nan']
-                        for sec in sector_list:
-                            sec_mask = cur_table_for_ai['sector'] == sec
-                            sec_mean = cur_table_for_ai.loc[sec_mask, 'price_dev'].mean()
-                            cur_table_for_ai.loc[sec_mask, 'sec_price_dev_subavg'] = cur_table_for_ai.loc[sec_mask, 'price_dev'] - sec_mean
-
-                        # ===================================================================
-                        # IMPORTANT: Extreme mover filtering (TRAINING DATA ONLY)
-                        # Philosophy: Remove news/event-driven extremes that fundamentals can't predict
-                        # This filtering ONLY applies to training data generation (make_mldata.py)
-                        # Prediction/backtesting (ml_backtest.py) uses ALL stocks
-                        # ===================================================================
-                        self.logger.info(f"")
-                        self.logger.info(f"   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                        self.logger.info(f"   EXTREME MOVER FILTERING (Training Data Only)")
-                        self.logger.info(f"   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-                        rows_before_filtering = len(cur_table_for_ai)
-                        cur_table_for_ai = self._filter_extreme_movers(
-                            cur_table_for_ai,
-                            base_year_period,
-                            target_col='sec_price_dev_subavg'
-                        )
-                        rows_after_filtering = len(cur_table_for_ai)
-
-                        if rows_before_filtering != rows_after_filtering:
-                            self.logger.info(f"   📊 Final count: {rows_before_filtering} → {rows_after_filtering} training samples")
-                        self.logger.info(f"")
-
-                        # 타겟 변수가 포함된 완전한 데이터셋 저장
-                        cur_table_for_ai.to_parquet(file2_path, engine='pyarrow', compression='snappy', index=False)
-                        self.logger.info(f"✅ Saved ML data: {os.path.basename(file2_path)}")
-
-                        # ===================================================================
-                        # 분기별 통계 수집 (균형 검증용)
-                        # ===================================================================
-                        file_size = os.path.getsize(file2_path)
-                        row_count = len(cur_table_for_ai)
-                        col_count = len(cur_table_for_ai.columns)
-
-                        quarterly_stats.append({
-                            'year': cur_year,
-                            'quarter': quarter_str,
-                            'year_period': base_year_period,
-                            'file_size_mb': file_size / (1024 * 1024),
-                            'row_count': row_count,
-                            'col_count': col_count,
-                            'symbols': cur_table_for_ai['symbol'].nunique() if 'symbol' in cur_table_for_ai.columns else 0
-                        })
-
-                        self.logger.info(f"📊 [{base_year_period}] File stats: {file_size/(1024*1024):.2f} MB, {row_count:,} rows, {col_count} cols")
-                    else:
-                        # Q1 등 rebalance_date가 없는 경우
-                        self.logger.warning(f"⚠️  [{base_year_period}] Skipping training data generation (no valid rebalance_date)")
-                        self.logger.warning(f"   Prediction-only file saved: {os.path.basename(file_path)}")
-                        # 통계에는 추가하지 않음 (학습용 아님)
-                    # ===================================================================
-
-                else:
-                    # df_for_extract_feature가 비어있는 경우
-                    self.logger.warning(f"❌ [{base_year_period}] No features to extract - SKIPPING")
-                    self.logger.warning(f"   REASON: All time series columns were filtered out")
-                    self.logger.warning(f"   Total columns checked: {len(cal_timefeature_col_list)}")
-                    self.logger.warning(f"   Columns accepted: {accepted_col_count}")
-                    self.logger.warning(f"   Filter breakdown:")
-                    self.logger.warning(f"     - Not in window_data: {filter_reasons['not_in_columns']}")
-                    self.logger.warning(f"     - NaN >= {int(NAN_THRESHOLD*100)}%: {filter_reasons['has_nan_above_threshold']}")
-                    self.logger.warning(f"     - Contains infinite: {filter_reasons['has_infinite']}")
-
-                    # 샘플 누락 컬럼 출력
-                    if filter_reasons['not_in_columns'] > 0:
-                        missing_cols = [col for col in cal_timefeature_col_list if col not in window_data.columns]
-                        sample_missing = missing_cols[:10]
-                        self.logger.warning(f"   Sample missing columns (first 10): {sample_missing}")
-
-                    # NaN 분석 및 CSV 추출
-                    self._export_nan_analysis(window_data, cal_timefeature_col_list, base_year_period, NAN_THRESHOLD)
+                features, accepted_col_count, filter_reasons = extraction_result
+
+                # Phase 5: 특성 병합 및 필터링
+                merge_result = self._merge_and_filter_features(features, window_data, base_year_period)
+                if merge_result is None:
                     continue
+                excluded_df, filtered_df = merge_result
 
-            # ===================================================================
-            # 연도별 분기 균형 검증
-            # ===================================================================
-            if len(quarterly_stats) > 0:
+                # Phase 6: 스케일링 및 정제
+                scaled_df = self._scale_and_clean_data(filtered_df, excluded_df, base_year_period)
+
+                # Phase 7: 리밸런싱 날짜 결정
+                resolve_result = self._resolve_rebalance_date(table_for_ai, base_year_period)
+                if resolve_result is None:
+                    continue
+                target_rebalance_date, skip_training_data = resolve_result
+                scaled_df['rebalance_date'] = target_rebalance_date
+
+                if not skip_training_data:
+                    self.logger.info(f"📅 [{base_year_period}] Using unified rebalance_date: {target_rebalance_date}")
+                    self.logger.info(f"   This fixes Q4 data loss issue by matching fs_metrics to table_for_ai")
+
+                # Phase 8: 분기별 데이터 저장
+                stats = self._save_quarter_data(
+                    table_for_ai, scaled_df, skip_training_data,
+                    base_year_period, file_path, file2_path
+                )
+                if stats:
+                    quarterly_stats.append(stats)
+
+            # Phase 9: 분기 균형 검증
+            self._validate_quarterly_balance(quarterly_stats, cur_year)
+
+    # ===================================================================
+    # make_ml_data 서브메서드들 (Phase 1-9)
+    # ===================================================================
+
+    def _prepare_year_data(self, cur_year: int) -> tuple:
+        """
+        연도별 데이터를 준비합니다: 유동성 필터링, 데이터 병합, 비율 계산.
+
+        Args:
+            cur_year: 처리할 연도
+
+        Returns:
+            (table_for_ai, fs_metrics) 튜플
+        """
+        # 종목 테이블로 시작
+        table_for_ai = self.symbol_table.copy()
+
+        # 가격 데이터를 현재 연도 ± 4년으로 필터링 (시계열 특성용)
+        cur_price_table = self.price_table.copy()
+        cur_price_table = self.filter_dates(cur_price_table, 'date', cur_year - 4, cur_year)
+
+        # 고유동성 주식으로 필터링 (평균 거래 금액 기준)
+        # Config-driven: FEATURES.MIN_VOLUME_PERCENTILE (default: 10%)
+        # Removes bottom X% of stocks by volume (e.g., 10 = remove bottom 10%, keep top 90%)
+        min_volume_pct = self.conf.get('FEATURES', {}).get('MIN_VOLUME_PERCENTILE', 10)
+        symbol_means = cur_price_table.groupby('symbol')['volume_mul_price'].mean().reset_index()
+
+        # Calculate volume threshold at the Xth percentile
+        volume_threshold = symbol_means['volume_mul_price'].quantile(min_volume_pct / 100)
+
+        # Keep stocks with volume >= threshold (removes bottom X%)
+        top_symbols = symbol_means[symbol_means['volume_mul_price'] >= volume_threshold]
+        cur_price_table = cur_price_table[cur_price_table['symbol'].isin(top_symbols['symbol'])]
+
+        filtered_count = len(symbol_means) - len(top_symbols)
+        keep_pct = 100 - min_volume_pct
+        self.logger.info(f"   📊 Volume filter (removes bottom {min_volume_pct}%, keeps top {keep_pct}%): "
+                        f"{len(symbol_means)} → {len(top_symbols)} stocks "
+                        f"({filtered_count} low-liquidity stocks removed)")
+
+        # 종목 테이블과 병합
+        table_for_ai = pd.merge(table_for_ai, cur_price_table, how='inner', on='symbol')
+        table_for_ai.rename(columns={'date': 'rebalance_date'}, inplace=True)
+
+        # 재무제표 준비
+        fs = self.fs_table.copy()
+        fs = fs[fs['symbol'].isin(top_symbols['symbol'])]
+        fs = self.filter_dates(fs, 'fillingDate', cur_year - 4, cur_year)
+        fs = fs.drop_duplicates(['symbol', 'date'], keep='first')
+
+        # 메트릭 준비
+        metrics = self.metrics_table.copy()
+        metrics = metrics[metrics['symbol'].isin(top_symbols['symbol'])]
+        metrics = metrics.drop_duplicates(['symbol', 'date'], keep='first')
+
+        # 재무제표와 메트릭 병합
+        common_columns = fs.columns.intersection(metrics.columns)
+        fs = fs.drop(columns=common_columns.difference(['symbol', 'date']))
+        fs_metrics = pd.merge(fs, metrics, how='inner', on=['symbol', 'date'])
+        fs_metrics = fs_metrics.drop_duplicates(['symbol', 'date'], keep='first')
+
+        # 날짜 준비
+        fs_metrics['date'] = pd.to_datetime(fs_metrics['date'])
+        fs_metrics.rename(columns={'date': 'report_date'}, inplace=True)
+        fs_metrics['fillingDate'] = pd.to_datetime(fs_metrics['fillingDate'])
+
+        # 각 신고 날짜를 다음 리밸런싱 날짜에 매핑
+        # 이는 각 리밸런싱에서 사용 가능한 정보만 사용하도록 보장
+        date_index = np.sort(pd.DatetimeIndex(self.trade_date_list.copy()))
+        indices = np.searchsorted(date_index, fs_metrics['fillingDate'], side='right')
+        fs_metrics['rebalance_date'] = [date_index[i] if i < len(date_index) else pd.NaT for i in indices]
+
+        # 시간 순서를 위한 year_period 생성
+        # 정수 기반: Q1=202401, Q2=202402, Q3=202403, Q4=202404 (부동소수점 오차 방지)
+        fs_metrics = fs_metrics.dropna(subset=['calendarYear'])
+
+        # period 값 검증 및 로깅
+        unique_periods = fs_metrics['period'].unique()
+        self.logger.info(f"   Unique period values in data: {sorted([str(p) for p in unique_periods])}")
+
+        period_map = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
+        unmapped_periods = set(unique_periods) - set(period_map.keys())
+        if unmapped_periods:
+            self.logger.warning(f"⚠️  Found unexpected period values: {unmapped_periods}")
+            self.logger.warning(f"   These will result in NaN year_period and be filtered out")
+            self.logger.warning(f"   Expected values: {list(period_map.keys())}")
+
+        fs_metrics['year_period'] = (fs_metrics['calendarYear'].astype(int) * 100 +
+                                     fs_metrics['period'].map(period_map).astype(int))
+
+        # NaN year_period 체크 및 필터링
+        nan_count = fs_metrics['year_period'].isna().sum()
+        if nan_count > 0:
+            self.logger.warning(f"⚠️  Found {nan_count} rows with NaN year_period (unmapped periods)")
+            self.logger.warning(f"   Dropping these rows...")
+            fs_metrics = fs_metrics.dropna(subset=['year_period'])
+
+        fs_metrics = fs_metrics.sort_values(by=['symbol', 'year_period'])
+
+        # tsfresh를 위한 시간 인덱스 할당 (12분기 윈도우의 경우 0, 1, 2, ..., 11)
+        def assign_time(group):
+            group = group.sort_values(by='year_period').reset_index(drop=True)
+            group['time_for_sort'] = range(len(group))
+            return group
+
+        fs_metrics = fs_metrics.groupby('symbol', group_keys=False).apply(assign_time).reset_index(drop=True)
+
+        # 커스텀 비율 계산: OverMC_* (메트릭 / 시가총액)
+        for col in meaning_col_list:
+            if col not in fs_metrics.columns:
+                continue
+            new_col_name = 'OverMC_' + col
+            # 무한대 값 방지: 분자와 분모 모두 유한한 값이어야 함
+            valid_mask = (
+                (fs_metrics['marketCap'] > 0) &
+                np.isfinite(fs_metrics['marketCap']) &
+                np.isfinite(fs_metrics[col])
+            )
+            fs_metrics[new_col_name] = np.where(valid_mask,
+                                                fs_metrics[col]/fs_metrics['marketCap'], np.nan)
+
+        # 커스텀 비율 계산: adaptiveMC_* (EV / 메트릭)
+        # EV (기업가치) = 시가총액 + 순부채
+        fs_metrics["adaptiveMC_ev"] = fs_metrics['marketCap'] + fs_metrics["netDebt"]
+        for col in cal_ev_col_list:
+            new_col_name = 'adaptiveMC_' + col
+            # 무한대 값 방지: 분자와 분모 모두 유한한 값이어야 함
+            valid_mask = (
+                (fs_metrics[col] > 0) &
+                np.isfinite(fs_metrics[col]) &
+                np.isfinite(fs_metrics['adaptiveMC_ev'])
+            )
+            fs_metrics[new_col_name] = np.where(valid_mask,
+                                                fs_metrics['adaptiveMC_ev']/fs_metrics[col], np.nan)
+
+        # ✅ UNIFIED: Use DataProcessor to replace infinite with NaN (same as regressor.py/ml_backtest.py)
+        numeric_cols = fs_metrics.select_dtypes(include=[np.number]).columns
+        inf_count = np.isinf(fs_metrics[numeric_cols]).sum().sum()
+        if inf_count > 0:
+            self.logger.info(f"📊 [{cur_year}] Replacing {inf_count} infinite values with NaN in fs_metrics")
+            fs_metrics[numeric_cols], _ = DataProcessor.replace_infinite_with_nan(
+                fs_metrics[numeric_cols], None
+            )
+
+        return table_for_ai, fs_metrics
+
+    def _save_debug_snapshot(self, fs_metrics: pd.DataFrame, cur_year: int) -> None:
+        """디버깅용 fs_metrics 스냅샷을 저장합니다."""
+        print("*** fs_metrics w/ rebalance_date")
+        print(fs_metrics)
+        debug_dir = os.path.join(self.main_ctx.root_path, "debug")
+        self.main_ctx.create_dir(debug_dir)
+        fs_metrics.head(1000).to_parquet(os.path.join(debug_dir, f"fs_metric_wdate_{str(cur_year)}.parquet"), index=False)
+        if self.main_ctx.save_debug_csv:
+            fs_metrics.head(1000).to_csv(os.path.join(debug_dir, f"fs_metric_wdate_{str(cur_year)}.csv"), index=False)
+
+    def _prepare_quarter_window(self, fs_metrics: pd.DataFrame, base_year_period: int,
+                                quarter_str: str) -> Optional[pd.DataFrame]:
+        """
+        분기별 12분기 룩백 윈도우 데이터를 준비합니다.
+
+        Args:
+            fs_metrics: 재무제표 메트릭 데이터
+            base_year_period: 현재 년도_분기 (예: 202401)
+            quarter_str: 분기 문자열 (예: 'Q1')
+
+        Returns:
+            window_data 또는 None (데이터 부족 시)
+        """
+        cur_year = base_year_period // 100
+
+        # 현재 분기까지의 데이터 가져오기
+        filtered_data = fs_metrics[fs_metrics['year_period'] <= base_year_period]
+
+        # 12분기 룩백 윈도우 생성
+        def get_last_12_rows(group):
+            return group.tail(12)
+
+        window_data = filtered_data.groupby('symbol', group_keys=False).apply(get_last_12_rows).reset_index(drop=True)
+        print(window_data)
+
+        # 데이터가 없으면 건너뛰기
+        if window_data.empty:
+            self.logger.warning(f"No data available for {cur_year}_{quarter_str}. Skipping...")
+            print(f"⚠️  WARNING: No data for {cur_year}_{quarter_str} - skipping file generation")
+            return None
+
+        # 12분기 미만의 데이터를 가진 종목 필터링
+        symbol_counts = window_data['symbol'].value_counts()
+        symbols_to_remove = symbol_counts[symbol_counts < 12].index
+        window_data = window_data[~window_data['symbol'].isin(symbols_to_remove)]
+
+        if window_data.empty:
+            self.logger.warning(f"No symbols with sufficient data (12+ rows) for {cur_year}_{quarter_str}. Skipping...")
+            print(f"⚠️  WARNING: No symbols with 12+ data points for {cur_year}_{quarter_str} - skipping")
+            return None
+
+        return window_data
+
+    def _validate_filing_delay(self, window_data: pd.DataFrame, base_year_period: int,
+                               quarter_str: str) -> None:
+        """
+        공시 지연(fillingDate vs report_date)을 검증합니다.
+
+        Args:
+            window_data: 윈도우 데이터
+            base_year_period: 현재 년도_분기
+            quarter_str: 분기 문자열
+        """
+        if 'fillingDate' not in window_data.columns or 'report_date' not in window_data.columns:
+            return
+
+        current_quarter_data = window_data[window_data['year_period'] == base_year_period]
+
+        if current_quarter_data.empty or 'fillingDate' not in current_quarter_data.columns:
+            return
+
+        current_quarter_data_copy = current_quarter_data.copy()
+        current_quarter_data_copy['filling_delay_days'] = (
+            pd.to_datetime(current_quarter_data_copy['fillingDate']) -
+            pd.to_datetime(current_quarter_data_copy['report_date'])
+        ).dt.days
+
+        avg_delay = current_quarter_data_copy['filling_delay_days'].mean()
+        max_delay = current_quarter_data_copy['filling_delay_days'].max()
+
+        self.logger.info(f"📋 [{base_year_period}] Filing delay analysis:")
+        self.logger.info(f"   Average delay: {avg_delay:.1f} days")
+        self.logger.info(f"   Maximum delay: {max_delay:.0f} days")
+
+        # Q4는 특히 공시 지연이 길 것으로 예상
+        if quarter_str == 'Q4' and avg_delay > 60:
+            self.logger.warning(f"⚠️  [{base_year_period}] Q4 has long filing delay (avg {avg_delay:.1f} days)")
+            self.logger.warning(f"   This is expected - Q4 reports typically filed in Feb-Mar next year")
+
+    def _extract_timeseries_features(self, window_data: pd.DataFrame,
+                                     base_year_period: int) -> Optional[tuple]:
+        """
+        tsfresh를 사용하여 시계열 특성을 추출합니다.
+
+        Args:
+            window_data: 12분기 룩백 윈도우 데이터
+            base_year_period: 현재 년도_분기
+
+        Returns:
+            (features, accepted_col_count, filter_reasons) 또는 None (추출 실패 시)
+        """
+        df_for_extract_feature = pd.DataFrame()
+
+        # 디버깅: 시계열 특성 추출 시작
+        self.logger.info(f"🔍 [{base_year_period}] Starting time series feature extraction")
+        self.logger.info(f"   Total columns to process: {len(cal_timefeature_col_list)}")
+        self.logger.info(f"   Window data shape: {window_data.shape}")
+        self.logger.info(f"   Unique symbols in window: {window_data['symbol'].nunique()}")
+
+        # NaN 진단: 각 컬럼별 NaN 비율 출력
+        self.logger.info(f"📊 [{base_year_period}] NaN analysis by column:")
+        nan_analysis = {}
+        for col in cal_timefeature_col_list:
+            if col in window_data.columns:
+                nan_count = window_data[col].isna().sum()
+                nan_ratio = nan_count / len(window_data) * 100
+                inf_count = np.isinf(window_data[col]).sum()
+                nan_analysis[col] = {'nan_ratio': nan_ratio, 'inf_count': inf_count}
+                if nan_ratio > 0 or inf_count > 0:
+                    self.logger.info(f"      {col}: NaN {nan_ratio:.1f}%, Inf {inf_count}")
+            else:
+                nan_analysis[col] = {'nan_ratio': 100, 'inf_count': 0}
+                self.logger.info(f"      {col}: NOT IN DATA")
+
+        # NaN 0%인 깨끗한 컬럼 찾기
+        clean_cols = [col for col, stats in nan_analysis.items()
+                     if col in window_data.columns and stats['nan_ratio'] == 0 and stats['inf_count'] == 0]
+        self.logger.info(f"   Completely clean columns (NaN=0%, Inf=0): {len(clean_cols)}")
+        if clean_cols:
+            self.logger.info(f"   Clean column names: {clean_cols}")
+
+        filtered_col_count = 0
+        accepted_col_count = 0
+        filter_reasons = {'not_in_columns': 0, 'has_nan_above_threshold': 0, 'has_infinite': 0}
+
+        # NaN 허용 임계값 (30% 미만이면 허용)
+        NAN_THRESHOLD = 0.30
+
+        for target_col in cal_timefeature_col_list:
+            # 방법 2: 동적 필터링 - 컬럼이 존재하지 않으면 스킵
+            if target_col not in window_data.columns:
+                filtered_col_count += 1
+                filter_reasons['not_in_columns'] += 1
+                continue
+
+            # 방법 5: NaN 허용 임계값 - NaN이 30% 이상이면 스킵
+            nan_ratio = window_data[target_col].isna().sum() / len(window_data)
+            if nan_ratio >= NAN_THRESHOLD:
+                filtered_col_count += 1
+                filter_reasons['has_nan_above_threshold'] += 1
+                continue
+
+            # Infinite 값 체크 (NaN은 위에서 이미 30% 임계값으로 체크했으므로 무한대만 체크)
+            if np.isinf(window_data[target_col]).any():
+                filtered_col_count += 1
+                filter_reasons['has_infinite'] += 1
+                continue
+
+            # tsfresh 형식으로 데이터 준비
+            temp_df = pd.DataFrame({
+                'id': window_data['symbol'],
+                'kind': target_col,
+                'time': window_data['time_for_sort'],
+                'value': window_data[target_col].values,
+                'year_period': window_data['year_period']
+            })
+            df_for_extract_feature = pd.concat([df_for_extract_feature, temp_df])
+            accepted_col_count += 1
+
+        # 디버깅: 필터링 결과
+        self.logger.info(f"   Columns accepted: {accepted_col_count}/{len(cal_timefeature_col_list)}")
+        self.logger.info(f"   Columns filtered: {filtered_col_count} (not_in_data={filter_reasons['not_in_columns']}, nan>={int(NAN_THRESHOLD*100)}%={filter_reasons['has_nan_above_threshold']}, has_infinite={filter_reasons['has_infinite']})")
+        self.logger.info(f"   df_for_extract_feature shape (before dropna): {df_for_extract_feature.shape}")
+
+        if df_for_extract_feature.empty:
+            self._log_empty_extraction(window_data, base_year_period, accepted_col_count,
+                                       filter_reasons, NAN_THRESHOLD)
+            return None
+
+        # tsfresh는 NaN 값을 허용하지 않으므로 제거
+        # (컬럼별 30% 임계값은 통과했지만 일부 NaN이 남아있을 수 있음)
+        nan_count_before = df_for_extract_feature['value'].isna().sum()
+        if nan_count_before > 0:
+            self.logger.info(f"   NaN values in 'value' column: {nan_count_before} ({nan_count_before/len(df_for_extract_feature)*100:.2f}%)")
+
+            # NaN 제거 상세 정보 저장 (config 플래그로 제어)
+            if self.export_nan_removal_details:
+                self._export_nan_removal_details(
+                    base_year_period,
+                    df_for_extract_feature,
+                    nan_analysis,
+                    window_data
+                )
+
+            df_for_extract_feature = df_for_extract_feature.dropna(subset=['value'])
+            rows_removed = nan_count_before
+            self.logger.info(f"   After dropna: {df_for_extract_feature.shape} (removed {rows_removed} rows)")
+        else:
+            self.logger.info(f"   No NaN values found, skipping dropna")
+
+        # tsfresh로 특성 추출
+        # ✅ FIX: Use MinimalFCParameters to reduce overfitting
+        # EfficientFCParameters → 794 features (too many, causes overfitting)
+        # MinimalFCParameters → 20-30 features (reduces overfitting + 2-3x faster)
+        self.logger.info(f"🔄 [{base_year_period}] Running tsfresh feature extraction...")
+        features = extract_features(df_for_extract_feature,
+                                    column_id='id',
+                                    column_kind='kind',
+                                    column_sort='time',
+                                    column_value='value',
+                                    default_fc_parameters=MinimalFCParameters())
+
+        self.logger.info(f"   Extracted features shape: {features.shape}")
+        self.logger.info(f"   Unique symbols in features: {len(features.index)}")
+
+        # [무한대 체크 #1] tsfresh 추출 직후
+        self._check_infinite_values(features, base_year_period, "after tsfresh extraction")
+
+        return features, accepted_col_count, filter_reasons
+
+    def _log_empty_extraction(self, window_data: pd.DataFrame, base_year_period: int,
+                              accepted_col_count: int, filter_reasons: dict,
+                              nan_threshold: float) -> None:
+        """특성 추출 실패 시 상세 로깅 및 NaN 분석을 수행합니다."""
+        self.logger.warning(f"❌ [{base_year_period}] No features to extract - SKIPPING")
+        self.logger.warning(f"   REASON: All time series columns were filtered out")
+        self.logger.warning(f"   Total columns checked: {len(cal_timefeature_col_list)}")
+        self.logger.warning(f"   Columns accepted: {accepted_col_count}")
+        self.logger.warning(f"   Filter breakdown:")
+        self.logger.warning(f"     - Not in window_data: {filter_reasons['not_in_columns']}")
+        self.logger.warning(f"     - NaN >= {int(nan_threshold*100)}%: {filter_reasons['has_nan_above_threshold']}")
+        self.logger.warning(f"     - Contains infinite: {filter_reasons['has_infinite']}")
+
+        # 샘플 누락 컬럼 출력
+        if filter_reasons['not_in_columns'] > 0:
+            missing_cols = [col for col in cal_timefeature_col_list if col not in window_data.columns]
+            sample_missing = missing_cols[:10]
+            self.logger.warning(f"   Sample missing columns (first 10): {sample_missing}")
+
+        # NaN 분석 및 CSV 추출
+        self._export_nan_analysis(window_data, cal_timefeature_col_list, base_year_period, nan_threshold)
+
+    def _merge_and_filter_features(self, features: pd.DataFrame, window_data: pd.DataFrame,
+                                   base_year_period: int) -> Optional[tuple]:
+        """
+        추출된 특성을 정규화, 병합, 필터링합니다.
+
+        Args:
+            features: tsfresh로 추출된 특성 DataFrame
+            window_data: 윈도우 데이터 (전체 12분기)
+            base_year_period: 현재 년도_분기
+
+        Returns:
+            (excluded_df, filtered_df) 또는 None (데이터 없음 시)
+        """
+        # ===================================================================
+        # FEATURE NAME NORMALIZATION (Critical for model training)
+        # ===================================================================
+        # Remove special JSON characters from feature names to avoid errors
+        # in XGBoost, LightGBM, and CatBoost model training
+        self.logger.info(f"🔧 [{base_year_period}] Normalizing feature names...")
+        features = DataProcessor.normalize_feature_names(features, logger=self.logger)
+
+        # '_ts_' 마커를 포함하도록 컬럼명 변경
+        features = features.rename(columns=lambda x: f"{x.partition('__')[0]}_ts_{x.partition('__')[2]}")
+
+        # 차원 축소를 위해 접미사로 특성 필터링
+        self.logger.info(f"🔄 [{base_year_period}] Filtering columns by suffixes...")
+        self.logger.info(f"   Before suffix filtering: {features.shape[1]} columns")
+        filtered_columns = self.filter_columns_by_suffixes(features)
+        self.logger.info(f"   After suffix filtering: {len(filtered_columns)} columns")
+
+        df_w_time_feature = features[filtered_columns].copy()
+        df_w_time_feature['symbol'] = features.index
+
+        # [무한대 체크 #2] suffix 필터링 후
+        self._check_infinite_values(df_w_time_feature.drop(columns=['symbol']), base_year_period, "after suffix filtering")
+
+        # 현재 분기만으로 필터링
+        self.logger.info(f"🔄 [{base_year_period}] Merging with window_data...")
+
+        # 디버깅: window_data의 year_period 값들 확인
+        unique_periods = sorted(window_data['year_period'].unique())
+        self.logger.info(f"   window_data BEFORE filter - year_period values: {unique_periods[:20]}")
+        self.logger.info(f"   Total unique year_periods: {len(unique_periods)}")
+        self.logger.info(f"   Looking for year_period: {base_year_period}")
+        self.logger.info(f"   Is {base_year_period} in window_data? {base_year_period in window_data['year_period'].values}")
+
+        current_quarter_data = window_data[window_data['year_period'] == base_year_period]
+        self.logger.info(f"   window_data after year_period filter: {current_quarter_data.shape[0]} rows, {current_quarter_data['symbol'].nunique() if not current_quarter_data.empty else 0} symbols")
+        self.logger.info(f"   df_w_time_feature before merge: {df_w_time_feature.shape[0]} rows")
+
+        df_w_time_feature = pd.merge(current_quarter_data, df_w_time_feature, how='inner', on='symbol')
+        self.logger.info(f"   After merge: {df_w_time_feature.shape}")
+
+        # [무한대 체크 #3] window_data와 merge 후
+        numeric_cols_after_merge = df_w_time_feature.select_dtypes(include=[np.number]).columns
+        self._check_infinite_values(df_w_time_feature[numeric_cols_after_merge], base_year_period, "after merge with window_data")
+
+        # 절대값 컬럼 제거 (ML에 유용하지 않음, 비율만 중요)
+        abs_col_list = list(set(meaning_col_list) - set(ratio_col_list))
+        self.logger.info(f"🔄 [{base_year_period}] Removing absolute value columns...")
+        self.logger.info(f"   Absolute columns to remove: {len(abs_col_list)}")
+        cols_before_abs_removal = df_w_time_feature.shape[1]
+
+        for col in abs_col_list:
+            df_w_time_feature = df_w_time_feature.drop([col], axis=1, errors='ignore')
+
+        self.logger.info(f"   Columns before removal: {cols_before_abs_removal}, after: {df_w_time_feature.shape[1]}")
+
+        # [무한대 체크 #4] 절대값 컬럼 제거 후
+        numeric_cols_after_abs_removal = df_w_time_feature.select_dtypes(include=[np.number]).columns
+        self._check_infinite_values(df_w_time_feature[numeric_cols_after_abs_removal], base_year_period, "after removing absolute columns")
+
+        # 정규화하지 않을 컬럼 분리
+        excluded_columns = ['symbol', 'rebalance_date', 'report_date', 'fillingDate_x', 'year_period']
+        excluded_df = df_w_time_feature[excluded_columns]
+
+        # 정규화할 컬럼 선택
+        self.logger.info(f"🔄 [{base_year_period}] Selecting columns for normalization...")
+        self.logger.info(f"   Total columns in df_w_time_feature: {len(df_w_time_feature.columns)}")
+
+        # 각 조건별로 매칭되는 컬럼 분석
+        ts_cols = [col for col in df_w_time_feature.columns if '_ts_' in col]
+        ratio_cols = [col for col in df_w_time_feature.columns if col in ratio_col_list]
+        overmc_cols = [col for col in df_w_time_feature.columns if col.startswith('OverMC_')]
+        adaptive_cols = [col for col in df_w_time_feature.columns if col.startswith('adaptiveMC_')]
+
+        self.logger.info(f"   Columns by type:")
+        self.logger.info(f"     - Time series (_ts_): {len(ts_cols)}")
+        self.logger.info(f"     - Ratio columns: {len(ratio_cols)}")
+        self.logger.info(f"     - OverMC_ columns: {len(overmc_cols)}")
+        self.logger.info(f"     - adaptiveMC_ columns: {len(adaptive_cols)}")
+
+        filtered_columns = [
+            col for col in df_w_time_feature.columns
+            if ('_ts_' in col) or  # 시계열 특성
+            (col in ratio_col_list) or  # 재무 비율
+            col.startswith('OverMC_') or  # 커스텀 비율
+            col.startswith('adaptiveMC_')  # 커스텀 EV 비율
+        ]
+        filtered_df = df_w_time_feature[filtered_columns]
+
+        self.logger.info(f"   Total columns selected for scaling: {len(filtered_columns)}")
+        self.logger.info(f"   Filtered df shape: {filtered_df.shape}")
+
+        # 빈 데이터 체크
+        if filtered_df.empty or len(filtered_df) == 0:
+            self.logger.warning(f"❌ [{base_year_period}] No data to scale - SKIPPING")
+            self.logger.warning(f"   Available columns in df_w_time_feature: {len(df_w_time_feature.columns)}")
+            self.logger.warning(f"   Columns after filtering: {len(filtered_columns)}")
+            self.logger.warning(f"   Rows in filtered_df: {len(filtered_df)}")
+
+            # 샘플 컬럼 이름 출력 (디버깅용)
+            sample_cols = list(df_w_time_feature.columns[:20])
+            self.logger.warning(f"   Sample column names (first 20): {sample_cols}")
+
+            self.logger.warning(f"   REASON: No columns matched the scaling criteria")
+            return None
+
+        # [무한대 체크 #5] 스케일링 직전 (최종 체크)
+        self._check_infinite_values(filtered_df, base_year_period, "BEFORE scaling (final check)")
+
+        return excluded_df, filtered_df
+
+    def _scale_and_clean_data(self, filtered_df: pd.DataFrame, excluded_df: pd.DataFrame,
+                              base_year_period: int) -> pd.DataFrame:
+        """
+        Winsorization, 무한대 제거, RobustScaler 적용 후 결합합니다.
+
+        Args:
+            filtered_df: 스케일링할 수치 컬럼 DataFrame
+            excluded_df: 스케일링에서 제외된 메타데이터 컬럼
+            base_year_period: 현재 년도_분기
+
+        Returns:
+            스케일링된 전체 DataFrame (excluded + scaled)
+        """
+        # Phase 3: Winsorization 적용 (선택적, config 플래그 확인)
+        filtered_df = self._apply_winsorization(filtered_df, base_year_period)
+
+        # ✅ UNIFIED: Use DataProcessor to remove infinite (same as regressor.py/ml_backtest.py)
+        rows_before = len(filtered_df)
+        filtered_df_before = filtered_df.copy()  # Save for export if needed
+
+        # Remove infinite values using DataProcessor
+        filtered_df_clean, _ = DataProcessor.remove_infinite_values(filtered_df, None)
+
+        # Check if any rows were removed and log details
+        if len(filtered_df_clean) < rows_before:
+            rows_removed = rows_before - len(filtered_df_clean)
+            inf_removal_ratio = rows_removed / rows_before * 100
+
+            self.logger.warning(f"⚠️  [{base_year_period}] Removing {rows_removed} rows with infinite values ({inf_removal_ratio:.2f}%)")
+
+            # 너무 많은 row가 제거되면 경고
+            if inf_removal_ratio > 10.0:
+                self.logger.error(f"❌ [{base_year_period}] WARNING: Removing >10% of data due to infinite values!")
+                self.logger.error(f"   This may indicate a serious data quality issue")
+            elif inf_removal_ratio > 5.0:
+                self.logger.warning(f"⚠️  [{base_year_period}] CAUTION: Removing >5% of data due to infinite values")
+
+            # 제거될 row 상세 정보 저장 (config 플래그로 제어)
+            if self.export_nan_removal_details:
+                # Calculate masks from the before-removal DataFrame
+                inf_mask = np.isinf(filtered_df_before)
+                rows_with_inf_mask = inf_mask.any(axis=1)
+
+                # excluded_df와 filtered_df를 결합하여 전체 정보 포함
+                full_df_before_removal = pd.concat([excluded_df.reset_index(drop=True), filtered_df_before.reset_index(drop=True)], axis=1)
+                self._export_infinite_removal_details(
+                    base_year_period,
+                    full_df_before_removal,
+                    rows_with_inf_mask,
+                    inf_mask
+                )
+
+            # Update DataFrames (align excluded_df with cleaned filtered_df)
+            filtered_df = filtered_df_clean
+            excluded_df = excluded_df.loc[filtered_df.index]
+
+            self.logger.info(f"   After infinite removal: {len(filtered_df)} rows remaining ({rows_removed} removed)")
+
+        # RobustScaler로 정규화 (아웃라이어에 강함)
+        self.logger.info(f"✅ [{base_year_period}] Scaling {filtered_df.shape[1]} columns for {filtered_df.shape[0]} symbols")
+        scaler = RobustScaler()
+        scaled_data = scaler.fit_transform(filtered_df)
+        scaled_df = pd.DataFrame(scaled_data, columns=filtered_df.columns)
+
+        # ✅ UNIFIED: [무한대 체크 #6] 스케일링 직후 (RobustScaler가 infinite 생성 가능성)
+        rows_before_scaling = len(scaled_df)
+        scaled_df_before = scaled_df.copy()  # Save for export if needed
+
+        # Remove infinite values using DataProcessor
+        scaled_df_clean, _ = DataProcessor.remove_infinite_values(scaled_df, None)
+
+        # Check if any rows were removed and log details
+        if len(scaled_df_clean) < rows_before_scaling:
+            rows_removed = rows_before_scaling - len(scaled_df_clean)
+            inf_removal_ratio = rows_removed / rows_before_scaling * 100
+
+            self.logger.warning(f"⚠️  [{base_year_period}] RobustScaler produced {rows_removed} rows with infinite values ({inf_removal_ratio:.2f}%)")
+
+            # 심각한 경우 에러 로그
+            if inf_removal_ratio > 5.0:
+                self.logger.error(f"❌ [{base_year_period}] WARNING: Scaler produced >5% infinite values!")
+                self.logger.error(f"   This indicates potential data quality or scaling issues")
+
+            # 무한대가 있는 컬럼 분석 (from before-removal DataFrame)
+            inf_mask_after_scaling = np.isinf(scaled_df_before)
+            inf_cols = inf_mask_after_scaling.any(axis=0)
+            cols_with_inf = inf_cols[inf_cols].index.tolist()
+            self.logger.warning(f"   Columns with infinite values after scaling ({len(cols_with_inf)}):")
+            for col in cols_with_inf[:5]:  # 상위 5개만 표시
+                count = inf_mask_after_scaling[col].sum()
+                self.logger.warning(f"      {col}: {count} infinite values")
+
+            # 제거될 row 상세 정보 저장
+            if self.export_nan_removal_details:
+                # Calculate masks from the before-removal DataFrame
+                rows_with_inf_mask = inf_mask_after_scaling.any(axis=1)
+
+                # excluded_df와 scaled_df를 결합하여 전체 정보 포함
+                full_df_with_excluded = pd.concat([excluded_df.reset_index(drop=True),
+                                                   scaled_df_before.reset_index(drop=True)], axis=1)
+                self._export_infinite_removal_details(
+                    base_year_period,
+                    full_df_with_excluded,
+                    rows_with_inf_mask,
+                    inf_mask_after_scaling,
+                    suffix="_after_scaling"
+                )
+
+            # Update DataFrames (align excluded_df with cleaned scaled_df)
+            scaled_df = scaled_df_clean
+            excluded_df = excluded_df.loc[scaled_df.index]
+
+            self.logger.info(f"   After post-scaling infinite removal: {len(scaled_df)} rows remaining ({rows_removed} removed)")
+        else:
+            self.logger.info(f"   ✅ [{base_year_period}] No infinite values after scaling")
+
+        # 정규화된 컬럼과 제외된 컬럼 결합
+        scaled_df = pd.concat([excluded_df, scaled_df], axis=1)
+
+        return scaled_df
+
+    def _resolve_rebalance_date(self, table_for_ai: pd.DataFrame,
+                                base_year_period: int) -> Optional[tuple]:
+        """
+        분기에 대한 통일된 리밸런싱 날짜를 결정합니다.
+
+        Q4 데이터 손실 문제를 해결하기 위해 fs_metrics의 rebalance_date(공시일 기반)와
+        table_for_ai의 rebalance_date(거래일 기반)를 통일합니다.
+
+        Args:
+            table_for_ai: 연도별 AI 데이터 테이블
+            base_year_period: 현재 년도_분기
+
+        Returns:
+            (target_rebalance_date, skip_training_data) 또는 None (유효하지 않은 분기)
+        """
+        quarter_rebalance_dates = table_for_ai['rebalance_date'].unique()
+
+        target_year = base_year_period // 100
+        quarter_num = base_year_period % 100
+
+        # 분기별 월 범위
+        quarter_months = {
+            1: (1, 3),   # Q1: Jan-Mar
+            2: (4, 6),   # Q2: Apr-Jun
+            3: (7, 9),   # Q3: Jul-Sep
+            4: (10, 12)  # Q4: Oct-Dec
+        }
+
+        if quarter_num not in quarter_months:
+            self.logger.error(f"❌ [{base_year_period}] Invalid quarter_num: {quarter_num}")
+            return None
+
+        start_month, end_month = quarter_months[quarter_num]
+
+        # 해당 분기의 rebalance_date 찾기
+        target_rebalance_date = None
+        for date in quarter_rebalance_dates:
+            date_obj = pd.to_datetime(date)
+            if (date_obj.year == target_year and
+                start_month <= date_obj.month <= end_month):
+                target_rebalance_date = date
+                break
+
+        if target_rebalance_date is None:
+            self.logger.warning(f"❌ [{base_year_period}] No rebalance_date found for quarter {target_year} Q{quarter_num}")
+            self.logger.warning(f"   Available dates: {sorted([pd.to_datetime(d) for d in quarter_rebalance_dates[:5]])}")
+
+            # 기본 날짜 사용: 분기 말일 (학습 데이터로는 사용 불가, 예측용으로만 저장)
+            # Q1: 3/31, Q2: 6/30, Q3: 9/30, Q4: 12/31
+            default_day = {1: 31, 2: 30, 3: 30, 4: 31}[quarter_num]
+            target_rebalance_date = pd.Timestamp(target_year, end_month, default_day)
+
+            self.logger.warning(f"   Using default quarter-end date: {target_rebalance_date}")
+            self.logger.warning(f"   ⚠️  This quarter will be saved for prediction only (no training labels)")
+
+            # 플래그 설정: 이 분기는 학습 데이터로 사용하지 않음
+            skip_training_data = True
+        else:
+            skip_training_data = False
+
+        return target_rebalance_date, skip_training_data
+
+    def _save_quarter_data(self, table_for_ai: pd.DataFrame, scaled_df: pd.DataFrame,
+                           skip_training_data: bool, base_year_period: int,
+                           file_path: str, file2_path: str) -> Optional[dict]:
+        """
+        분기별 예측 데이터와 학습 데이터를 저장합니다.
+
+        Args:
+            table_for_ai: 연도별 AI 데이터 테이블
+            scaled_df: 스케일링된 특성 DataFrame
+            skip_training_data: 학습 데이터 생성 건너뛰기 플래그
+            base_year_period: 현재 년도_분기
+            file_path: 예측용 parquet 파일 경로
+            file2_path: 학습용 parquet 파일 경로
+
+        Returns:
+            통계 딕셔너리 또는 None (학습 데이터 미생성 시)
+        """
+        # 타겟 변수 없이 특성 저장 (최신 예측용)
+        symbol_industry = table_for_ai[['symbol', 'industry', 'volume_mul_price']]
+        symbol_industry = symbol_industry.drop_duplicates('symbol', keep='first')
+        fs_df = pd.merge(symbol_industry, scaled_df, how='inner', on=['symbol'])
+        fs_df["sector"] = fs_df["industry"].map(sector_map)
+        fs_df.to_parquet(file_path, engine='pyarrow', compression='snappy', index=False)
+
+        # rebalance_date가 있는 경우에만 학습 데이터 생성
+        if skip_training_data:
+            # Q1 등 rebalance_date가 없는 경우
+            self.logger.warning(f"⚠️  [{base_year_period}] Skipping training data generation (no valid rebalance_date)")
+            self.logger.warning(f"   Prediction-only file saved: {os.path.basename(file_path)}")
+            # 통계에는 추가하지 않음 (학습용 아님)
+            return None
+
+        # 학습 데이터를 위한 타겟 변수 추가
+        cur_table_for_ai = pd.merge(table_for_ai, scaled_df, how='inner', on=['symbol','rebalance_date'])
+        cur_table_for_ai["sector"] = cur_table_for_ai["industry"].map(sector_map)
+
+        # 시장 조정 수익률 계산
+        cur_table_for_ai['price_dev_subavg'] = cur_table_for_ai['price_dev'] - cur_table_for_ai['price_dev'].mean()
+
+        # 섹터 조정 수익률 계산
+        sector_list = list(cur_table_for_ai['sector'].unique())
+        sector_list = [x for x in sector_list if str(x) != 'nan']
+        for sec in sector_list:
+            sec_mask = cur_table_for_ai['sector'] == sec
+            sec_mean = cur_table_for_ai.loc[sec_mask, 'price_dev'].mean()
+            cur_table_for_ai.loc[sec_mask, 'sec_price_dev_subavg'] = cur_table_for_ai.loc[sec_mask, 'price_dev'] - sec_mean
+
+        # ===================================================================
+        # IMPORTANT: Extreme mover filtering (TRAINING DATA ONLY)
+        # Philosophy: Remove news/event-driven extremes that fundamentals can't predict
+        # This filtering ONLY applies to training data generation (make_mldata.py)
+        # Prediction/backtesting (ml_backtest.py) uses ALL stocks
+        # ===================================================================
+        self.logger.info(f"")
+        self.logger.info(f"   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        self.logger.info(f"   EXTREME MOVER FILTERING (Training Data Only)")
+        self.logger.info(f"   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        rows_before_filtering = len(cur_table_for_ai)
+        cur_table_for_ai = self._filter_extreme_movers(
+            cur_table_for_ai,
+            base_year_period,
+            target_col='sec_price_dev_subavg'
+        )
+        rows_after_filtering = len(cur_table_for_ai)
+
+        if rows_before_filtering != rows_after_filtering:
+            self.logger.info(f"   📊 Final count: {rows_before_filtering} → {rows_after_filtering} training samples")
+        self.logger.info(f"")
+
+        # 타겟 변수가 포함된 완전한 데이터셋 저장
+        cur_table_for_ai.to_parquet(file2_path, engine='pyarrow', compression='snappy', index=False)
+        self.logger.info(f"✅ Saved ML data: {os.path.basename(file2_path)}")
+
+        # ===================================================================
+        # 분기별 통계 수집 (균형 검증용)
+        # ===================================================================
+        cur_year = base_year_period // 100
+        quarter_num = base_year_period % 100
+        quarter_map = {1: 'Q1', 2: 'Q2', 3: 'Q3', 4: 'Q4'}
+        quarter_str = quarter_map.get(quarter_num, 'Q0')
+
+        file_size = os.path.getsize(file2_path)
+        row_count = len(cur_table_for_ai)
+        col_count = len(cur_table_for_ai.columns)
+
+        self.logger.info(f"📊 [{base_year_period}] File stats: {file_size/(1024*1024):.2f} MB, {row_count:,} rows, {col_count} cols")
+
+        return {
+            'year': cur_year,
+            'quarter': quarter_str,
+            'year_period': base_year_period,
+            'file_size_mb': file_size / (1024 * 1024),
+            'row_count': row_count,
+            'col_count': col_count,
+            'symbols': cur_table_for_ai['symbol'].nunique() if 'symbol' in cur_table_for_ai.columns else 0
+        }
+
+    def _validate_quarterly_balance(self, quarterly_stats: list, cur_year: int) -> None:
+        """
+        연도별 분기 균형을 검증합니다.
+
+        Args:
+            quarterly_stats: 분기별 통계 리스트
+            cur_year: 현재 연도
+        """
+        if len(quarterly_stats) == 0:
+            return
+
+        self.logger.info(f"")
+        self.logger.info(f"{'='*80}")
+        self.logger.info(f"Quarterly Balance Check for {cur_year}")
+        self.logger.info(f"{'='*80}")
+
+        # DataFrame으로 변환하여 분석
+        stats_df = pd.DataFrame(quarterly_stats)
+
+        # 평균 파일 크기 계산
+        avg_size = stats_df['file_size_mb'].mean()
+        avg_rows = stats_df['row_count'].mean()
+
+        for idx, row in stats_df.iterrows():
+            size_ratio = row['file_size_mb'] / avg_size if avg_size > 0 else 1.0
+            row_ratio = row['row_count'] / avg_rows if avg_rows > 0 else 1.0
+
+            status = "✅"
+            warnings = []
+
+            # 파일 크기가 평균 대비 20% 이상 차이
+            if size_ratio < 0.8:
+                status = "⚠️"
+                warnings.append(f"Size {size_ratio*100:.0f}% of average")
+
+            # 행 수가 평균 대비 20% 이상 차이
+            if row_ratio < 0.8:
+                status = "⚠️"
+                warnings.append(f"Rows {row_ratio*100:.0f}% of average")
+
+            warning_msg = f" ({', '.join(warnings)})" if warnings else ""
+
+            self.logger.info(f"{status} {row['quarter']}: {row['file_size_mb']:.2f} MB, "
+                           f"{row['row_count']:,} rows, {row['symbols']} symbols{warning_msg}")
+
+        # Q4가 다른 분기 대비 현저히 작으면 경고
+        q4_data = stats_df[stats_df['quarter'] == 'Q4']
+        other_quarters = stats_df[stats_df['quarter'] != 'Q4']
+
+        if not q4_data.empty and not other_quarters.empty:
+            q4_avg_size = q4_data['file_size_mb'].mean()
+            other_avg_size = other_quarters['file_size_mb'].mean()
+            size_ratio = q4_avg_size / other_avg_size if other_avg_size > 0 else 1.0
+
+            if size_ratio < 0.8:
+                self.logger.warning(f"")
+                self.logger.warning(f"⚠️  Q4 file size is {size_ratio*100:.0f}% of Q1-Q3 average")
+                self.logger.warning(f"   Q4 avg: {q4_avg_size:.2f} MB vs Q1-Q3 avg: {other_avg_size:.2f} MB")
+                self.logger.warning(f"   This was previously caused by rebalance_date mismatch")
+                self.logger.warning(f"   If this persists after fix, investigate further")
+            else:
                 self.logger.info(f"")
-                self.logger.info(f"{'='*80}")
-                self.logger.info(f"Quarterly Balance Check for {cur_year}")
-                self.logger.info(f"{'='*80}")
+                self.logger.info(f"✅ Q4 balance check PASSED: {size_ratio*100:.0f}% of Q1-Q3 average")
 
-                # DataFrame으로 변환하여 분석
-                stats_df = pd.DataFrame(quarterly_stats)
-
-                # 평균 파일 크기 계산
-                avg_size = stats_df['file_size_mb'].mean()
-                avg_rows = stats_df['row_count'].mean()
-
-                for idx, row in stats_df.iterrows():
-                    size_ratio = row['file_size_mb'] / avg_size if avg_size > 0 else 1.0
-                    row_ratio = row['row_count'] / avg_rows if avg_rows > 0 else 1.0
-
-                    status = "✅"
-                    warnings = []
-
-                    # 파일 크기가 평균 대비 20% 이상 차이
-                    if size_ratio < 0.8:
-                        status = "⚠️"
-                        warnings.append(f"Size {size_ratio*100:.0f}% of average")
-
-                    # 행 수가 평균 대비 20% 이상 차이
-                    if row_ratio < 0.8:
-                        status = "⚠️"
-                        warnings.append(f"Rows {row_ratio*100:.0f}% of average")
-
-                    warning_msg = f" ({', '.join(warnings)})" if warnings else ""
-
-                    self.logger.info(f"{status} {row['quarter']}: {row['file_size_mb']:.2f} MB, "
-                                   f"{row['row_count']:,} rows, {row['symbols']} symbols{warning_msg}")
-
-                # Q4가 다른 분기 대비 현저히 작으면 경고
-                q4_data = stats_df[stats_df['quarter'] == 'Q4']
-                other_quarters = stats_df[stats_df['quarter'] != 'Q4']
-
-                if not q4_data.empty and not other_quarters.empty:
-                    q4_avg_size = q4_data['file_size_mb'].mean()
-                    other_avg_size = other_quarters['file_size_mb'].mean()
-                    size_ratio = q4_avg_size / other_avg_size if other_avg_size > 0 else 1.0
-
-                    if size_ratio < 0.8:
-                        self.logger.warning(f"")
-                        self.logger.warning(f"⚠️  Q4 file size is {size_ratio*100:.0f}% of Q1-Q3 average")
-                        self.logger.warning(f"   Q4 avg: {q4_avg_size:.2f} MB vs Q1-Q3 avg: {other_avg_size:.2f} MB")
-                        self.logger.warning(f"   This was previously caused by rebalance_date mismatch")
-                        self.logger.warning(f"   If this persists after fix, investigate further")
-                    else:
-                        self.logger.info(f"")
-                        self.logger.info(f"✅ Q4 balance check PASSED: {size_ratio*100:.0f}% of Q1-Q3 average")
-
-                self.logger.info(f"{'='*80}")
-                self.logger.info(f"")
-
-            # ===================================================================
+        self.logger.info(f"{'='*80}")
+        self.logger.info(f"")
 
     def _export_nan_analysis(self, window_data: pd.DataFrame, cal_timefeature_col_list: List[str],
                             base_year_period: int, nan_threshold: float) -> None:

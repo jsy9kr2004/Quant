@@ -188,10 +188,6 @@ def main():
             main_ctx=main_ctx,
             rebalance_period=args.rebalance_period,
             top_k=args.top_k,
-            retrain_frequency=args.retrain_freq,
-            window_type=args.window,
-            window_size=args.window_size if args.window == 'rolling' else None,
-            use_sector_model=use_sector_model
         )
 
         # 실행

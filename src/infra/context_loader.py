@@ -400,7 +400,7 @@ class ContextLoader:
                         setattr(self, key, value)
                     else:
                         raise Exception('클래스 변수 내 중복 키 존재')
-        except:
+        except Exception:
             raise Exception('conf.yaml 파일 없음')
         finally:
             logger = self.get_logger('contextLoader')
@@ -457,8 +457,8 @@ class ContextLoader:
     def create_dir(path: str) -> bool:
         """존재하지 않는 경우 디렉토리를 생성합니다.
 
-        필요한 상위 디렉토리를 포함하여 지정된 디렉토리를 생성합니다.
-        작업 상태를 로깅합니다.
+        MainContext.create_dir()에 위임합니다.
+        하위 호환성을 위해 유지되며, 새 코드에서는 MainContext.create_dir()을 사용하세요.
 
         Args:
             path (str): 생성할 디렉토리 경로.
@@ -466,24 +466,8 @@ class ContextLoader:
         Returns:
             bool: 디렉토리가 존재하거나 성공적으로 생성된 경우 True,
                 생성에 실패한 경우 False.
-
-        사용 예시:
-            success = ContextLoader.create_dir('/path/to/new/directory')
-            if success:
-                print('Directory ready')
-
-        주의:
-            이것은 static 메서드이며 클래스를 인스턴스화하지 않고 호출할 수 있습니다.
         """
-        if not Path(path).exists():
-            logging.info('Creating Folder "{}" ...'.format(path))
-            try:
-                Path(path).mkdir(parents=True, exist_ok=True)
-                return True
-            except OSError:
-                logging.error('Cannot Creating "{}" directory.'.format(path))
-                return False
-        return True
+        return MainContext.create_dir(path)
 
 
 class MainContext:

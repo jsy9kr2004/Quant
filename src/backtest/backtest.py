@@ -3,9 +3,8 @@ import csv
 import datetime
 import logging
 import multiprocessing
-import sys
 import os
-from tqdm import tqdm
+from warnings import simplefilter
 
 import numpy as np
 import pandas as pd
@@ -14,17 +13,18 @@ from tsfresh.feature_extraction import EfficientFCParameters
 
 from collections import defaultdict
 from dateutil.relativedelta import relativedelta
-from functools import reduce
+from functools import reduce, partial
 from src.infra.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sector_map, cal_timefeature_col_list
 from multiprocessing import Pool
 from multiprocessing_logging import install_mp_handler
-from sklearn.preprocessing import StandardScaler
-from collections import defaultdict
-from pmdarima import auto_arima
-from statsmodels.tsa.arima.model import ARIMA
-from statsmodels.tsa.stattools import acf, pacf
-from functools import partial
-from warnings import simplefilter
+
+# --- Unused imports (preserved for future experimentation) ---
+# import sys
+# from tqdm import tqdm
+# from sklearn.preprocessing import StandardScaler
+# from pmdarima import auto_arima
+# from statsmodels.tsa.arima.model import ARIMA
+# from statsmodels.tsa.stattools import acf, pacf
 
 pd.options.display.width = 30
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
@@ -32,6 +32,12 @@ CHUNK_SIZE = 20480
 
 
 class Backtest:
+    """Rule-based 백테스트 시스템 (Legacy)
+
+    plan_handler의 전략에 따라 종목을 선별하고 수익률을 평가하는 클래스.
+    DateHandler로 시점별 데이터를 구성하고, EvaluationHandler로 성과를 계산한다.
+    """
+
     def __init__(self, main_ctx, conf, plan_handler, rebalance_period):
         """
         Back test 실행 순서
@@ -67,6 +73,13 @@ class Backtest:
         self.run() 
 
     def create_report(self, report_type):
+        """레포트 파일 경로를 생성하고 헤더를 작성한다.
+
+        Parameters:
+            report_type: 'EVAL', 'RANK', 'AVG' 중 하나
+        Returns:
+            생성된 CSV 파일 경로 또는 None (REPORT_LIST에 없는 경우)
+        """
         if report_type in self.conf.get('BACKTEST', {}).get('REPORT_LIST', []):
             path = "./reports/" + report_type + "_REPORT_"
             idx = 0
@@ -156,6 +169,7 @@ class Backtest:
             self.metrics_table['date'] = pd.to_datetime(self.metrics_table['date'])
 
     def reload_bt_table(self, year):
+        """연도가 변경될 때 fs_table, metrics_table을 해당 연도 기준으로 재로드한다."""
         logging.info("reload_bt_table, year : {}".format(year))
         self.fs_table = pd.DataFrame()
         for y in range(year-3, year+1):
@@ -255,7 +269,20 @@ class Backtest:
 
 
 class PlanHandler:
+    """전략(plan) 실행 관리자
+
+    main에서 전달받은 plan_list의 각 전략을 순서대로 실행하여
+    DateHandler의 dtable에 score를 계산하고 기록한다.
+    """
+
     def __init__(self, k_num, absolute_score, main_ctx):
+        """PlanHandler를 초기화한다.
+
+        Parameters:
+            k_num: 상위 K개 종목 수
+            absolute_score: 1등 종목에 부여할 기본 점수
+            main_ctx: 메인 컨텍스트 (로깅, 설정 등)
+        """
         self.plan_list = None
         self.date_handler = None
         self.k_num = k_num
@@ -306,6 +333,7 @@ class PlanHandler:
 
     @staticmethod
     def plan_run(plan):
+        """단일 plan의 전략 함수를 실행하고 결과를 반환한다."""
         return plan["f_name"](plan["params"])
 
     def single_metric_plan_no_parallel(self, params):
@@ -373,9 +401,21 @@ class PlanHandler:
 time_periods = [3, 6, 9, 12, 15, 18, 21, 24]
 
 class DateHandler:
+    """특정 시점의 데이터 테이블(dtable)을 구성하는 핸들러
+
+    주어진 날짜 기준으로 symbol, price, financial statement, metrics 데이터를
+    병합하고, tsfresh 시계열 특성을 추출하여 하나의 통합 테이블(dtable)을 생성한다.
+    """
+
     global_sparse_col = defaultdict(int)
 
     def __init__(self, backtest, date):
+        """DateHandler를 초기화하고 dtable을 구성한다.
+
+        Parameters:
+            backtest: Backtest 인스턴스 (테이블 데이터 접근용)
+            date: 이 핸들러가 담당하는 날짜
+        """
         # TODO: pd assign 시 경고 수정 필요
         # pd.set_option('mode.chained_assignment', None)는 Python의 pandas 라이브러리에서 사용되는 명령어입니다.
         # 이 명령어는 'chained assignment'에 대한 pandas의 기본 경고나 오류 메시지를 비활성화합니다.
@@ -390,6 +430,7 @@ class DateHandler:
         self.init_data(backtest)
 
     def init_data(self, backtest):
+        """캐시된 dtable CSV를 로드하거나, 없으면 새로 생성한다."""
         logging.info("START init_data in date handler ")
         # TODO: get_trade_date() 함수는 어느 class가 들고있는게 맞을까..
         # 미리 parquet로 저장해둔 DATE handler table을 읽어들임.
@@ -408,6 +449,7 @@ class DateHandler:
             self.dtable["sector"] = self.dtable["industry"].map(sector_map)
 
     def get_price_for_dtable(self, backtest):
+        """상장된 종목의 가격 데이터를 dtable에 병합하고 거래액 하위 90%를 필터링한다."""
         # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
         query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(self.date)
         self.dtable = backtest.symbol_table.query(query)
@@ -427,8 +469,9 @@ class DateHandler:
         # self.dtable = self.dtable[self.dtable['volume_mul_price'] > 1000000] # TODO threshold
         self.dtable = self.dtable.nlargest(int(len(self.dtable)*0.10), 'volume_mul_price', keep='all')
 
-    # merge, join, concat 등 두 df 합칠 때 중복된 이름 col들은 _x, _y, _x_x... 생성됨. 다시 하나로 합치는 처리
     def remove_x_y_columns(self, df):
+        """DataFrame 병합 시 생성된 _x/_y 접미사 중복 컬럼을 하나로 통합한다."""
+        # merge, join, concat 등 두 df 합칠 때 중복된 이름 col들은 _x, _y, _x_x... 생성됨. 다시 하나로 합치는 처리
         new_df = df.copy()
         columns_to_drop = [col for col in new_df.columns if col.endswith('_x_x') or col.endswith('_y_y') or col.endswith('_x_y') or col.endswith('_y_x')]
         # 찾아낸 컬럼들을 데이터프레임에서 삭제합니다.
@@ -451,6 +494,7 @@ class DateHandler:
         return new_df
 
     def get_fs_metrics(self, backtest):
+        """최근 6개월 내 재무제표(fs)와 metrics를 병합하고, 시총 대비 상대값 컬럼을 추가하여 반환한다."""
         prev = self.date - relativedelta(months=6)
         fs = backtest.fs_table.copy()
 
@@ -486,7 +530,8 @@ class DateHandler:
         return fs_metrics
 
     def create_dtable(self, backtest):
-        # 미리 parquet로 저장해둔 DATE handler table이 없어서 새로 만듬. 
+        """price, fs, metrics, tsfresh 시계열 특성을 병합하여 dtable을 생성하고 CSV로 저장한다."""
+        # 미리 parquet로 저장해둔 DATE handler table이 없어서 새로 만듬.
         
         # 1) dtable에 최신 price 가져와서 merge. + 총거래액 하위 10% 버리기
         self.get_price_for_dtable(backtest)
@@ -557,10 +602,10 @@ class DateHandler:
             print(extracted_features.head())
             extracted_features.columns = ['fresh_' + col for col in extracted_features.columns]
             fs_metrics = fs_metrics.reset_index().merge(extracted_features, left_on='symbol', right_index=True).set_index('index')
-        except:
+        except Exception as e:
             print("failed extract features : ")
             print(str(self.date.year) + '_' + str(self.date.month) + '_' + str(self.date.day))
-            pass
+            print(f"Error: {e}")
 
         # prev column 제거
         # prev는 diff 값 및 시계열 특성 추출을 위해 쓸 뿐 나중에 입력으로 쓰기엔 별 의미가 없으므로 drop 시킴
@@ -663,7 +708,18 @@ class DateHandler:
 
 
 class EvaluationHandler:
+    """백테스트 성과 평가 핸들러
+
+    best_k 종목들의 매수/매도 가격을 계산하고, 수익률/MDD/Sharpe 등
+    성과 지표를 산출하여 CSV 레포트로 출력한다.
+    """
+
     def __init__(self, backtest):
+        """EvaluationHandler를 초기화한다.
+
+        Parameters:
+            backtest: Backtest 인스턴스 (설정, 가격 테이블 접근용)
+        """
         self.best_k = []
         self.historical_earning_per_rebalanceday = []
         self.backtest = backtest
@@ -678,6 +734,7 @@ class EvaluationHandler:
         return self.backtest.conf['MEMBER_CNT']
 
     def print_current_best(self, scored_dh):
+        """현재 시점의 최상위 종목을 result.csv로 출력한다."""
         # best_symbol = scored_dh.dtable[scored_dh.dtable.volume_mul_price > 1000000]
         best_symbol = best_symbol.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
         best_symbol = best_symbol.assign(count=0)
@@ -697,8 +754,8 @@ class EvaluationHandler:
 
 
     def cal_price(self):
+        """best_k의 각 종목에 대해 매수 가격(price)과 매도 가격(rebalance_day_price)을 계산한다."""
         pd.set_option('mode.chained_assignment', None)
-        """best_k 의 ['price', 'rebalance_day_price'] column을 채워주는 함수"""
         logging.info("best k length : %d", len(self.best_k))
         for idx, (date, rebalance_date, best_group, reference_group, period_earning_rate) in enumerate(self.best_k):
             if date.year != self.backtest.table_year:
@@ -799,6 +856,7 @@ class EvaluationHandler:
 
     @staticmethod
     def cal_earning_func(best_k):
+        """단일 리밸런싱 구간의 수익률을 계산한다 (multiprocessing용 static method)."""
         # logger = self.backtest.main_ctx.get_multi_logger()
 
         (date, rebalance_date, best_group, reference_group, period_earning_rate) = best_k
@@ -922,6 +980,7 @@ class EvaluationHandler:
 
     @staticmethod
     def write_csv(path, date, rebalance_date, elem):
+        """CSV 레포트에 날짜 헤더와 DataFrame 내용을 append 한다."""
         fd = open(path, 'a')
         writer = csv.writer(fd, delimiter=",")
         writer.writerow("")
@@ -930,6 +989,7 @@ class EvaluationHandler:
         elem.to_csv(path, mode="a")
 
     def print_report(self):
+        """EVAL/RANK/AVG 레포트를 생성하고, 벤치마크 대비 수익률을 계산하여 CSV에 기록한다."""
         plan_earning = 1
         total_asset = 100000000
         accumulated_earning = 100
@@ -1006,6 +1066,7 @@ class EvaluationHandler:
             fd.close()
 
     def run(self, price_table):
+        """평가 파이프라인을 실행한다: 가격 계산 → 수익률 계산 → 레포트 출력."""
         self.cal_price()
         if self.backtest.eval_report_path is not None:
             self.cal_earning()

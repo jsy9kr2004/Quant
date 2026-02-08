@@ -473,21 +473,19 @@ class TestArchitectureEnforcedConsistency:
     "실수로 다른 예측값 사용하는 것 원천 차단"
     """
 
-    def test_cache_file_required_when_enabled(self, basic_config):
+    def test_cache_file_required(self, basic_config):
         """
-        USE_CACHED_PREDICTIONS=Y일 때 캐시 파일 필수
+        캐시 파일 필수 (일원화 원칙)
 
         ml_backtest.py는 캐시가 없으면 에러를 발생시켜야 합니다.
-        (fallback 없이 강제)
+        (모델 학습/예측은 regressor.py에서만 수행)
         """
         config = basic_config.copy()
         config['EVALUATION'] = {
-            'USE_CACHED_PREDICTIONS': 'Y',
             'PREDICTIONS_CACHE_FILE': 'non_existent_cache.pkl'
         }
 
         # 캐시 파일이 없으면 에러 발생해야 함
-        # (실제 ml_backtest.py에서 구현되어야 하는 로직)
         cache_path = Path(config['EVALUATION']['PREDICTIONS_CACHE_FILE'])
         assert not cache_path.exists()
 
