@@ -63,9 +63,9 @@ def sample_config():
             },
         },
         'EVALUATION': {
-            'USE_CACHED_PREDICTIONS': 'N',
             'REBALANCE_PERIOD': 3,
             'TOP_K_NUM': 10,
+            'PREDICTIONS_CACHE_FILE': 'regressor_predictions.pkl',
         },
         'BACKTEST': {
             'REBALANCE_PERIOD': 3,
@@ -121,6 +121,28 @@ def sample_delisted_data():
         'symbol': ['DELIST1', 'DELIST2', 'DELIST3'],
         'delistedDate': ['2023-06-15', '2023-08-20', None],
     })
+
+
+@pytest.fixture
+def mock_predictions_cache():
+    """MLBacktest __init__에서 사용되는 예측 캐시 mock"""
+    return {
+        '2023-01-02': {
+            'predictions_df': pd.DataFrame({
+                'symbol': ['AAPL', 'MSFT'],
+                'sector': ['Tech', 'Tech'],
+                'ml_score': [0.06, 0.04],
+            }),
+            'top_k_selected': ['AAPL', 'MSFT'],
+        }
+    }
+
+
+@pytest.fixture(autouse=True)
+def mock_joblib_load(mock_predictions_cache):
+    """모든 테스트에서 joblib.load를 mock하여 캐시 로드 통과"""
+    with patch('src.backtest.ml_backtest.joblib.load', return_value=mock_predictions_cache):
+        yield
 
 
 @pytest.fixture
@@ -203,166 +225,6 @@ class TestDelistingDetection:
 
                 assert is_delisted is False
                 assert status == 'not_in_delisted_list'
-
-
-# ============================================================================
-# Test: Retrain Frequency Logic
-# ============================================================================
-
-class TestRetrainFrequency:
-    """리트레인 빈도 테스트"""
-
-    def test_should_retrain_every_mode(self, sample_config, mock_main_ctx):
-        """매번 리트레인"""
-        from src.backtest.ml_backtest import MLBacktest
-
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch.object(MLBacktest, '_load_delisted_data', return_value=pd.DataFrame()):
-                backtest = MLBacktest(
-                    sample_config, mock_main_ctx,
-                    rebalance_period=3, top_k=10,
-                    retrain_frequency='every'
-                )
-
-                result = backtest._should_retrain(
-                    datetime(2023, 4, 1),
-                    datetime(2023, 1, 1)
-                )
-
-                assert result is True
-
-    def test_should_retrain_first_time(self, sample_config, mock_main_ctx):
-        """첫 번째 리트레인"""
-        from src.backtest.ml_backtest import MLBacktest
-
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch.object(MLBacktest, '_load_delisted_data', return_value=pd.DataFrame()):
-                backtest = MLBacktest(
-                    sample_config, mock_main_ctx,
-                    rebalance_period=3, top_k=10,
-                    retrain_frequency='quarterly'
-                )
-
-                result = backtest._should_retrain(
-                    datetime(2023, 1, 1),
-                    None  # 첫 학습
-                )
-
-                assert result is True
-
-    def test_should_retrain_quarterly_same_quarter(self, sample_config, mock_main_ctx):
-        """분기별: 같은 분기면 리트레인 안 함"""
-        from src.backtest.ml_backtest import MLBacktest
-
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch.object(MLBacktest, '_load_delisted_data', return_value=pd.DataFrame()):
-                backtest = MLBacktest(
-                    sample_config, mock_main_ctx,
-                    rebalance_period=3, top_k=10,
-                    retrain_frequency='quarterly'
-                )
-
-                result = backtest._should_retrain(
-                    datetime(2023, 2, 15),  # Q1
-                    datetime(2023, 1, 10)   # Q1
-                )
-
-                assert result is False
-
-    def test_should_retrain_quarterly_new_quarter(self, sample_config, mock_main_ctx):
-        """분기별: 새 분기면 리트레인"""
-        from src.backtest.ml_backtest import MLBacktest
-
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch.object(MLBacktest, '_load_delisted_data', return_value=pd.DataFrame()):
-                backtest = MLBacktest(
-                    sample_config, mock_main_ctx,
-                    rebalance_period=3, top_k=10,
-                    retrain_frequency='quarterly'
-                )
-
-                result = backtest._should_retrain(
-                    datetime(2023, 4, 1),  # Q2
-                    datetime(2023, 1, 10)  # Q1
-                )
-
-                assert result is True
-
-    def test_should_retrain_once_mode(self, sample_config, mock_main_ctx):
-        """한 번만 리트레인"""
-        from src.backtest.ml_backtest import MLBacktest
-
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch.object(MLBacktest, '_load_delisted_data', return_value=pd.DataFrame()):
-                backtest = MLBacktest(
-                    sample_config, mock_main_ctx,
-                    rebalance_period=3, top_k=10,
-                    retrain_frequency='once'
-                )
-
-                # 첫 번째는 True
-                result1 = backtest._should_retrain(datetime(2023, 1, 1), None)
-                assert result1 is True
-
-                # 두 번째부터는 False
-                result2 = backtest._should_retrain(datetime(2023, 4, 1), datetime(2023, 1, 1))
-                assert result2 is False
-
-
-# ============================================================================
-# Test: Threshold Calculation
-# ============================================================================
-
-class TestThresholdCalculation:
-    """Threshold 계산 테스트"""
-
-    def test_calculate_threshold_negative_screen(self, sample_config, mock_main_ctx):
-        """Negative screen threshold"""
-        from src.backtest.ml_backtest import MLBacktest
-
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch.object(MLBacktest, '_load_delisted_data', return_value=pd.DataFrame()):
-                backtest = MLBacktest(
-                    sample_config, mock_main_ctx,
-                    rebalance_period=3, top_k=10
-                )
-
-                y_probs = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
-
-                config = backtest._calculate_threshold_config(
-                    y_probs,
-                    classifier_mode='negative_screen',
-                    remove_pct=10
-                )
-
-                # percentile = 100 - 10 = 90
-                assert config['percentile'] == 90
-                assert config['mode'] == 'negative_screen'
-                assert config['remove_pct'] == 10
-                assert 'threshold_value' in config
-
-    def test_calculate_threshold_positive_screen(self, sample_config, mock_main_ctx):
-        """Positive screen threshold"""
-        from src.backtest.ml_backtest import MLBacktest
-
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch.object(MLBacktest, '_load_delisted_data', return_value=pd.DataFrame()):
-                backtest = MLBacktest(
-                    sample_config, mock_main_ctx,
-                    rebalance_period=3, top_k=10
-                )
-
-                y_probs = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
-
-                config = backtest._calculate_threshold_config(
-                    y_probs,
-                    classifier_mode='positive_screen',
-                    remove_pct=10
-                )
-
-                # percentile = 10 (하위 10% 제거)
-                assert config['percentile'] == 10
-                assert config['mode'] == 'positive_screen'
 
 
 # ============================================================================
@@ -559,43 +421,6 @@ class TestBenchmarkCalculations:
                     assert 'sharpe_ratio' in result.columns
                     assert 'max_drawdown' in result.columns
 
-
-# ============================================================================
-# Test: Window Type
-# ============================================================================
-
-class TestWindowType:
-    """Window 타입 테스트"""
-
-    def test_expanding_window(self, sample_config, mock_main_ctx):
-        """Expanding window"""
-        from src.backtest.ml_backtest import MLBacktest
-
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch.object(MLBacktest, '_load_delisted_data', return_value=pd.DataFrame()):
-                backtest = MLBacktest(
-                    sample_config, mock_main_ctx,
-                    rebalance_period=3, top_k=10,
-                    window_type='expanding'
-                )
-
-                assert backtest.window_type == 'expanding'
-
-    def test_rolling_window(self, sample_config, mock_main_ctx):
-        """Rolling window"""
-        from src.backtest.ml_backtest import MLBacktest
-
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch.object(MLBacktest, '_load_delisted_data', return_value=pd.DataFrame()):
-                backtest = MLBacktest(
-                    sample_config, mock_main_ctx,
-                    rebalance_period=3, top_k=10,
-                    window_type='rolling',
-                    window_size=252  # 1년
-                )
-
-                assert backtest.window_type == 'rolling'
-                assert backtest.window_size == 252
 
 
 # ============================================================================

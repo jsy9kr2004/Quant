@@ -740,32 +740,32 @@ ml_backtest.py (수익률 계산만)
 
 **문제**: 캐시가 없을 때 ml_backtest.py가 자체 학습하면 일원화 깨짐
 
-**기존 코드 (위험)**:
-```python
-if cache_path.exists():
-    self.predictions_cache = joblib.load(cache_path)
-else:
-    # ❌ Silent fallback - 일원화 위반 가능!
-    self.logger.warning("Falling back to normal training mode")
-    self.use_cached_predictions = False
-```
+#### 3단계: N-path 완전 제거 (2026-02-08)
 
-**수정된 코드 (안전)**:
+**문제**: Fallback을 에러로 전환해도 독립 학습/예측 코드(N-path)가 잔존하면 일원화 위반 재발 위험
+
+**해결**: ml_backtest.py에서 독립 학습/예측 코드를 **완전 제거**
+- 11개 N-path 전용 메서드 삭제 (~874줄)
+- `USE_CACHED_PREDICTIONS` 설정 자체 제거 (항상 캐시 필수)
+- `__init__` 파라미터 간소화 (`retrain_frequency`, `window_type`, `window_size` 제거)
+- 호출자(main.py, run_ml_backtest.py, __init__.py) 업데이트
+
+**현재 코드 (완전 강제)**:
 ```python
+# __init__에서 캐시 로드 필수
+cache_path = Path(models_dir) / cache_file
 if cache_path.exists():
     self.predictions_cache = joblib.load(cache_path)
 else:
-    # ✅ 에러 발생 - 일원화 강제
     raise FileNotFoundError(
-        "Predictions cache not found!\n"
-        "Run regressor.py first, or set USE_CACHED_PREDICTIONS=N"
+        "Predictions cache not found! Run regressor.py first."
     )
 ```
 
 **효과**:
 - 캐시 없이 백테스트 실행 자체가 **불가능**
-- 실수로 다른 예측값 사용하는 것 **원천 차단**
-- 유닛테스트로 일원화 검증할 필요 없음 (아키텍처가 보장)
+- 독립 학습/예측 코드 자체가 **존재하지 않음**
+- 일원화 위반 가능성 **0%** (코드 레벨에서 불가능)
 
 #### 결과: 일원화 보장 수준
 
@@ -1310,12 +1310,12 @@ Pull Request 시 확인:
 
 #### 새로운 워크플로우
 
-**Mode 1: 캐시 생성 모드 (regressor.py 먼저 실행)**
+**Step 1: 캐시 생성 (regressor.py 먼저 실행)**
 ```yaml
 # config/conf.yaml
 EVALUATION:
   USE_WALK_FORWARD: Y          # Walk-forward 활성화
-  USE_CACHED_PREDICTIONS: N    # 캐시 생성 모드
+  PREDICTIONS_CACHE_FILE: "regressor_predictions.pkl"  # 캐시 파일명
   TRAIN_START_YEAR: 1996
   PERIODS:
     - START_YEAR: 2020
@@ -1353,13 +1353,11 @@ EVALUATION:
    ↓ outputs/reports/integrated_report_TIMESTAMP.xlsx 생성
 ```
 
-**Mode 2: 캐시 재사용 모드 (ml_backtest.py 실행)**
+**Step 2: 캐시 기반 백테스트 (ml_backtest.py 실행)**
 ```yaml
-# config/conf.yaml
+# config/conf.yaml — 동일 설정 사용
 EVALUATION:
-  USE_WALK_FORWARD: Y
-  USE_CACHED_PREDICTIONS: Y    # ✅ 캐시 재사용
-  PREDICTIONS_CACHE_FILE: "regressor_predictions.pkl"
+  PREDICTIONS_CACHE_FILE: "regressor_predictions.pkl"  # 필수 (캐시 없으면 에러)
 
 BACKTEST:
   PERIODS:
@@ -1373,11 +1371,11 @@ BACKTEST:
 실행 흐름:
 ```
 2. ml_backtest.py 실행
-   ↓ Cache 로드: MODELS/regressor_predictions.pkl
+   ↓ Cache 로드: MODELS/regressor_predictions.pkl (필수, 없으면 FileNotFoundError)
    ↓
    ↓ For each rebalance_date:
-   ↓   - Cache hit? → ✅ 예측 재사용 (모델 학습/예측 스킵)
-   ↓   - Cache miss? → ⚠️ 일반 학습/예측 모드로 fallback
+   ↓   - Cache hit? → ✅ 예측 재사용
+   ↓   - Cache miss? → ⚠️ 해당 기간 스킵 (warning 로그)
    ↓
    ↓ 실제 거래 시뮬레이션:
    ↓   - 가격 데이터 로드
@@ -1387,6 +1385,8 @@ BACKTEST:
    ↓ 백테스트 결과 → outputs/reports/integrated_report_TIMESTAMP.xlsx
    ↓ (regressor.py 결과와 동일한 파일에 추가됨)
 ```
+
+> **Note**: ml_backtest.py는 캐시 전용 아키텍처입니다. 독립적인 모델 학습/예측 기능은 없으며, 반드시 regressor.py를 먼저 실행하여 캐시를 생성해야 합니다.
 
 #### 통합 레포트 구조
 
@@ -1564,10 +1564,15 @@ OPTUNA_CV_FOLDS: 5
 
 ---
 
-**마지막 업데이트**: 2025-12-21
+**마지막 업데이트**: 2026-02-08
 **작성자**: Development Team
 
-**최근 변경사항 (2025-12-21)**:
+**최근 변경사항 (2026-02-08)**:
+- 🏗️ N-path 완전 제거: ml_backtest.py에서 독립 학습/예측 코드 삭제 (874줄, 45% 감소)
+- 🎯 캐시 전용 아키텍처: ml_backtest.py는 반드시 regressor.py 캐시 필요 (일원화 100% 강제)
+- 🗑️ USE_CACHED_PREDICTIONS 설정 제거 (항상 캐시 필수)
+
+**이전 변경사항 (2025-12-21)**:
 - ✨ Walk-Forward Evaluation: regressor.py도 walk-forward 방식으로 평가
 - 🔄 Prediction Cache: regressor.py와 ml_backtest.py 간 예측 결과 공유
 - 📊 Integrated Report: 5개 시트로 구성된 통합 Excel 레포트

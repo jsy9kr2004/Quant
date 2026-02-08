@@ -18,14 +18,12 @@ Example:
         config = load_config('config/conf.yaml')
         main_ctx = MainContext(config)
 
-        # Run ML-based walk-forward backtest
+        # Run ML-based walk-forward backtest (requires regressor.py predictions cache)
         ml_bt = MLBacktest(
             config=config,
             main_ctx=main_ctx,
             rebalance_period=3,
             top_k=20,
-            retrain_frequency='quarterly',
-            window_type='expanding'
         )
 
         # Execute backtest

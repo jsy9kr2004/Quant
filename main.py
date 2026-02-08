@@ -588,24 +588,16 @@ def _run_backtest(config: Dict[str, Any], main_ctx: 'MainContext', logger: loggi
     # Get parameters (EVALUATION takes precedence over BACKTEST)
     top_k_num = eval_config.get('TOP_K_NUM', backtest_config.get('TOP_K_NUM', 20))
     rebalance_period = eval_config.get('REBALANCE_PERIOD', backtest_config.get('REBALANCE_PERIOD', 3))
-    retrain_frequency = backtest_config.get('RETRAIN_FREQUENCY', 'quarterly')
-    window_type = backtest_config.get('WINDOW_TYPE', 'expanding')
-    window_size = backtest_config.get('WINDOW_SIZE', 3)
 
     logger.info(f"  Rebalance period: {rebalance_period} months")
     logger.info(f"  Top K: {top_k_num}")
-    logger.info(f"  Retrain frequency: {retrain_frequency}")
-    logger.info(f"  Window type: {window_type}")
 
-    # Initialize and run backtest
+    # Initialize and run backtest (cache-based, requires regressor.py to run first)
     ml_backtest = MLBacktest(
         config=config,
         main_ctx=main_ctx,
         rebalance_period=rebalance_period,
         top_k=top_k_num,
-        retrain_frequency=retrain_frequency,
-        window_type=window_type,
-        window_size=window_size
     )
 
     logger.info("Starting ML walk-forward backtest...")

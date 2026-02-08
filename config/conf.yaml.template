@@ -69,12 +69,8 @@ EVALUATION:
   # "once": 한 번만 학습 (빠름, 부정확)
   RETRAIN_FREQUENCY: "quarterly"
 
-  # regressor 예측 결과 재사용 (ml_backtest 속도 향상)
-  # Y = regressor.py 결과 재사용 (빠름, 일관성 보장)
-  # N = ml_backtest에서 재예측 (느림)
-  USE_CACHED_PREDICTIONS: Y
-
   # 예측 결과 캐시 파일 위치
+  # regressor.py가 생성한 캐시를 ml_backtest.py가 사용 (일원화 원칙)
   # {ROOT_PATH}/MODELS/ 하위에 저장됨
   PREDICTIONS_CACHE_FILE: "regressor_predictions.pkl"
 

@@ -1,6 +1,6 @@
 # 리팩토링 분석 보고서
 
-> **작성일**: 2026-02-07 (최종 업데이트: 2026-02-08, P2 리팩토링 추가)
+> **작성일**: 2026-02-07 (최종 업데이트: 2026-02-08, N-path 제거 아키텍처 개선)
 > **이전 문서**: [08_recent_changes.md](./08_recent_changes.md)
 > **관련 문서**: [05_code_quality.md](./05_code_quality.md), [07_recommendations.md](./07_recommendations.md)
 
@@ -12,7 +12,7 @@
 
 | 영역 | 등급 (이전→현재) | 상태 |
 |------|------|------|
-| 아키텍처 | B+ → **A** | God Class 분리 완료 (Regressor, MLBacktest, DataProcessor, make_mldata) |
+| 아키텍처 | B+ → **A+** | God Class 분리 완료 + N-path 제거로 일원화 강제 |
 | PEP8 준수 | B- → **B+** | bare except 전체 수정, import 정리 완료, print→logging 변환 |
 | Docstring | B+ → **A-** | backtest.py 30%→100%, 전체 커버리지 향상 |
 | 가독성 | C+ → **B+** | 초장 메서드 전체 분리 완료, 오케스트레이터 패턴 적용 |
@@ -161,16 +161,16 @@
 
 ### 2. `src/backtest/` (백테스트 모듈)
 
-#### 2.1 `ml_backtest.py` — 2,036줄 | 등급: C+ → **B+** ✅ P0/P1 완료
+#### 2.1 `ml_backtest.py` — 2,036줄 → **~1,060줄** | 등급: C+ → **A-** ✅ P0/P1 + 아키텍처 개선 완료
 
 | 항목 | 이전 | 현재 | 상세 |
 |------|------|------|------|
-| PEP8 | C | **B** | bare except 수정, 중복 import 제거 |
-| Docstring | C+ | **B** | 서브 메서드에 docstring 추가 |
-| 가독성 | C | **B+** | `run()` 356줄 → 38줄 분리 완료 |
-| 에러 처리 | C+ | **B+** | bare except 전체 수정 |
+| PEP8 | C | **B+** | bare except 수정, 미사용 import 제거, 타입 힌트 정리 |
+| Docstring | C+ | **B+** | 모듈/클래스 docstring 캐시 전용 아키텍처 반영 |
+| 가독성 | C | **A-** | `run()` 분리 + N-path 874줄 제거 (48% 코드 감소) |
+| 에러 처리 | C+ | **A-** | bare except 수정, 캐시 미발견 시 명확한 FileNotFoundError |
 
-**✅ 완료된 리팩토링** (커밋 `e30d299`, `6be9cbc`):
+**✅ 완료된 리팩토링** (커밋 `e30d299`, `6be9cbc` + N-path 제거):
 
 1. **~~God Method `run()` 분리~~ ✅ 완료**
    - 356줄 → **38줄** (5개 서브 메서드)
@@ -178,13 +178,28 @@
    run()  # 오케스트레이터 (38줄)
      ├── _generate_rebalance_dates()      # 리밸런싱 날짜 생성
      ├── _adjust_to_trading_days()        # 실제 거래일 조정
-     ├── _execute_walk_forward()          # Walk-Forward 실행
+     ├── _execute_walk_forward()          # Walk-Forward 실행 (캐시 전용)
      ├── _compile_results_and_benchmark() # 결과/벤치마크 정리
      └── _save_backtest_report()          # Excel 리포트 저장
    ```
 
 2. **~~bare `except:`~~ ✅ 수정** (줄 875, 1908)
 3. **~~중복 import~~ ✅ 정리** (중복 `joblib` 제거)
+
+4. **N-path (독립 학습/예측) 코드 완전 제거 ✅ 아키텍처 개선**
+   - **제거 배경**: `USE_CACHED_PREDICTIONS: N` 옵션이 존재할 경우 ml_backtest.py가 독자적으로 모델 학습/예측을 수행하여 regressor.py와의 일원화 원칙 위반 가능
+   - **제거된 코드** (11개 메서드, ~874줄):
+     - `_get_available_data_until()`, `_calculate_threshold_config()`, `_should_retrain()`
+     - `_load_optuna_params()`, `_load_sector_optuna_params()`
+     - `_train_model()`, `_train_model_unified()`, `_train_model_sector()`
+     - `_is_gpu_available()`, `_predict()`, `_predict_unified()`, `_predict_sector()`
+   - **`__init__` 간소화**: `retrain_frequency`, `window_type`, `window_size`, `use_sector_model` 파라미터 제거
+   - **`_execute_walk_forward()` 재작성**: 캐시 전용으로 단순화 (캐시 miss → skip with warning)
+   - **import 정리**: `os`, `json`, `glob`, `XGBClassifier`, `XGBRegressor`, `lgb` 제거
+   - **호출자 업데이트**: `main.py`, `src/backtest/__init__.py`, `src/scripts/run_ml_backtest.py`
+   - **config 정리**: `conf.yaml.template`에서 `USE_CACHED_PREDICTIONS` 설정 제거
+   - **테스트 업데이트**: N-path 전용 테스트 클래스 3개 제거 (`TestRetrainFrequency`, `TestThresholdCalculation`, `TestWindowType`)
+   - **결과**: 1,934줄 → ~1,060줄 (45% 감소), 일원화 아키텍처적으로 강제
 
 **남은 이슈 (P2)**:
 - 매직 넘버: `0.001`, `10`, `2` → P2-11
@@ -333,9 +348,10 @@
    - `DataSchema` → 단일 진실 원천 (컬럼 정의)
    - `DataProcessor` → 통합 전처리
 
-2. **일원화 아키텍처 (A)**
+2. **일원화 아키텍처 (A+)**
    - `regressor.py` ↔ `ml_backtest.py` 간 Prediction Cache 공유
    - Fallback 제거로 일원화 강제 (2025-01-17 완료)
+   - **N-path 완전 제거** (2026-02-08): ml_backtest.py에서 독립 학습/예측 코드 삭제, 캐시 전용 아키텍처로 전환
 
 3. **설정 관리 (A-)**
    - `conf.yaml` / `secrets.yaml` 분리 (보안)
@@ -349,15 +365,15 @@
 
 ### 약점
 
-1. **God Class 패턴 (C)**
-   - `Regressor` 클래스: ~4,300줄 (5개 이상의 책임)
-   - `MLBacktest` 클래스: ~1,800줄 (4개 이상의 책임)
-   - `MakeMLData` 클래스: ~1,500줄
+1. **God Class 패턴 (B-)** ← C에서 개선
+   - `Regressor` 클래스: ~4,300줄 (5개 이상의 책임) — God Method 분리 완료
+   - ~~`MLBacktest` 클래스: ~1,800줄~~ → **~1,060줄** (N-path 제거, 책임 축소: 캐시 기반 수익률 계산만)
+   - `MakeMLData` 클래스: ~1,500줄 — God Method 분리 완료
 
-2. **코드 중복 (C+)**
-   - `context_loader.py`의 `create_dir()` 중복
-   - `sheets_tracker.py`의 try-except 반복 패턴
-   - `regressor.py`와 `ml_backtest.py` 간 일부 잔존 중복
+2. **코드 중복 (B+)** ← C+에서 개선
+   - ~~`context_loader.py`의 `create_dir()` 중복~~ ✅ 위임으로 해결
+   - ~~`sheets_tracker.py`의 try-except 반복 패턴~~ ✅ 헬퍼로 통합
+   - ~~`regressor.py`와 `ml_backtest.py` 간 일부 잔존 중복~~ ✅ N-path 제거로 근본 해결
 
 3. **레거시 코드 (B-)**
    - `archive/` 디렉토리에 10개 파일 잔존 (6,309줄)
@@ -563,7 +579,7 @@
 
 1. ✅ **`regressor.py`** (5,184줄) — God Method 5개 분리, print→logging, import 정리
 2. ✅ **`make_mldata.py`** (2,139줄) — 807줄 메서드 → 106줄 분리
-3. ✅ **`ml_backtest.py`** (2,036줄) — `run()` 분리, bare except 수정, import 정리
+3. ✅ **`ml_backtest.py`** (2,036줄→~1,060줄) — `run()` 분리, N-path 874줄 제거, bare except 수정, import 정리
 4. ✅ **`backtest.py`** (1,075줄) — docstring 30%→100%, bare except 수정, import 정리
 5. ✅ **`data_processor.py`** (2,876줄) — `preprocess_training_data()` 분리
 6. ✅ **`main.py`** (815줄) — TODO→에러 핸들링, docstring 업데이트
@@ -591,7 +607,7 @@ data_validator.py, parquet_storage.py, fmp_fetch_worker.py,
 
 이 코드베이스는 **명확한 아키텍처 비전과 철저한 문서화**를 갖춘 우수한 프로젝트입니다.
 
-### P0/P1 리팩토링 완료 성과 (2026-02-08)
+### P0/P1/P2 + 아키텍처 개선 성과 (2026-02-08)
 
 | 지표 | 이전 | 현재 | 개선폭 |
 |------|------|------|--------|
@@ -601,9 +617,12 @@ data_validator.py, parquet_storage.py, fmp_fetch_worker.py,
 | Docstring (backtest.py) | 30% | **100%** | +70%p |
 | print() 사용 | 11건 | **0건** | **100% 해결** |
 | TODO (main.py) | 5건 | **0건** | **100% 해결** |
+| ml_backtest.py 코드량 | 1,934줄 | **~1,060줄** | **45% 감소** |
+| 일원화 위반 가능성 | ⚠️ N-path로 위반 가능 | **0%** | **아키텍처적 강제** |
 
 **P0/P1**: 총 6개 커밋으로 핵심 8파일 리팩토링 완료.
 **P2**: 추가 4항목 완료 (create_dir 위임, sheets_tracker 반복 패턴 통합, fmp.py 확인, CatBoost config 외부화).
+**아키텍처 개선**: ml_backtest.py N-path(독립 학습/예측) 코드 완전 제거 — 캐시 전용 아키텍처로 일원화 강제.
 리팩토링 필수 8파일 **전체 완료** (100%). 남은 P2-11(매직 넘버), P2-15(주석 코드)는 보류.
 
 ---
