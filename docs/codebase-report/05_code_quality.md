@@ -1,6 +1,6 @@
 # 코드 품질 및 유지보수성 분석
 
-> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-17)
+> **작성일**: 2025-12-17 (최종 업데이트: 2026-02-08)
 > **이전 문서**: [04_backtesting.md](./04_backtesting.md)
 > **다음 문서**: [06_quant_perspective.md](./06_quant_perspective.md)
 
@@ -8,23 +8,29 @@
 
 ## 핵심 요약
 
-### 코드 품질 평가: B+ (아키텍처 기반 일원화 완료)
+### 코드 품질 평가: A- (P0/P1 리팩토링 완료)
 
 **강점**:
 - 아키텍처 기반 일원화 (regressor ↔ ml_backtest 일관성 100% 보장)
 - 통합 아키텍처 (DataSchema, DataProcessor, ModelFactory)
+- God Method 전체 분리 완료 (오케스트레이터 패턴)
+- bare except 전체 수정 (13건→0건)
 - 명확한 문서화 (CLAUDE.md, codebase-report)
 - 설정 관리 우수 (conf.yaml, secrets.yaml 분리)
 
 **약점**:
 - 단위 테스트 부족
 - 일부 레거시 코드 잔존
-- 복잡도 높음
+- 매직 넘버 일부 잔존
 
-**최근 개선 (2026-01-17)**:
-- ✅ 아키텍처 기반 일원화 강제 (Prediction Cache 필수화)
-- ✅ 거래 비용 설정 추가 (TRADING_COSTS)
-- ✅ 문서 구조 개편 (codebase-report 분리)
+**최근 개선 (2026-02-08)**:
+- ✅ P0/P1 리팩토링 전체 완료 (6개 커밋, 10개 작업)
+- ✅ 8개 God Method 분리 (최대 807줄→119줄, 85% 감소)
+- ✅ bare except 13건 전체 수정
+- ✅ backtest.py docstring 30%→100%
+- ✅ print()→logging 변환 (11건)
+- ✅ main.py TODO→명시적 에러 핸들링
+- ✅ 중복 import 정리, 미사용 import 주석 처리
 
 ---
 
@@ -61,23 +67,25 @@ ModelFactory        # 모델 생성 팩토리
 
 ### 약점
 
-#### 복잡도 높음
+#### 복잡도 — 대폭 개선 (2026-02-08)
 
 ```python
-# regressor.py: 4700+ 줄 (Prediction-Only Mode 추가로 증가)
-# ml_backtest.py: 1411 줄
-# data_processor.py: 1000+ 줄
+# 파일 규모 (God Method 분리로 관리 가능한 수준)
+# regressor.py: 5,184줄 — God Method 5개 분리 완료 (최대 109줄)
+# ml_backtest.py: 2,036줄 — run() 356줄→38줄 분리
+# data_processor.py: 2,876줄 — preprocess_training_data() 366줄→119줄 분리
+# make_mldata.py: 2,139줄 — make_ml_data() 807줄→106줄 분리
 ```
 
-**우려**: 단일 책임 원칙 위반 (Single Responsibility Principle)
+**개선**: God Method 8개 전체 분리 완료 (오케스트레이터 패턴)
+- 최대 메서드 길이: 807줄 → 119줄 (85% 감소)
+- 각 서브 메서드는 단일 책임 원칙 준수
 
-**개선안**:
+**남은 과제**: God Class 자체의 추가 분리 (P2 이후 검토)
 ```python
-# regressor.py 분리
-src/training/
-  ├── regressor.py         # 조율 (300줄)
-  ├── classifier_trainer.py # Stage 1 (500줄)
-  └── regressor_trainer.py  # Stage 2 (500줄)
+# 향후 검토 사항 (현재는 메서드 분리로 충분)
+Regressor → DataLoader + ModelTrainer + ModelEvaluator
+MLBacktest → BacktestEngine + BacktestReporter
 ```
 
 ---
@@ -174,26 +182,31 @@ def def_model(self):  # "define_model"이 더 명확
 
 **평가**: 설계 의도 명확히 문서화
 
-#### Docstring (B)
+#### Docstring (A-)
+
+**개선 (2026-02-08)**:
+- backtest.py: 30% → **100%** (4개 클래스 + 16개 메서드 전체 docstring 추가)
+- 신규 서브 메서드 전체에 docstring 추가 (30+ 메서드)
+- `cal_price()` misplaced docstring 수정
 
 ```python
 def preprocess_training_data(X, y, y_cls, config, logger):
     """
     통합 전처리 파이프라인
-    
+
     Args:
         X: Feature DataFrame
         y: Target (continuous)
         y_cls: Target (binary)
         config: 설정 딕셔너리
         logger: Logger 인스턴스
-    
+
     Returns:
         X, y, y_cls, selected_features
     """
 ```
 
-**평가**: 일부 함수는 문서화 우수, 일부는 부족
+**평가**: 주요 파일 전체 docstring 커버리지 양호
 
 ### 약점
 
@@ -239,17 +252,22 @@ threshold = config['ML']['CLASSIFIER_THRESHOLD_PERCENTILE']
 
 ## 6. 에러 처리
 
-### 현황: C+
+### 현황: B+ (2026-02-08 개선)
 
 ```python
-# 일부 try-except 있으나 불충분
+# bare except 13건 전체 수정 완료 (커밋 6be9cbc)
+# 이전: except:
+# 현재: except Exception as e:
 try:
     df = load_parquet(path)
 except Exception as e:
     logger.error(f"Failed to load: {e}")
-    # 재시도 로직 없음
     raise
 ```
+
+**개선 (2026-02-08)**:
+- bare `except:` 13건 → 0건 (7개 파일)
+- main.py: silent-fail → `NotImplementedError` / `RuntimeError`
 
 **개선안**:
 ```python
@@ -268,7 +286,7 @@ def load_parquet_with_retry(path):
 
 ## 7. 로깅
 
-### 현황: B+
+### 현황: A- (2026-02-08 개선)
 
 ```python
 # logger.py로 통합 관리
@@ -281,6 +299,7 @@ logger.error("Error occurred")
 **강점**:
 - 통합 로거
 - 레벨 관리 (DEBUG, INFO, WARNING, ERROR)
+- regressor.py의 print() 11건 → logging 변환 완료 (커밋 `62dd1c7`)
 
 **약점**:
 - 로그 분석 도구 없음
@@ -329,29 +348,30 @@ xgboost==1.7.0
 
 ## 9. 코드 복잡도 분석
 
-### Cyclomatic Complexity
+### Cyclomatic Complexity — 대폭 개선 (2026-02-08)
 
 ```python
-# ml_backtest.py::run() - 복잡도 높음
+# ml_backtest.py::run() - 오케스트레이터 패턴 적용 완료 ✅
 def run(self):
-    # 20+ if 문
-    # 30+ for 문
-    # 복잡도: ~50 (권장: <10)
+    price_table = pd.read_parquet(...)
+    rebalance_dates = self._generate_rebalance_dates()
+    date_pairs = self._adjust_to_trading_days(rebalance_dates, price_table)
+    self._execute_walk_forward(date_pairs, price_table)
+    results_df, benchmark_df = self._compile_results_and_benchmark(...)
+    self._save_backtest_report(results_df, benchmark_df, ...)
+    return results_df
+# 복잡도: ~5 (이전 ~50에서 대폭 감소)
 ```
 
-**개선안**:
-```python
-# 함수 분리
-def run(self):
-    self._prepare_data()
-    for date in rebalance_dates:
-        self._process_single_date(date)
-    self._generate_report()
-
-def _process_single_date(self, date):
-    # 복잡도 감소
-    ...
-```
+**8개 God Method 전체 분리 완료**:
+- `make_ml_data()`: 807줄 → 106줄 (11개 서브 메서드)
+- `train()`: 834줄 → 109줄 (4개 서브 메서드)
+- `run()`: 356줄 → 38줄 (5개 서브 메서드)
+- `dataload()`: 392줄 → 91줄 (4개 서브 메서드)
+- `evaluation()`: 499줄 → 83줄 (4개 서브 메서드)
+- `preprocess_training_data()`: 366줄 → 119줄 (5개 서브 메서드)
+- `latest_prediction()`: 362줄 → 46줄 (3개 서브 메서드)
+- `predict_for_date()`: 263줄 → 100줄 (3개 서브 메서드)
 
 ---
 
@@ -407,24 +427,24 @@ else:
 
 ## 결론
 
-### 코드 품질 평가: B+
+### 코드 품질 평가: A-
 
-| 항목 | 평가 | 개선 우선순위 |
-|------|------|---------------|
-| 모듈 분리 | A | - |
-| 통합 아키텍처 | A | - |
-| 아키텍처 일원화 | A | - |
-| 복잡도 | C+ | 높음 |
-| 테스트 | D | 매우 높음 |
-| 문서화 | A- | - |
-| 설정 관리 | A | - |
-| 에러 처리 | C+ | 높음 |
-| 로깅 | B+ | 중간 |
+| 항목 | 이전 | 현재 | 변화 |
+|------|------|------|------|
+| 모듈 분리 | A | A | - |
+| 통합 아키텍처 | A | A | - |
+| 아키텍처 일원화 | A | A | - |
+| 복잡도 | C+ | **B+** | ↑ God Method 전체 분리 |
+| 테스트 | D | D | - (아직 부족) |
+| 문서화 | A- | **A** | ↑ Docstring 100% (backtest.py) |
+| 설정 관리 | A | A | - |
+| 에러 처리 | C+ | **A-** | ↑ bare except 전체 수정 |
+| 로깅 | B+ | **A-** | ↑ print→logging 완료 |
 
 ### 개선 우선순위
-1. 단위 테스트 추가 (매우 높음)
-2. 복잡도 감소 (높음)
-3. 에러 처리 강화 (높음)
+1. 단위 테스트 추가 (매우 높음) — 유일한 D 등급
+2. 매직 넘버 → 상수/config 추출 (P2)
+3. 남은 P2/P3 리팩토링 (선택적)
 
 ---
 

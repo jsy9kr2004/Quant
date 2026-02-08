@@ -1,6 +1,6 @@
 # 종합 개선 제안 및 로드맵
 
-> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-17)
+> **작성일**: 2025-12-17 (최종 업데이트: 2026-02-08)
 > **이전 문서**: [06_quant_perspective.md](./06_quant_perspective.md)
 > **다음 문서**: [08_recent_changes.md](./08_recent_changes.md)
 
@@ -8,7 +8,7 @@
 
 ## 목차
 
-1. [완료된 개선 사항](#1-완료된-개선-사항-2026-01)
+1. [완료된 개선 사항](#1-완료된-개선-사항)
 2. [우선순위별 개선 과제](#2-우선순위별-개선-과제)
 3. [단기 개선 (1~2주)](#3-단기-개선-1-2주)
 4. [중기 개선 (1~2개월)](#4-중기-개선-1-2개월)
@@ -18,7 +18,7 @@
 
 ---
 
-## 1. 완료된 개선 사항 (2026-01)
+## 1. 완료된 개선 사항
 
 ### ✅ 거래 비용 반영 (Commission + Slippage)
 
@@ -178,6 +178,30 @@ DATA_QUALITY:
 - NaN/Infinite 제거 효과 정량적 검증 가능
 - 데이터 품질 문제 사전 탐지
 - cleaning 전략 최적화 근거 제공
+
+---
+
+### ✅ P0/P1 코드 리팩토링 완료 (2026-02-08)
+
+**커밋**: `606a65f` ~ `62dd1c7` (7개 커밋)
+
+**P0 완료 (4건)**:
+- bare `except:` 13건 전체 수정 (7개 파일) → `except Exception as e:`
+- `make_ml_data()` 807줄 → 106줄 분리 (11개 서브 메서드)
+- Regressor 5개 God Method 분리 (18개 서브 메서드, 최대 834줄→109줄)
+- 미사용 import 정리 (주석 그룹으로 보존)
+
+**P1 완료 (6건)**:
+- MLBacktest `run()` 356줄 → 38줄 분리 (5개 서브 메서드)
+- `preprocess_training_data()` 366줄 → 119줄 분리 (5개 `@staticmethod` 서브 메서드)
+- backtest.py docstring 30% → **100%** (4개 클래스 + 16개 메서드)
+- 중복 import 제거 (ml_backtest.py, backtest.py)
+- `print()` → `logging` 변환 (regressor.py 11건)
+- main.py TODO → 명시적 에러 핸들링 (`NotImplementedError`, `RuntimeError`)
+
+**효과**: 코드 등급 B → **A-**, God Method 8개 → 0개, 최대 메서드 807줄 → 119줄
+
+**상세**: [09_refactoring.md](./09_refactoring.md)
 
 ---
 
@@ -709,6 +733,7 @@ spec:
 
 - [x] ~~백테스트 검증 (다양한 시장 환경)~~ ✅ 4년 검증 설정 완료 (2020-2023)
 - [x] ~~데이터 품질 체크 리포트 생성~~ ✅ `DataQualityReport` 클래스 구현
+- [x] ~~P0/P1 리팩토링~~ ✅ God Method 분리, bare except 수정 등 10건 완료
 - [ ] 모델 성능 지표 확인 (Accuracy, RMSE)
 
 ### 단기 (1~2주)
@@ -718,6 +743,7 @@ spec:
 - [x] ~~슬리피지 반영~~ ✅ `ef25545`
 - [ ] Stop-Loss 구현
 - [ ] Position Sizing 구현
+- [ ] P2 리팩토링 (매직 넘버, create_dir 중복 등 — 선택적)
 
 ### 중기 (1~2개월)
 

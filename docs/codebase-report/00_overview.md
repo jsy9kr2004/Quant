@@ -1,9 +1,9 @@
 # 퀀트 트레이딩 시스템 - 전체 개요 및 진단
 
-> **작성일**: 2025-12-17 (최종 업데이트: 2026-01-17)
+> **작성일**: 2025-12-17 (최종 업데이트: 2026-02-08)
 > **작성자**: Claude Code Analysis
 > **목적**: 실제 투자 전 시스템 전반에 대한 포괄적 진단
-> **최신 커밋**: `ef25545` (feat: Add trading costs (commission & slippage) to backtest)
+> **최신 커밋**: `62dd1c7` (refactor: P1-7 through P1-10 code quality improvements)
 
 ---
 
@@ -29,7 +29,7 @@
 | **데이터 파이프라인** | B+ | 체계적이나 결측치/이상치 처리 검증 필요 |
 | **ML 전략** | B+ | 정교하나 과적합 위험 및 복잡도 높음 |
 | **백테스팅** | A+ | Walk-Forward, 거래 비용(Commission+Slippage), 벤치마크 비교 |
-| **코드 품질** | B+ | 아키텍처 기반 일원화 적용, 레거시 코드 정리 진행 중 |
+| **코드 품질** | A- | P0/P1 리팩토링 완료, God Method 분리, bare except 수정 |
 | **실전 준비도** | A- | 거래 비용 반영, 예측 전용 모드, 아키텍처 일원화 완료 |
 
 ### 1.2 핵심 강점 (Top 5)
@@ -46,12 +46,20 @@
 2. **검증 부족**: 단위 테스트 부족 (Out-of-Sample 검증은 ✅ 4년 다양한 시장 환경으로 개선됨)
 3. **리스크 관리**: Stop-Loss, Position Sizing 미구현
 
-### 1.4 최근 해결된 사항 (2026-01-17)
+### 1.4 최근 해결된 사항
 
+**2026-01-17**:
 - ~~거래 비용 미반영~~ → ✅ Commission + Slippage 구현 완료
 - ~~regressor ↔ ml_backtest 일원화 위험~~ → ✅ 아키텍처 기반 강제 완료
 - ~~예측 전용 모드 부재~~ → ✅ Prediction-Only Mode 구현 완료
 - ~~Out-of-Sample 검증 기간 짧음~~ → ✅ 4년 다양한 시장 환경 (2020-2023)
+
+**2026-02-08**:
+- ~~God Method (최대 807줄)~~ → ✅ 8개 전체 분리 (최대 119줄, 85% 감소)
+- ~~bare except (13건)~~ → ✅ 전체 수정 완료
+- ~~backtest.py docstring 30%~~ → ✅ 100% (4개 클래스 + 16개 메서드)
+- ~~print() 사용 (11건)~~ → ✅ logging 변환 완료
+- ~~main.py silent-fail TODO~~ → ✅ 명시적 에러 핸들링
 
 ### 1.4 실전 투자 권고사항
 
@@ -152,18 +160,18 @@
 
 ### 2.4 주요 파일 및 코드 규모
 
-| 파일 | 라인 수 (추정) | 역할 |
-|------|---------------|------|
-| main.py | 660 | 진입점, 파이프라인 조율, 예측 전용 모드 지원 |
-| regressor.py | 4700+ | 모델 학습 (2-Stage) + 예측 전용 모드 |
-| ml_backtest.py | 1500+ | Walk-Forward 백테스트, negative_screen 지원 |
-| data_processor.py | 1000+ | 통합 전처리 |
-| make_mldata.py | 1500+ | Feature 엔지니어링 |
-| model_factory.py | 531 | 모델 생성 팩토리 |
-| data_schema.py | 285 | 컬럼 정의 (Single Source of Truth) |
-| conf.yaml.template | 445 | 설정 템플릿 |
+| 파일 | 라인 수 | 역할 | 리팩토링 |
+|------|---------|------|---------|
+| main.py | 815 | 진입점, 파이프라인 조율 | ✅ TODO→에러 핸들링 |
+| regressor.py | 5,184 | 모델 학습 (2-Stage) + 예측 | ✅ 5개 God Method 분리 |
+| ml_backtest.py | 2,036 | Walk-Forward 백테스트 | ✅ run() 분리 |
+| data_processor.py | 2,876 | 통합 전처리 | ✅ 초장 메서드 분리 |
+| make_mldata.py | 2,139 | Feature 엔지니어링 | ✅ 807줄→106줄 분리 |
+| model_factory.py | 624 | 모델 생성 팩토리 | - |
+| data_schema.py | 365 | 컬럼 정의 (Single Source of Truth) | - |
+| conf.yaml.template | 445 | 설정 템플릿 | - |
 
-**총 코드량 추정**: ~10,000줄 (주석 포함)
+**총 코드량**: ~46,000줄 (64개 활성 파일, 서브 메서드 포함)
 
 ---
 
