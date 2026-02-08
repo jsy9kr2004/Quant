@@ -1,0 +1,736 @@
+[2026-02-08 22:02:04,018][INFO    ][MainProcess] ✅ Logging system initialized (level=INFO, file=log.txt) (logger:466)
+[2026-02-08 22:02:04,019][INFO    ][MainProcess] ================================================================================ (MainContext:570)
+[2026-02-08 22:02:04,019][INFO    ][MainProcess] Quant Trading System - Refactored (MainContext:571)
+[2026-02-08 22:02:04,019][INFO    ][MainProcess] ================================================================================ (MainContext:572)
+[2026-02-08 22:02:04,020][INFO    ][MainProcess] Data period: 2023 - 2025 (MainContext:573)
+[2026-02-08 22:02:04,020][INFO    ][MainProcess] Root path: ./data_parquet (MainContext:574)
+[2026-02-08 22:02:04,020][INFO    ][MainProcess] ================================================================================ (MainContext:575)
+[2026-02-08 22:02:04,020][INFO    ][MainProcess] ✅ Configuration validated (config_check:385)
+[2026-02-08 22:02:04,020][INFO    ][MainProcess] ================================================================================ (main:544)
+[2026-02-08 22:02:04,021][INFO    ][MainProcess] Step 2: ML Pipeline (main:545)
+[2026-02-08 22:02:04,021][INFO    ][MainProcess] ================================================================================ (main:546)
+[2026-02-08 22:02:04,021][INFO    ][MainProcess] Preparing ML training data... (main:549)
+[2026-02-08 22:02:07,868][INFO    ][MainProcess]       [DEBUG] Checking dates around 2020-01-01 (direction: future): (root:2752)
+[2026-02-08 22:02:07,870][INFO    ][MainProcess]       [DEBUG]   2020-01-02: 5346 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:07,871][INFO    ][MainProcess]       [DEBUG]   2020-01-03: 5343 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:07,873][INFO    ][MainProcess]       [DEBUG]   2020-01-06: 5345 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:07,874][INFO    ][MainProcess]       [DEBUG]   2020-01-07: 5346 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:07,875][INFO    ][MainProcess]       [DEBUG]   2020-01-08: 5348 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:08,154][INFO    ][MainProcess]       [DEBUG] Checking dates around 2020-04-01 (direction: future): (root:2752)
+[2026-02-08 22:02:08,155][INFO    ][MainProcess]       [DEBUG]   2020-04-01: 5430 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:08,156][INFO    ][MainProcess]       [DEBUG]   2020-04-02: 5425 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:08,157][INFO    ][MainProcess]       [DEBUG]   2020-04-03: 5416 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:08,159][INFO    ][MainProcess]       [DEBUG]   2020-04-06: 5450 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:08,160][INFO    ][MainProcess]       [DEBUG]   2020-04-07: 5429 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:08,443][INFO    ][MainProcess]       [DEBUG] Checking dates around 2020-07-01 (direction: future): (root:2752)
+[2026-02-08 22:02:08,444][INFO    ][MainProcess]       [DEBUG]   2020-07-01: 5576 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:08,445][INFO    ][MainProcess]       [DEBUG]   2020-07-02: 5594 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:08,446][INFO    ][MainProcess]       [DEBUG]   2020-07-06: 5603 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:08,447][INFO    ][MainProcess]       [DEBUG]   2020-07-07: 5590 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:08,448][INFO    ][MainProcess]       [DEBUG]   2020-07-08: 5593 stocks ✓ - samples: ['AACG', 'AADI', 'AAIC-PB', 'AAIC-PC', 'AAIC'] (root:2758)
+[2026-02-08 22:02:08,719][INFO    ][MainProcess]       [DEBUG] Checking dates around 2020-10-01 (direction: future): (root:2752)
+[2026-02-08 22:02:08,721][INFO    ][MainProcess]       [DEBUG]   2020-10-01: 5823 stocks ✓ - samples: ['AACG', 'AACQU', 'AADI', 'AAIC-PB', 'AAIC-PC'] (root:2758)
+[2026-02-08 22:02:08,722][INFO    ][MainProcess]       [DEBUG]   2020-10-02: 5823 stocks ✓ - samples: ['AACG', 'AACQU', 'AADI', 'AAIC-PB', 'AAIC-PC'] (root:2758)
+[2026-02-08 22:02:08,723][INFO    ][MainProcess]       [DEBUG]   2020-10-05: 5842 stocks ✓ - samples: ['AACG', 'AACQU', 'AADI', 'AAIC-PB', 'AAIC-PC'] (root:2758)
+[2026-02-08 22:02:08,724][INFO    ][MainProcess]       [DEBUG]   2020-10-06: 5837 stocks ✓ - samples: ['AACG', 'AACQU', 'AADI', 'AAIC-PB', 'AAIC-PC'] (root:2758)
+[2026-02-08 22:02:08,725][INFO    ][MainProcess]       [DEBUG]   2020-10-07: 5848 stocks ✓ - samples: ['AACG', 'AACQU', 'AADI', 'AAIC-PB', 'AAIC-PC'] (root:2758)
+[2026-02-08 22:02:08,979][INFO    ][MainProcess]       [DEBUG] Checking dates around 2021-01-01 (direction: future): (root:2752)
+[2026-02-08 22:02:08,980][INFO    ][MainProcess]       [DEBUG]   2021-01-04: 6233 stocks ✓ - samples: ['AACG', 'AACQU', 'AADI', 'AAIC-PB', 'AAIC-PC'] (root:2758)
+[2026-02-08 22:02:08,981][INFO    ][MainProcess]       [DEBUG]   2021-01-05: 6241 stocks ✓ - samples: ['AACG', 'AACQU', 'AADI', 'AAIC-PB', 'AAIC-PC'] (root:2758)
+[2026-02-08 22:02:08,982][INFO    ][MainProcess]       [DEBUG]   2021-01-06: 6243 stocks ✓ - samples: ['AACG', 'AACQU', 'AADI', 'AAIC-PB', 'AAIC-PC'] (root:2758)
+[2026-02-08 22:02:08,983][INFO    ][MainProcess]       [DEBUG]   2021-01-07: 6258 stocks ✓ - samples: ['AACG', 'AACQU', 'AADI', 'AAIC-PB', 'AAIC-PC'] (root:2758)
+[2026-02-08 22:02:08,984][INFO    ][MainProcess]       [DEBUG]   2021-01-08: 6289 stocks ✓ - samples: ['AACG', 'AACQU', 'AADI', 'AAIC-PB', 'AAIC-PC'] (root:2758)
+[2026-02-08 22:02:09,268][INFO    ][MainProcess]       [DEBUG] Checking dates around 2021-04-01 (direction: future): (root:2752)
+[2026-02-08 22:02:09,269][INFO    ][MainProcess]       [DEBUG]   2021-04-01: 6986 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACQU', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:09,270][INFO    ][MainProcess]       [DEBUG]   2021-04-05: 6996 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACQU', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:09,271][INFO    ][MainProcess]       [DEBUG]   2021-04-06: 7024 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACQU', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:09,272][INFO    ][MainProcess]       [DEBUG]   2021-04-07: 7021 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACQU', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:09,274][INFO    ][MainProcess]       [DEBUG]   2021-04-08: 7030 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACQU', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:09,555][INFO    ][MainProcess]       [DEBUG] Checking dates around 2021-07-01 (direction: future): (root:2752)
+[2026-02-08 22:02:09,557][INFO    ][MainProcess]       [DEBUG]   2021-07-01: 7484 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AAC', 'AADI', 'AAIC-PB'] (root:2758)
+[2026-02-08 22:02:09,558][INFO    ][MainProcess]       [DEBUG]   2021-07-02: 7442 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AAC', 'AADI', 'AAIC-PB'] (root:2758)
+[2026-02-08 22:02:09,560][INFO    ][MainProcess]       [DEBUG]   2021-07-06: 7478 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AAC', 'AADI', 'AAIC-PB'] (root:2758)
+[2026-02-08 22:02:09,561][INFO    ][MainProcess]       [DEBUG]   2021-07-07: 7448 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AAC', 'AADI', 'AAIC-PB'] (root:2758)
+[2026-02-08 22:02:09,562][INFO    ][MainProcess]       [DEBUG]   2021-07-08: 7452 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AAC', 'AADI', 'AAIC-PB'] (root:2758)
+[2026-02-08 22:02:09,850][INFO    ][MainProcess]       [DEBUG] Checking dates around 2021-10-01 (direction: future): (root:2752)
+[2026-02-08 22:02:09,851][INFO    ][MainProcess]       [DEBUG]   2021-10-01: 7690 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIU', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:09,853][INFO    ][MainProcess]       [DEBUG]   2021-10-04: 7752 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIU', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:09,854][INFO    ][MainProcess]       [DEBUG]   2021-10-05: 7686 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AAC', 'AADI', 'AAIC-PB'] (root:2758)
+[2026-02-08 22:02:09,855][INFO    ][MainProcess]       [DEBUG]   2021-10-06: 7668 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIU', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:09,856][INFO    ][MainProcess]       [DEBUG]   2021-10-07: 7736 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIU', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:10,134][INFO    ][MainProcess]       [DEBUG] Checking dates around 2022-01-01 (direction: future): (root:2752)
+[2026-02-08 22:02:10,136][INFO    ][MainProcess]       [DEBUG]   2022-01-03: 8052 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIU', 'AACIW', 'AACI'] (root:2758)
+[2026-02-08 22:02:10,137][INFO    ][MainProcess]       [DEBUG]   2022-01-04: 7965 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIW', 'AACI', 'AAC'] (root:2758)
+[2026-02-08 22:02:10,138][INFO    ][MainProcess]       [DEBUG]   2022-01-05: 8026 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIU', 'AACIW', 'AAC'] (root:2758)
+[2026-02-08 22:02:10,140][INFO    ][MainProcess]       [DEBUG]   2022-01-06: 8046 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIW', 'AACI', 'AAC'] (root:2758)
+[2026-02-08 22:02:10,141][INFO    ][MainProcess]       [DEBUG]   2022-01-07: 8059 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIW', 'AACI', 'AAC'] (root:2758)
+[2026-02-08 22:02:10,413][INFO    ][MainProcess]       [DEBUG] Checking dates around 2022-04-01 (direction: future): (root:2752)
+[2026-02-08 22:02:10,414][INFO    ][MainProcess]       [DEBUG]   2022-04-01: 8141 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIW', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:10,415][INFO    ][MainProcess]       [DEBUG]   2022-04-04: 8169 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIW', 'AACI', 'AAC'] (root:2758)
+[2026-02-08 22:02:10,416][INFO    ][MainProcess]       [DEBUG]   2022-04-05: 8176 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIW', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:10,417][INFO    ][MainProcess]       [DEBUG]   2022-04-06: 8183 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIU', 'AACIW', 'AACI'] (root:2758)
+[2026-02-08 22:02:10,418][INFO    ][MainProcess]       [DEBUG]   2022-04-07: 8124 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIW', 'AACI', 'AAC'] (root:2758)
+[2026-02-08 22:02:10,699][INFO    ][MainProcess]       [DEBUG] Checking dates around 2022-07-01 (direction: future): (root:2752)
+[2026-02-08 22:02:10,701][INFO    ][MainProcess]       [DEBUG]   2022-07-01: 8008 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIW', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:10,702][INFO    ][MainProcess]       [DEBUG]   2022-07-05: 8107 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIU', 'AACIW', 'AACI'] (root:2758)
+[2026-02-08 22:02:10,703][INFO    ][MainProcess]       [DEBUG]   2022-07-06: 8075 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIU', 'AACIW', 'AACI'] (root:2758)
+[2026-02-08 22:02:10,704][INFO    ][MainProcess]       [DEBUG]   2022-07-07: 8057 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACI', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:10,705][INFO    ][MainProcess]       [DEBUG]   2022-07-08: 8107 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIW', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:10,989][INFO    ][MainProcess]       [DEBUG] Checking dates around 2022-10-01 (direction: future): (root:2752)
+[2026-02-08 22:02:10,990][INFO    ][MainProcess]       [DEBUG]   2022-10-03: 8136 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIU', 'AACIW', 'AACI'] (root:2758)
+[2026-02-08 22:02:10,992][INFO    ][MainProcess]       [DEBUG]   2022-10-04: 8121 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIW', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:10,993][INFO    ][MainProcess]       [DEBUG]   2022-10-05: 8043 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIW', 'AACI', 'AAC'] (root:2758)
+[2026-02-08 22:02:10,994][INFO    ][MainProcess]       [DEBUG]   2022-10-06: 8062 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACI', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:10,995][INFO    ][MainProcess]       [DEBUG]   2022-10-07: 7960 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIW', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:11,290][INFO    ][MainProcess]       [DEBUG] Checking dates around 2023-01-01 (direction: future): (root:2752)
+[2026-02-08 22:02:11,291][INFO    ][MainProcess]       [DEBUG]   2023-01-02:    2 stocks ✗ - samples: ['MLECW', 'MLEC'] (root:2758)
+[2026-02-08 22:02:11,292][INFO    ][MainProcess]       [DEBUG]   2023-01-03: 7820 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIW', 'AACI', 'AAC'] (root:2758)
+[2026-02-08 22:02:11,294][INFO    ][MainProcess]       [DEBUG]   2023-01-04: 7800 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACIW', 'AACI'] (root:2758)
+[2026-02-08 22:02:11,295][INFO    ][MainProcess]       [DEBUG]   2023-01-05: 7784 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACIU', 'AACIW'] (root:2758)
+[2026-02-08 22:02:11,296][INFO    ][MainProcess]       [DEBUG]   2023-01-06: 7823 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACIU', 'AACIW'] (root:2758)
+[2026-02-08 22:02:11,582][INFO    ][MainProcess]       [DEBUG] Checking dates around 2023-04-01 (direction: future): (root:2752)
+[2026-02-08 22:02:11,584][INFO    ][MainProcess]       [DEBUG]   2023-04-03: 7550 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACIW', 'AACI'] (root:2758)
+[2026-02-08 22:02:11,585][INFO    ][MainProcess]       [DEBUG]   2023-04-04: 7503 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACIW', 'AAC'] (root:2758)
+[2026-02-08 22:02:11,587][INFO    ][MainProcess]       [DEBUG]   2023-04-05: 7474 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACIW', 'AACI'] (root:2758)
+[2026-02-08 22:02:11,588][INFO    ][MainProcess]       [DEBUG]   2023-04-06: 7485 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AAC', 'AADI'] (root:2758)
+[2026-02-08 22:02:11,589][INFO    ][MainProcess]       [DEBUG]   2023-04-10: 7507 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACIW', 'AACI'] (root:2758)
+[2026-02-08 22:02:11,860][INFO    ][MainProcess]       [DEBUG] Checking dates around 2023-07-01 (direction: future): (root:2752)
+[2026-02-08 22:02:11,862][INFO    ][MainProcess]       [DEBUG]   2023-07-03: 7042 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACT', 'AAC'] (root:2758)
+[2026-02-08 22:02:11,863][INFO    ][MainProcess]       [DEBUG]   2023-07-05: 7167 stocks ✓ - samples: ['AAC-UN', 'AACG', 'AACIW', 'AACI', 'AACT'] (root:2758)
+[2026-02-08 22:02:11,865][INFO    ][MainProcess]       [DEBUG]   2023-07-06: 7157 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACIW', 'AACT'] (root:2758)
+[2026-02-08 22:02:11,866][INFO    ][MainProcess]       [DEBUG]   2023-07-07: 7169 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACIW', 'AACI'] (root:2758)
+[2026-02-08 22:02:11,867][INFO    ][MainProcess]       [DEBUG]   2023-07-10: 7199 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACIW', 'AACT'] (root:2758)
+[2026-02-08 22:02:12,145][INFO    ][MainProcess]       [DEBUG] Checking dates around 2023-10-01 (direction: future): (root:2752)
+[2026-02-08 22:02:12,147][INFO    ][MainProcess]       [DEBUG]   2023-10-02: 7030 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACT', 'AAC'] (root:2758)
+[2026-02-08 22:02:12,148][INFO    ][MainProcess]       [DEBUG]   2023-10-03: 7071 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACT', 'AAC'] (root:2758)
+[2026-02-08 22:02:12,149][INFO    ][MainProcess]       [DEBUG]   2023-10-04: 7010 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACIW', 'AACT'] (root:2758)
+[2026-02-08 22:02:12,150][INFO    ][MainProcess]       [DEBUG]   2023-10-05: 7011 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACIW', 'AACI'] (root:2758)
+[2026-02-08 22:02:12,152][INFO    ][MainProcess]       [DEBUG]   2023-10-06: 7033 stocks ✓ - samples: ['AAC-UN', 'AAC-WT', 'AACG', 'AACT', 'AAC'] (root:2758)
+[2026-02-08 22:02:12,437][INFO    ][MainProcess]       [DEBUG] Checking dates around 2024-01-01 (direction: future): (root:2752)
+[2026-02-08 22:02:12,439][INFO    ][MainProcess]       [DEBUG]   2024-01-01:    1 stocks ✗ - samples: ['AITRR'] (root:2758)
+[2026-02-08 22:02:12,440][INFO    ][MainProcess]       [DEBUG]   2024-01-02: 6771 stocks ✓ - samples: ['AACG', 'AACI', 'AACT', 'AADI', 'AAGRW'] (root:2758)
+[2026-02-08 22:02:12,441][INFO    ][MainProcess]       [DEBUG]   2024-01-03: 6760 stocks ✓ - samples: ['AACG', 'AACIW', 'AACI', 'AACT', 'AADI'] (root:2758)
+[2026-02-08 22:02:12,442][INFO    ][MainProcess]       [DEBUG]   2024-01-04: 6772 stocks ✓ - samples: ['AACG', 'AACI', 'AACT', 'AADI', 'AAGRW'] (root:2758)
+[2026-02-08 22:02:12,443][INFO    ][MainProcess]       [DEBUG]   2024-01-05: 6754 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAGRW', 'AAIN'] (root:2758)
+[2026-02-08 22:02:12,721][INFO    ][MainProcess]       [DEBUG] Checking dates around 2024-04-01 (direction: future): (root:2752)
+[2026-02-08 22:02:12,722][INFO    ][MainProcess]       [DEBUG]   2024-04-01: 6634 stocks ✓ - samples: ['AACG', 'AACIW', 'AACI', 'AACT', 'AADI'] (root:2758)
+[2026-02-08 22:02:12,724][INFO    ][MainProcess]       [DEBUG]   2024-04-02: 6557 stocks ✓ - samples: ['AACG', 'AACI', 'AACT', 'AADI', 'AAGRW'] (root:2758)
+[2026-02-08 22:02:12,725][INFO    ][MainProcess]       [DEBUG]   2024-04-03: 6717 stocks ✓ - samples: ['AACG', 'AACIW', 'AACI', 'AACT', 'AADI'] (root:2758)
+[2026-02-08 22:02:12,726][INFO    ][MainProcess]       [DEBUG]   2024-04-04: 6754 stocks ✓ - samples: ['AACG', 'AACIU', 'AACIW', 'AACI', 'AACT'] (root:2758)
+[2026-02-08 22:02:12,727][INFO    ][MainProcess]       [DEBUG]   2024-04-05: 6549 stocks ✓ - samples: ['AACG', 'AACIU', 'AACIW', 'AACI', 'AACT'] (root:2758)
+[2026-02-08 22:02:12,998][INFO    ][MainProcess]       [DEBUG] Checking dates around 2024-07-01 (direction: future): (root:2752)
+[2026-02-08 22:02:12,999][INFO    ][MainProcess]       [DEBUG]   2024-07-01: 6408 stocks ✓ - samples: ['AACG', 'AACIW', 'AACT', 'AADI', 'AAGRW'] (root:2758)
+[2026-02-08 22:02:13,001][INFO    ][MainProcess]       [DEBUG]   2024-07-02: 6432 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAGRW', 'AAL'] (root:2758)
+[2026-02-08 22:02:13,002][INFO    ][MainProcess]       [DEBUG]   2024-07-03: 6325 stocks ✓ - samples: ['AACG', 'AACI', 'AACT', 'AADI', 'AAGRW'] (root:2758)
+[2026-02-08 22:02:13,003][INFO    ][MainProcess]       [DEBUG]   2024-07-04:    1 stocks ✗ - samples: ['RFAIR'] (root:2758)
+[2026-02-08 22:02:13,004][INFO    ][MainProcess]       [DEBUG]   2024-07-05: 6384 stocks ✓ - samples: ['AACG', 'AACI', 'AACT', 'AADI', 'AAGRW'] (root:2758)
+[2026-02-08 22:02:13,284][INFO    ][MainProcess]       [DEBUG] Checking dates around 2024-10-01 (direction: future): (root:2752)
+[2026-02-08 22:02:13,286][INFO    ][MainProcess]       [DEBUG]   2024-10-01: 6507 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAL', 'AAM-UN'] (root:2758)
+[2026-02-08 22:02:13,288][INFO    ][MainProcess]       [DEBUG]   2024-10-02: 6501 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAGRW', 'AAL'] (root:2758)
+[2026-02-08 22:02:13,289][INFO    ][MainProcess]       [DEBUG]   2024-10-03: 6494 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAL', 'AAME'] (root:2758)
+[2026-02-08 22:02:13,290][INFO    ][MainProcess]       [DEBUG]   2024-10-04: 6495 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAGRW', 'AAL'] (root:2758)
+[2026-02-08 22:02:13,292][INFO    ][MainProcess]       [DEBUG]   2024-10-07: 6503 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAL', 'AAM-UN'] (root:2758)
+[2026-02-08 22:02:13,588][INFO    ][MainProcess]       [DEBUG] Checking dates around 2025-01-01 (direction: future): (root:2752)
+[2026-02-08 22:02:13,590][INFO    ][MainProcess]       [DEBUG]   2025-01-01:    4 stocks ✗ - samples: ['AEAXX', 'NSTB', 'NSTC', 'NSTD'] (root:2758)
+[2026-02-08 22:02:13,591][INFO    ][MainProcess]       [DEBUG]   2025-01-02: 6503 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAL', 'AAME'] (root:2758)
+[2026-02-08 22:02:13,592][INFO    ][MainProcess]       [DEBUG]   2025-01-03: 6500 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAL', 'AAME'] (root:2758)
+[2026-02-08 22:02:13,593][INFO    ][MainProcess]       [DEBUG]   2025-01-04:    1 stocks ✗ - samples: ['AEAXX'] (root:2758)
+[2026-02-08 22:02:13,594][INFO    ][MainProcess]       [DEBUG]   2025-01-05:    1 stocks ✗ - samples: ['AEAXX'] (root:2758)
+[2026-02-08 22:02:13,874][INFO    ][MainProcess]       [DEBUG] Checking dates around 2025-04-01 (direction: future): (root:2752)
+[2026-02-08 22:02:13,876][INFO    ][MainProcess]       [DEBUG]   2025-04-01: 6378 stocks ✓ - samples: ['AACBU', 'AACG', 'AACT', 'AADI', 'AAL'] (root:2758)
+[2026-02-08 22:02:13,877][INFO    ][MainProcess]       [DEBUG]   2025-04-02: 6337 stocks ✓ - samples: ['AACBU', 'AACG', 'AACT', 'AADI', 'AAL'] (root:2758)
+[2026-02-08 22:02:13,878][INFO    ][MainProcess]       [DEBUG]   2025-04-03: 6362 stocks ✓ - samples: ['AACBU', 'AACG', 'AACT', 'AADI', 'AAL'] (root:2758)
+[2026-02-08 22:02:13,879][INFO    ][MainProcess]       [DEBUG]   2025-04-04: 6364 stocks ✓ - samples: ['AACBU', 'AACG', 'AACT', 'AADI', 'AAL'] (root:2758)
+[2026-02-08 22:02:13,880][INFO    ][MainProcess]       [DEBUG]   2025-04-07: 6366 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACG', 'AACT', 'AADI'] (root:2758)
+[2026-02-08 22:02:14,169][INFO    ][MainProcess]       [DEBUG] Checking dates around 2025-07-01 (direction: future): (root:2752)
+[2026-02-08 22:02:14,170][INFO    ][MainProcess]       [DEBUG]   2025-07-01: 6534 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:02:14,171][INFO    ][MainProcess]       [DEBUG]   2025-07-02: 6528 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:02:14,172][INFO    ][MainProcess]       [DEBUG]   2025-07-03: 6495 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:02:14,173][INFO    ][MainProcess]       [DEBUG]   2025-07-07: 6546 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:02:14,174][INFO    ][MainProcess]       [DEBUG]   2025-07-08: 6535 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:02:14,445][INFO    ][MainProcess]       [DEBUG] Checking dates around 2025-10-01 (direction: future): (root:2752)
+[2026-02-08 22:02:14,446][INFO    ][MainProcess]       [DEBUG]   2025-10-01: 6482 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:02:14,448][INFO    ][MainProcess]       [DEBUG]   2025-10-02: 6485 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:02:14,449][INFO    ][MainProcess]       [DEBUG]   2025-10-03: 6479 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:02:14,450][INFO    ][MainProcess]       [DEBUG]   2025-10-06: 6485 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:02:14,451][INFO    ][MainProcess]       [DEBUG]   2025-10-07: 6489 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:02:14,452][INFO    ][MainProcess] ✅ Found 24 valid trading dates (AIDataMaker:360)
+[2026-02-08 22:02:15,357][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 9750 → 8775 stocks (975 low-liquidity stocks removed) (AIDataMaker:673)
+[2026-02-08 22:02:16,501][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:715)
+[2026-02-08 22:02:24,252][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 10313 → 9281 stocks (1032 low-liquidity stocks removed) (AIDataMaker:673)
+[2026-02-08 22:02:25,564][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:715)
+[2026-02-08 22:02:33,735][INFO    ][MainProcess]    📊 Volume filter (removes bottom 10%, keeps top 90%): 10856 → 9770 stocks (1086 low-liquidity stocks removed) (AIDataMaker:673)
+[2026-02-08 22:02:35,139][INFO    ][MainProcess]    Unique period values in data: ['Q1', 'Q2', 'Q3', 'Q4'] (AIDataMaker:715)
+[2026-02-08 22:02:43,263][INFO    ][MainProcess] Training models... (main:553)
+[2026-02-08 22:02:43,263][INFO    ][MainProcess] 🔄 Walk-Forward mode ENABLED (root:752)
+[2026-02-08 22:02:43,263][INFO    ][MainProcess]    Window type: expanding (root:753)
+[2026-02-08 22:02:43,263][INFO    ][MainProcess]    Retrain frequency: quarterly (root:754)
+[2026-02-08 22:02:43,264][INFO    ][MainProcess] aidata path: ./data_parquet/processed/ml_data/per_year/ (root:759)
+[2026-02-08 22:02:43,264][INFO    ][MainProcess] train file list: ['./data_parquet/processed/ml_data/per_year/rnorm_ml_2015_Q1.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2015_Q2.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2015_Q3.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2015_Q4.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2016_Q1.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2016_Q2.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2016_Q3.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2016_Q4.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2017_Q1.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2017_Q2.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2017_Q3.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2017_Q4.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2018_Q1.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2018_Q2.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2018_Q3.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2018_Q4.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2019_Q1.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2019_Q2.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2019_Q3.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2019_Q4.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2020_Q1.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2020_Q2.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2020_Q3.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2020_Q4.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2021_Q1.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2021_Q2.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2021_Q3.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2021_Q4.parquet'] (root:784)
+[2026-02-08 22:02:43,264][INFO    ][MainProcess] test file list: ['./data_parquet/processed/ml_data/per_year/rnorm_ml_2022_Q1.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2022_Q2.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2022_Q3.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2022_Q4.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2023_Q1.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2023_Q2.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2023_Q3.parquet', './data_parquet/processed/ml_data/per_year/rnorm_ml_2023_Q4.parquet'] (root:785)
+[2026-02-08 22:02:44,989][WARNING ][MainProcess] C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\cupy\_environment.py:596: UserWarning: 
+--------------------------------------------------------------------------------
+
+  CuPy may not function correctly because multiple CuPy packages are installed
+  in your environment:
+
+    cupy-cuda11x, cupy-cuda12x
+
+  Follow these steps to resolve this issue:
+
+    1. For all packages listed above, run the following command to remove all
+       existing CuPy installations:
+
+         $ pip uninstall <package_name>
+
+      If you previously installed CuPy via conda, also run the following:
+
+         $ conda uninstall cupy
+
+    2. Install the appropriate CuPy package.
+       Refer to the Installation Guide for detailed instructions.
+
+         https://docs.cupy.dev/en/stable/install.html
+
+--------------------------------------------------------------------------------
+
+  warnings.warn(f'''
+ (py.warnings:109)
+[2026-02-08 22:02:46,693][INFO    ][MainProcess] 🎮 GPU detected (via CuPy): Using CUDA acceleration (root:150)
+[2026-02-08 22:02:46,693][INFO    ][MainProcess] ============================================================ (root:817)
+[2026-02-08 22:02:46,694][INFO    ][MainProcess] XGBoost Device Configuration (root:818)
+[2026-02-08 22:02:46,694][INFO    ][MainProcess] ============================================================ (root:819)
+[2026-02-08 22:02:46,694][INFO    ][MainProcess] Device: cuda:0 (root:820)
+[2026-02-08 22:02:46,694][INFO    ][MainProcess] CuPy available: True (root:821)
+[2026-02-08 22:02:46,695][INFO    ][MainProcess] GPU prediction enabled: True (root:822)
+[2026-02-08 22:02:46,695][INFO    ][MainProcess] ============================================================ (root:823)
+[2026-02-08 22:02:46,695][INFO    ][MainProcess] ================================================================================ (root:1270)
+[2026-02-08 22:02:46,695][INFO    ][MainProcess] 📂 DATALOAD: Loading and preprocessing training/test data (root:1271)
+[2026-02-08 22:02:46,695][INFO    ][MainProcess] ================================================================================ (root:1272)
+[2026-02-08 22:02:46,695][INFO    ][MainProcess] 🔄 Walk-Forward mode: Generating evaluation periods... (root:1278)
+[2026-02-08 22:02:46,696][INFO    ][MainProcess]   Generated 8 cutoff dates: (root:2175)
+[2026-02-08 22:02:46,696][INFO    ][MainProcess]     1. 2024-01-01 (root:2177)
+[2026-02-08 22:02:46,696][INFO    ][MainProcess]     2. 2024-04-01 (root:2177)
+[2026-02-08 22:02:46,696][INFO    ][MainProcess]     3. 2024-07-01 (root:2177)
+[2026-02-08 22:02:46,696][INFO    ][MainProcess]     4. 2024-10-01 (root:2177)
+[2026-02-08 22:02:46,696][INFO    ][MainProcess]     5. 2025-01-01 (root:2177)
+[2026-02-08 22:02:46,697][INFO    ][MainProcess]     ... and 3 more (root:2179)
+[2026-02-08 22:02:46,697][INFO    ][MainProcess] ✅ Generated 8 walk-forward periods (root:1280)
+[2026-02-08 22:02:46,697][INFO    ][MainProcess] ================================================================================ (root:2249)
+[2026-02-08 22:02:46,697][INFO    ][MainProcess] 🔄 WALK-FORWARD TRAINING (root:2250)
+[2026-02-08 22:02:46,697][INFO    ][MainProcess] ================================================================================ (root:2251)
+[2026-02-08 22:02:46,700][INFO    ][MainProcess] 
+🔄 Walk-Forward Training: 8 periods (root:3110)
+[2026-02-08 22:02:46,701][INFO    ][MainProcess] 🎯 Top-K Selection: 10 (root:3111)
+[2026-02-08 22:02:46,701][INFO    ][MainProcess] ⚡ Parallel Training: Enabled (root:3112)
+[2026-02-08 22:02:46,701][INFO    ][MainProcess] ================================================================================ (root:3282)
+[2026-02-08 22:02:46,701][INFO    ][MainProcess] ⚡ Parallel Mode (Ray) (root:3283)
+[2026-02-08 22:02:46,701][INFO    ][MainProcess] ================================================================================ (root:3284)
+[2026-02-08 22:02:46,730][WARNING ][MainProcess] ⚠️  Code version changed: (MemoryProfiler:112)
+[2026-02-08 22:02:46,731][WARNING ][MainProcess]    Profile: git:7e23330 (MemoryProfiler:113)
+[2026-02-08 22:02:46,731][WARNING ][MainProcess]    Current: git:320bdf1 (MemoryProfiler:114)
+[2026-02-08 22:02:46,731][WARNING ][MainProcess]    Using conservative settings (MemoryProfiler:115)
+[2026-02-08 22:02:46,738][INFO    ][MainProcess] 🤖 Auto-determined workers: 1 (root:3305)
+[2026-02-08 22:02:46,739][INFO    ][MainProcess]    Confidence: none (root:3306)
+[2026-02-08 22:02:46,739][INFO    ][MainProcess]    Reason: Code version changed, using conservative settings (root:3307)
+[2026-02-08 22:02:46,739][INFO    ][MainProcess] 🚀 Starting parallel training with 1 workers... (root:3319)
+[2026-02-08 22:02:46,752][INFO    ][MainProcess] 🔍 Memory profiling started (Run ID: 20260208_220246) (MemoryProfiler:310)
+[2026-02-08 22:02:52,556][WARNING ][MainProcess] C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\ray\_private\worker.py:2051: FutureWarning: Tip: In future versions of Ray, Ray will no longer override accelerator visible devices env var if num_gpus=0 or num_gpus=None (default). To enable this behavior and turn off this error message, set RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
+  warnings.warn(
+ (py.warnings:109)
+[2026-02-08 22:02:52,557][INFO    ][MainProcess] ✅ Ray initialized (root:3328)
+[2026-02-08 22:02:52,557][INFO    ][MainProcess] 📤 Submitting 8 tasks to Ray... (root:3331)
+[2026-02-08 22:03:00,690][INFO    ][MainProcess]    Loaded 16900 samples from 4 files (root:3463)
+[2026-02-08 22:03:08,750][INFO    ][MainProcess]    Loaded 21933 samples from 5 files (root:3463)
+[2026-02-08 22:03:17,574][INFO    ][MainProcess]    Loaded 26921 samples from 6 files (root:3463)
+[2026-02-08 22:03:17,776][INFO    ][MainProcess] ⏳ Waiting for 8 tasks to complete... (root:3355)
+[2026-02-08 22:03:48,125][WARNING ][MainProcess] ⚠️  Period 2024-01-01: No results (empty data or error) (root:3365)
+[2026-02-08 22:03:48,125][WARNING ][MainProcess] ⚠️  Period 2024-04-01: No results (empty data or error) (root:3365)
+[2026-02-08 22:03:48,126][WARNING ][MainProcess] ⚠️  Period 2024-07-01: No results (empty data or error) (root:3365)
+[2026-02-08 22:03:48,126][WARNING ][MainProcess] ⚠️  Period 2024-10-01: No results (empty data or error) (root:3365)
+[2026-02-08 22:03:48,126][WARNING ][MainProcess] ⚠️  Period 2025-01-01: No results (empty data or error) (root:3365)
+[2026-02-08 22:03:48,126][WARNING ][MainProcess] ⚠️  Period 2025-04-01: No results (empty data or error) (root:3365)
+[2026-02-08 22:03:48,127][WARNING ][MainProcess] ⚠️  Period 2025-07-01: No results (empty data or error) (root:3365)
+[2026-02-08 22:03:48,127][WARNING ][MainProcess] ⚠️  Period 2025-10-01: No results (empty data or error) (root:3365)
+[2026-02-08 22:03:48,127][INFO    ][MainProcess] 
+💾 Saving predictions cache to ./data_parquet/MODELS/regressor_predictions.pkl (root:3370)
+[2026-02-08 22:03:48,128][INFO    ][MainProcess] ✅ Parallel walk-forward training completed! 0 periods saved. (root:3372)
+[2026-02-08 22:03:48,129][WARNING ][MainProcess] ⚠️  No predictions cache to export! (root:3143)
+[2026-02-08 22:03:48,129][INFO    ][MainProcess] ✅ CSV exports completed! (root:3376)
+[2026-02-08 22:03:48,203][INFO    ][MainProcess] ✅ Memory profile saved successfully (MemoryProfiler:380)
+[2026-02-08 22:03:48,204][INFO    ][MainProcess]    Peak memory: 1.42 GB/worker (MemoryProfiler:382)
+[2026-02-08 22:03:48,204][INFO    ][MainProcess]    Runtime: 1.0 minutes (MemoryProfiler:383)
+[2026-02-08 22:03:48,814][INFO    ][MainProcess] 🧹 Ray shutdown (root:3408)
+[2026-02-08 22:03:48,953][INFO    ][MainProcess] ✅ Loaded 4 classification models (root:1018)
+[2026-02-08 22:03:49,034][INFO    ][MainProcess] ✅ Loaded 2 regression models (root:1029)
+[2026-02-08 22:03:49,036][INFO    ][MainProcess] ================================================================================ (root:4051)
+[2026-02-08 22:03:49,036][INFO    ][MainProcess] 📂 LOADED THRESHOLD CONFIG (root:4052)
+[2026-02-08 22:03:49,036][INFO    ][MainProcess] ================================================================================ (root:4053)
+[2026-02-08 22:03:49,037][INFO    ][MainProcess]    Percentile: 98 (root:4054)
+[2026-02-08 22:03:49,037][INFO    ][MainProcess]    Threshold value: 0.209 (root:4055)
+[2026-02-08 22:03:49,037][INFO    ][MainProcess]    Precision: 0.495 (root:4057)
+[2026-02-08 22:03:49,037][INFO    ][MainProcess]    Selected stocks: 4,463 (root:4058)
+[2026-02-08 22:03:49,037][INFO    ][MainProcess] ================================================================================ (root:4059)
+[2026-02-08 22:03:49,038][INFO    ][MainProcess]  (root:4060)
+[2026-02-08 22:03:49,040][INFO    ][MainProcess] ✅ Loaded sector threshold configs for 5 sectors (root:4084)
+[2026-02-08 22:03:49,043][INFO    ][MainProcess] Empty DataFrame
+Columns: [start_date, model, krange, avg_earning_per_stock, cur_model_pred, loss_y_and_pred, cur_model_pred_ispositive, avg_pred, model0_pred, model1_pred, model0_pred_wbinary_0, model1_pred_wbinary_0, model0_pred_wbinary_1, model1_pred_wbinary_1, model0_pred_wbinary_2, model1_pred_wbinary_2, model0_pred_wbinary_3, model1_pred_wbinary_3, model0_pred_wbinary_ensemble, model1_pred_wbinary_ensemble, model0_pred_wbinary_ensemble2, model1_pred_wbinary_ensemble2, model0_pred_wbinary_ensemble3, model1_pred_wbinary_ensemble3]
+Index: [] (root:4028)
+[2026-02-08 22:03:49,050][INFO    ][MainProcess] ✅ Loaded 0 sector regressor models for 0 sectors (root:1043)
+[2026-02-08 22:03:49,050][INFO    ][MainProcess] ✅ Loaded 0 sector classifier models for 0 sectors (root:1061)
+[2026-02-08 22:03:49,149][INFO    ][MainProcess] ✅ Loaded 4 classification models (root:1018)
+[2026-02-08 22:03:49,225][INFO    ][MainProcess] ✅ Loaded 2 regression models (root:1029)
+[2026-02-08 22:03:49,227][INFO    ][MainProcess] ================================================================================ (root:4051)
+[2026-02-08 22:03:49,227][INFO    ][MainProcess] 📂 LOADED THRESHOLD CONFIG (root:4052)
+[2026-02-08 22:03:49,227][INFO    ][MainProcess] ================================================================================ (root:4053)
+[2026-02-08 22:03:49,227][INFO    ][MainProcess]    Percentile: 98 (root:4054)
+[2026-02-08 22:03:49,227][INFO    ][MainProcess]    Threshold value: 0.209 (root:4055)
+[2026-02-08 22:03:49,228][INFO    ][MainProcess]    Precision: 0.495 (root:4057)
+[2026-02-08 22:03:49,228][INFO    ][MainProcess]    Selected stocks: 4,463 (root:4058)
+[2026-02-08 22:03:49,228][INFO    ][MainProcess] ================================================================================ (root:4059)
+[2026-02-08 22:03:49,228][INFO    ][MainProcess]  (root:4060)
+[2026-02-08 22:03:49,240][INFO    ][MainProcess] Latest year detected: 2025 (root:4570)
+[2026-02-08 22:03:52,223][INFO    ][MainProcess] Loaded 2025 data: 17041 rows from quarters ['Q1', 'Q2', 'Q3', 'Q4'] (root:203)
+[2026-02-08 22:03:53,416][INFO    ][MainProcess]   After deduplication: 6009 unique symbols (root:4591)
+[2026-02-08 22:03:53,662][INFO    ][MainProcess] ✅ Sector categorization applied (root:2852)
+[2026-02-08 22:03:53,663][INFO    ][MainProcess]    Categories defined: ['Financial', 'Technology', 'Defensive', 'Cyclical', 'Others'] (root:2853)
+[2026-02-08 22:03:53,665][INFO    ][MainProcess]    Financial: 1751 samples (root:2858)
+[2026-02-08 22:03:53,665][INFO    ][MainProcess]    Cyclical: 1688 samples (root:2858)
+[2026-02-08 22:03:53,665][INFO    ][MainProcess]    Defensive: 1468 samples (root:2858)
+[2026-02-08 22:03:53,666][INFO    ][MainProcess]    Technology: 1007 samples (root:2858)
+[2026-02-08 22:03:53,666][INFO    ][MainProcess]    Others: 95 samples (root:2858)
+[2026-02-08 22:03:53,716][INFO    ][MainProcess]    'Others' category includes: ['Conglomerates', None] (root:2863)
+[2026-02-08 22:03:53,720][INFO    ][MainProcess]   Found 5 valid sectors: ['Technology', 'Cyclical', 'Defensive', 'Financial', 'Others'] (root:4640)
+[2026-02-08 22:03:53,720][INFO    ][MainProcess] before dtable len : 6009 (Regressor:4644)
+[2026-02-08 22:03:54,485][INFO    ][MainProcess] Removed 4 rows with >60% NaN (6005/6009 rows remaining) (root:2335)
+[2026-02-08 22:03:54,551][INFO    ][MainProcess] after dtable len : 6005 (Regressor:4646)
+[2026-02-08 22:03:54,845][INFO    ][MainProcess] ✅ Loaded 1000 train feature columns (root:4681)
+[2026-02-08 22:03:54,846][INFO    ][MainProcess]    Latest prediction data has 4760 features (root:4682)
+[2026-02-08 22:03:54,847][WARNING ][MainProcess]    ⚠️  932 features missing in prediction data, filling with NaN (root:4687)
+[2026-02-08 22:03:54,848][WARNING ][MainProcess]       - evToSales_agg_linear_trend_attr_intercept_chunk_len_5_f_agg_var_ts (root:4693)
+[2026-02-08 22:03:54,848][WARNING ][MainProcess]       - roe_c3_lag_2_ts (root:4693)
+[2026-02-08 22:03:54,848][WARNING ][MainProcess]       - shareholdersEquityPerShare_agg_linear_trend_attr_slope_chunk_len_10_f_agg_max_ts (root:4693)
+[2026-02-08 22:03:54,849][WARNING ][MainProcess]       - evToSales_ratio_beyond_r_sigma_r_1_5_ts (root:4693)
+[2026-02-08 22:03:54,849][WARNING ][MainProcess]       - pfcfRatio_friedrich_coefficients_coeff_1_m_3_r_30_ts (root:4693)
+[2026-02-08 22:03:54,849][WARNING ][MainProcess]       - roic_lempel_ziv_complexity_bins_5_ts (root:4693)
+[2026-02-08 22:03:54,849][WARNING ][MainProcess]       - cashPerShare_linear_trend_attr_pvalue_ts (root:4693)
+[2026-02-08 22:03:54,849][WARNING ][MainProcess]       - interestDebtPerShare_friedrich_coefficients_coeff_3_m_3_r_30_ts (root:4693)
+[2026-02-08 22:03:54,850][WARNING ][MainProcess]       - freeCashFlowPerShare_agg_linear_trend_attr_rvalue_chunk_len_5_f_agg_mean_ts (root:4693)
+[2026-02-08 22:03:54,850][WARNING ][MainProcess]       - freeCashFlowPerShare_percentage_of_reoccurring_datapoints_to_all_datapoints_ts (root:4693)
+[2026-02-08 22:03:54,850][WARNING ][MainProcess]       ... and 922 more (root:4694)
+[2026-02-08 22:03:55,255][INFO    ][MainProcess]    Removing 4692 extra features from prediction data (root:4701)
+[2026-02-08 22:03:55,256][INFO    ][MainProcess]       - peRatio_ratio_beyond_r_sigma_r_2_ts_ (root:4707)
+[2026-02-08 22:03:55,256][INFO    ][MainProcess]       - enterpriseValueOverEBITDA_energy_ratio_by_chunks_num_segments_10_segment_focus_5_ts_ (root:4707)
+[2026-02-08 22:03:55,256][INFO    ][MainProcess]       - OverMC_evToOperatingCashFlow (root:4707)
+[2026-02-08 22:03:55,256][INFO    ][MainProcess]       - ptbRatio_energy_ratio_by_chunks_num_segments_10_segment_focus_4_ts_ (root:4707)
+[2026-02-08 22:03:55,257][INFO    ][MainProcess]       - currentRatio_spkt_welch_density_coeff_2_ts_ (root:4707)
+[2026-02-08 22:03:55,257][INFO    ][MainProcess]       - dividendsperShareGrowth_agg_linear_trend_attr_intercept_chunk_len_5_f_agg_mean_ts_ (root:4707)
+[2026-02-08 22:03:55,257][INFO    ][MainProcess]       - netDebtToEBITDA_binned_entropy_max_bins_10_ts_ (root:4707)
+[2026-02-08 22:03:55,257][INFO    ][MainProcess]       - peRatio_c3_lag_3_ts_ (root:4707)
+[2026-02-08 22:03:55,257][INFO    ][MainProcess]       - bookValuePerShare_ratio_beyond_r_sigma_r_1_ts_ (root:4707)
+[2026-02-08 22:03:55,258][INFO    ][MainProcess]       - roe_variance_ts_ (root:4707)
+[2026-02-08 22:03:55,258][INFO    ][MainProcess]       ... and 4682 more (root:4708)
+[2026-02-08 22:03:55,332][INFO    ][MainProcess]    ✅ Feature alignment complete: 1000 features (root:4713)
+[2026-02-08 22:03:55,788][INFO    ][MainProcess] Winsorized 68 columns (percentiles: 1.0-99.0%) (root:2065)
+[2026-02-08 22:03:55,790][INFO    ][MainProcess]    ✅ Winsorization applied to latest prediction data (root:4730)
+[2026-02-08 22:03:55,790][INFO    ][MainProcess] classification model # 0 (root:4737)
+[2026-02-08 22:03:55,874][WARNING ][MainProcess] C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\xgboost\core.py:774: UserWarning: [22:03:55] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\common\error_msg.cc:62: Falling back to prediction using DMatrix due to mismatched devices. This might lead to higher memory usage and slower performance. XGBoost is running on: cpu, while the input data is on: cuda:0.
+Potential solutions:
+- Use a data structure that matches the device ordinal in the booster.
+- Set the device for booster before call to inplace_predict.
+
+This warning will only be shown once.
+
+  return func(**kwargs)
+ (py.warnings:109)
+[2026-02-08 22:03:56,325][WARNING ][MainProcess] GPU prediction failed, using CPU fallback: CuPy failed to load nvrtc64_112_0.dll: FileNotFoundError: Could not find module 'nvrtc64_112_0.dll' (or one of its dependencies). Try using the full path with constructor syntax. (root:265)
+[2026-02-08 22:03:56,405][INFO    ][MainProcess] 20% positive threshold == 0.08462249279022217 (root:4744)
+[2026-02-08 22:03:56,406][INFO    ][MainProcess] classification model # 1 (root:4737)
+[2026-02-08 22:03:56,493][WARNING ][MainProcess] GPU prediction failed, using CPU fallback: CuPy failed to load nvrtc64_112_0.dll: FileNotFoundError: Could not find module 'nvrtc64_112_0.dll' (or one of its dependencies). Try using the full path with constructor syntax. (root:265)
+[2026-02-08 22:03:56,550][INFO    ][MainProcess] 20% positive threshold == 5.801568986498753e-05 (root:4744)
+[2026-02-08 22:03:56,551][INFO    ][MainProcess] classification model # 2 (root:4737)
+[2026-02-08 22:03:56,711][WARNING ][MainProcess] GPU prediction failed, using CPU fallback: CuPy failed to load nvrtc64_112_0.dll: FileNotFoundError: Could not find module 'nvrtc64_112_0.dll' (or one of its dependencies). Try using the full path with constructor syntax. (root:265)
+[2026-02-08 22:03:56,758][INFO    ][MainProcess] 20% positive threshold == 0.00010170559369726106 (root:4744)
+[2026-02-08 22:03:56,760][INFO    ][MainProcess] classification model # 3 (root:4737)
+[2026-02-08 22:03:56,788][WARNING ][MainProcess] C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\sklearn\utils\validation.py:2749: UserWarning: X does not have valid feature names, but LGBMClassifier was fitted with feature names
+  warnings.warn(
+ (py.warnings:109)
+[2026-02-08 22:03:56,790][WARNING ][MainProcess] GPU prediction failed, using CPU fallback: Implicit conversion to a NumPy array is not allowed. Please use `.get()` to construct a NumPy array explicitly. (root:265)
+[2026-02-08 22:03:59,064][INFO    ][MainProcess] 20% positive threshold == 0.008648287260782898 (root:4744)
+[2026-02-08 22:04:24,013][INFO    ][MainProcess] top0 ~ 19 (root:4781)
+[2026-02-08 22:04:27,072][INFO    ][MainProcess] ✅ Loaded 10 sector regressor models for 5 sectors (root:1043)
+[2026-02-08 22:04:27,382][INFO    ][MainProcess] ✅ Loaded 20 sector classifier models for 5 sectors (root:1061)
+[2026-02-08 22:04:27,447][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:27,447][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:27,448][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:27,449][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:27,450][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:27,450][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:28,200][INFO    ][MainProcess] Winsorized 68 columns (percentiles: 1.0-99.0%) (root:2065)
+[2026-02-08 22:04:32,599][INFO    ][MainProcess] top0 ~ 19 (root:4848)
+[2026-02-08 22:04:32,989][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:32,990][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:32,991][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:32,991][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:32,992][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:32,992][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:33,751][INFO    ][MainProcess] Winsorized 68 columns (percentiles: 1.0-99.0%) (root:2065)
+[2026-02-08 22:04:40,798][INFO    ][MainProcess] top0 ~ 19 (root:4848)
+[2026-02-08 22:04:41,216][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:41,216][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:41,218][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:41,218][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:41,219][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:41,220][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:41,972][INFO    ][MainProcess] Winsorized 68 columns (percentiles: 1.0-99.0%) (root:2065)
+[2026-02-08 22:04:48,093][INFO    ][MainProcess] top0 ~ 19 (root:4848)
+[2026-02-08 22:04:48,505][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:48,506][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:48,507][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:48,507][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:48,508][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:48,509][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:49,264][INFO    ][MainProcess] Winsorized 68 columns (percentiles: 1.0-99.0%) (root:2065)
+[2026-02-08 22:04:56,703][INFO    ][MainProcess] top0 ~ 19 (root:4848)
+[2026-02-08 22:04:57,059][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:57,060][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:57,061][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:57,062][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:57,063][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:57,063][WARNING ][MainProcess] C:\Users\jsy9k\PycharmProjects\Quant\src\training\data_processor.py:404: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
+ (py.warnings:109)
+[2026-02-08 22:04:57,789][INFO    ][MainProcess] Winsorized 68 columns (percentiles: 1.0-99.0%) (root:2065)
+[2026-02-08 22:04:58,301][INFO    ][MainProcess] top0 ~ 19 (root:4848)
+[2026-02-08 22:04:58,686][INFO    ][MainProcess] ✅ ML pipeline completed (main:561)
+[2026-02-08 22:04:58,716][INFO    ][MainProcess] ================================================================================ (main:584)
+[2026-02-08 22:04:58,717][INFO    ][MainProcess] Step 3: ML Walk-Forward Backtesting (main:585)
+[2026-02-08 22:04:58,717][INFO    ][MainProcess] ================================================================================ (main:586)
+[2026-02-08 22:04:58,717][INFO    ][MainProcess]   Rebalance period: 3 months (main:592)
+[2026-02-08 22:04:58,717][INFO    ][MainProcess]   Top K: 10 (main:593)
+[2026-02-08 22:04:58,718][INFO    ][MainProcess] ✅ Loaded predictions cache: data_parquet\MODELS\regressor_predictions.pkl (MLBacktest:93)
+[2026-02-08 22:04:58,719][INFO    ][MainProcess]    Available periods: 0 (MLBacktest:94)
+[2026-02-08 22:04:58,719][INFO    ][MainProcess]    Dates: [] (MLBacktest:95)
+[2026-02-08 22:04:58,719][INFO    ][MainProcess] 💰 Trading costs enabled: commission=0.10%, slippage=0.10%, total=0.40%/trade (MLBacktest:116)
+[2026-02-08 22:04:58,807][INFO    ][MainProcess] 📋 Loaded 3571 delisted companies for verification (MLBacktest:163)
+[2026-02-08 22:04:58,808][INFO    ][MainProcess] Starting ML walk-forward backtest... (main:603)
+[2026-02-08 22:04:58,808][INFO    ][MainProcess] ================================================================================ (MLBacktest:589)
+[2026-02-08 22:04:58,808][INFO    ][MainProcess] ML Walk-Forward Backtest Starting (cache-based) (MLBacktest:590)
+[2026-02-08 22:04:58,808][INFO    ][MainProcess] ================================================================================ (MLBacktest:591)
+[2026-02-08 22:04:58,809][INFO    ][MainProcess] Rebalance period: 3 months (MLBacktest:592)
+[2026-02-08 22:04:58,809][INFO    ][MainProcess] Top K: 10 (MLBacktest:593)
+[2026-02-08 22:04:58,809][INFO    ][MainProcess] Cache periods: 0 (MLBacktest:594)
+[2026-02-08 22:05:00,191][INFO    ][MainProcess] 📅 Multiple backtest periods configured: 1 periods (MLBacktest:628)
+[2026-02-08 22:05:00,192][INFO    ][MainProcess]    Config source: EVALUATION.PERIODS (MLBacktest:630)
+[2026-02-08 22:05:00,192][INFO    ][MainProcess]   Period 1: 2024/1/1 ~ 2025/12/31 (MLBacktest:652)
+[2026-02-08 22:05:00,192][INFO    ][MainProcess] 
+📅 Adjusting rebalance dates to actual trading days... (MLBacktest:714)
+[2026-02-08 22:05:00,452][INFO    ][MainProcess]       [DEBUG] Checking dates around 2024-01-01 (direction: future): (root:2752)
+[2026-02-08 22:05:00,454][INFO    ][MainProcess]       [DEBUG]   2024-01-01:    1 stocks ✗ - samples: ['AITRR'] (root:2758)
+[2026-02-08 22:05:00,456][INFO    ][MainProcess]       [DEBUG]   2024-01-02: 6771 stocks ✓ - samples: ['AACG', 'AACI', 'AACT', 'AADI', 'AAGRW'] (root:2758)
+[2026-02-08 22:05:00,459][INFO    ][MainProcess]       [DEBUG]   2024-01-03: 6760 stocks ✓ - samples: ['AACG', 'AACIW', 'AACI', 'AACT', 'AADI'] (root:2758)
+[2026-02-08 22:05:00,460][INFO    ][MainProcess]       [DEBUG]   2024-01-04: 6772 stocks ✓ - samples: ['AACG', 'AACI', 'AACT', 'AADI', 'AAGRW'] (root:2758)
+[2026-02-08 22:05:00,461][INFO    ][MainProcess]       [DEBUG]   2024-01-05: 6754 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAGRW', 'AAIN'] (root:2758)
+[2026-02-08 22:05:00,462][INFO    ][MainProcess]    2024-01-01 → 2024-01-02 (adjusted to nearest trading day) (MLBacktest:732)
+[2026-02-08 22:05:00,694][INFO    ][MainProcess]       [DEBUG] Checking dates around 2024-04-01 (direction: future): (root:2752)
+[2026-02-08 22:05:00,696][INFO    ][MainProcess]       [DEBUG]   2024-04-01: 6634 stocks ✓ - samples: ['AACG', 'AACIW', 'AACI', 'AACT', 'AADI'] (root:2758)
+[2026-02-08 22:05:00,697][INFO    ][MainProcess]       [DEBUG]   2024-04-02: 6557 stocks ✓ - samples: ['AACG', 'AACI', 'AACT', 'AADI', 'AAGRW'] (root:2758)
+[2026-02-08 22:05:00,701][INFO    ][MainProcess]       [DEBUG]   2024-04-03: 6717 stocks ✓ - samples: ['AACG', 'AACIW', 'AACI', 'AACT', 'AADI'] (root:2758)
+[2026-02-08 22:05:00,703][INFO    ][MainProcess]       [DEBUG]   2024-04-04: 6754 stocks ✓ - samples: ['AACG', 'AACIU', 'AACIW', 'AACI', 'AACT'] (root:2758)
+[2026-02-08 22:05:00,704][INFO    ][MainProcess]       [DEBUG]   2024-04-05: 6549 stocks ✓ - samples: ['AACG', 'AACIU', 'AACIW', 'AACI', 'AACT'] (root:2758)
+[2026-02-08 22:05:00,705][INFO    ][MainProcess]    2024-04-01 (already a trading day) (MLBacktest:737)
+[2026-02-08 22:05:00,930][INFO    ][MainProcess]       [DEBUG] Checking dates around 2024-07-01 (direction: future): (root:2752)
+[2026-02-08 22:05:00,933][INFO    ][MainProcess]       [DEBUG]   2024-07-01: 6408 stocks ✓ - samples: ['AACG', 'AACIW', 'AACT', 'AADI', 'AAGRW'] (root:2758)
+[2026-02-08 22:05:00,934][INFO    ][MainProcess]       [DEBUG]   2024-07-02: 6432 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAGRW', 'AAL'] (root:2758)
+[2026-02-08 22:05:00,936][INFO    ][MainProcess]       [DEBUG]   2024-07-03: 6325 stocks ✓ - samples: ['AACG', 'AACI', 'AACT', 'AADI', 'AAGRW'] (root:2758)
+[2026-02-08 22:05:00,936][INFO    ][MainProcess]       [DEBUG]   2024-07-04:    1 stocks ✗ - samples: ['RFAIR'] (root:2758)
+[2026-02-08 22:05:00,938][INFO    ][MainProcess]       [DEBUG]   2024-07-05: 6384 stocks ✓ - samples: ['AACG', 'AACI', 'AACT', 'AADI', 'AAGRW'] (root:2758)
+[2026-02-08 22:05:00,938][INFO    ][MainProcess]    2024-07-01 (already a trading day) (MLBacktest:737)
+[2026-02-08 22:05:01,165][INFO    ][MainProcess]       [DEBUG] Checking dates around 2024-10-01 (direction: future): (root:2752)
+[2026-02-08 22:05:01,168][INFO    ][MainProcess]       [DEBUG]   2024-10-01: 6507 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAL', 'AAM-UN'] (root:2758)
+[2026-02-08 22:05:01,170][INFO    ][MainProcess]       [DEBUG]   2024-10-02: 6501 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAGRW', 'AAL'] (root:2758)
+[2026-02-08 22:05:01,172][INFO    ][MainProcess]       [DEBUG]   2024-10-03: 6494 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAL', 'AAME'] (root:2758)
+[2026-02-08 22:05:01,175][INFO    ][MainProcess]       [DEBUG]   2024-10-04: 6495 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAGRW', 'AAL'] (root:2758)
+[2026-02-08 22:05:01,176][INFO    ][MainProcess]       [DEBUG]   2024-10-07: 6503 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAL', 'AAM-UN'] (root:2758)
+[2026-02-08 22:05:01,177][INFO    ][MainProcess]    2024-10-01 (already a trading day) (MLBacktest:737)
+[2026-02-08 22:05:01,400][INFO    ][MainProcess]       [DEBUG] Checking dates around 2025-01-01 (direction: future): (root:2752)
+[2026-02-08 22:05:01,401][INFO    ][MainProcess]       [DEBUG]   2025-01-01:    4 stocks ✗ - samples: ['AEAXX', 'NSTB', 'NSTC', 'NSTD'] (root:2758)
+[2026-02-08 22:05:01,403][INFO    ][MainProcess]       [DEBUG]   2025-01-02: 6503 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAL', 'AAME'] (root:2758)
+[2026-02-08 22:05:01,405][INFO    ][MainProcess]       [DEBUG]   2025-01-03: 6500 stocks ✓ - samples: ['AACG', 'AACT', 'AADI', 'AAL', 'AAME'] (root:2758)
+[2026-02-08 22:05:01,406][INFO    ][MainProcess]       [DEBUG]   2025-01-04:    1 stocks ✗ - samples: ['AEAXX'] (root:2758)
+[2026-02-08 22:05:01,407][INFO    ][MainProcess]       [DEBUG]   2025-01-05:    1 stocks ✗ - samples: ['AEAXX'] (root:2758)
+[2026-02-08 22:05:01,407][INFO    ][MainProcess]    2025-01-01 → 2025-01-02 (adjusted to nearest trading day) (MLBacktest:732)
+[2026-02-08 22:05:01,638][INFO    ][MainProcess]       [DEBUG] Checking dates around 2025-04-01 (direction: future): (root:2752)
+[2026-02-08 22:05:01,642][INFO    ][MainProcess]       [DEBUG]   2025-04-01: 6378 stocks ✓ - samples: ['AACBU', 'AACG', 'AACT', 'AADI', 'AAL'] (root:2758)
+[2026-02-08 22:05:01,644][INFO    ][MainProcess]       [DEBUG]   2025-04-02: 6337 stocks ✓ - samples: ['AACBU', 'AACG', 'AACT', 'AADI', 'AAL'] (root:2758)
+[2026-02-08 22:05:01,646][INFO    ][MainProcess]       [DEBUG]   2025-04-03: 6362 stocks ✓ - samples: ['AACBU', 'AACG', 'AACT', 'AADI', 'AAL'] (root:2758)
+[2026-02-08 22:05:01,648][INFO    ][MainProcess]       [DEBUG]   2025-04-04: 6364 stocks ✓ - samples: ['AACBU', 'AACG', 'AACT', 'AADI', 'AAL'] (root:2758)
+[2026-02-08 22:05:01,649][INFO    ][MainProcess]       [DEBUG]   2025-04-07: 6366 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACG', 'AACT', 'AADI'] (root:2758)
+[2026-02-08 22:05:01,649][INFO    ][MainProcess]    2025-04-01 (already a trading day) (MLBacktest:737)
+[2026-02-08 22:05:01,871][INFO    ][MainProcess]       [DEBUG] Checking dates around 2025-07-01 (direction: future): (root:2752)
+[2026-02-08 22:05:01,874][INFO    ][MainProcess]       [DEBUG]   2025-07-01: 6534 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:05:01,876][INFO    ][MainProcess]       [DEBUG]   2025-07-02: 6528 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:05:01,878][INFO    ][MainProcess]       [DEBUG]   2025-07-03: 6495 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:05:01,879][INFO    ][MainProcess]       [DEBUG]   2025-07-07: 6546 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:05:01,881][INFO    ][MainProcess]       [DEBUG]   2025-07-08: 6535 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:05:01,882][INFO    ][MainProcess]    2025-07-01 (already a trading day) (MLBacktest:737)
+[2026-02-08 22:05:02,107][INFO    ][MainProcess]       [DEBUG] Checking dates around 2025-10-01 (direction: future): (root:2752)
+[2026-02-08 22:05:02,109][INFO    ][MainProcess]       [DEBUG]   2025-10-01: 6482 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:05:02,110][INFO    ][MainProcess]       [DEBUG]   2025-10-02: 6485 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:05:02,113][INFO    ][MainProcess]       [DEBUG]   2025-10-03: 6479 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:05:02,114][INFO    ][MainProcess]       [DEBUG]   2025-10-06: 6485 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:05:02,116][INFO    ][MainProcess]       [DEBUG]   2025-10-07: 6489 stocks ✓ - samples: ['AACBR', 'AACBU', 'AACB', 'AACG', 'AACIU'] (root:2758)
+[2026-02-08 22:05:02,117][INFO    ][MainProcess]    2025-10-01 (already a trading day) (MLBacktest:737)
+[2026-02-08 22:05:02,117][INFO    ][MainProcess] 
+📅 Rebalance dates after adjustment: 8 (MLBacktest:744)
+[2026-02-08 22:05:02,117][INFO    ][MainProcess]    2024-01-01 → 2024-01-02 (MLBacktest:747)
+[2026-02-08 22:05:02,117][INFO    ][MainProcess]    2024-04-01 (MLBacktest:749)
+[2026-02-08 22:05:02,117][INFO    ][MainProcess]    2024-07-01 (MLBacktest:749)
+[2026-02-08 22:05:02,118][INFO    ][MainProcess]    2024-10-01 (MLBacktest:749)
+[2026-02-08 22:05:02,118][INFO    ][MainProcess]    2025-01-01 → 2025-01-02 (MLBacktest:747)
+[2026-02-08 22:05:02,118][INFO    ][MainProcess]    2025-04-01 (MLBacktest:749)
+[2026-02-08 22:05:02,118][INFO    ][MainProcess]    2025-07-01 (MLBacktest:749)
+[2026-02-08 22:05:02,118][INFO    ][MainProcess]    2025-10-01 (MLBacktest:749)
+[2026-02-08 22:05:02,119][INFO    ][MainProcess] 
+================================================================================ (MLBacktest:757)
+[2026-02-08 22:05:02,119][INFO    ][MainProcess] Rebalance #1: 2024-01-01 (actual: 2024-01-02) (MLBacktest:758)
+[2026-02-08 22:05:02,119][INFO    ][MainProcess] ================================================================================ (MLBacktest:759)
+[2026-02-08 22:05:02,119][WARNING ][MainProcess] ⚠️ Cache miss for 2024-01-02, skipping this period (MLBacktest:765)
+[2026-02-08 22:05:02,119][INFO    ][MainProcess] 
+================================================================================ (MLBacktest:757)
+[2026-02-08 22:05:02,120][INFO    ][MainProcess] Rebalance #2: 2024-04-01 (actual: 2024-04-01) (MLBacktest:758)
+[2026-02-08 22:05:02,120][INFO    ][MainProcess] ================================================================================ (MLBacktest:759)
+[2026-02-08 22:05:02,120][WARNING ][MainProcess] ⚠️ Cache miss for 2024-04-01, skipping this period (MLBacktest:765)
+[2026-02-08 22:05:02,120][INFO    ][MainProcess] 
+================================================================================ (MLBacktest:757)
+[2026-02-08 22:05:02,120][INFO    ][MainProcess] Rebalance #3: 2024-07-01 (actual: 2024-07-01) (MLBacktest:758)
+[2026-02-08 22:05:02,120][INFO    ][MainProcess] ================================================================================ (MLBacktest:759)
+[2026-02-08 22:05:02,120][WARNING ][MainProcess] ⚠️ Cache miss for 2024-07-01, skipping this period (MLBacktest:765)
+[2026-02-08 22:05:02,121][INFO    ][MainProcess] 
+================================================================================ (MLBacktest:757)
+[2026-02-08 22:05:02,121][INFO    ][MainProcess] Rebalance #4: 2024-10-01 (actual: 2024-10-01) (MLBacktest:758)
+[2026-02-08 22:05:02,121][INFO    ][MainProcess] ================================================================================ (MLBacktest:759)
+[2026-02-08 22:05:02,121][WARNING ][MainProcess] ⚠️ Cache miss for 2024-10-01, skipping this period (MLBacktest:765)
+[2026-02-08 22:05:02,121][INFO    ][MainProcess] 
+================================================================================ (MLBacktest:757)
+[2026-02-08 22:05:02,121][INFO    ][MainProcess] Rebalance #5: 2025-01-01 (actual: 2025-01-02) (MLBacktest:758)
+[2026-02-08 22:05:02,122][INFO    ][MainProcess] ================================================================================ (MLBacktest:759)
+[2026-02-08 22:05:02,122][WARNING ][MainProcess] ⚠️ Cache miss for 2025-01-02, skipping this period (MLBacktest:765)
+[2026-02-08 22:05:02,122][INFO    ][MainProcess] 
+================================================================================ (MLBacktest:757)
+[2026-02-08 22:05:02,122][INFO    ][MainProcess] Rebalance #6: 2025-04-01 (actual: 2025-04-01) (MLBacktest:758)
+[2026-02-08 22:05:02,122][INFO    ][MainProcess] ================================================================================ (MLBacktest:759)
+[2026-02-08 22:05:02,122][WARNING ][MainProcess] ⚠️ Cache miss for 2025-04-01, skipping this period (MLBacktest:765)
+[2026-02-08 22:05:02,122][INFO    ][MainProcess] 
+================================================================================ (MLBacktest:757)
+[2026-02-08 22:05:02,123][INFO    ][MainProcess] Rebalance #7: 2025-07-01 (actual: 2025-07-01) (MLBacktest:758)
+[2026-02-08 22:05:02,123][INFO    ][MainProcess] ================================================================================ (MLBacktest:759)
+[2026-02-08 22:05:02,123][WARNING ][MainProcess] ⚠️ Cache miss for 2025-07-01, skipping this period (MLBacktest:765)
+[2026-02-08 22:05:02,123][INFO    ][MainProcess] 
+================================================================================ (MLBacktest:757)
+[2026-02-08 22:05:02,123][INFO    ][MainProcess] Rebalance #8: 2025-10-01 (actual: 2025-10-01) (MLBacktest:758)
+[2026-02-08 22:05:02,123][INFO    ][MainProcess] ================================================================================ (MLBacktest:759)
+[2026-02-08 22:05:02,124][WARNING ][MainProcess] ⚠️ Cache miss for 2025-10-01, skipping this period (MLBacktest:765)
+[2026-02-08 22:05:02,124][INFO    ][MainProcess] 
+================================================================================ (MLBacktest:920)
+[2026-02-08 22:05:02,125][INFO    ][MainProcess] BACKTEST SUMMARY (MLBacktest:921)
+[2026-02-08 22:05:02,125][INFO    ][MainProcess] ================================================================================ (MLBacktest:922)
+[2026-02-08 22:05:02,125][ERROR   ][MainProcess] 
+
+❌ Fatal error: 'avg_return'
+Traceback (most recent call last):
+  File "C:\Users\jsy9k\PycharmProjects\Quant\main.py", line 799, in <module>
+    main()
+  File "C:\Users\jsy9k\PycharmProjects\Quant\main.py", line 786, in main
+    backtest_results = _run_backtest(config, main_ctx, logger)
+  File "C:\Users\jsy9k\PycharmProjects\Quant\main.py", line 604, in _run_backtest
+    results = ml_backtest.run()
+  File "C:\Users\jsy9k\PycharmProjects\Quant\src\backtest\ml_backtest.py", line 610, in run
+    results_df, benchmark_df = self._compile_results_and_benchmark(date_pairs, price_table)
+  File "C:\Users\jsy9k\PycharmProjects\Quant\src\backtest\ml_backtest.py", line 829, in _compile_results_and_benchmark
+    self._print_summary(results_df)
+  File "C:\Users\jsy9k\PycharmProjects\Quant\src\backtest\ml_backtest.py", line 924, in _print_summary
+    total_return = (1 + results['avg_return']).prod() - 1
+  File "C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\pandas\core\frame.py", line 4113, in __getitem__
+    indexer = self.columns.get_loc(key)
+  File "C:\Users\jsy9k\AppData\Local\Programs\Python\Python310\lib\site-packages\pandas\core\indexes\range.py", line 417, in get_loc
+    raise KeyError(key)
+KeyError: 'avg_return' (main:806)

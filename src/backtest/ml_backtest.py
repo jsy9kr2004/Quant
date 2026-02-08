@@ -758,8 +758,8 @@ class MLBacktest:
             self.logger.info(f"Rebalance #{i+1}: {original_rebalance_date.date()} (actual: {actual_rebalance_date.date()})")
             self.logger.info(f"{'='*80}")
 
-            # 1. 캐시에서 예측 로드
-            cache_key = actual_rebalance_date.strftime('%Y-%m-%d')
+            # 1. 캐시에서 예측 로드 (regressor.py는 원본 cutoff_date를 키로 사용)
+            cache_key = original_rebalance_date.strftime('%Y-%m-%d')
 
             if cache_key not in self.predictions_cache:
                 self.logger.warning(f"⚠️ Cache miss for {cache_key}, skipping this period")
@@ -826,7 +826,10 @@ class MLBacktest:
         """백테스트 결과 집계 및 벤치마크 계산"""
         # 7. 최종 리포트
         results_df = pd.DataFrame(self.backtest_results)
-        self._print_summary(results_df)
+        if not results_df.empty:
+            self._print_summary(results_df)
+        else:
+            self.logger.warning("⚠️ No backtest results to summarize (all periods skipped or cache miss)")
 
         # 8. 벤치마크 계산 (전체 백테스트 기간)
         benchmark_df = pd.DataFrame()

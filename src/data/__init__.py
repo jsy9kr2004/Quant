@@ -7,7 +7,7 @@ This package provides a comprehensive suite of tools for:
 
 Main Components:
     FMP: Main data collector for FMP API
-    FMPApi: Low-level API client
+    FMPAPI: Low-level API client
     FetchWorker: Worker for parallel data fetching
     ParquetStorage: Modern storage manager with validation and compression
     DataValidator: Comprehensive data quality validator
@@ -33,14 +33,14 @@ Example:
 """
 
 from .fmp import FMP
-from .fmp_api import FMPApi
+from .fmp_api import FMPAPI
 from .parquet_storage import ParquetStorage
 from .data_validator import DataValidator
 from .parquet_converter import Parquet
 
 __all__ = [
     'FMP',
-    'FMPApi',
+    'FMPAPI',
     'ParquetStorage',
     'DataValidator',
     'Parquet',

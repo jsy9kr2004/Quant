@@ -357,7 +357,7 @@ def train_single_period_remote(
 
         if train_df.empty:
             logging.warning(f"⚠️  No training data for {cache_key}")
-            return cache_key, None
+            return cache_key, None, "No training data"
 
         logging.info(f"✅ Loaded {len(train_df)} training samples")
 
@@ -373,7 +373,7 @@ def train_single_period_remote(
 
         if pred_df.empty:
             logging.warning(f"⚠️  No prediction data for {cache_key}")
-            return cache_key, None
+            return cache_key, None, "No prediction data (rnorm_fs files missing or rebalance_date mismatch)"
 
         logging.info(f"✅ Loaded {len(pred_df)} stocks for prediction")
 
@@ -400,13 +400,14 @@ def train_single_period_remote(
 
         logging.info(f"✅ Top-{top_k}: {cache_entry['top_k_selected']}")
 
-        return cache_key, cache_entry
+        return cache_key, cache_entry, None
 
     except Exception as e:
         logging.error(f"❌ Error processing period {cache_key}: {e}")
         import traceback
-        traceback.print_exc()
-        return cache_key, None
+        error_tb = traceback.format_exc()
+        logging.error(error_tb)
+        return cache_key, None, str(e)
 
 
 # ==============================================================================
@@ -446,15 +447,79 @@ def _load_data_until_cutoff_standalone(root_path: str, train_start_year: int, cu
     return combined_df
 
 
+def _find_nearest_rebalance_date(unique_dates, cutoff_date, max_days=10):
+    """
+    Find the nearest rebalance_date to cutoff_date within max_days window.
+
+    make_mldata.py converts calendar dates to actual trading dates via
+    DataProcessor.get_trade_date(), so parquet files contain trading dates
+    (e.g., 2024-01-02) not calendar dates (e.g., 2024-01-01).
+    This function bridges that gap by finding the nearest match.
+
+    Direction preference (matches DataProcessor.get_trade_date logic):
+    - Month start (day <= 15): prefer FORWARD (nearest future date)
+    - Month end (day > 15): prefer BACKWARD (nearest past date)
+
+    Parameters
+    ----------
+    unique_dates : array-like
+        Available rebalance_dates in the data file
+    cutoff_date : datetime
+        Calendar cutoff date to match
+    max_days : int
+        Maximum days of tolerance for matching (default: 10)
+
+    Returns
+    -------
+    pd.Timestamp or None
+        Nearest matching rebalance_date, or None if no match within window
+    """
+    cutoff_ts = pd.Timestamp(cutoff_date)
+    is_month_start = cutoff_ts.day <= 15
+
+    best_date = None
+    best_delta = pd.Timedelta(days=max_days + 1)
+
+    for d in unique_dates:
+        d_ts = pd.Timestamp(d)
+        delta = d_ts - cutoff_ts  # signed difference
+        abs_delta = abs(delta)
+
+        if abs_delta > pd.Timedelta(days=max_days):
+            continue
+
+        # Direction preference: month start → forward, month end → backward
+        if is_month_start:
+            # Prefer future dates (delta >= 0), but accept past if closer
+            if delta >= pd.Timedelta(0):
+                priority_delta = abs_delta
+            else:
+                priority_delta = abs_delta + pd.Timedelta(days=max_days)  # penalize backward
+        else:
+            # Prefer past dates (delta <= 0)
+            if delta <= pd.Timedelta(0):
+                priority_delta = abs_delta
+            else:
+                priority_delta = abs_delta + pd.Timedelta(days=max_days)  # penalize forward
+
+        if priority_delta < best_delta:
+            best_delta = priority_delta
+            best_date = d_ts
+
+    return best_date
+
+
 def _load_data_for_prediction_standalone(root_path: str, cutoff_date: datetime.datetime) -> pd.DataFrame:
     """Standalone version of _load_data_for_prediction for Ray workers."""
     year = cutoff_date.year
 
-    # ✅ FIX: Use correct path and file pattern
     ml_data_dir = f"{root_path}/processed/ml_data/per_year"
     # rnorm_fs_ files contain features only (no targets, for prediction)
     file_pattern = f"{ml_data_dir}/rnorm_fs_{year}_Q*.parquet"
     year_files = glob.glob(file_pattern)
+
+    logging.info(f"   🔍 Prediction files pattern: {file_pattern}")
+    logging.info(f"   🔍 Found {len(year_files)} files: {[os.path.basename(f) for f in year_files]}")
 
     pred_data = []
     for file_path in sorted(year_files):
@@ -462,13 +527,27 @@ def _load_data_for_prediction_standalone(root_path: str, cutoff_date: datetime.d
             df = pd.read_parquet(file_path)
             if 'rebalance_date' in df.columns:
                 df['rebalance_date'] = pd.to_datetime(df['rebalance_date'])
-                df = df[df['rebalance_date'] == cutoff_date]
-                if not df.empty:
-                    pred_data.append(df)
+                unique_dates = sorted(df['rebalance_date'].unique())
+                logging.info(f"   🔍 {os.path.basename(file_path)}: {len(df)} rows, rebalance_dates={[str(d)[:10] for d in unique_dates[:5]]}")
+
+                # Trading day adjustment: find nearest rebalance_date to cutoff_date
+                # (make_mldata.py converts calendar dates to trading dates via DataProcessor.get_trade_date())
+                nearest_date = _find_nearest_rebalance_date(unique_dates, cutoff_date)
+                if nearest_date is not None:
+                    if nearest_date != pd.Timestamp(cutoff_date):
+                        logging.info(f"   📅 Trading day adjustment: {cutoff_date} → {nearest_date.strftime('%Y-%m-%d')}")
+                    df = df[df['rebalance_date'] == nearest_date]
+                    if not df.empty:
+                        pred_data.append(df)
+                else:
+                    logging.info(f"   🔍 No match for cutoff_date={cutoff_date} (±10 days) in {os.path.basename(file_path)}")
+            else:
+                logging.warning(f"   ⚠️  No 'rebalance_date' column in {os.path.basename(file_path)}, columns={list(df.columns)[:10]}")
         except Exception as e:
             logging.warning(f"⚠️  Failed to load {file_path}: {e}")
 
     if not pred_data:
+        logging.warning(f"   ⚠️  No prediction data found for cutoff_date={cutoff_date}")
         return pd.DataFrame()
 
     return pd.concat(pred_data, ignore_index=True)
@@ -712,6 +791,7 @@ class Regressor:
             ValueError: ROOT_PATH/processed/ml_data/per_year/에 학습 데이터 디렉토리가 없는 경우
         """
         self.conf = conf
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.x_train: Optional[pd.DataFrame] = None
         self.y_train: Optional[pd.DataFrame] = None
         self.x_test: Optional[pd.DataFrame] = None
@@ -3323,7 +3403,7 @@ class Regressor:
         try:
             # Initialize Ray
             if not ray.is_initialized():
-                ray.init(ignore_reinit_error=True, log_to_driver=False)
+                ray.init(ignore_reinit_error=True, log_to_driver=True)
                 logging.info("✅ Ray initialized")
 
             # Submit all periods as Ray tasks
@@ -3356,12 +3436,20 @@ class Regressor:
 
             # Build predictions cache from results
             self.predictions_cache = {}
-            for cache_key, cache_entry in results:
+            for result in results:
+                if len(result) == 3:
+                    cache_key, cache_entry, error_msg = result
+                else:
+                    cache_key, cache_entry = result[0], result[1]
+                    error_msg = None
                 if cache_entry is not None:
                     self.predictions_cache[cache_key] = cache_entry
                     logging.info(f"✅ Period {cache_key}: {len(cache_entry['top_k_selected'])} stocks selected")
                 else:
-                    logging.warning(f"⚠️  Period {cache_key}: No results (empty data or error)")
+                    if error_msg:
+                        logging.warning(f"⚠️  Period {cache_key}: Failed - {error_msg}")
+                    else:
+                        logging.warning(f"⚠️  Period {cache_key}: No results (empty data or error)")
 
             # Save predictions cache
             eval_config = self.conf.get('EVALUATION', {})
@@ -3468,6 +3556,8 @@ class Regressor:
         Load data for prediction at the specific cutoff_date.
 
         This loads the stocks available at cutoff_date for making predictions.
+        Uses nearest-date matching to handle trading day adjustment
+        (make_mldata.py converts calendar dates to trading dates).
 
         Parameters:
         -----------
@@ -3494,10 +3584,17 @@ class Regressor:
                 df = pd.read_parquet(file_path)
                 if 'rebalance_date' in df.columns:
                     df['rebalance_date'] = pd.to_datetime(df['rebalance_date'])
-                    # Only select stocks at exactly this cutoff_date
-                    df = df[df['rebalance_date'] == cutoff_date]
-                    if not df.empty:
-                        pred_data.append(df)
+                    # Trading day adjustment: find nearest rebalance_date to cutoff_date
+                    # (make_mldata.py converts calendar dates to trading dates via DataProcessor.get_trade_date())
+                    unique_dates = df['rebalance_date'].unique()
+                    nearest_date = _find_nearest_rebalance_date(unique_dates, cutoff_date)
+                    if nearest_date is not None:
+                        if nearest_date != pd.Timestamp(cutoff_date):
+                            logging.info(f"   📅 Trading day adjustment: {cutoff_date} → {nearest_date.strftime('%Y-%m-%d')}")
+                        df = df[df['rebalance_date'] == nearest_date]
+                        if not df.empty:
+                            pred_data.append(df)
+                    # else: no match within ±10 days, skip this file
             except Exception as e:
                 logging.warning(f"⚠️  Failed to load {file_path}: {e}")
 
