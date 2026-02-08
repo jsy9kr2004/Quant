@@ -712,6 +712,7 @@ class Regressor:
             ValueError: ROOT_PATH/processed/ml_data/per_year/에 학습 데이터 디렉토리가 없는 경우
         """
         self.conf = conf
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.x_train: Optional[pd.DataFrame] = None
         self.y_train: Optional[pd.DataFrame] = None
         self.x_test: Optional[pd.DataFrame] = None
