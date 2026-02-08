@@ -10,7 +10,7 @@ import yaml
 import logging
 import json
 from datetime import datetime
-from typing import Dict, Any, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, Any, Optional, Tuple, List, TYPE_CHECKING
 from pathlib import Path
 
 # Google API 라이브러리 (타입 힌트용)
@@ -48,6 +48,33 @@ class SheetsTracker:
 
     # GitHub Gist API URL
     GITHUB_GIST_API = "https://api.github.com/gists"
+
+    @staticmethod
+    def _log_tracking_error(
+        error_message: str,
+        error: Exception,
+        suggestions: List[str],
+    ) -> None:
+        """실험 추적 에러를 일관된 형식으로 로깅합니다.
+
+        Args:
+            error_message: 에러 요약 메시지
+            error: 발생한 예외 객체
+            suggestions: 사용자에게 보여줄 해결 방법 리스트
+        """
+        logger.warning("━" * 60)
+        logger.warning(f"⚠️  EXPERIMENT TRACKING ERROR: {error_message}")
+        if hasattr(error, 'filename'):
+            logger.warning(f"    File: {error.filename}")
+        else:
+            error_str = str(error)
+            if len(error_str) > 200:
+                error_str = error_str[:200] + "..."
+            logger.warning(f"    Error: {error_str}")
+        for suggestion in suggestions:
+            logger.warning(f"    → {suggestion}")
+        logger.warning("    → Continuing without experiment tracking...")
+        logger.warning("━" * 60)
 
     def __init__(self, config: Dict[str, Any]):
         """
@@ -143,65 +170,43 @@ class SheetsTracker:
             logger.info("━" * 60)
 
         except FileNotFoundError as e:
-            # Service account key 파일 없음
-            logger.warning("━" * 60)
-            logger.warning("⚠️  EXPERIMENT TRACKING ERROR: Service account key not found")
-            logger.warning(f"    File: {e.filename}")
             key_path = self.tracking_config.get('GOOGLE_SHEETS', {}).get('KEY_PATH', 'N/A')
-            logger.warning(f"    Expected path: {key_path}")
-            logger.warning("    → Please download the key file and place it in the correct location")
-            logger.warning("    → Continuing without experiment tracking...")
-            logger.warning("━" * 60)
+            self._log_tracking_error(
+                "Service account key not found", e,
+                [f"Expected path: {key_path}",
+                 "Please download the key file and place it in the correct location"],
+            )
 
         except gspread.exceptions.APIError as e:
-            # Google API 에러 (권한, quota, 시트 ID 오류 등)
-            logger.warning("━" * 60)
-            logger.warning("⚠️  EXPERIMENT TRACKING ERROR: Google Sheets API error")
-            logger.warning(f"    Error: {e}")
-            logger.warning("    Possible causes:")
-            logger.warning("    - No permission to access the sheet")
-            logger.warning("    - Invalid SHEET_ID or SHEET_NAME in config")
-            logger.warning("    - API quota exceeded")
-            logger.warning("    → Check your configuration and permissions")
-            logger.warning("    → Continuing without experiment tracking...")
-            logger.warning("━" * 60)
+            self._log_tracking_error(
+                "Google Sheets API error", e,
+                ["Check your configuration and permissions",
+                 "Possible: no permission, invalid SHEET_ID/SHEET_NAME, or API quota exceeded"],
+            )
 
         except requests.exceptions.ConnectionError as e:
-            # 인터넷 연결 끊김
-            logger.warning("━" * 60)
-            logger.warning("⚠️  EXPERIMENT TRACKING ERROR: Network connection failed")
-            logger.warning(f"    Error: {str(e)[:100]}...")
-            logger.warning("    → Check your internet connection")
-            logger.warning("    → Continuing without experiment tracking...")
-            logger.warning("━" * 60)
+            self._log_tracking_error(
+                "Network connection failed", e,
+                ["Check your internet connection"],
+            )
 
         except requests.exceptions.Timeout as e:
-            # 네트워크 타임아웃
-            logger.warning("━" * 60)
-            logger.warning("⚠️  EXPERIMENT TRACKING ERROR: Network timeout")
-            logger.warning(f"    Error: {e}")
-            logger.warning("    → Google API is slow or unreachable")
-            logger.warning("    → Continuing without experiment tracking...")
-            logger.warning("━" * 60)
+            self._log_tracking_error(
+                "Network timeout", e,
+                ["Google API is slow or unreachable"],
+            )
 
         except PermissionError as e:
-            # Drive/Sheet 접근 권한 없음
-            logger.warning("━" * 60)
-            logger.warning("⚠️  EXPERIMENT TRACKING ERROR: Permission denied")
-            logger.warning(f"    Error: {e}")
-            logger.warning("    → Share the sheet/folder with service account email")
-            logger.warning("    → Continuing without experiment tracking...")
-            logger.warning("━" * 60)
+            self._log_tracking_error(
+                "Permission denied", e,
+                ["Share the sheet/folder with service account email"],
+            )
 
         except Exception as e:
-            # 예상 못한 에러
-            logger.warning("━" * 60)
-            logger.warning("⚠️  EXPERIMENT TRACKING ERROR: Unexpected error")
-            logger.warning(f"    Error type: {type(e).__name__}")
-            logger.warning(f"    Error message: {str(e)[:200]}")
-            logger.warning("    → Please report this issue")
-            logger.warning("    → Continuing without experiment tracking...")
-            logger.warning("━" * 60)
+            self._log_tracking_error(
+                f"Unexpected error ({type(e).__name__})", e,
+                ["Please report this issue"],
+            )
 
         # 모든 경우에 정상 종료 (예외 throw 안 함)
 
@@ -232,6 +237,25 @@ class SheetsTracker:
 
         return True, "OK"
 
+    @staticmethod
+    def _run_git_command(args: list, default: str = "unknown") -> str:
+        """Git 명령어를 안전하게 실행하고 결과를 반환합니다.
+
+        Args:
+            args: git 서브커맨드 인자 리스트 (예: ["config", "user.name"])
+            default: 실패 시 반환할 기본값
+
+        Returns:
+            명령어 출력 문자열 또는 default 값
+        """
+        try:
+            return subprocess.check_output(
+                ["git"] + args,
+                stderr=subprocess.DEVNULL
+            ).decode().strip()
+        except Exception:
+            return default
+
     def _get_git_info(self) -> Tuple[str, str, str, str]:
         """
         Git 정보 수집
@@ -239,37 +263,10 @@ class SheetsTracker:
         Returns:
             (git_user, git_email, git_commit, git_branch)
         """
-        try:
-            git_user = subprocess.check_output(
-                ["git", "config", "user.name"],
-                stderr=subprocess.DEVNULL
-            ).decode().strip()
-        except Exception:
-            git_user = "unknown"
-
-        try:
-            git_email = subprocess.check_output(
-                ["git", "config", "user.email"],
-                stderr=subprocess.DEVNULL
-            ).decode().strip()
-        except Exception:
-            git_email = "unknown"
-
-        try:
-            git_commit = subprocess.check_output(
-                ["git", "rev-parse", "--short", "HEAD"],
-                stderr=subprocess.DEVNULL
-            ).decode().strip()
-        except Exception:
-            git_commit = "unknown"
-
-        try:
-            git_branch = subprocess.check_output(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                stderr=subprocess.DEVNULL
-            ).decode().strip()
-        except Exception:
-            git_branch = "unknown"
+        git_user = self._run_git_command(["config", "user.name"])
+        git_email = self._run_git_command(["config", "user.email"])
+        git_commit = self._run_git_command(["rev-parse", "--short", "HEAD"])
+        git_branch = self._run_git_command(["rev-parse", "--abbrev-ref", "HEAD"])
 
         return git_user, git_email, git_commit, git_branch
 

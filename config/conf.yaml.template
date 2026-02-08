@@ -177,6 +177,31 @@ ML:
   USE_CLASSIFIER: Y
 
   # ============================================================================
+  # CatBoost 하이퍼파라미터 (CatBoost Hyperparameters)
+  # ============================================================================
+  # CatBoost 모델의 하이퍼파라미터를 외부에서 제어합니다.
+  # model_factory.py에서 CatBoost 모델 생성 시 사용됩니다.
+  # 섹터별 SECTOR_CONFIG의 learning_rate, max_depth, n_estimators가
+  # 있으면 해당 값이 우선 적용됩니다.
+  CATBOOST_CONFIG:
+    # 공통 설정 (Classifier/Regressor 공통)
+    l2_leaf_reg: 5.0         # L2 정규화 계수
+    rsm: 0.8                 # 컬럼 서브샘플링 비율 (CPU 모드)
+    learning_rate: 0.05      # 학습률
+
+    # Classifier 전용
+    CLASSIFIER:
+      iterations: 800        # 글로벌 Classifier 부스팅 라운드 수
+      depth: 7               # 트리 깊이
+      sector_iterations: 600 # 섹터별 Classifier 부스팅 라운드 수
+
+    # Regressor 전용
+    REGRESSOR:
+      iterations: 1200       # 글로벌 Regressor 부스팅 라운드 수
+      depth: 7               # 트리 깊이
+      sector_iterations: 900 # 섹터별 Regressor 부스팅 라운드 수
+
+  # ============================================================================
   # 분류기 모드 설정 (Classifier Mode Configuration)
   # ============================================================================
   # Classifier의 학습 목표를 정의

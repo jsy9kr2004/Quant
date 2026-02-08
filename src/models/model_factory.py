@@ -127,6 +127,61 @@ class ModelFactory:
 
         return category_configs
 
+    def _build_catboost_config(
+        self,
+        base_config: Dict[str, Any],
+        role: str,
+        is_sector: bool = False,
+        sector_cfg: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """CatBoost 설정을 conf.yaml의 CATBOOST_CONFIG에서 읽어 구성합니다.
+
+        Args:
+            base_config: config.py의 기본 설정 (CATBOOST_*_CONFIGS['default'])
+            role: "classifier" 또는 "regressor"
+            is_sector: 섹터별 모델 여부
+            sector_cfg: 섹터별 SECTOR_CONFIG (있으면 learning_rate/depth/iterations 우선 적용)
+
+        Returns:
+            CatBoost 생성자에 전달할 설정 dict
+        """
+        cb_config = base_config.copy()
+        cat_cfg = self.ml_config.get('CATBOOST_CONFIG', {})
+        role_cfg = cat_cfg.get(role.upper(), {})
+
+        # 고정 실행 설정
+        cb_config.update({
+            'task_type': 'CPU',
+            'verbose': False,
+            'random_seed': 42,
+            'allow_writing_files': False,
+        })
+
+        # 섹터 config 우선 적용 (CatBoost 파라미터명으로 매핑)
+        if sector_cfg:
+            if 'learning_rate' in sector_cfg:
+                cb_config['learning_rate'] = sector_cfg['learning_rate']
+            if 'max_depth' in sector_cfg:
+                cb_config['depth'] = int(sector_cfg['max_depth'])
+            if 'n_estimators' in sector_cfg:
+                cb_config['iterations'] = int(sector_cfg['n_estimators'])
+
+        # CATBOOST_CONFIG에서 공통 파라미터 setdefault
+        cb_config.setdefault('l2_leaf_reg', cat_cfg.get('l2_leaf_reg', 5.0))
+        cb_config.setdefault('rsm', cat_cfg.get('rsm', 0.8))
+        cb_config.setdefault('learning_rate', cat_cfg.get('learning_rate', 0.05))
+
+        # role별 파라미터 (iterations, depth)
+        if is_sector:
+            default_iterations = role_cfg.get('sector_iterations',
+                                              role_cfg.get('iterations', 800))
+        else:
+            default_iterations = role_cfg.get('iterations', 800)
+        cb_config.setdefault('iterations', default_iterations)
+        cb_config.setdefault('depth', role_cfg.get('depth', 7))
+
+        return cb_config
+
     def create_ensemble_models(self) -> Tuple[List[Any], List[Any]]:
         """
         Create ensemble models (regressor.py mode).
@@ -191,19 +246,10 @@ class ModelFactory:
             # Classifier 3: CatBoost
             if CATBOOST_AVAILABLE:
                 # CatBoost (robust baseline, handles noisy features well)
-                cb_clf_config = CATBOOST_CLASSIFIER_CONFIGS['default'].copy()
-                cb_clf_config.update({
-                    'task_type': 'CPU',             # keep consistent with CPU-only factory defaults
-                    'verbose': False,               # reduce log spam
-                    'random_seed': 42,
-                    'allow_writing_files': False,   # avoid filesystem writes during training
-                })
-                # Recommended tweaks for generalization / speed tradeoff
-                cb_clf_config.setdefault('l2_leaf_reg', 5.0)
-                cb_clf_config.setdefault('rsm', 0.8)  # column subsampling (CPU)
-                cb_clf_config.setdefault('iterations', 800)
-                cb_clf_config.setdefault('learning_rate', 0.05)
-                cb_clf_config.setdefault('depth', 7)
+                cb_clf_config = self._build_catboost_config(
+                    CATBOOST_CLASSIFIER_CONFIGS['default'],
+                    role='classifier', is_sector=False,
+                )
                 clf_3 = CatBoostClassifier(**cb_clf_config)
             else:
                 # Fallback: LightGBM
@@ -232,18 +278,10 @@ class ModelFactory:
 
         # Regressor 1: CatBoost (additional model diversity vs XGB-only)
         if CATBOOST_AVAILABLE:
-            cb_reg_config = CATBOOST_REGRESSOR_CONFIGS['default'].copy()
-            cb_reg_config.update({
-                'task_type': 'CPU',
-                'verbose': False,
-                'random_seed': 42,
-                'allow_writing_files': False,
-            })
-            cb_reg_config.setdefault('l2_leaf_reg', 5.0)
-            cb_reg_config.setdefault('rsm', 0.8)
-            cb_reg_config.setdefault('iterations', 1200)
-            cb_reg_config.setdefault('learning_rate', 0.05)
-            cb_reg_config.setdefault('depth', 7)
+            cb_reg_config = self._build_catboost_config(
+                CATBOOST_REGRESSOR_CONFIGS['default'],
+                role='regressor', is_sector=False,
+            )
             reg_1 = CatBoostRegressor(**cb_reg_config)
             regressors.append(reg_1)
         else:
@@ -416,27 +454,10 @@ class ModelFactory:
 
                 # Classifier 3: CatBoost (fallback to LightGBM if CatBoost unavailable)
                 if CATBOOST_AVAILABLE:
-                    cb_clf_config = CATBOOST_CLASSIFIER_CONFIGS['default'].copy()
-                    cb_clf_config.update({
-                        'task_type': 'CPU',
-                        'verbose': False,
-                        'random_seed': 42,
-                        'allow_writing_files': False,
-                    })
-                    # Allow sector config to override core knobs (when present)
-                    if 'learning_rate' in sector_cfg:
-                        cb_clf_config['learning_rate'] = sector_cfg['learning_rate']
-                    if 'max_depth' in sector_cfg:
-                        cb_clf_config['depth'] = int(sector_cfg['max_depth'])
-                    if 'n_estimators' in sector_cfg:
-                        cb_clf_config['iterations'] = int(sector_cfg['n_estimators'])
-
-                    cb_clf_config.setdefault('l2_leaf_reg', 5.0)
-                    cb_clf_config.setdefault('rsm', 0.8)
-                    cb_clf_config.setdefault('depth', 7)
-                    cb_clf_config.setdefault('iterations', 600)
-                    cb_clf_config.setdefault('learning_rate', 0.05)
-
+                    cb_clf_config = self._build_catboost_config(
+                        CATBOOST_CLASSIFIER_CONFIGS['default'],
+                        role='classifier', is_sector=True, sector_cfg=sector_cfg,
+                    )
                     sector_classifiers[(sector, 3)] = CatBoostClassifier(**cb_clf_config)
                 else:
                     lgb_clf_config = LIGHTGBM_CLASSIFIER_CONFIGS['default'].copy()
@@ -475,27 +496,10 @@ class ModelFactory:
 
             # Variant 1: CatBoost regressor (fallback to XGBoost depth+1 if CatBoost unavailable)
             if CATBOOST_AVAILABLE:
-                cb_reg_config = CATBOOST_REGRESSOR_CONFIGS['default'].copy()
-                cb_reg_config.update({
-                    'task_type': 'CPU',
-                    'verbose': False,
-                    'random_seed': 42,
-                    'allow_writing_files': False,
-                })
-                # Translate sector config knobs (when present)
-                if 'learning_rate' in sector_cfg:
-                    cb_reg_config['learning_rate'] = sector_cfg['learning_rate']
-                if 'max_depth' in sector_cfg:
-                    cb_reg_config['depth'] = int(sector_cfg['max_depth'])
-                if 'n_estimators' in sector_cfg:
-                    cb_reg_config['iterations'] = int(sector_cfg['n_estimators'])
-
-                cb_reg_config.setdefault('l2_leaf_reg', 5.0)
-                cb_reg_config.setdefault('rsm', 0.8)
-                cb_reg_config.setdefault('depth', 7)
-                cb_reg_config.setdefault('iterations', 900)
-                cb_reg_config.setdefault('learning_rate', 0.05)
-
+                cb_reg_config = self._build_catboost_config(
+                    CATBOOST_REGRESSOR_CONFIGS['default'],
+                    role='regressor', is_sector=True, sector_cfg=sector_cfg,
+                )
                 sector_regressors[(sector, 1)] = CatBoostRegressor(**cb_reg_config)
             else:
                 params_1 = default_params.copy()

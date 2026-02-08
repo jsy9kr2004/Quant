@@ -1,6 +1,6 @@
 # 리팩토링 분석 보고서
 
-> **작성일**: 2026-02-07 (최종 업데이트: 2026-02-08)
+> **작성일**: 2026-02-07 (최종 업데이트: 2026-02-08, P2 리팩토링 추가)
 > **이전 문서**: [08_recent_changes.md](./08_recent_changes.md)
 > **관련 문서**: [05_code_quality.md](./05_code_quality.md), [07_recommendations.md](./07_recommendations.md)
 
@@ -243,16 +243,10 @@
 | `lightgbm_model.py` | 342 | **B+** | ❌ 불필요 | 잘 문서화됨 |
 | `catboost_model.py` | 368 | B | ❌ | 양호 |
 
-**model_factory.py 매직 넘버 상세**:
-```python
-# 줄 198-206: 하드코딩된 값
-'verbose': False        # → config로 이동 필요
-'l2_leaf_reg': 5.0      # → config로 이동 필요
-'rsm': 0.8              # → config로 이동 필요
-'iterations': 800       # → config로 이동 필요
-'learning_rate': 0.05   # → config로 이동 필요
-'depth': 7              # → config로 이동 필요
-```
+**model_factory.py CatBoost 하이퍼파라미터** — ✅ P2-16 완료:
+- 4곳의 하드코딩된 CatBoost 설정 → `_build_catboost_config()` 헬퍼로 통합
+- `conf.yaml.template`에 `ML.CATBOOST_CONFIG` 섹션 추가
+- 글로벌/섹터, Classifier/Regressor 각각 별도 iterations 설정 가능
 
 ---
 
@@ -265,10 +259,9 @@
 | `logger.py` | 682 | A- | ❌ | 우수한 멀티프로세싱 지원 |
 | `file_utils.py` | 110 | **A** | ❌ | 완벽한 docstring |
 
-**context_loader.py `create_dir()` 중복**:
-- `ContextLoader.create_dir()` (줄 457-486)
-- `MainContext.create_dir()` (줄 594-626)
-- 동일 로직 → 공유 유틸리티로 추출 필요
+**context_loader.py `create_dir()` 중복** — ✅ P2-12 완료:
+- `ContextLoader.create_dir()` → `MainContext.create_dir()`에 위임하도록 변경
+- 활성 코드에서 `ContextLoader.create_dir()` 호출자 0건 확인 후 위임 처리
 
 ---
 
@@ -283,12 +276,8 @@
 | `parquet_converter.py` | 549 | B | ⚠️ 경미 | 타입 어노테이션 오류, 하드코딩된 컬럼 리스트 |
 | `data_validator.py` | 528 | B+ | ❌ | 포괄적 검증 규칙 |
 
-**fmp.py 타입 어노테이션 오류**:
-```python
-# 줄 64-65: 타입과 초기값 불일치
-self.symbol_list: List[str] = pd.DataFrame()  # ❌ List[str]에 DataFrame 할당
-self.current_list: List[str] = pd.DataFrame()  # ❌ 동일 오류
-```
+**fmp.py 타입 어노테이션** — ✅ P2-14 이미 수정됨:
+- 줄 64-65: `List[str] = []`로 올바르게 초기화 확인 (이전 커밋에서 수정 완료)
 
 ---
 
@@ -301,18 +290,9 @@ self.current_list: List[str] = pd.DataFrame()  # ❌ 동일 오류
 | `performance_monitor.py` | 355 | B | ❌ | 경고 과잉 숨김 |
 | `config_masker.py` | 278 | A- | ❌ | 깔끔한 재귀 알고리즘 |
 
-**sheets_tracker.py 반복 패턴**:
-```python
-# 줄 145-200: 유사한 try-except 블록 6회 반복
-# 권장: 데코레이터 또는 공통 래퍼 함수로 추출
-def _safe_api_call(self, operation, *args, **kwargs):
-    try:
-        return operation(*args, **kwargs)
-    except gspread.exceptions.APIError as e:
-        self.logger.warning(f"Google Sheets API error: {e}")
-    except Exception as e:
-        self.logger.error(f"Unexpected error: {e}")
-```
+**sheets_tracker.py 반복 패턴** — ✅ P2-13 완료:
+- 6개 API 에러 핸들러 → `_log_tracking_error()` 정적 메서드로 통합
+- 4개 git 명령어 반복 → `_run_git_command()` 정적 메서드로 통합
 
 ---
 
@@ -544,16 +524,16 @@ def _safe_api_call(self, operation, *args, **kwargs):
 | 9 | `print()` → `logging` 변환 (11건) | regressor.py | ✅ 완료 | `62dd1c7` |
 | 10 | main.py TODO 구현 (5건) | main.py | ✅ 완료 | `62dd1c7` |
 
-### 🟠 P2: Medium (2-4주)
+### 🟠 P2: Medium (2-4주) — 4/6 완료
 
-| # | 작업 | 파일 | 효과 |
-|---|------|------|------|
-| 11 | 매직 넘버 → 상수/config 추출 | 전체 | 유지보수 ↑ |
-| 12 | `create_dir()` 중복 제거 → 공유 유틸리티 | context_loader.py | DRY 원칙 |
-| 13 | sheets_tracker.py 반복 try-except 통합 | sheets_tracker.py | 가독성 ↑ |
-| 14 | fmp.py 타입 어노테이션 오류 수정 | fmp.py | 타입 안전성 |
-| 15 | 주석 처리된 코드 삭제 | regressor.py, backtest.py | 깔끔한 코드 |
-| 16 | model_factory.py 하드코딩 → config | model_factory.py | 유연성 ↑ |
+| # | 작업 | 파일 | 효과 | 상태 |
+|---|------|------|------|------|
+| 11 | 매직 넘버 → 상수/config 추출 | 전체 | 유지보수 ↑ | ⏸️ 보류 (수동 검토 후 진행) |
+| 12 | `create_dir()` 중복 제거 → 위임 | context_loader.py | DRY 원칙 | ✅ 완료 |
+| 13 | sheets_tracker.py 반복 try-except 통합 | sheets_tracker.py | 가독성 ↑ | ✅ 완료 |
+| 14 | fmp.py 타입 어노테이션 오류 수정 | fmp.py | 타입 안전성 | ✅ 이미 수정됨 |
+| 15 | 주석 처리된 코드 삭제 | regressor.py, backtest.py | 깔끔한 코드 | ⏸️ 보류 (히스토리 참고용 보존) |
+| 16 | model_factory.py 하드코딩 → config | model_factory.py | 유연성 ↑ | ✅ 완료 |
 
 ### 🟢 P3: Low (유지보수 시)
 
@@ -579,7 +559,7 @@ def _safe_api_call(self, operation, *args, **kwargs):
 | ⚠️ 경미한 수정 권장 | 16 | 25.0% |
 | 🔴 리팩토링 필수 | 8 | 12.5% |
 
-### 리팩토링 필수 파일 (8개) — 6/8 완료
+### 리팩토링 필수 파일 (8개) — 8/8 완료
 
 1. ✅ **`regressor.py`** (5,184줄) — God Method 5개 분리, print→logging, import 정리
 2. ✅ **`make_mldata.py`** (2,139줄) — 807줄 메서드 → 106줄 분리
@@ -587,8 +567,8 @@ def _safe_api_call(self, operation, *args, **kwargs):
 4. ✅ **`backtest.py`** (1,075줄) — docstring 30%→100%, bare except 수정, import 정리
 5. ✅ **`data_processor.py`** (2,876줄) — `preprocess_training_data()` 분리
 6. ✅ **`main.py`** (815줄) — TODO→에러 핸들링, docstring 업데이트
-7. ⏳ **`sheets_tracker.py`** (552줄) — 반복 패턴 통합 (P2-13)
-8. ⏳ **`fmp.py`** (570줄) — 타입 어노테이션 오류 수정 (P2-14)
+7. ✅ **`sheets_tracker.py`** (552줄) — 반복 패턴 통합 (P2-13)
+8. ✅ **`fmp.py`** (570줄) — 타입 어노테이션 이미 수정됨 (P2-14)
 
 ### 경미한 수정 권장 파일 (16개)
 
@@ -622,8 +602,9 @@ data_validator.py, parquet_storage.py, fmp_fetch_worker.py,
 | print() 사용 | 11건 | **0건** | **100% 해결** |
 | TODO (main.py) | 5건 | **0건** | **100% 해결** |
 
-**총 6개 커밋**, 리팩토링 필수 8파일 중 **6파일 완료** (75%).
-남은 2파일(sheets_tracker.py, fmp.py)은 P2 우선순위로 관리 가능.
+**P0/P1**: 총 6개 커밋으로 핵심 8파일 리팩토링 완료.
+**P2**: 추가 4항목 완료 (create_dir 위임, sheets_tracker 반복 패턴 통합, fmp.py 확인, CatBoost config 외부화).
+리팩토링 필수 8파일 **전체 완료** (100%). 남은 P2-11(매직 넘버), P2-15(주석 코드)는 보류.
 
 ---
 
