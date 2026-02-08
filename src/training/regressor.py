@@ -4113,8 +4113,8 @@ class Regressor:
             tdate = self._extract_date_from_filepath(testdate)
             filename = os.path.basename(testdate)
 
-            print(f"in test loop filename : {filename}")
-            print(f"in test loop tdate : {tdate}")
+            self.logger.debug(f"in test loop filename : {filename}")
+            self.logger.debug(f"in test loop tdate : {tdate}")
 
             # 이 테스트 기간의 특성과 레이블 준비
             x_test = df[df.columns.difference(y_col_list)]
@@ -4363,14 +4363,13 @@ class Regressor:
 
         # 각 섹터 및 테스트 기간 평가
         for test_idx, (testdate, df, sec) in enumerate(self.sector_test_df_lists):
-            print("sec evaluation date : ")
+            self.logger.debug("sec evaluation date : ")
             # 파일 경로에서 날짜 추출 (통합 유틸리티 메서드 사용)
             tdate = self._extract_date_from_filepath(testdate)
             if tdate == "unknown_period":
                 logging.warning(f"⚠️  Skipping sector evaluation due to unknown period: {testdate}")
                 continue
-            print(tdate)
-            print(sec)
+            self.logger.debug(f"tdate: {tdate}, sector: {sec}")
             testdates.add(tdate)
 
             x_test_full = df[df.columns.difference(y_col_list)]
@@ -4434,10 +4433,7 @@ class Regressor:
                 df[pred_col_name] = y_predict
 
                 df[pred_col_name_wbin] = np.where(y_predict_binary == 0, -1, y_predict)
-                print(f"i{i} sec {sec}")
-                print(x_test_sector.shape)
-                print(sector_preds.shape)
-                print(y_predict[None,:].shape)
+                self.logger.debug(f"i{i} sec {sec} x_test:{x_test_sector.shape} preds:{sector_preds.shape} y_pred:{y_predict[None,:].shape}")
                 sector_preds = np.vstack((sector_preds, y_predict[None,:]))
 
             df['ai_pred_avg'] = np.average(sector_preds, axis=0)
@@ -4487,7 +4483,7 @@ class Regressor:
                    'avg_pred', 'model0_pred', 'model1_pred',
                    'model0_pred_wbinary_2', 'model1_pred_wbinary_2']
         pred_df = pd.DataFrame(sector_model_eval_hist, columns=col_name)
-        print(pred_df)
+        self.logger.debug(f"pred_df:\n{pred_df}")
         pred_df.to_csv(model_save_path+'allsector_pred_df.csv', index=False)
 
 
@@ -4644,9 +4640,9 @@ class Regressor:
 
         # 과도한 누락 데이터가 있는 행 필터링 (>60% NaN)
         # ⚠️ IMPORTANT: Apply BEFORE dropping sector column
-        print("before dtable len : ", len(ldf))
+        self.logger.info(f"before dtable len : {len(ldf)}")
         ldf = DataProcessor.drop_many_nan_row(ldf, threshold=0.6)
-        print("after dtable len : ", len(ldf))
+        self.logger.info(f"after dtable len : {len(ldf)}")
 
         # 섹터별 예측을 위해 sector 컬럼이 있는 복사본 저장
         # ⚠️ CRITICAL: Save AFTER NaN row removal to ensure same row count
