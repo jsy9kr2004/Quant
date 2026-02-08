@@ -1525,7 +1525,25 @@ class MLBacktest:
         price_table = pd.read_parquet(self.main_ctx.root_path + "/processed/views/price.parquet")
         price_table['date'] = pd.to_datetime(price_table['date'])
 
-        # 리밸런싱 날짜 생성
+        # Step 1: 리밸런싱 날짜 생성
+        rebalance_dates = self._generate_rebalance_dates()
+
+        # Step 2: 거래일 조정
+        date_pairs = self._adjust_to_trading_days(rebalance_dates, price_table)
+
+        # Step 3: Walk-Forward 백테스트 실행
+        self._execute_walk_forward(date_pairs, price_table)
+
+        # Step 4: 최종 리포트 및 벤치마크
+        results_df, benchmark_df = self._compile_results_and_benchmark(date_pairs, price_table)
+
+        # Step 5: Excel 레포트 저장
+        self._save_backtest_report(results_df, benchmark_df, date_pairs, price_table)
+
+        return results_df
+
+    def _generate_rebalance_dates(self) -> list:
+        """리밸런싱 날짜 목록 생성 (Multi-period 및 Single-period 모드 지원)"""
         # 우선순위: EVALUATION > BACKTEST (하위 호환성)
         eval_config = self.config.get('EVALUATION', {})
         backtest_config = self.config.get('BACKTEST', {})
@@ -1570,7 +1588,7 @@ class MLBacktest:
                     all_rebalance_dates.append(current)
                     current += relativedelta(months=self.rebalance_period)
 
-            rebalance_dates = sorted(all_rebalance_dates)
+            return sorted(all_rebalance_dates)
 
         else:
             # 단일 구간 모드 (하위 호환성)
@@ -1615,6 +1633,10 @@ class MLBacktest:
                 rebalance_dates.append(current)
                 current += relativedelta(months=self.rebalance_period)
 
+            return rebalance_dates
+
+    def _adjust_to_trading_days(self, rebalance_dates: list, price_table: pd.DataFrame) -> list:
+        """리밸런싱 날짜를 실제 거래일로 조정하여 (원래날짜, 조정날짜) 튜플 리스트 반환"""
         # ✅ 거래일 조정 (regressor.py/make_mldata.py와 일원화)
         # 휴장일(주말, 공휴일)을 실제 거래 가능일로 조정
         self.logger.info(f"\n📅 Adjusting rebalance dates to actual trading days...")
@@ -1654,7 +1676,10 @@ class MLBacktest:
             else:
                 self.logger.info(f"   {orig.date()}")
 
-        # Walk-Forward 백테스트
+        return date_pairs
+
+    def _execute_walk_forward(self, date_pairs: list, price_table: pd.DataFrame):
+        """Walk-Forward 백테스트 루프 실행 (결과를 self.backtest_results, self.detailed_results에 저장)"""
         last_train_date = None
         current_models = None
 
@@ -1694,6 +1719,7 @@ class MLBacktest:
                     self.logger.info(f"   Loaded {len(predictions)} predictions from cache")
                     self.logger.info(f"   Top-K selected: {len(cached_data['top_k_selected'])} stocks")
 
+            should_retrain = False
             if not use_cache_for_this_period:
                 # Normal training/prediction mode
                 # 2. 모델 재학습 필요 여부 판단
@@ -1773,6 +1799,9 @@ class MLBacktest:
                         'delisted_status': detail.get('delisted_status', 'active')  # ✅ 상세 상태
                     })
 
+    def _compile_results_and_benchmark(self, date_pairs: list,
+                                        price_table: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """백테스트 결과 집계 및 벤치마크 계산"""
         # 7. 최종 리포트
         results_df = pd.DataFrame(self.backtest_results)
         self._print_summary(results_df)
@@ -1820,12 +1849,18 @@ class MLBacktest:
                 else:
                     benchmark_df = ml_model_result
 
+        return results_df, benchmark_df
+
+    def _save_backtest_report(self, results_df: pd.DataFrame, benchmark_df: pd.DataFrame,
+                               date_pairs: list, price_table: pd.DataFrame):
+        """백테스트 결과를 Excel 통합 레포트로 저장"""
         # 결과 저장 - Excel 통합 레포트
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_dir = Path('outputs/reports')
         report_dir.mkdir(parents=True, exist_ok=True)
 
         excel_file = report_dir / f'ml_backtest_report_{timestamp}.xlsx'
+        detailed_df = pd.DataFrame(self.detailed_results)
 
         # Excel Writer로 여러 시트 저장
         with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
@@ -1833,7 +1868,6 @@ class MLBacktest:
             results_df.to_excel(writer, sheet_name='Summary', index=False)
 
             # Sheet 2: Detailed (상세)
-            detailed_df = pd.DataFrame(self.detailed_results)
             if not detailed_df.empty:
                 detailed_df.to_excel(writer, sheet_name='Detailed', index=False)
 
@@ -1858,7 +1892,6 @@ class MLBacktest:
         if not benchmark_df.empty:
             self.logger.info(f"   Benchmark comparisons: {len(benchmark_df)}")
 
-        return results_df
 
     def _print_summary(self, results: pd.DataFrame):
         """백테스트 요약 출력"""
