@@ -572,16 +572,15 @@ def _train_models_for_period_standalone(
         'sector_regressors': {}
     }
 
-    # Preprocess
-    train_df = DataProcessor.preprocess_training_data(train_df, None)
+    # NOTE: Do NOT call preprocess_training_data() on the full DataFrame here.
+    # It expects (X, y, y_cls, config, logger) and returns a 4-tuple.
+    # Preprocessing is done per-sector or per-global after splitting X/y.
 
     target_col = DataSchema.REGRESSION_TARGET
     if target_col not in train_df.columns:
         return models_info
 
     feature_cols = DataSchema.get_feature_cols(train_df)
-    X_train = train_df[feature_cols]
-    y_train = train_df[target_col]
 
     if use_sector_model:
         for sector in train_df['sector'].unique():
@@ -592,9 +591,23 @@ def _train_models_for_period_standalone(
             X_sector = sector_data[feature_cols]
             y_sector = sector_data[target_col]
 
+            # Preprocess sector data before training
+            try:
+                X_sector_clean, y_sector_clean, _, _ = DataProcessor.preprocess_training_data(
+                    X_sector.copy(),
+                    y_sector.to_frame(),
+                    y_cls=None,
+                    config=None,
+                    logger=logging
+                )
+                y_sector_clean = y_sector_clean.iloc[:, 0]
+            except Exception as e:
+                logging.error(f"   ❌ {sector}: Preprocessing failed - {str(e)}")
+                continue
+
             # Train sector classifiers
             if use_classifier:
-                y_binary = (sector_data[target_col] > 0).astype(int)
+                y_binary = (y_sector_clean > 0).astype(int)
                 sector_clfs = {
                     0: XGBClassifier(max_depth=8, n_estimators=100, random_state=42),
                     1: XGBClassifier(max_depth=9, n_estimators=100, random_state=42),
@@ -602,7 +615,7 @@ def _train_models_for_period_standalone(
                     3: LGBMClassifier(max_depth=8, n_estimators=100, random_state=42)
                 }
                 for clf in sector_clfs.values():
-                    clf.fit(X_sector, y_binary)
+                    clf.fit(X_sector_clean, y_binary)
                 models_info['sector_classifiers'][sector] = sector_clfs
 
             # Train sector regressors
@@ -611,12 +624,29 @@ def _train_models_for_period_standalone(
                 1: XGBRegressor(max_depth=10, n_estimators=100, random_state=42)
             }
             for reg in sector_regs.values():
-                reg.fit(X_sector, y_sector)
+                reg.fit(X_sector_clean, y_sector_clean)
             models_info['sector_regressors'][sector] = sector_regs
     else:
+        X_train = train_df[feature_cols]
+        y_train = train_df[target_col]
+
+        # Preprocess global data before training
+        try:
+            X_train_clean, y_train_clean, _, _ = DataProcessor.preprocess_training_data(
+                X_train.copy(),
+                y_train.to_frame(),
+                y_cls=None,
+                config=None,
+                logger=logging
+            )
+            y_train_clean = y_train_clean.iloc[:, 0]
+        except Exception as e:
+            logging.error(f"   ❌ Global model preprocessing failed - {str(e)}")
+            return models_info
+
         # Train global classifiers
         if use_classifier:
-            y_binary = (train_df[target_col] > 0).astype(int)
+            y_binary = (y_train_clean > 0).astype(int)
             global_clfs = {
                 0: XGBClassifier(max_depth=8, n_estimators=100, random_state=42),
                 1: XGBClassifier(max_depth=9, n_estimators=100, random_state=42),
@@ -624,7 +654,7 @@ def _train_models_for_period_standalone(
                 3: LGBMClassifier(max_depth=8, n_estimators=100, random_state=42)
             }
             for clf in global_clfs.values():
-                clf.fit(X_train, y_binary)
+                clf.fit(X_train_clean, y_binary)
             models_info['classifiers'] = global_clfs
 
         # Train global regressors
@@ -633,7 +663,7 @@ def _train_models_for_period_standalone(
             1: XGBRegressor(max_depth=10, n_estimators=100, random_state=42)
         }
         for reg in global_regs.values():
-            reg.fit(X_train, y_train)
+            reg.fit(X_train_clean, y_train_clean)
         models_info['regressors'] = global_regs
 
     return models_info
@@ -646,8 +676,11 @@ def _generate_predictions_for_period_standalone(
     """Standalone version of _generate_predictions_for_period for Ray workers."""
     from src.training.data_processor import DataProcessor
 
-    # Preprocess
-    pred_df = DataProcessor.preprocess_training_data(pred_df, None)
+    # NOTE: Do NOT call preprocess_training_data() here.
+    # It expects (X, y, y_cls, config, logger) and returns a 4-tuple.
+    # For prediction data, we only need feature extraction (no target preprocessing).
+    # Feature name normalization is applied to handle special characters.
+    pred_df = DataProcessor.normalize_feature_names(pred_df)
 
     feature_cols = DataSchema.get_feature_cols(pred_df)
     X_pred = pred_df[feature_cols]
