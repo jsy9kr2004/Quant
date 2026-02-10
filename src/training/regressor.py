@@ -3329,7 +3329,10 @@ class Regressor:
 
             # Add rebalance_date column for traceability
             predictions_with_date = predictions_df.copy()
-            predictions_with_date.insert(0, 'rebalance_date', date_str)
+            if 'rebalance_date' in predictions_with_date.columns:
+                predictions_with_date['rebalance_date'] = date_str
+            else:
+                predictions_with_date.insert(0, 'rebalance_date', date_str)
 
             # All predictions
             all_predictions.append(predictions_with_date)
@@ -3879,27 +3882,44 @@ class Regressor:
                 if sector not in models_info['sector_regressors']:
                     continue  # Skip if no model for this sector
 
-                # Predict returns
+                # Align features to model (training may have dropped columns during preprocessing)
                 sector_regs = models_info['sector_regressors'][sector]
-                y_pred_return = np.mean([reg.predict(X_sector) for reg in sector_regs.values()], axis=0)
+                first_reg = list(sector_regs.values())[0]
+                X_sector_aligned = DataProcessor.align_features_to_model(
+                    X_sector, first_reg, logging.getLogger()
+                )
+
+                # Predict returns
+                y_pred_return = np.mean([reg.predict(X_sector_aligned) for reg in sector_regs.values()], axis=0)
                 pred_df.loc[sector_mask, DataSchema.PRED_RETURN] = y_pred_return
 
                 # Predict probabilities (if classifier enabled)
                 if models_info['use_classifier'] and sector in models_info['sector_classifiers']:
                     sector_clfs = models_info['sector_classifiers'][sector]
-                    y_pred_proba = np.mean([clf.predict_proba(X_sector)[:, 1] for clf in sector_clfs.values()], axis=0)
+                    first_clf = list(sector_clfs.values())[0]
+                    X_sector_clf = DataProcessor.align_features_to_model(
+                        X_sector, first_clf, logging.getLogger()
+                    )
+                    y_pred_proba = np.mean([clf.predict_proba(X_sector_clf)[:, 1] for clf in sector_clfs.values()], axis=0)
                     pred_df.loc[sector_mask, DataSchema.PRED_PROBA] = y_pred_proba
         else:
-            # Global predictions
-            # Predict returns
+            # Global predictions - align features to model
             global_regs = models_info['regressors']
-            y_pred_return = np.mean([reg.predict(X_pred) for reg in global_regs.values()], axis=0)
+            first_reg = list(global_regs.values())[0]
+            X_pred_aligned = DataProcessor.align_features_to_model(
+                X_pred, first_reg, logging.getLogger()
+            )
+            y_pred_return = np.mean([reg.predict(X_pred_aligned) for reg in global_regs.values()], axis=0)
             pred_df[DataSchema.PRED_RETURN] = y_pred_return
 
             # Predict probabilities (if classifier enabled)
             if models_info['use_classifier']:
                 global_clfs = models_info['classifiers']
-                y_pred_proba = np.mean([clf.predict_proba(X_pred)[:, 1] for clf in global_clfs.values()], axis=0)
+                first_clf = list(global_clfs.values())[0]
+                X_pred_clf = DataProcessor.align_features_to_model(
+                    X_pred, first_clf, logging.getLogger()
+                )
+                y_pred_proba = np.mean([clf.predict_proba(X_pred_clf)[:, 1] for clf in global_clfs.values()], axis=0)
                 pred_df[DataSchema.PRED_PROBA] = y_pred_proba
 
         # Calculate ML score
