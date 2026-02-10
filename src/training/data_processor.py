@@ -1094,6 +1094,14 @@ class DataProcessor:
             X_clean, y_clean, config, logger
         )
 
+        # ===== Safety check: ensure y_clean is not None =====
+        if y_clean is None:
+            if logger:
+                logger.error("❌ CRITICAL: y_clean is None after preprocessing!")
+                logger.error(f"   X_clean type: {type(X_clean)}, shape: {X_clean.shape if hasattr(X_clean, 'shape') else 'N/A'}")
+                logger.error(f"   y_cls_clean type: {type(y_cls_clean)}")
+            raise ValueError("preprocess_training_data: y_clean is None after preprocessing pipeline")
+
         # ===== Final summary =====
         rows_after = len(X_clean)
         cols_after = len(X_clean.columns)
@@ -1101,9 +1109,13 @@ class DataProcessor:
         if logger:
             logger.info("=" * 80)
             logger.info("✅ PREPROCESSING COMPLETE")
-            logger.info(f"   Rows: {rows_before} → {rows_after} ({rows_after/rows_before*100:.1f}% retained)")
-            logger.info(f"   Cols: {cols_before} → {cols_after} ({cols_after/cols_before*100:.1f}% retained)")
+            if rows_before > 0:
+                logger.info(f"   Rows: {rows_before} → {rows_after} ({rows_after/rows_before*100:.1f}% retained)")
+            else:
+                logger.info(f"   Rows: {rows_before} → {rows_after}")
+            logger.info(f"   Cols: {cols_before} → {cols_after} ({cols_after/cols_before*100:.1f}% retained)" if cols_before > 0 else f"   Cols: {cols_before} → {cols_after}")
             logger.info(f"   Remaining NaN: {X_clean.isna().sum().sum()}")
+            logger.info(f"   y_clean type: {type(y_clean).__name__}, shape: {y_clean.shape}")
 
             # Summary of data quality settings
             if config:
@@ -1321,11 +1333,17 @@ class DataProcessor:
         if logger:
             logger.info("Step 6/8: Removing rows with NaN in y labels...")
 
-        nan_mask_y = y_clean.isna() if isinstance(y_clean, pd.Series) else False
-        if isinstance(y_clean, pd.DataFrame):
+        # Initialize y_df to handle both Series and DataFrame cases safely
+        y_df = None
+
+        if isinstance(y_clean, pd.Series):
+            nan_mask_y = y_clean.isna()
+        elif isinstance(y_clean, pd.DataFrame):
             # Reconstruct y as DataFrame
             y_df = DataProcessor.create_clean_dataframe(y_clean, y_columns, X_clean.index)
             nan_mask_y = y_df.isna().any(axis=1)
+        else:
+            nan_mask_y = False
 
         nan_mask_y_cls = False
         if y_cls_clean is not None:
@@ -1341,7 +1359,7 @@ class DataProcessor:
 
             if isinstance(y_clean, pd.Series):
                 y_clean = y_clean[~nan_mask_labels]
-            else:
+            elif y_df is not None:
                 y_df = y_df[~nan_mask_labels]
 
             if y_cls_clean is not None:
@@ -1350,8 +1368,9 @@ class DataProcessor:
         # Reconstruct y as DataFrame
         if isinstance(y_clean, pd.Series):
             y_clean = DataProcessor.create_clean_dataframe(y_clean, y_columns, X_clean.index)
-        else:
+        elif y_df is not None:
             y_clean = y_df
+        # else: y_clean stays as-is (should not happen in normal flow)
 
         return X_clean, y_clean, y_cls_clean
 

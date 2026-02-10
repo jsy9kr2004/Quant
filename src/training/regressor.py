@@ -339,6 +339,7 @@ def train_single_period_remote(
         format='[Worker] %(levelname)s: %(message)s'
     )
 
+    import os
     from src.training.data_processor import DataProcessor
     from xgboost import XGBClassifier, XGBRegressor
     from lightgbm import LGBMClassifier
@@ -349,23 +350,35 @@ def train_single_period_remote(
     cache_key = cutoff_date.strftime('%Y-%m-%d')
 
     try:
+        # Use print for Ray worker diagnostics (captured by log_to_driver, more reliable than logging)
+        print(f"[Worker:{cache_key}] Starting period {cache_key} ({period_name})")
         logging.info(f"📅 Processing period: {cache_key} ({period_name})")
 
         # Step 1: Load training data
+        print(f"[Worker:{cache_key}] Loading training data: {train_start_year} ~ {cache_key}, root={root_path}, cwd={os.getcwd()}")
         logging.info(f"📂 Loading training data: {train_start_year} ~ {cache_key}")
+        logging.info(f"   root_path={root_path}, cwd={os.getcwd()}")
         train_df = _load_data_until_cutoff_standalone(root_path, train_start_year, cutoff_date)
 
         if train_df.empty:
             logging.warning(f"⚠️  No training data for {cache_key}")
             return cache_key, None, "No training data"
 
-        logging.info(f"✅ Loaded {len(train_df)} training samples")
+        print(f"[Worker:{cache_key}] Loaded {len(train_df)} samples, {len(train_df.columns)} cols, "
+              f"has_target={DataSchema.REGRESSION_TARGET in train_df.columns}, has_sector={'sector' in train_df.columns}")
+        logging.info(f"✅ Loaded {len(train_df)} training samples, columns={len(train_df.columns)}")
+        logging.info(f"   Has target '{DataSchema.REGRESSION_TARGET}': {DataSchema.REGRESSION_TARGET in train_df.columns}")
+        logging.info(f"   Has 'sector': {'sector' in train_df.columns}, use_sector_model={use_sector_model}")
 
         # Step 2: Train models
         logging.info("🔧 Training models...")
         models_info = _train_models_for_period_standalone(
             train_df, use_classifier, use_sector_model
         )
+        logging.info(f"   Models trained: regressors={len(models_info.get('regressors', {}))}, "
+                     f"classifiers={len(models_info.get('classifiers', {}))}, "
+                     f"sector_regressors={len(models_info.get('sector_regressors', {}))}, "
+                     f"sector_classifiers={len(models_info.get('sector_classifiers', {}))}")
 
         # Step 3: Load prediction data
         logging.info(f"📂 Loading prediction data for {cache_key}")
@@ -403,11 +416,15 @@ def train_single_period_remote(
         return cache_key, cache_entry, None
 
     except Exception as e:
-        logging.error(f"❌ Error processing period {cache_key}: {e}")
         import traceback
         error_tb = traceback.format_exc()
+        # Print to stdout for Ray log_to_driver capture
+        print(f"[Worker:{cache_key}] ❌ FAILED: {e}")
+        print(f"[Worker:{cache_key}] Traceback:\n{error_tb}")
+        logging.error(f"❌ Error processing period {cache_key}: {e}")
         logging.error(error_tb)
-        return cache_key, None, str(e)
+        # Include full traceback in error message so main process can log it
+        return cache_key, None, f"{str(e)}\n--- Worker Traceback ---\n{error_tb}"
 
 
 # ==============================================================================
@@ -593,16 +610,26 @@ def _train_models_for_period_standalone(
 
             # Preprocess sector data before training
             try:
-                X_sector_clean, y_sector_clean, _, _ = DataProcessor.preprocess_training_data(
+                preprocess_result = DataProcessor.preprocess_training_data(
                     X_sector.copy(),
                     y_sector.to_frame(),
                     y_cls=None,
                     config=None,
                     logger=logging
                 )
+                X_sector_clean, y_sector_clean, _, _ = preprocess_result
+
+                if y_sector_clean is None:
+                    logging.error(f"   ❌ {sector}: preprocess_training_data returned None for y_clean")
+                    logging.error(f"      Input shapes: X={X_sector.shape}, y={y_sector.shape}")
+                    logging.error(f"      Return types: {[type(r).__name__ for r in preprocess_result]}")
+                    continue
+
                 y_sector_clean = y_sector_clean.iloc[:, 0]
             except Exception as e:
+                import traceback
                 logging.error(f"   ❌ {sector}: Preprocessing failed - {str(e)}")
+                logging.error(f"      Traceback: {traceback.format_exc()}")
                 continue
 
             # Train sector classifiers
@@ -632,16 +659,26 @@ def _train_models_for_period_standalone(
 
         # Preprocess global data before training
         try:
-            X_train_clean, y_train_clean, _, _ = DataProcessor.preprocess_training_data(
+            preprocess_result = DataProcessor.preprocess_training_data(
                 X_train.copy(),
                 y_train.to_frame(),
                 y_cls=None,
                 config=None,
                 logger=logging
             )
+            X_train_clean, y_train_clean, _, _ = preprocess_result
+
+            if y_train_clean is None:
+                logging.error(f"   ❌ Global: preprocess_training_data returned None for y_clean")
+                logging.error(f"      Input shapes: X={X_train.shape}, y={y_train.shape}")
+                logging.error(f"      Return types: {[type(r).__name__ for r in preprocess_result]}")
+                return models_info
+
             y_train_clean = y_train_clean.iloc[:, 0]
         except Exception as e:
+            import traceback
             logging.error(f"   ❌ Global model preprocessing failed - {str(e)}")
+            logging.error(f"      Traceback: {traceback.format_exc()}")
             return models_info
 
         # Train global classifiers
@@ -3480,7 +3517,13 @@ class Regressor:
                     logging.info(f"✅ Period {cache_key}: {len(cache_entry['top_k_selected'])} stocks selected")
                 else:
                     if error_msg:
-                        logging.warning(f"⚠️  Period {cache_key}: Failed - {error_msg}")
+                        # Log full error including worker traceback if available
+                        if '\n--- Worker Traceback ---\n' in str(error_msg):
+                            short_msg, traceback_msg = str(error_msg).split('\n--- Worker Traceback ---\n', 1)
+                            logging.warning(f"⚠️  Period {cache_key}: Failed - {short_msg}")
+                            logging.warning(f"    Worker traceback:\n{traceback_msg}")
+                        else:
+                            logging.warning(f"⚠️  Period {cache_key}: Failed - {error_msg}")
                     else:
                         logging.warning(f"⚠️  Period {cache_key}: No results (empty data or error)")
 
@@ -3708,13 +3751,18 @@ class Regressor:
                 # This removes inf/NaN and applies winsorization
                 # Without this, XGBoost fails with "Input data contains inf or value too large"
                 try:
-                    X_sector_clean, y_sector_clean, _, _ = DataProcessor.preprocess_training_data(
+                    preprocess_result = DataProcessor.preprocess_training_data(
                         X_sector.copy(),
                         y_sector.to_frame(),  # Convert Series to DataFrame
                         y_cls=None,
                         config=self.conf,  # ✅ Use self.conf (not self.config)
                         logger=logging
                     )
+                    X_sector_clean, y_sector_clean, _, _ = preprocess_result
+
+                    if y_sector_clean is None:
+                        logging.error(f"   ❌ {sector}: preprocess_training_data returned None for y_clean")
+                        continue
 
                     # Convert y back to Series (preprocess_training_data returns DataFrame)
                     y_sector_clean = y_sector_clean.iloc[:, 0]
@@ -3739,13 +3787,18 @@ class Regressor:
             # ✅ CRITICAL FIX: Preprocess global data BEFORE training
             # This removes inf/NaN and applies winsorization
             try:
-                X_train_clean, y_train_clean, _, _ = DataProcessor.preprocess_training_data(
+                preprocess_result = DataProcessor.preprocess_training_data(
                     X_train.copy(),
                     y_train.to_frame(),  # Convert Series to DataFrame
                     y_cls=None,
                     config=self.conf,  # ✅ Use self.conf (not self.config)
                     logger=logging
                 )
+                X_train_clean, y_train_clean, _, _ = preprocess_result
+
+                if y_train_clean is None:
+                    logging.error(f"   ❌ Global: preprocess_training_data returned None for y_clean")
+                    return models_info
 
                 # Convert y back to Series
                 y_train_clean = y_train_clean.iloc[:, 0]
