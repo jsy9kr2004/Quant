@@ -387,8 +387,8 @@ class DataProcessor:
         # 1. 섹터 컬럼 제거 (명시적 복사로 SettingWithCopyWarning 방지)
         df_no_sector = sector_df.drop('sector', axis=1, errors='ignore').copy()
 
-        # 2. y 컬럼 제외하고 feature만 추출
-        X = df_no_sector[df_no_sector.columns.difference(y_col_list)]
+        # 2. y 컬럼 제외하고 feature만 추출 (.copy()로 SettingWithCopyWarning 방지)
+        X = df_no_sector[df_no_sector.columns.difference(y_col_list)].copy()
 
         # 3. Feature name cleaning (특수문자 제거)
         X = DataProcessor.clean_feature_names(X)

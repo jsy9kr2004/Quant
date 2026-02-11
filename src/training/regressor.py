@@ -2195,13 +2195,23 @@ class Regressor:
                 continue  # 너무 적으면 skip
 
             # 선택된 종목의 precision, recall 계산
-            y_pred_binary = (y_probs[mask] > 0.5).astype(int)
+            # Percentile 기반 평가: 필터링 후 남은 종목의 실제 품질 측정
             y_true_filtered = y_train_binary.values.ravel()[mask]
+            y_true_all = y_train_binary.values.ravel()
 
-            # precision_score, recall_score는 zero_division 처리 필요
             try:
-                precision = precision_score(y_true_filtered, y_pred_binary, zero_division=0)
-                recall = recall_score(y_true_filtered, y_pred_binary, zero_division=0)
+                if classifier_mode == "negative_screen":
+                    # "남긴 종목 중 실제 안전한(class 0) 비율" = Precision
+                    # "전체 안전 종목 중 남긴 비율" = Recall
+                    precision = (y_true_filtered == 0).mean()
+                    total_safe = (y_true_all == 0).sum()
+                    recall = (y_true_filtered == 0).sum() / total_safe if total_safe > 0 else 0.0
+                else:  # positive_screen
+                    # "남긴 종목 중 실제 좋은(class 1) 비율" = Precision
+                    # "전체 좋은 종목 중 남긴 비율" = Recall
+                    precision = (y_true_filtered == 1).mean()
+                    total_good = (y_true_all == 1).sum()
+                    recall = (y_true_filtered == 1).sum() / total_good if total_good > 0 else 0.0
             except Exception as e:
                 logging.warning(f"  Remove {remove_pct}%: Error calculating metrics - {e}")
                 continue
@@ -2233,10 +2243,17 @@ class Regressor:
                 mask = y_probs > threshold
 
             n_selected = mask.sum()
-            y_pred_binary = (y_probs[mask] > 0.5).astype(int)
             y_true_filtered = y_train_binary.values.ravel()[mask]
-            precision = precision_score(y_true_filtered, y_pred_binary, zero_division=0)
-            recall = recall_score(y_true_filtered, y_pred_binary, zero_division=0)
+            y_true_all = y_train_binary.values.ravel()
+
+            if classifier_mode == "negative_screen":
+                precision = (y_true_filtered == 0).mean()
+                total_safe = (y_true_all == 0).sum()
+                recall = (y_true_filtered == 0).sum() / total_safe if total_safe > 0 else 0.0
+            else:
+                precision = (y_true_filtered == 1).mean()
+                total_good = (y_true_all == 1).sum()
+                recall = (y_true_filtered == 1).sum() / total_good if total_good > 0 else 0.0
 
             return {
                 'remove_pct': remove_pct,

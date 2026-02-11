@@ -34,6 +34,7 @@ except ImportError:
     gspread = None
 
 from src.tracking.config_masker import ConfigMasker
+from src.infra.context_loader import ContextLoader
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,20 @@ class SheetsTracker:
         self.tracking_config = config.get('EXPERIMENT_TRACKING', {})
 
         # Config 마스커 초기화
-        mask_keys = self.tracking_config.get('MASK_KEYS', ['API_KEY'])
+        # 1. conf.yaml의 MASK_KEYS에서 명시적으로 지정한 키
+        mask_keys = list(self.tracking_config.get('MASK_KEYS', ['API_KEY']))
+
+        # 2. secrets.yaml에서 관리되는 모든 키도 자동으로 마스킹 대상에 추가
+        #    → 추후 secrets.yaml에 새 키가 추가되어도 자동 보호
+        for secret_key, config_path in ContextLoader.SECRETS_KEY_MAPPING.items():
+            # secret_key 자체 (예: FMP_API_KEY, GITHUB_PAT)
+            if secret_key not in mask_keys:
+                mask_keys.append(secret_key)
+            # config 경로의 leaf 키 (예: API_KEY, PAT, SHEET_ID)
+            leaf_key = config_path[-1]
+            if leaf_key not in mask_keys:
+                mask_keys.append(leaf_key)
+
         self.masker = ConfigMasker(mask_keys)
 
         # Google API 클라이언트 (lazy initialization)
@@ -365,7 +379,15 @@ class SheetsTracker:
         github_pat = gist_config.get('PAT')
 
         if not github_pat:
-            logger.warning("GITHUB_GIST.PAT not configured - skipping config upload")
+            logger.warning("━" * 60)
+            logger.warning("⚠️  GITHUB_GIST.PAT not configured - skipping config upload")
+            logger.warning("    Possible causes:")
+            logger.warning("    1. secrets.yaml missing or not loaded")
+            logger.warning("    2. GITHUB_PAT in secrets.yaml is placeholder (YOUR_..._HERE)")
+            logger.warning("    3. GITHUB_PAT key not present in secrets.yaml")
+            logger.warning(f"    GITHUB_GIST config keys: {list(gist_config.keys())}")
+            logger.warning("    → Set GITHUB_PAT in config/secrets.yaml")
+            logger.warning("━" * 60)
             return ""
 
         # 파일 이름 생성
@@ -412,7 +434,26 @@ class SheetsTracker:
             return gist_url
 
         except requests.exceptions.RequestException as e:
-            logger.warning(f"Failed to upload config to Gist: {e}")
+            # 상세 진단 로그
+            pat_len = len(github_pat) if github_pat else 0
+            pat_prefix = github_pat[:4] + "..." if pat_len > 4 else "***"
+            status_code = getattr(getattr(e, 'response', None), 'status_code', 'N/A')
+            response_text = ""
+            if hasattr(e, 'response') and e.response is not None:
+                response_text = e.response.text[:200] if e.response.text else ""
+
+            logger.warning("━" * 60)
+            logger.warning(f"⚠️  Failed to upload config to Gist")
+            logger.warning(f"    HTTP Status: {status_code}")
+            logger.warning(f"    PAT length: {pat_len}, prefix: {pat_prefix}")
+            logger.warning(f"    Response: {response_text}")
+            if status_code == 401:
+                logger.warning("    → PAT may be expired or invalid")
+                logger.warning("    → Check: https://github.com/settings/tokens")
+                logger.warning("    → Required scope: 'gist'")
+            elif status_code == 403:
+                logger.warning("    → PAT may lack 'gist' scope permission")
+            logger.warning("━" * 60)
             return ""
 
     def _append_to_sheet(

@@ -180,13 +180,23 @@ class ConfigMasker:
                 before, after = changes[key]
                 # 경로에서 마지막 부분만 사용 (BACKTEST.TOPK → TOPK)
                 short_key = key.split(".")[-1]
-                display_items.append(f"{short_key}={after}")
+                # 민감 키 마스킹: 경로의 어떤 부분이든 mask_keys에 포함되면 마스킹
+                key_parts = key.upper().split(".")
+                if any(part in self.mask_keys for part in key_parts):
+                    display_items.append(f"{short_key}={self.MASK_VALUE}")
+                else:
+                    display_items.append(f"{short_key}={after}")
 
         # 우선순위에 없는 나머지 변경사항
         for key, (before, after) in changes.items():
             if key not in priority_keys:
                 short_key = key.split(".")[-1]
-                display_items.append(f"{short_key}={after}")
+                # 민감 키 마스킹
+                key_parts = key.upper().split(".")
+                if any(part in self.mask_keys for part in key_parts):
+                    display_items.append(f"{short_key}={self.MASK_VALUE}")
+                else:
+                    display_items.append(f"{short_key}={after}")
 
                 # 너무 많으면 생략
                 if len(display_items) >= 5:

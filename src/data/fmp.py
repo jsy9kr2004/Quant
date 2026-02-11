@@ -149,6 +149,18 @@ class FMP:
                                       & ((symbol_list['exchangeShortName'] == 'NASDAQ')
                                          | (symbol_list['exchangeShortName'] == 'NYSE'))]
         filtered_symbol = filtered_symbol.dropna(subset=['symbol'])
+
+        # 우선주, 워런트, 유닛, 라이츠 등 특수 증권 필터링
+        # FMP API가 type="stock"으로 분류하더라도 심볼 suffix로 식별 가능
+        # 예: BSX-PA (우선주), SOME-WT (워런트), SOME-UN (유닛)
+        _special_suffix_pattern = r'-(P[A-Z]|W[ST]|UN|RT|RI|U)$'
+        _before_count = len(filtered_symbol)
+        filtered_symbol = filtered_symbol[
+            ~filtered_symbol['symbol'].str.contains(_special_suffix_pattern, regex=True, na=False)
+        ]
+        _removed = _before_count - len(filtered_symbol)
+        if _removed > 0:
+            self.logger.info(f'Filtered {_removed} preferred stocks/warrants/units (suffix pattern)')
         filtered_symbol = filtered_symbol.reset_index(drop=True)
         filtered_symbol = filtered_symbol.drop(['price', 'exchange', 'name'], axis=1)
         all_symbol = filtered_symbol
