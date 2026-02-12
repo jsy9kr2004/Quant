@@ -205,6 +205,17 @@ class Parquet:
             (all_symbol['exchangeShortName'] == 'NYSE')
         ]
 
+        # Filter out preferred stocks, warrants, units, rights
+        # Safety net: even if fmp.py missed some, catch them here
+        _special_suffix_pattern = r'-(P[A-Z]|W[ST]|UN|RT|RI|U)$'
+        _before_count = len(all_symbol)
+        all_symbol = all_symbol[
+            ~all_symbol['symbol'].str.contains(_special_suffix_pattern, regex=True, na=False)
+        ]
+        _removed = _before_count - len(all_symbol)
+        if _removed > 0:
+            logging.info(f'Filtered {_removed} preferred stocks/warrants/units (suffix pattern)')
+
         # Convert date columns to datetime
         all_symbol['ipoDate'] = all_symbol['ipoDate'].astype('datetime64[ns]')
         all_symbol['delistedDate'] = all_symbol['delistedDate'].astype('datetime64[ns]')

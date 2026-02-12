@@ -1352,6 +1352,17 @@ class AIDataMaker:
         fs_df["sector"] = fs_df["industry"].map(sector_map)
         fs_df.to_parquet(file_path, engine='pyarrow', compression='snappy', index=False)
 
+        # Feature 진단 로그 (rnorm_fs_: 예측용)
+        # regressor.py의 feature_columns.pkl과 비교 시 참고용
+        meta_cols = {'symbol', 'industry', 'volume_mul_price', 'sector', 'rebalance_date'}
+        fs_feature_cols = [c for c in fs_df.columns if c not in meta_cols]
+        ts_features = [c for c in fs_feature_cols if '_ts_' in c]
+        ratio_features = [c for c in fs_feature_cols if '_ts_' not in c]
+        self.logger.info(f"   📋 rnorm_fs features: {len(fs_feature_cols)} total "
+                         f"(ts: {len(ts_features)}, ratio: {len(ratio_features)})")
+        self.logger.info(f"      tsfresh params: MinimalFCParameters, "
+                         f"suffixes_dict: {len(self.suffixes_dict)} patterns")
+
         # rebalance_date가 있는 경우에만 학습 데이터 생성
         if skip_training_data:
             # Q1 등 rebalance_date가 없는 경우
@@ -1401,6 +1412,24 @@ class AIDataMaker:
         # 타겟 변수가 포함된 완전한 데이터셋 저장
         cur_table_for_ai.to_parquet(file2_path, engine='pyarrow', compression='snappy', index=False)
         self.logger.info(f"✅ Saved ML data: {os.path.basename(file2_path)}")
+
+        # Feature 진단 로그 (rnorm_ml_: 학습용)
+        y_col_list = ['price_dev', 'price_dev_subavg', 'sec_price_dev_subavg', 'sector',
+                       'industry', 'symbol', 'rebalance_date', 'volume_mul_price']
+        ml_feature_cols = [c for c in cur_table_for_ai.columns if c not in y_col_list]
+        ml_ts_features = [c for c in ml_feature_cols if '_ts_' in c]
+        ml_ratio_features = [c for c in ml_feature_cols if '_ts_' not in c]
+        self.logger.info(f"   📋 rnorm_ml features: {len(ml_feature_cols)} total "
+                         f"(ts: {len(ml_ts_features)}, ratio: {len(ml_ratio_features)})")
+
+        # fs와 ml의 feature 차이 비교
+        common = set(fs_feature_cols) & set(ml_feature_cols)
+        fs_only = set(fs_feature_cols) - set(ml_feature_cols)
+        ml_only = set(ml_feature_cols) - set(fs_feature_cols)
+        if fs_only or ml_only:
+            self.logger.warning(f"   ⚠️  Feature diff: fs_only={len(fs_only)}, ml_only={len(ml_only)}, common={len(common)}")
+        else:
+            self.logger.info(f"   ✅ fs/ml feature sets identical ({len(common)} features)")
 
         # ===================================================================
         # 분기별 통계 수집 (균형 검증용)
