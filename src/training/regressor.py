@@ -2096,6 +2096,99 @@ class Regressor:
 
         return is_fresh
 
+    @staticmethod
+    def _diagnose_feature_mismatch(
+        train_features: list,
+        pred_features: list,
+        context_name: str = "latest_prediction"
+    ) -> None:
+        """
+        Feature mismatch 진단 로그 출력
+
+        다음 3가지를 점검합니다:
+        1. 이름만 다른 건지 (naming mismatch) vs 정말 없는 건지
+        2. 어떤 종류의 feature가 누락되었는지 (tsfresh _ts_ vs ratio)
+        3. 수동 검토용 샘플 출력
+
+        Args:
+            train_features: 학습에 사용된 feature 이름 목록
+            pred_features: 예측 데이터의 feature 이름 목록
+            context_name: 진단 컨텍스트 (로그 표시용)
+        """
+        missing = set(train_features) - set(pred_features)
+        extra = set(pred_features) - set(train_features)
+        common = set(train_features) & set(pred_features)
+
+        if not missing and not extra:
+            logging.info(f"   ✅ No feature mismatch in {context_name}")
+            return
+
+        logging.info("")
+        logging.info("=" * 80)
+        logging.info(f"🔍 FEATURE MISMATCH DIAGNOSIS ({context_name})")
+        logging.info("=" * 80)
+        logging.info(f"   Train features: {len(train_features)}")
+        logging.info(f"   Pred features:  {len(pred_features)}")
+        logging.info(f"   Common: {len(common)} | Missing: {len(missing)} | Extra: {len(extra)}")
+        logging.info(f"   Effective features: {len(common)}/{len(train_features)}"
+                     f" ({len(common)/len(train_features)*100:.1f}%)")
+        logging.info("")
+
+        # ── Check 1: 이름만 다른 건지 (naming mismatch) 점검 ──
+        logging.info("   [Check 1] Naming mismatch 점검 (유사 이름 탐색)")
+        near_matches = []
+        missing_sorted = sorted(missing)
+        for m_feat in missing_sorted[:30]:
+            # feature 이름의 base 부분 (마지막 __ 이전)
+            base = m_feat.rsplit('__', 1)[0] if '__' in m_feat else m_feat
+            for e_feat in sorted(extra):
+                e_base = e_feat.rsplit('__', 1)[0] if '__' in e_feat else e_feat
+                if base == e_base:
+                    near_matches.append((m_feat, e_feat))
+                    break
+
+        if near_matches:
+            logging.warning(f"   ⚠️  {len(near_matches)} potential naming mismatches found!")
+            for m, e in near_matches[:10]:
+                logging.warning(f"      Train: {m}")
+                logging.warning(f"      Pred:  {e}")
+                logging.warning("")
+        else:
+            logging.info(f"   ✅ No near-matches found → features are genuinely absent")
+        logging.info("")
+
+        # ── Check 2: 누락 feature 패턴 분석 ──
+        logging.info("   [Check 2] Missing feature 패턴 분석")
+        ts_missing = [f for f in missing if '_ts_' in f]
+        ratio_missing = [f for f in missing if '_ts_' not in f]
+        logging.info(f"   Time-series (_ts_) missing: {len(ts_missing)}")
+        logging.info(f"   Ratio/Other missing:        {len(ratio_missing)}")
+
+        if ts_missing:
+            tsfresh_funcs = {}
+            for f in ts_missing:
+                parts = f.split('__')
+                func = parts[1] if len(parts) >= 2 else 'unknown'
+                tsfresh_funcs[func] = tsfresh_funcs.get(func, 0) + 1
+            logging.info(f"   tsfresh function distribution (missing top 10):")
+            for func, count in sorted(tsfresh_funcs.items(), key=lambda x: -x[1])[:10]:
+                logging.info(f"      {func}: {count}")
+        logging.info("")
+
+        # ── Check 3: 수동 검토용 샘플 ──
+        logging.info("   [Check 3] Sample features for manual inspection")
+        logging.info(f"   Missing (first 20):")
+        for f in sorted(missing)[:20]:
+            logging.info(f"      ❌ {f}")
+        logging.info(f"   Extra (first 10):")
+        for f in sorted(extra)[:10]:
+            logging.info(f"      ➕ {f}")
+        logging.info(f"   Common (first 5):")
+        for f in sorted(common)[:5]:
+            logging.info(f"      ✅ {f}")
+        logging.info("=" * 80)
+        logging.info("")
+
     def _find_optimal_threshold(
         self,
         classifier: Any,
@@ -3054,6 +3147,12 @@ class Regressor:
         feature_columns_file = model_save_path + 'feature_columns.pkl'
         joblib.dump(feature_columns, feature_columns_file)
         logging.info(f"✅ Saved {len(feature_columns)} feature columns to {feature_columns_file}")
+
+        # Feature 구성 진단 로그 (예측 시 mismatch 비교용)
+        ts_cols = [c for c in feature_columns if '_ts_' in c]
+        ratio_cols = [c for c in feature_columns if '_ts_' not in c]
+        logging.info(f"   📋 Train feature breakdown: ts={len(ts_cols)}, ratio={len(ratio_cols)}")
+        logging.info(f"   Sample train features (first 5): {feature_columns[:5]}")
 
         # 주석 처리됨: 특성 중요도 분석
         # logging.info("end fitting RandomForestRegressor")
@@ -4388,6 +4487,14 @@ class Regressor:
                     logging.info(f"   Removing {len(extra_features)} extra features from test data")
                     x_test = x_test.drop(columns=list(extra_features))
 
+                # Feature mismatch 진단
+                if missing_features or extra_features:
+                    self._diagnose_feature_mismatch(
+                        train_feature_columns,
+                        list(set(x_test.columns) | extra_features),
+                        context_name="evaluation"
+                    )
+
                 # 피처 순서 맞추기 (중요!)
                 x_test = x_test[train_feature_columns]
                 logging.info(f"   ✅ Feature alignment complete: {len(x_test.columns)} features")
@@ -4922,13 +5029,6 @@ class Regressor:
             missing_features = set(train_feature_columns) - set(input.columns)
             if missing_features:
                 logging.warning(f"   ⚠️  {len(missing_features)} features missing in prediction data, filling with NaN")
-                if len(missing_features) <= 10:
-                    for col in missing_features:
-                        logging.warning(f"      - {col}")
-                else:
-                    for col in list(missing_features)[:10]:
-                        logging.warning(f"      - {col}")
-                    logging.warning(f"      ... and {len(missing_features)-10} more")
                 for col in missing_features:
                     input.loc[:, col] = np.nan
 
@@ -4936,14 +5036,15 @@ class Regressor:
             extra_features = set(input.columns) - set(train_feature_columns)
             if extra_features:
                 logging.info(f"   Removing {len(extra_features)} extra features from prediction data")
-                if len(extra_features) <= 10:
-                    for col in extra_features:
-                        logging.info(f"      - {col}")
-                else:
-                    for col in list(extra_features)[:10]:
-                        logging.info(f"      - {col}")
-                    logging.info(f"      ... and {len(extra_features)-10} more")
                 input = input.drop(columns=list(extra_features))
+
+            # Feature mismatch 진단 (missing 또는 extra가 있을 때)
+            if missing_features or extra_features:
+                self._diagnose_feature_mismatch(
+                    train_feature_columns,
+                    list(set(input.columns) | extra_features),
+                    context_name="latest_prediction"
+                )
 
             # 피처 순서 맞추기 (중요!)
             input = input[train_feature_columns]
