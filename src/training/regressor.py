@@ -2175,8 +2175,47 @@ class Regressor:
                 logging.info(f"      {func}: {count}")
         logging.info("")
 
-        # ── Check 3: 수동 검토용 샘플 ──
-        logging.info("   [Check 3] Sample features for manual inspection")
+        # ── Check 3: Prefix 패턴 분석 (feature_columns.pkl vs prediction data) ──
+        logging.info("   [Check 3] Prefix 패턴 분석 (train vs pred)")
+
+        def _get_prefix(f):
+            """feature 이름에서 prefix 추출 (예: OverMC_xxx → OverMC)"""
+            if '_' in f:
+                return f.split('_')[0]
+            return f
+
+        train_prefixes = {}
+        for f in train_features:
+            p = _get_prefix(f)
+            train_prefixes[p] = train_prefixes.get(p, 0) + 1
+
+        pred_prefixes = {}
+        for f in pred_features:
+            p = _get_prefix(f)
+            pred_prefixes[p] = pred_prefixes.get(p, 0) + 1
+
+        missing_prefixes = {}
+        for f in missing:
+            p = _get_prefix(f)
+            missing_prefixes[p] = missing_prefixes.get(p, 0) + 1
+
+        logging.info(f"   Train prefix distribution (top 10):")
+        for p, cnt in sorted(train_prefixes.items(), key=lambda x: -x[1])[:10]:
+            pred_cnt = pred_prefixes.get(p, 0)
+            miss_cnt = missing_prefixes.get(p, 0)
+            logging.info(f"      {p}: train={cnt}, pred={pred_cnt}, missing={miss_cnt}")
+
+        # train에만 있는 prefix vs pred에만 있는 prefix
+        train_only_prefixes = set(train_prefixes.keys()) - set(pred_prefixes.keys())
+        pred_only_prefixes = set(pred_prefixes.keys()) - set(train_prefixes.keys())
+        if train_only_prefixes:
+            logging.info(f"   ⚠️  Train-only prefixes ({len(train_only_prefixes)}): {sorted(train_only_prefixes)[:10]}")
+        if pred_only_prefixes:
+            logging.info(f"   ➕  Pred-only prefixes ({len(pred_only_prefixes)}): {sorted(pred_only_prefixes)[:10]}")
+        logging.info("")
+
+        # ── Check 4: 수동 검토용 샘플 ──
+        logging.info("   [Check 4] Sample features for manual inspection")
         logging.info(f"   Missing (first 20):")
         for f in sorted(missing)[:20]:
             logging.info(f"      ❌ {f}")
@@ -2264,6 +2303,33 @@ class Regressor:
         logging.info(f"   Min precision: {min_precision:.2f}")
         logging.info(f"   Min samples: {min_samples}")
         logging.info(f"   Strategy: {strategy}")
+        logging.info("")
+
+        # ── Binary Target 분포 진단 ──
+        y_binary_values = y_train_binary.values.ravel()
+        n_total = len(y_binary_values)
+        n_class1 = (y_binary_values == 1).sum()
+        n_class0 = (y_binary_values == 0).sum()
+        class1_pct = n_class1 / n_total * 100 if n_total > 0 else 0
+
+        logging.info("📊 BINARY TARGET DISTRIBUTION (학습 데이터)")
+        logging.info(f"   Total samples: {n_total:,}")
+        if classifier_mode == "negative_screen":
+            neg_config = ml_config.get('NEGATIVE_SCREEN', {})
+            loss_threshold = neg_config.get('LOSS_THRESHOLD', -0.3)
+            logging.info(f"   LOSS_THRESHOLD (config): {loss_threshold} ({loss_threshold*100:.0f}%)")
+            logging.info(f"   BAD (class=1, return < {loss_threshold}): {n_class1:,} ({class1_pct:.1f}%)")
+            logging.info(f"   OK  (class=0, return >= {loss_threshold}): {n_class0:,} ({100-class1_pct:.1f}%)")
+            if class1_pct > 40:
+                logging.warning(f"   ⚠️  BAD 비율 {class1_pct:.1f}%는 비정상적으로 높음! (정상: 5~20%)")
+                logging.warning(f"   ⚠️  LOSS_THRESHOLD 값이 너무 관대하거나, 타겟 변수 분포를 확인해주세요")
+            elif class1_pct < 3:
+                logging.warning(f"   ⚠️  BAD 비율 {class1_pct:.1f}%는 너무 낮음 (학습 데이터 불균형)")
+        else:  # positive_screen
+            logging.info(f"   GOOD (class=1, return > 0): {n_class1:,} ({class1_pct:.1f}%)")
+            logging.info(f"   LOSS (class=0, return <= 0): {n_class0:,} ({100-class1_pct:.1f}%)")
+            if abs(class1_pct - 50) < 5:
+                logging.info(f"   ℹ️  GOOD/LOSS 비율이 ~50:50 (precision ~0.5는 정상적일 수 있음)")
         logging.info("")
 
         # 예측 확률 계산
@@ -4392,6 +4458,18 @@ class Regressor:
             if 'precision' in threshold_config:
                 logging.info(f"   Precision: {threshold_config['precision']:.3f}")
                 logging.info(f"   Selected stocks: {threshold_config['n_selected']:,}")
+            # Precision 해석 도움 로깅
+            mode = threshold_config.get('mode', 'unknown')
+            logging.info(f"   Mode: {mode}")
+            if 'precision' in threshold_config:
+                prec = threshold_config['precision']
+                remove_pct = threshold_config.get('remove_pct', 'N/A')
+                if mode == "negative_screen":
+                    logging.info(f"   해석: 상위 {remove_pct}% BAD 제거 후 남은 종목 중 {prec*100:.1f}%가 실제 OK")
+                    if prec < 0.6:
+                        logging.warning(f"   ⚠️  Precision {prec:.3f}이 낮음 → Classifier 필터링 효과 미약")
+                elif mode == "positive_screen":
+                    logging.info(f"   해석: 하위 {remove_pct}% 제거 후 남은 종목 중 {prec*100:.1f}%가 실제 GOOD")
             logging.info("="*80)
             logging.info("")
         except FileNotFoundError:
@@ -4487,11 +4565,17 @@ class Regressor:
                     logging.info(f"   Removing {len(extra_features)} extra features from test data")
                     x_test = x_test.drop(columns=list(extra_features))
 
-                # Feature mismatch 진단
+                # Feature mismatch 진단 (alignment 전 원본 상태에서 비교)
                 if missing_features or extra_features:
+                    # 원본 prediction 데이터의 feature 목록 (alignment 전)
+                    # missing_features: 학습에는 있지만 예측에는 없는 feature
+                    # extra_features: 예측에는 있지만 학습에는 없는 feature
+                    original_pred_features = list(
+                        (set(x_test.columns) - missing_features) | extra_features
+                    )
                     self._diagnose_feature_mismatch(
                         train_feature_columns,
-                        list(set(x_test.columns) | extra_features),
+                        original_pred_features,
                         context_name="evaluation"
                     )
 
@@ -5038,11 +5122,16 @@ class Regressor:
                 logging.info(f"   Removing {len(extra_features)} extra features from prediction data")
                 input = input.drop(columns=list(extra_features))
 
-            # Feature mismatch 진단 (missing 또는 extra가 있을 때)
+            # Feature mismatch 진단 (alignment 전 원본 상태에서 비교)
             if missing_features or extra_features:
+                # 원본 prediction 데이터의 feature 목록 (alignment 전)
+                # input은 이미 missing NaN 추가 + extra 제거된 상태이므로 복원
+                original_pred_features = list(
+                    (set(input.columns) - missing_features) | extra_features
+                )
                 self._diagnose_feature_mismatch(
                     train_feature_columns,
-                    list(set(input.columns) | extra_features),
+                    original_pred_features,
                     context_name="latest_prediction"
                 )
 
