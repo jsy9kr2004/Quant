@@ -296,7 +296,8 @@ def train_single_period_remote(
     use_classifier: bool,
     use_sector_model: bool,
     top_k: int,
-    logger_level: int = logging.INFO
+    logger_level: int = logging.INFO,
+    classifier_config: Optional[dict] = None
 ) -> Tuple[str, Optional[dict]]:
     """
     Ray remote function to train models for a single walk-forward period.
@@ -326,6 +327,8 @@ def train_single_period_remote(
         Number of top stocks to select
     logger_level : int
         Logging level for this worker
+    classifier_config : dict, optional
+        Classifier settings: {mode, loss_threshold}
 
     Returns:
     --------
@@ -373,7 +376,8 @@ def train_single_period_remote(
         # Step 2: Train models
         logging.info("🔧 Training models...")
         models_info = _train_models_for_period_standalone(
-            train_df, use_classifier, use_sector_model
+            train_df, use_classifier, use_sector_model,
+            classifier_config=classifier_config
         )
         logging.info(f"   Models trained: regressors={len(models_info.get('regressors', {}))}, "
                      f"classifiers={len(models_info.get('classifiers', {}))}, "
@@ -573,12 +577,26 @@ def _load_data_for_prediction_standalone(root_path: str, cutoff_date: datetime.d
 def _train_models_for_period_standalone(
     train_df: pd.DataFrame,
     use_classifier: bool,
-    use_sector_model: bool
+    use_sector_model: bool,
+    classifier_config: Optional[dict] = None
 ) -> dict:
-    """Standalone version of _train_models_for_period for Ray workers."""
+    """Standalone version of _train_models_for_period for Ray workers.
+
+    Args:
+        classifier_config: Dict with classifier settings from config:
+            - mode: "negative_screen" or "positive_screen"
+            - loss_threshold: float (for negative_screen, e.g. -0.3)
+    """
     from src.training.data_processor import DataProcessor
     from xgboost import XGBClassifier, XGBRegressor
     from lightgbm import LGBMClassifier
+
+    # Parse classifier config
+    cls_mode = "positive_screen"
+    cls_threshold = 0.0
+    if classifier_config:
+        cls_mode = classifier_config.get('mode', 'positive_screen')
+        cls_threshold = classifier_config.get('loss_threshold', 0.0)
 
     models_info = {
         'use_classifier': use_classifier,
@@ -586,7 +604,8 @@ def _train_models_for_period_standalone(
         'classifiers': {},
         'regressors': {},
         'sector_classifiers': {},
-        'sector_regressors': {}
+        'sector_regressors': {},
+        'binary_target_stats': {}
     }
 
     # NOTE: Do NOT call preprocess_training_data() on the full DataFrame here.
@@ -634,7 +653,23 @@ def _train_models_for_period_standalone(
 
             # Train sector classifiers
             if use_classifier:
-                y_binary = (y_sector_clean > 0).astype(int)
+                y_binary = DataProcessor.create_binary_target(
+                    y_sector_clean,
+                    mode=cls_mode,
+                    threshold=cls_threshold if cls_mode == "negative_screen" else 0.0,
+                    logger=logging
+                )
+                # Record binary target distribution for this sector
+                n_total = len(y_binary)
+                n_class1 = int((y_binary == 1).sum())
+                models_info['binary_target_stats'][f'sector_{sector}'] = {
+                    'mode': cls_mode,
+                    'threshold': cls_threshold if cls_mode == "negative_screen" else 0.0,
+                    'n_total': n_total,
+                    'n_class1': n_class1,
+                    'n_class0': n_total - n_class1,
+                    'class1_pct': n_class1 / n_total * 100 if n_total > 0 else 0
+                }
                 sector_clfs = {
                     0: XGBClassifier(max_depth=8, n_estimators=100, random_state=42),
                     1: XGBClassifier(max_depth=9, n_estimators=100, random_state=42),
@@ -683,7 +718,23 @@ def _train_models_for_period_standalone(
 
         # Train global classifiers
         if use_classifier:
-            y_binary = (y_train_clean > 0).astype(int)
+            y_binary = DataProcessor.create_binary_target(
+                y_train_clean,
+                mode=cls_mode,
+                threshold=cls_threshold if cls_mode == "negative_screen" else 0.0,
+                logger=logging
+            )
+            # Record binary target distribution for global model
+            n_total = len(y_binary)
+            n_class1 = int((y_binary == 1).sum())
+            models_info['binary_target_stats']['global'] = {
+                'mode': cls_mode,
+                'threshold': cls_threshold if cls_mode == "negative_screen" else 0.0,
+                'n_total': n_total,
+                'n_class1': n_class1,
+                'n_class0': n_total - n_class1,
+                'class1_pct': n_class1 / n_total * 100 if n_total > 0 else 0
+            }
             global_clfs = {
                 0: XGBClassifier(max_depth=8, n_estimators=100, random_state=42),
                 1: XGBClassifier(max_depth=9, n_estimators=100, random_state=42),
@@ -2159,10 +2210,11 @@ class Regressor:
 
         # ── Check 2: 누락 feature 패턴 분석 ──
         logging.info("   [Check 2] Missing feature 패턴 분석")
-        ts_missing = [f for f in missing if '_ts_' in f]
-        ratio_missing = [f for f in missing if '_ts_' not in f]
-        logging.info(f"   Time-series (_ts_) missing: {len(ts_missing)}")
-        logging.info(f"   Ratio/Other missing:        {len(ratio_missing)}")
+        # tsfresh feature 감지: '_ts_' 포함 또는 '_ts'로 끝나는 경우 모두 체크
+        ts_missing = [f for f in missing if '_ts_' in f or f.endswith('_ts')]
+        ratio_missing = [f for f in missing if not ('_ts_' in f or f.endswith('_ts'))]
+        logging.info(f"   Time-series (tsfresh) missing: {len(ts_missing)}")
+        logging.info(f"   Ratio/Other missing:           {len(ratio_missing)}")
 
         if ts_missing:
             tsfresh_funcs = {}
@@ -3681,6 +3733,16 @@ class Regressor:
 
             # Submit all periods as Ray tasks
             logging.info(f"📤 Submitting {len(self.walk_forward_periods)} tasks to Ray...")
+
+            # Build classifier config to pass to workers
+            ml_config = self.conf.get('ML', {})
+            classifier_config = {
+                'mode': ml_config.get('CLASSIFIER_MODE', 'positive_screen'),
+                'loss_threshold': ml_config.get('NEGATIVE_SCREEN', {}).get('LOSS_THRESHOLD', -0.3)
+            }
+            logging.info(f"   Classifier config for workers: mode={classifier_config['mode']}, "
+                        f"loss_threshold={classifier_config['loss_threshold']}")
+
             futures = []
             for idx, period_info in enumerate(self.walk_forward_periods):
                 future = train_single_period_remote.remote(
@@ -3689,7 +3751,8 @@ class Regressor:
                     use_classifier=self.use_classifier,
                     use_sector_model=self.use_sector_model,
                     top_k=top_k,
-                    logger_level=logging.INFO
+                    logger_level=logging.INFO,
+                    classifier_config=classifier_config
                 )
                 futures.append(future)
 
@@ -3718,6 +3781,30 @@ class Regressor:
                 if cache_entry is not None:
                     self.predictions_cache[cache_key] = cache_entry
                     logging.info(f"✅ Period {cache_key}: {len(cache_entry['top_k_selected'])} stocks selected")
+
+                    # Log binary target distribution from worker
+                    bt_stats = cache_entry.get('models_used', {}).get('binary_target_stats', {})
+                    if bt_stats:
+                        for scope, stats in bt_stats.items():
+                            mode = stats.get('mode', 'unknown')
+                            n_total = stats.get('n_total', 0)
+                            n_class1 = stats.get('n_class1', 0)
+                            class1_pct = stats.get('class1_pct', 0)
+                            threshold = stats.get('threshold', 0)
+                            if mode == 'negative_screen':
+                                label_name = 'BAD'
+                                logging.info(f"   📊 [{scope}] Binary target: {label_name}={n_class1}/{n_total} "
+                                           f"({class1_pct:.1f}%), threshold={threshold}, mode={mode}")
+                                if class1_pct > 40:
+                                    logging.warning(f"   ⚠️  [{scope}] BAD ratio {class1_pct:.1f}% is abnormally high! (normal: 5~20%)")
+                                elif class1_pct < 1:
+                                    logging.warning(f"   ⚠️  [{scope}] BAD ratio {class1_pct:.1f}% is abnormally low! Check LOSS_THRESHOLD={threshold}")
+                            else:
+                                label_name = 'GOOD'
+                                logging.info(f"   📊 [{scope}] Binary target: {label_name}={n_class1}/{n_total} "
+                                           f"({class1_pct:.1f}%), mode={mode}")
+                    elif self.use_classifier:
+                        logging.warning(f"   ⚠️  Period {cache_key}: No binary_target_stats in worker results")
                 else:
                     if error_msg:
                         # Log full error including worker traceback if available
@@ -4208,16 +4295,13 @@ class Regressor:
         """
         classifiers = {}
 
-        # ✅ Data is already preprocessed by DataProcessor.preprocess_training_data()
-        # - inf removed
-        # - NaN removed
-        # - Winsorization applied
-        # Just need to convert to binary (0/1)
-        y_regression = y_train
-
-        # Convert clean data to binary (0/1)
-        # No need to check NaN again - already removed in preprocessing
-        y_binary = (y_regression > 0).astype(int)
+        # ✅ Use DataProcessor.create_binary_target with config for correct mode
+        # This respects CLASSIFIER_MODE (negative_screen/positive_screen) and LOSS_THRESHOLD
+        y_binary = DataProcessor.create_binary_target(
+            y_train,
+            config=self.conf,
+            logger=logging
+        )
 
         # ✅ ADD: Temporal train/val split for early stopping
         X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_train, y_binary, val_ratio=0.2)
@@ -4287,16 +4371,13 @@ class Regressor:
         """
         classifiers = {}
 
-        # ✅ Data is already preprocessed by DataProcessor.preprocess_training_data()
-        # - inf removed
-        # - NaN removed
-        # - Winsorization applied
-        # Just need to convert to binary (0/1)
-        y_regression = y_sector
-
-        # Convert clean data to binary (0/1)
-        # No need to check NaN again - already removed in preprocessing
-        y_binary = (y_regression > 0).astype(int)
+        # ✅ Use DataProcessor.create_binary_target with config for correct mode
+        # This respects CLASSIFIER_MODE (negative_screen/positive_screen) and LOSS_THRESHOLD
+        y_binary = DataProcessor.create_binary_target(
+            y_sector,
+            config=self.conf,
+            logger=logging
+        )
 
         # ✅ ADD: Temporal train/val split for early stopping
         X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_sector, y_binary, val_ratio=0.2)
@@ -4459,8 +4540,16 @@ class Regressor:
                 logging.info(f"   Precision: {threshold_config['precision']:.3f}")
                 logging.info(f"   Selected stocks: {threshold_config['n_selected']:,}")
             # Precision 해석 도움 로깅
-            mode = threshold_config.get('mode', 'unknown')
-            logging.info(f"   Mode: {mode}")
+            # 이전 버전 threshold_config.pkl에 mode가 없으면 config에서 fallback
+            mode = threshold_config.get('mode', None)
+            if mode is None:
+                ml_config = self.conf.get('ML', {})
+                mode = ml_config.get('CLASSIFIER_MODE', 'positive_screen')
+                threshold_config['mode'] = mode  # 호환성을 위해 추가
+                logging.warning(f"   ⚠️  Mode not in threshold_config.pkl (이전 버전), config에서 읽음: {mode}")
+                logging.warning(f"   ⚠️  모델 재학습 시 자동으로 mode가 저장됩니다")
+            else:
+                logging.info(f"   Mode: {mode}")
             if 'precision' in threshold_config:
                 prec = threshold_config['precision']
                 remove_pct = threshold_config.get('remove_pct', 'N/A')
@@ -5108,6 +5197,33 @@ class Regressor:
             train_feature_columns = joblib.load(feature_columns_file)
             logging.info(f"✅ Loaded {len(train_feature_columns)} train feature columns")
             logging.info(f"   Latest prediction data has {len(input.columns)} features")
+
+            # ── Feature 원본 비교 진단 (rnorm_ml vs rnorm_fs) ──
+            # 학습 feature와 예측 feature의 tsfresh suffix 패턴 비교
+            train_ts_suffix = [c for c in train_feature_columns if c.endswith('_ts') or '_ts_' in c]
+            pred_ts_suffix = [c for c in input.columns if c.endswith('_ts') or '_ts_' in c]
+            train_ratio = [c for c in train_feature_columns if not (c.endswith('_ts') or '_ts_' in c)]
+            pred_ratio = [c for c in input.columns if not (c.endswith('_ts') or '_ts_' in c)]
+            logging.info(f"   📋 Feature composition:")
+            logging.info(f"      Train: {len(train_ts_suffix)} tsfresh + {len(train_ratio)} ratio = {len(train_feature_columns)}")
+            logging.info(f"      Pred:  {len(pred_ts_suffix)} tsfresh + {len(pred_ratio)} ratio = {len(input.columns)}")
+            if len(train_ts_suffix) > 0 and len(pred_ts_suffix) == 0:
+                logging.warning(f"   ⚠️  학습에는 tsfresh feature {len(train_ts_suffix)}개가 있으나, 예측 데이터에는 0개!")
+                logging.warning(f"   ⚠️  원인: rnorm_ml (학습)과 rnorm_fs (예측) 파일이 다른 버전의 make_mldata.py로 생성되었을 가능성")
+                logging.warning(f"   ⚠️  해결: make_mldata.py를 다시 실행하여 rnorm_ml + rnorm_fs를 동일 버전으로 재생성하세요")
+                # rnorm_ml 파일의 feature 확인 (직접 비교)
+                import glob as glob_module
+                aidata_dir = self.root_path + '/processed/ml_data/per_year/'
+                ml_files = sorted(glob_module.glob(aidata_dir + 'rnorm_ml_*_Q1.parquet'))
+                if ml_files:
+                    try:
+                        sample_ml = pd.read_parquet(ml_files[-1], engine='pyarrow')
+                        ml_cols = [c for c in sample_ml.columns if c.endswith('_ts') or '_ts_' in c]
+                        logging.info(f"   📋 Direct parquet check ({os.path.basename(ml_files[-1])}):")
+                        logging.info(f"      rnorm_ml tsfresh features: {len(ml_cols)}")
+                        logging.info(f"      Sample: {ml_cols[:3]}")
+                    except Exception as e:
+                        logging.warning(f"   Could not read rnorm_ml for comparison: {e}")
 
             # 누락된 피처는 NaN으로 채우기 (XGBoost가 처리)
             missing_features = set(train_feature_columns) - set(input.columns)
