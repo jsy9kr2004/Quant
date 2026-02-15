@@ -1,20 +1,20 @@
 """
-Integrated Excel Report Writer
+통합 Excel 레포트 작성기
 
-This module provides a unified report generation system that combines:
-- Regressor predictions and accuracy metrics
-- Backtest actual trading results
-- Benchmark comparisons
+이 모듈은 다음을 결합한 통합 레포트 생성 시스템을 제공합니다:
+- Regressor 예측 및 정확도 메트릭
+- 백테스트 실제 거래 결과
+- 벤치마크 비교
 
-Output: Single Excel file with 5 sheets
-- Sheet 1: Summary (overall performance)
-- Sheet 2: Regressor Metrics (prediction accuracy)
-- Sheet 3: Backtest Performance (actual returns)
-- Sheet 4: Detailed Trades (stock-by-stock details)
-- Sheet 5: Benchmark Comparison (vs SPY, QQQ, etc.)
+출력: 5개 시트로 구성된 단일 Excel 파일
+- Sheet 1: Summary (전체 성과)
+- Sheet 2: Regressor Metrics (예측 정확도)
+- Sheet 3: Backtest Performance (실제 수익률)
+- Sheet 4: Detailed Trades (종목별 상세 내역)
+- Sheet 5: Benchmark Comparison (SPY, QQQ 등과 비교)
 
-Author: Quant Trading Team
-Date: 2025-12-21
+작성자: Quant Trading Team
+날짜: 2025-12-21
 """
 
 import pandas as pd
@@ -27,44 +27,42 @@ import logging
 
 class IntegratedReportWriter:
     """
-    Integrated Excel report writer for ML backtest results.
+    ML 백테스트 결과를 위한 통합 Excel 레포트 작성기입니다.
 
-    This class manages the creation of a comprehensive Excel report
-    that combines regressor predictions with backtest performance.
+    이 클래스는 regressor 예측과 백테스트 성과를 결합한 종합 Excel 레포트의
+    생성을 관리합니다.
 
-    Usage:
+    사용 예시:
     ------
-    # Create writer
+    # 작성기 생성
     writer = IntegratedReportWriter()
 
-    # Add data from regressor
+    # regressor 데이터 추가
     writer.add_sheet('Regressor Metrics', regressor_metrics_df)
 
-    # Add data from ml_backtest
+    # ml_backtest 데이터 추가
     writer.add_sheet('Backtest Performance', backtest_results_df)
 
-    # Write to file
+    # 파일로 저장
     filepath = writer.write()
     """
 
     def __init__(self, output_dir: str = "outputs/reports"):
         """
-        Initialize report writer.
+        레포트 작성기를 초기화합니다.
 
-        Parameters:
-        -----------
-        output_dir : str
-            Directory to save the report (default: outputs/reports)
+        Args:
+            output_dir (str): 레포트를 저장할 디렉토리 (기본값: outputs/reports)
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Timestamp for filename
+        # 파일명에 사용할 타임스탬프
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.filename = f"integrated_report_{self.timestamp}.xlsx"
         self.filepath = self.output_dir / self.filename
 
-        # Data storage for each sheet
+        # 각 시트별 데이터 저장소
         self.sheets = {
             'Summary': None,
             'Regressor Metrics': None,
@@ -77,19 +75,14 @@ class IntegratedReportWriter:
 
     def add_sheet(self, sheet_name: str, data: pd.DataFrame):
         """
-        Add data for a specific sheet.
+        특정 시트에 데이터를 추가합니다.
 
-        Parameters:
-        -----------
-        sheet_name : str
-            Name of the sheet (must be one of the predefined sheets)
-        data : pd.DataFrame
-            Data to add to the sheet
+        Args:
+            sheet_name (str): 시트 이름 (사전 정의된 시트 중 하나여야 합니다)
+            data (pd.DataFrame): 시트에 추가할 데이터
 
         Raises:
-        -------
-        ValueError
-            If sheet_name is not recognized
+            ValueError: sheet_name이 인식되지 않는 경우
         """
         if sheet_name not in self.sheets:
             raise ValueError(
@@ -105,14 +98,12 @@ class IntegratedReportWriter:
 
     def write(self) -> Path:
         """
-        Write all sheets to Excel file.
+        모든 시트를 Excel 파일로 작성합니다.
 
         Returns:
-        --------
-        Path
-            Path to the created Excel file
+            Path: 생성된 Excel 파일 경로
         """
-        # Check if we have at least one non-empty sheet
+        # 비어있지 않은 시트가 하나 이상 있는지 확인
         non_empty_sheets = {k: v for k, v in self.sheets.items() if v is not None}
 
         if not non_empty_sheets:
@@ -121,14 +112,14 @@ class IntegratedReportWriter:
 
         self.logger.info(f"\n📊 Writing integrated report with {len(non_empty_sheets)} sheets...")
 
-        # Write to Excel
+        # Excel로 작성
         with pd.ExcelWriter(self.filepath, engine='openpyxl') as writer:
             for sheet_name, df in self.sheets.items():
                 if df is not None and not df.empty:
-                    # Write data
+                    # 데이터 작성
                     df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-                    # Apply formatting
+                    # 서식 적용
                     worksheet = writer.sheets[sheet_name]
                     self._format_sheet(worksheet, df, sheet_name)
 
@@ -139,20 +130,16 @@ class IntegratedReportWriter:
 
     def _format_sheet(self, worksheet, df: pd.DataFrame, sheet_name: str):
         """
-        Apply formatting to Excel sheet.
+        Excel 시트에 서식을 적용합니다.
 
-        Parameters:
-        -----------
-        worksheet : openpyxl.worksheet.worksheet.Worksheet
-            Excel worksheet object
-        df : pd.DataFrame
-            Dataframe that was written to the sheet
-        sheet_name : str
-            Name of the sheet (for context-specific formatting)
+        Args:
+            worksheet (openpyxl.worksheet.worksheet.Worksheet): Excel 워크시트 객체
+            df (pd.DataFrame): 시트에 작성된 DataFrame
+            sheet_name (str): 시트 이름 (컨텍스트별 서식 적용에 사용)
         """
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-        # Header formatting
+        # 헤더 서식
         header_fill = PatternFill(
             start_color="366092",
             end_color="366092",
@@ -161,13 +148,13 @@ class IntegratedReportWriter:
         header_font = Font(bold=True, color="FFFFFF", size=11)
         header_alignment = Alignment(horizontal='center', vertical='center')
 
-        # Apply header styles
+        # 헤더 스타일 적용
         for cell in worksheet[1]:
             cell.fill = header_fill
             cell.font = header_font
             cell.alignment = header_alignment
 
-        # Column width auto-adjustment
+        # 열 너비 자동 조정
         for column in worksheet.columns:
             max_length = 0
             column_letter = column[0].column_letter
@@ -179,14 +166,14 @@ class IntegratedReportWriter:
                 except (TypeError, ValueError):
                     pass
 
-            # Set width (max 50 chars)
+            # 너비 설정 (최대 50자)
             adjusted_width = min(max_length + 2, 50)
             worksheet.column_dimensions[column_letter].width = adjusted_width
 
-        # Freeze header row
+        # 헤더 행 고정
         worksheet.freeze_panes = 'A2'
 
-        # Add borders
+        # 테두리 추가
         thin_border = Border(
             left=Side(style='thin'),
             right=Side(style='thin'),
@@ -204,38 +191,33 @@ def create_summary_sheet(
     backtest_performance: pd.DataFrame
 ) -> pd.DataFrame:
     """
-    Create Sheet 1: Summary.
+    Sheet 1: Summary를 생성합니다.
 
-    This sheet provides high-level overview of:
-    - Total return per period
-    - Overall performance metrics
-    - Comparison across different periods
+    이 시트는 다음의 고수준 개요를 제공합니다:
+    - 기간별 총 수익률
+    - 전체 성과 메트릭
+    - 기간 간 비교
 
-    Parameters:
-    -----------
-    regressor_metrics : pd.DataFrame
-        Metrics from regressor evaluation
-    backtest_performance : pd.DataFrame
-        Performance results from ml_backtest
+    Args:
+        regressor_metrics (pd.DataFrame): Regressor 평가 메트릭
+        backtest_performance (pd.DataFrame): ml_backtest의 성과 결과
 
     Returns:
-    --------
-    pd.DataFrame
-        Summary statistics
+        pd.DataFrame: 요약 통계
     """
     summary = []
 
     if backtest_performance.empty:
         return pd.DataFrame()
 
-    # Group by period if 'period' column exists
+    # 'period' 열이 있으면 기간별로 그룹화
     if 'period' in backtest_performance.columns:
         periods = backtest_performance['period'].unique()
     else:
         periods = ['Overall']
         backtest_performance['period'] = 'Overall'
 
-    # Calculate metrics for each period
+    # 각 기간별 메트릭 계산
     for period in periods:
         period_data = backtest_performance[backtest_performance['period'] == period]
 
@@ -250,16 +232,16 @@ def create_summary_sheet(
         avg_return = returns.mean()
         std_return = returns.std()
 
-        # Sharpe ratio (assuming quarterly returns)
+        # Sharpe ratio (분기별 수익률 가정)
         sharpe = (avg_return / std_return) * np.sqrt(4) if std_return > 0 else 0.0
 
-        # Maximum drawdown
+        # 최대 낙폭
         cumulative = (1 + returns).cumprod()
         running_max = cumulative.expanding().max()
         drawdown = (cumulative - running_max) / running_max
         max_drawdown = drawdown.min()
 
-        # Win rate
+        # 승률
         win_rate = (returns > 0).sum() / len(returns) if len(returns) > 0 else 0.0
 
         summary.append({
@@ -278,22 +260,18 @@ def create_summary_sheet(
 
 def create_regressor_metrics_sheet(predictions_history: List[Dict]) -> pd.DataFrame:
     """
-    Create Sheet 2: Regressor Metrics.
+    Sheet 2: Regressor Metrics를 생성합니다.
 
-    This sheet shows prediction accuracy metrics for each rebalancing period:
-    - RMSE, MAE, R² (regression metrics)
-    - Accuracy, Precision, Recall (classification metrics)
+    이 시트는 각 리밸런싱 기간별 예측 정확도 메트릭을 표시합니다:
+    - RMSE, MAE, R² (회귀 메트릭)
+    - Accuracy, Precision, Recall (분류 메트릭)
 
-    Parameters:
-    -----------
-    predictions_history : List[Dict]
-        List of prediction results per period
-        Each dict should have: rebalance_date, actual_returns, predicted_returns, etc.
+    Args:
+        predictions_history (List[Dict]): 기간별 예측 결과 리스트.
+            각 dict는 rebalance_date, actual_returns, predicted_returns 등을 포함해야 합니다.
 
     Returns:
-    --------
-    pd.DataFrame
-        Regressor performance metrics per period
+        pd.DataFrame: 기간별 Regressor 성능 메트릭
     """
     if not predictions_history:
         return pd.DataFrame()
@@ -315,7 +293,7 @@ def create_regressor_metrics_sheet(predictions_history: List[Dict]) -> pd.DataFr
             y_true = pred_info['actual_returns']
             y_pred = pred_info['predicted_returns']
 
-            # Check if we have binary labels
+            # 이진 레이블 존재 여부 확인
             has_binary = ('actual_labels' in pred_info and
                          'predicted_labels' in pred_info)
 
@@ -323,18 +301,18 @@ def create_regressor_metrics_sheet(predictions_history: List[Dict]) -> pd.DataFr
                 y_true_binary = pred_info['actual_labels']
                 y_pred_binary = pred_info['predicted_labels']
 
-            # Regression metrics
+            # 회귀 메트릭
             rmse = mean_squared_error(y_true, y_pred, squared=False)
             mae = mean_absolute_error(y_true, y_pred)
             r2 = r2_score(y_true, y_pred)
 
-            # Classification metrics (if available)
+            # 분류 메트릭 (가능한 경우)
             if has_binary:
                 accuracy = accuracy_score(y_true_binary, y_pred_binary)
                 precision = precision_score(y_true_binary, y_pred_binary, zero_division=0)
                 recall = recall_score(y_true_binary, y_pred_binary, zero_division=0)
             else:
-                # Fallback: use sign of returns
+                # 대체: 수익률의 부호 사용
                 accuracy = accuracy_score((y_true > 0).astype(int), (y_pred > 0).astype(int))
                 precision = precision_score((y_true > 0).astype(int), (y_pred > 0).astype(int), zero_division=0)
                 recall = recall_score((y_true > 0).astype(int), (y_pred > 0).astype(int), zero_division=0)
@@ -358,43 +336,39 @@ def create_regressor_metrics_sheet(predictions_history: List[Dict]) -> pd.DataFr
 
 def create_backtest_performance_sheet(backtest_results: pd.DataFrame) -> pd.DataFrame:
     """
-    Create Sheet 3: Backtest Performance.
+    Sheet 3: Backtest Performance를 생성합니다.
 
-    This sheet shows actual trading results per rebalancing period:
-    - Period returns
-    - Cumulative returns
-    - Trading dates
+    이 시트는 각 리밸런싱 기간별 실제 거래 결과를 표시합니다:
+    - 기간별 수익률
+    - 누적 수익률
+    - 거래 날짜
 
-    Parameters:
-    -----------
-    backtest_results : pd.DataFrame
-        Backtest results from ml_backtest.run()
+    Args:
+        backtest_results (pd.DataFrame): ml_backtest.run()의 백테스트 결과
 
     Returns:
-    --------
-    pd.DataFrame
-        Formatted backtest performance data
+        pd.DataFrame: 서식이 적용된 백테스트 성과 데이터
     """
     if backtest_results.empty:
         return pd.DataFrame()
 
-    # Format for display
+    # 표시용 서식 적용
     df = backtest_results.copy()
 
-    # Format dates
+    # 날짜 서식 적용
     for col in ['rebalance_date', 'actual_buy_date', 'actual_sell_date']:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col]).dt.strftime('%Y-%m-%d')
 
-    # Format percentages
+    # 퍼센트 서식 적용
     if 'avg_return' in df.columns:
         df['Period Return'] = (df['avg_return'] * 100).apply(lambda x: f"{x:.2f}%")
 
-        # Calculate cumulative
+        # 누적 수익률 계산
         df['Cumulative Return'] = ((1 + df['avg_return']).cumprod() - 1) * 100
         df['Cumulative Return'] = df['Cumulative Return'].apply(lambda x: f"{x:.2f}%")
 
-    # Select and rename columns
+    # 열 선택 및 이름 변경
     display_cols = {
         'rebalance_date': 'Rebalance Date',
         'actual_buy_date': 'Buy Date',
@@ -411,7 +385,7 @@ def create_backtest_performance_sheet(backtest_results: pd.DataFrame) -> pd.Data
     return result
 
 
-# Export public functions
+# 공개 함수 내보내기
 __all__ = [
     'IntegratedReportWriter',
     'create_summary_sheet',

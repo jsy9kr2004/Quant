@@ -18,7 +18,7 @@ from src.infra.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_l
 from multiprocessing import Pool
 from multiprocessing_logging import install_mp_handler
 
-# --- Unused imports (preserved for future experimentation) ---
+# --- 미사용 import (향후 실험을 위해 보존) ---
 # import sys
 # from tqdm import tqdm
 # from sklearn.preprocessing import StandardScaler
@@ -32,22 +32,22 @@ CHUNK_SIZE = 20480
 
 
 class Backtest:
-    """Rule-based 백테스트 시스템 (Legacy)
+    """Rule 기반 백테스트 시스템 (레거시)
 
-    plan_handler의 전략에 따라 종목을 선별하고 수익률을 평가하는 클래스.
-    DateHandler로 시점별 데이터를 구성하고, EvaluationHandler로 성과를 계산한다.
+    plan_handler의 전략에 따라 종목을 선별하고 수익률을 평가하는 클래스입니다.
+    DateHandler로 시점별 데이터를 구성하고, EvaluationHandler로 성과를 계산합니다.
     """
 
     def __init__(self, main_ctx, conf, plan_handler, rebalance_period):
         """
-        Back test 실행 순서
+        백테스트 실행 순서:
         Backtest.run() -> start_year ~ recent_date 까지 rebalancing period 만큼 지나가면서,
         date_handler(date table) load -> plan_handler.run() -> eval_handler.set_best_k()
-        모든 기간에 대해서 plan과 set_best_k() 마치고나서, self.eval_handler.run(self.price_table) 실행
-        eval_handler.run()은  self.cal_price() -> self.cal_earning() -> self.print_report() 순 실행
-        cal_price() : 각 period에서 best_k 주식들의 시작 price, rebalance date price를 채워줌.
-        cal_earning() : 두 price의 차이를 가지고 best_k 주식들이 얼마나 올랐는지 채워줌(y값)
-        print_report() : earning, price를 포함한 RANK, EVAL report 출력.
+        모든 기간에 대해서 plan과 set_best_k() 마치고나서, self.eval_handler.run(self.price_table) 실행합니다.
+        eval_handler.run()은  self.cal_price() -> self.cal_earning() -> self.print_report() 순으로 실행합니다.
+        cal_price() : 각 period에서 best_k 주식들의 시작 price, rebalance date price를 채워줍니다.
+        cal_earning() : 두 price의 차이를 가지고 best_k 주식들이 얼마나 올랐는지 채워줍니다(y값).
+        print_report() : earning, price를 포함한 RANK, EVAL report를 출력합니다.
         """
         self.main_ctx = main_ctx
         self.conf = conf
@@ -64,7 +64,7 @@ class Backtest:
         self.rank_report_path = self.create_report("RANK")
         self.avg_report_path = self.create_report("AVG")
 
-        # backtest 시 이용될 디렉토리를 만들고 시작
+        # 백테스트 시 이용될 디렉토리를 만들고 시작
         self.main_ctx.create_dir(self.conf['ROOT_PATH'] + "/DATE_TABLE")
         self.main_ctx.create_dir(self.conf['ROOT_PATH'] + "/PLANED_DATE_TABLE")
 
@@ -73,7 +73,7 @@ class Backtest:
         self.run() 
 
     def create_report(self, report_type):
-        """레포트 파일 경로를 생성하고 헤더를 작성한다.
+        """레포트 파일 경로를 생성하고 헤더를 작성합니다.
 
         Parameters:
             report_type: 'EVAL', 'RANK', 'AVG' 중 하나
@@ -114,9 +114,12 @@ class Backtest:
 
     def data_from_database(self, query):
         """
-        데이터베이스로부터 chunk 단위로 테이블을 읽어오고 반환함
-        :param query: 데이터베이스에 전송할 쿼리
-        :return: 데이터베이스로부터 읽어온 테이블
+        데이터베이스로부터 chunk 단위로 테이블을 읽어오고 반환합니다.
+
+        Parameters:
+            query: 데이터베이스에 전송할 쿼리
+        Returns:
+            데이터베이스로부터 읽어온 테이블
         """
         logging.info("Query : " + query)
         chunks = pd.read_sql_query(sql=query, con=self.main_ctx.conn, chunksize=CHUNK_SIZE)
@@ -127,9 +130,9 @@ class Backtest:
 
     def load_bt_table(self, year):
         """
-        추후에 database에서 가져올 데이터가 많을 걸 대비해서 __init__ 함수에서 세팅하지 않고, 해당 함수에서 세팅토록 함
-        일부 필요한 내용한 init하거나 분할해서 가져오려고 한다면 쿼리가 더 복잡해질 수 있기에 따로 빼놓음
-        init에서 세팅하지 않은 이유를 코드에 도입. 해당하는 year에 값을 가져오도록 변경
+        추후에 database에서 가져올 데이터가 많을 걸 대비해서 __init__ 함수에서 세팅하지 않고, 해당 함수에서 세팅하도록 합니다.
+        일부 필요한 내용만 init하거나 분할해서 가져오려고 한다면 쿼리가 더 복잡해질 수 있기에 따로 빼놓았습니다.
+        init에서 세팅하지 않은 이유를 코드에 도입하였으며, 해당하는 year에 값을 가져오도록 변경했습니다.
         """
         query = "SELECT * FROM PRICE WHERE date BETWEEN '" \
                 + str(datetime.datetime(self.main_ctx.start_year, 1, 1)) + "'" \
@@ -169,7 +172,7 @@ class Backtest:
             self.metrics_table['date'] = pd.to_datetime(self.metrics_table['date'])
 
     def reload_bt_table(self, year):
-        """연도가 변경될 때 fs_table, metrics_table을 해당 연도 기준으로 재로드한다."""
+        """연도가 변경될 때 fs_table, metrics_table을 해당 연도 기준으로 재로드합니다."""
         logging.info("reload_bt_table, year : {}".format(year))
         self.fs_table = pd.DataFrame()
         for y in range(year-3, year+1):
@@ -189,7 +192,7 @@ class Backtest:
         self.metrics_table['date'] = pd.to_datetime(self.metrics_table['date'])
 
     def get_trade_date(self, pdate):
-        """개장일이 아닐 수도 있기에 보정해주는 함수"""
+        """개장일이 아닐 수도 있기에 보정해주는 함수입니다."""
         # pdate =  pdate.date()
         post_date = pdate - relativedelta(days=10)
         res = self.price_table.query("date >= @post_date and date <= @pdate")
@@ -200,13 +203,13 @@ class Backtest:
 
     def run(self):
         """
-        main에서 전달받은 plan list에 따른 backtest를 진행하는 함수로 크게 2개의 파트로 구분되어 있음
+        main에서 전달받은 plan list에 따른 백테스트를 진행하는 함수로 크게 2개의 파트로 구분되어 있습니다.
         [1] date 별로 plan list에 따라 plan_handler.date_handler.score를 계산해넣고,
-            상위권 symbol을 self.best_k에 추가
-        [2] best_k 에서 가져와서 MDD나 샤프지수와 같은 전략 전체에 필요한 계산값들을 계산해서 채워 넣음
-        전략 별로 하나의 backtest class, plan_handler (1:1 mapping)가 만들어지며 생성의 주체는 main
+            상위권 symbol을 self.best_k에 추가합니다.
+        [2] best_k에서 가져와서 MDD나 Sharpe 지수와 같은 전략 전체에 필요한 계산값들을 계산해서 채워 넣습니다.
+        전략 별로 하나의 backtest class, plan_handler (1:1 mapping)가 만들어지며 생성의 주체는 main입니다.
         date_handler는 다수 만들어지며 생성 주체는 backtest이며 생성 후
-        backtest에서 본인에게 mapping되어 있는 plan_handler에게 달아줌.
+        backtest에서 본인에게 mapping되어 있는 plan_handler에게 달아줍니다.
         """
         # 설정에서 시작 월/일 가져오기
         # 우선순위:
@@ -222,16 +225,16 @@ class Backtest:
         if end_date > recent_date:
             end_date = recent_date
         cur_table_year = self.main_ctx.start_year
-        # START OF WHILE #
-        #TODO: plan 안쓸 때 loop/함수 분리하는게 안헷갈릴듯.. 지금은 plan은 안쓰지만 best_k list setting이 필요해서 dummy로 도는 중
+        # WHILE 시작 #
+        #TODO: plan 안쓸 때 loop/함수 분리하는게 안헷갈릴 듯.. 지금은 plan은 안쓰지만 best_k list setting이 필요해서 dummy로 도는 중
         while True:
             tdate = self.get_trade_date(date)
             if tdate is None:
-                # trade date를 못찾은 경우인데 있으면 안됨
+                # trade date를 못찾은 경우이며 있으면 안 됨
                 logging.info("tradable date is None. break")
                 break            
             logging.info("Backtest Run : " + str(tdate.strftime("%Y-%m-%d")))
-            # Date에 맞게 DateHandler ( symbol, price, fs, metrics table ) 만들고 plan run
+            # Date에 맞게 DateHandler (symbol, price, fs, metrics table) 만들고 plan 실행
             self.plan_handler.date_handler = DateHandler(self, tdate)
             logging.info("complete set date_handler date : {}".format(tdate.strftime("%Y-%m-%d")))
             self.plan_handler.run(self.conf)
@@ -239,7 +242,7 @@ class Backtest:
             if date != recent_date:
                 self.eval_handler.set_best_k(tdate, date+relativedelta(months=self.rebalance_period),
                                             self.plan_handler.date_handler)
-            else: # recent_date이면 current_best 뽑기
+            else:  # recent_date이면 current_best 뽑기
                 self.eval_handler.print_current_best(self.plan_handler.date_handler)
                 break
 
@@ -249,16 +252,16 @@ class Backtest:
                     cur_table_year = date.year
                     self.reload_bt_table(cur_table_year)
             else:
-                # 마지막 loop 에 도달하면 최근 date 로 한번 돌아서 print 해준 후에 루프를 빠져 나가도록 함
+                # 마지막 loop에 도달하면 최근 date로 한번 돌아서 print 해준 후에 루프를 빠져 나가도록 합니다
                 if self.eval_report_path is not None:
                     date = recent_date
                     if date.year != cur_table_year:
                         cur_table_year = date.year
                         self.reload_bt_table(cur_table_year)
                 else:
-                    # evaluation report 를 뽑지 않으면 current 추천을 스킵하고 나감
+                    # evaluation report를 뽑지 않으면 current 추천을 스킵하고 나갑니다
                     break
-        # END OF WHILE # 
+        # WHILE 종료 #
 
         logging.info("DateHandler.global_sparse_col : ")        
         for k, v in DateHandler.global_sparse_col.items():
@@ -272,11 +275,11 @@ class PlanHandler:
     """전략(plan) 실행 관리자
 
     main에서 전달받은 plan_list의 각 전략을 순서대로 실행하여
-    DateHandler의 dtable에 score를 계산하고 기록한다.
+    DateHandler의 dtable에 score를 계산하고 기록합니다.
     """
 
     def __init__(self, k_num, absolute_score, main_ctx):
-        """PlanHandler를 초기화한다.
+        """PlanHandler를 초기화합니다.
 
         Parameters:
             k_num: 상위 K개 종목 수
@@ -291,13 +294,13 @@ class PlanHandler:
 
     def run(self, conf):
         """
-        main에서 짜여진 전략(function pointer)을 순서대로 호출
-        plan_list와 date_handler를 채워주고 불러워줘야 함.
-        현재는 plan_list는 main, date_handler는 Backtest 에서 채워줌.
+        main에서 짜여진 전략(function pointer)을 순서대로 호출합니다.
+        plan_list와 date_handler를 채워주고 호출해야 합니다.
+        현재는 plan_list는 main, date_handler는 Backtest에서 채워줍니다.
         """
         assert self.plan_list is not None, "Empty Plan List"
         assert self.date_handler is not None, "Empty Date Handler"
-        # START : save / read planed dtable from csv
+        # 시작 : plan 적용된 dtable을 CSV로 저장/읽기
         pdate = self.date_handler.date
         planed_dtable_path = conf['ROOT_PATH']\
                              + "/PLANED_DATE_TABLE/planed_dtable_{}.csv".format(pdate.strftime('%Y-%m-%d'))
@@ -310,15 +313,15 @@ class PlanHandler:
             #    df_list = pool.map(self.plan_run, self.plan_list)
             # full_df = pd.concat(df_list, ignore_index=True)
             # full_df = full_df.groupby('symbol', as_index=False).last()
-            # TODO multiprocessing 처리 시에 table의 크기가 비이상적으로 커지는 현상이 있어 우선 serial 하게 처리하는 것으로 변경
-            #     첫 시도 이후에는 planed_dtalbe_path의 파일을 읽을 것이기 때문에 첫 loop만 느려질 것으로 예상됨
+            # TODO multiprocessing 처리 시에 table의 크기가 비정상적으로 커지는 현상이 있어 우선 serial하게 처리하는 것으로 변경
+            #     첫 시도 이후에는 planed_dtable_path의 파일을 읽을 것이기 때문에 첫 loop만 느려질 것으로 예상됩니다
             i = 0
             for plan in self.plan_list:
                 logging.debug("[{}/{}] {} processing....".format(i, len(self.plan_list), str(plan["params"]["key"])))
                 self.plan_run(plan)
                 i += 1
             # full_df = reduce(lambda df1, df2: pd.merge(df1, df2, on='symbol'), df_list)
-            # replace reduce + merge -> concat + groupby (for memory usage optimization)
+            # reduce + merge를 concat + groupby로 대체 (메모리 사용량 최적화)
 
             # self.date_handler.dtable = pd.merge(self.date_handler.dtable, full_df, how='left', on=['symbol'])
             score_col_list = self.date_handler.dtable.columns.str.contains("_score")
@@ -328,22 +331,22 @@ class PlanHandler:
         else:
             logging.info("there is csv file for this date. read planed date table from csv")
             self.date_handler.dtable = pd.read_csv(planed_dtable_path)
-        # END :save / read planed dtable from csv
+        # 종료 : plan 적용된 dtable CSV 저장/읽기
         # logging.debug(self.date_handler.dtable.sort_values(by=['score'], ascending=False)[['symbol', 'score']])
 
     @staticmethod
     def plan_run(plan):
-        """단일 plan의 전략 함수를 실행하고 결과를 반환한다."""
+        """단일 plan의 전략 함수를 실행하고 결과를 반환합니다."""
         return plan["f_name"](plan["params"])
 
     def single_metric_plan_no_parallel(self, params):
         """
-        아래의 single metric_plan과 하는 일은 동일하나 parallel 하게 동작하지 않도록 변경한 것
+        아래의 single_metric_plan과 하는 일은 동일하나 병렬로 동작하지 않도록 변경한 버전입니다.
         """
         if self.absolute_score - params["diff"] * self.k_num < 0:
             logging.warning("Wrong params['diff'] : TOO BIG! SET UNDER " + str(self.absolute_score/self.k_num))
         key = str(params["key"])
-        # all feature was preprocessed ( high is good ) in Datehandler
+        # 모든 feature는 DateHandler에서 전처리 완료 (높을수록 좋음)
         rank_name = key + '_rank'
         self.date_handler.dtable[rank_name] = self.date_handler.dtable[key+"_sorted"].rank(ascending=False,
                                                                                            method='min',
@@ -358,13 +361,14 @@ class PlanHandler:
 
     def single_metric_plan(self, params):
         """
-        single metric(PBR, PER ... )에 따라 plan_handler.date_handler.symbol_list의 score column에 값을 갱신해주는 함수.
-        params에 plan의 parameter들이 아래와 같이 들어옴
-        params["key"]        : plan에서 사용할 종목의 지표(ex: PER, PBR, 영업이익 ...)
+        단일 지표(PBR, PER 등)에 따라 plan_handler.date_handler.symbol_list의 score 컬럼에 값을 갱신하는 함수입니다.
+
+        params에 plan의 parameter들이 아래와 같이 들어옵니다:
+        params["key"]        : plan에서 사용할 종목의 지표 (예: PER, PBR, 영업이익 ...)
         params["key_dir"]    : 지표가 낮을수록 좋은지(low) 높을수록 좋은지(high)
-        params["weight"]     : score update시 weight
-        params["diff"]       : 이 지표로 각 종목간 score 차이
-        params["base"]       : 특정 threshold 이상/이하의 종목은 score 주지 않음
+        params["weight"]     : score 갱신 시 가중치
+        params["diff"]       : 이 지표로 각 종목 간 score 차이
+        params["base"]       : 특정 threshold 이상/이하의 종목은 score를 주지 않음
         params["base_dir"]   : "base"로 준 threshold 이상/이하(</>) 선택
         """
         logger = self.main_ctx.get_multi_logger()
@@ -375,7 +379,7 @@ class PlanHandler:
             logger.warning("Wrong params['diff'] : TOO BIG! SET UNDER " + str(self.absolute_score/self.k_num))
 
         key = str(params["key"])
-        # all feature was preprocessed ( high is good ) in Datehandler
+        # 모든 feature는 DateHandler에서 전처리 완료 (높을수록 좋음)
         top_k_df = self.date_handler.dtable.sort_values(by=[key+"_sorted"], ascending=False,
                                                         na_position="last")[:self.k_num]
         # logger.debug(top_k_df[['symbol', params["key"]]])
@@ -383,7 +387,7 @@ class PlanHandler:
         del top_k_df
         return_df = self.date_handler.dtable[['symbol']]
         delta = self.absolute_score
-        # 경고처리 무시
+        # 경고 처리 무시
         pd.set_option('mode.chained_assignment', None)
         local_score_name = key + '_score'
         for sym in symbols:
@@ -401,16 +405,16 @@ class PlanHandler:
 time_periods = [3, 6, 9, 12, 15, 18, 21, 24]
 
 class DateHandler:
-    """특정 시점의 데이터 테이블(dtable)을 구성하는 핸들러
+    """특정 시점의 데이터 테이블(dtable)을 구성하는 핸들러입니다.
 
     주어진 날짜 기준으로 symbol, price, financial statement, metrics 데이터를
-    병합하고, tsfresh 시계열 특성을 추출하여 하나의 통합 테이블(dtable)을 생성한다.
+    병합하고, tsfresh 시계열 특성을 추출하여 하나의 통합 테이블(dtable)을 생성합니다.
     """
 
     global_sparse_col = defaultdict(int)
 
     def __init__(self, backtest, date):
-        """DateHandler를 초기화하고 dtable을 구성한다.
+        """DateHandler를 초기화하고 dtable을 구성합니다.
 
         Parameters:
             backtest: Backtest 인스턴스 (테이블 데이터 접근용)
@@ -425,15 +429,15 @@ class DateHandler:
 
         logging.info("in datehandler date : " + date.strftime("%Y-%m-%d"))
         self.date = date
-        # date handler 안에서 table은 하나 (symbol + price + fs + metric )
+        # date handler 안에서 table은 하나 (symbol + price + fs + metric)
         self.dtable = None
         self.init_data(backtest)
 
     def init_data(self, backtest):
-        """캐시된 dtable CSV를 로드하거나, 없으면 새로 생성한다."""
+        """캐시된 dtable CSV를 로드하거나, 없으면 새로 생성합니다."""
         logging.info("START init_data in date handler ")
         # TODO: get_trade_date() 함수는 어느 class가 들고있는게 맞을까..
-        # 미리 parquet로 저장해둔 DATE handler table을 읽어들임.
+        # 미리 parquet로 저장해둔 DATE handler table을 읽어들입니다.
         trade_date = backtest.get_trade_date(self.date)
         dtable_path = backtest.conf['ROOT_PATH'] + "/DATE_TABLE/dtable_"\
                                                  + str(trade_date.year) + '_' + str(trade_date.month) + '_'\
@@ -445,12 +449,12 @@ class DateHandler:
         else:
             logging.info("there is parquet file for this date. read date table from parquet. please check dtable file is recent version")
             self.dtable = pd.read_csv(dtable_path)
-            # industry to sector
+            # industry를 sector로 변환
             self.dtable["sector"] = self.dtable["industry"].map(sector_map)
 
     def get_price_for_dtable(self, backtest):
-        """상장된 종목의 가격 데이터를 dtable에 병합하고 거래액 하위 90%를 필터링한다."""
-        # db에서 delistedDate null 이  df에서는 NaT로 들어옴.
+        """상장된 종목의 가격 데이터를 dtable에 병합하고 거래액 상위 10%만 필터링합니다."""
+        # db에서 delistedDate null이 df에서는 NaT로 들어옵니다.
         query = '(delistedDate >= "{}") or (delistedDate == "NaT") or (delistedDate == "None")'.format(self.date)
         self.dtable = backtest.symbol_table.query(query)
         self.dtable = self.dtable.assign(score=0)
@@ -464,14 +468,14 @@ class DateHandler:
         
 
         self.dtable = self.dtable.dropna(subset='volume_mul_price')
-        # 총거래액 적은 주식 제외 (얼마나 버려야할까 ?)
+        # 총거래액 적은 주식 제외 (얼마나 버려야 할까?)
         # self.dtable = self.dtable[~self.dtable.isin([np.inf, -np.inf]).any(axis=1)]
         # self.dtable = self.dtable[self.dtable['volume_mul_price'] > 1000000] # TODO threshold
         self.dtable = self.dtable.nlargest(int(len(self.dtable)*0.10), 'volume_mul_price', keep='all')
 
     def remove_x_y_columns(self, df):
-        """DataFrame 병합 시 생성된 _x/_y 접미사 중복 컬럼을 하나로 통합한다."""
-        # merge, join, concat 등 두 df 합칠 때 중복된 이름 col들은 _x, _y, _x_x... 생성됨. 다시 하나로 합치는 처리
+        """DataFrame 병합 시 생성된 _x/_y 접미사 중복 컬럼을 하나로 통합합니다."""
+        # merge, join, concat 등 두 df 합칠 때 중복된 이름 col들은 _x, _y, _x_x... 생성됩니다. 다시 하나로 합치는 처리
         new_df = df.copy()
         columns_to_drop = [col for col in new_df.columns if col.endswith('_x_x') or col.endswith('_y_y') or col.endswith('_x_y') or col.endswith('_y_x')]
         # 찾아낸 컬럼들을 데이터프레임에서 삭제합니다.
@@ -494,11 +498,11 @@ class DateHandler:
         return new_df
 
     def get_fs_metrics(self, backtest):
-        """최근 6개월 내 재무제표(fs)와 metrics를 병합하고, 시총 대비 상대값 컬럼을 추가하여 반환한다."""
+        """최근 6개월 내 재무제표(fs)와 metrics를 병합하고, 시총 대비 상대값 컬럼을 추가하여 반환합니다."""
         prev = self.date - relativedelta(months=6)
         fs = backtest.fs_table.copy()
 
-        # 현재부터 6개월(충분히 fs가 새로 바뀔 기간) 전 까지 가져온 후 drop_duplicates 함수를 통해 최근 fs 빼고 버림.
+        # 현재부터 6개월(충분히 fs가 새로 바뀔 기간) 전까지 가져온 후 drop_duplicates 함수를 통해 최근 fs만 남기고 버립니다.
         fs = fs[fs.fillingDate <= self.date]
         fs = fs[prev <= fs.fillingDate]
         fs = fs.drop_duplicates('symbol', keep='first')
@@ -509,16 +513,16 @@ class DateHandler:
         metrics = backtest.metrics_table.copy()
         fs_metrics = pd.merge(fs, metrics, how='left', on=['symbol', 'date'])
         
-        # marketCap 과의 직접 계산이 필요한 column들을 추가 해 줌
+        # marketCap과의 직접 계산이 필요한 컬럼들을 추가합니다
         cap = self.dtable.copy()
         cap = cap[['symbol', 'marketCap']]
         cap.rename(columns={'marketCap': 'cal_marketCap'}, inplace=True)
         fs_metrics = pd.merge(fs_metrics, cap, how='left', on=['symbol'])
 
-        # merge 하면서 양쪽 df에 모두 있어서 중복으로 생긴 column 제거
+        # merge 하면서 양쪽 df에 모두 있어서 중복으로 생긴 컬럼 제거
         fs_metrics = self.remove_x_y_columns(fs_metrics)
 
-        # 의미있는 column(feature)로 생각되는 column들에 대해서 절대값 -> 상대값으로 바꾸기 위해 시총으로 나눠줌
+        # 의미있는 컬럼(feature)으로 생각되는 컬럼들에 대해서 절대값 -> 상대값으로 바꾸기 위해 시총으로 나눠줍니다
         for col in meaning_col_list:
             if col not in fs_metrics.columns:
                 logging.warn(f"there is no {col} column in fs_metrics table")
@@ -530,21 +534,21 @@ class DateHandler:
         return fs_metrics
 
     def create_dtable(self, backtest):
-        """price, fs, metrics, tsfresh 시계열 특성을 병합하여 dtable을 생성하고 CSV로 저장한다."""
-        # 미리 parquet로 저장해둔 DATE handler table이 없어서 새로 만듬.
+        """price, fs, metrics, tsfresh 시계열 특성을 병합하여 dtable을 생성하고 CSV로 저장합니다."""
+        # 미리 parquet로 저장해둔 DATE handler table이 없어서 새로 만듭니다.
         
-        # 1) dtable에 최신 price 가져와서 merge. + 총거래액 하위 10% 버리기
+        # 1) dtable에 최신 price 가져와서 merge + 총거래액 하위 90% 버리기
         self.get_price_for_dtable(backtest)
-        # 2) fs, metrics 불러오기 + marketcap으로 나누어서 모두 상대값으로 변환
+        # 2) fs, metrics 불러오기 + marketCap으로 나누어서 모두 상대값으로 변환
         fs_metrics = self.get_fs_metrics(backtest)
         
-        # 시계열 특성 추출하기 위해서 column 명 prev*으로 통일 시키는 과정 가장 최근 값은 prev0 붙여줌
+        # 시계열 특성 추출을 위해 컬럼명을 prev*으로 통일시키는 과정, 가장 최근 값은 prev0을 붙여줍니다
         for col_name in cal_timefeature_col_list:
             fs_metrics[f'prev0_{col_name}'] = fs_metrics[col_name]
 
         for prev_n in time_periods:
             prefix_col_name = "prev" + str(prev_n) + "_"
-            # prev_n month 전 fs, metrics 와 모든 column 빼서 diff column 만들기
+            # prev_n개월 전 fs, metrics와 모든 컬럼을 빼서 diff 컬럼 만들기
             prev_date = self.date - relativedelta(months=prev_n)
             prev_prev_date = self.date - relativedelta(months=prev_n+4)
             prev_fs = backtest.fs_table.copy()
@@ -561,29 +565,29 @@ class DateHandler:
             prev_fs_metrics = prev_fs_metrics.rename(columns=lambda x: prefix_col_name + x)
             prev_fs_metrics['symbol'] = symbols
             fs_metrics = pd.merge(fs_metrics, prev_fs_metrics, how='left', on=['symbol'])
-            # fs_metrics = fs_metrics[~fs_metrics.isin([np.inf, -np.inf]).any(axis=1)] # inf check인데 일단 안씀 나중에 inf 값들어오면 다시 살리기..
+            # fs_metrics = fs_metrics[~fs_metrics.isin([np.inf, -np.inf]).any(axis=1)] # inf 검사인데 일단 안 씀. 나중에 inf 값 들어오면 다시 살리기
 
-        # time_periods = [3, 6, 9, 12, 15, 18, 21, 24] or [3, 6, 12, 24] 개월 등 변화량
-        # TBD: 이제 time series 특성추출해서 diff는 없애도 될 것 같음
+        # time_periods = [3, 6, 9, 12, 15, 18, 21, 24] 또는 [3, 6, 12, 24] 개월 등 변화량
+        # TBD: 이제 time series 특성 추출해서 diff는 없애도 될 것 같음
         for prev_n in [3, 6, 12, 24]:
             prefix_col_name = "prev" + str(prev_n) + "_"            
             # diff column
             for col in meaning_col_list:
-                # 변화량
+                # 변화량 계산
                 new_col_name = "diff" + str(prev_n) + "_" + col
                 fs_metrics[new_col_name] = np.where(fs_metrics[prefix_col_name+col] > 0,
                                                     (fs_metrics[col] - fs_metrics[prefix_col_name+col])
                                                     / fs_metrics[prefix_col_name+col], np.nan)
 
 
-        long_format_list = []  # 긴 형식 데이터를 저장할 리스트
+        long_format_list = []  # long format 데이터를 저장할 리스트
         # 모든 time_period와 meaning_col_list에 대해 반복하면서 데이터를 변환합니다.
         time_periods_w0 = [0] + time_periods
         for prev_n in time_periods_w0:
             for col in cal_timefeature_col_list:
-                # 긴 형식의 데이터프레임 생성
+                # long format DataFrame 생성
                 temp_df = pd.DataFrame({
-                    "id": fs_metrics.symbol,  # 여기서 fs_metrics의 인덱스 대신 고유 식별자 컬럼을 사용해야 합니다.
+                    "id": fs_metrics.symbol,  # fs_metrics의 인덱스 대신 고유 식별자 컬럼을 사용해야 합니다.
                     "time": prev_n,
                     "value": fs_metrics["prev" + str(prev_n) + "_" + col],
                     "kind": col  # tsfresh는 다양한 시계열을 구분하기 위해 kind 컬럼도 사용합니다.
@@ -607,19 +611,19 @@ class DateHandler:
             print(str(self.date.year) + '_' + str(self.date.month) + '_' + str(self.date.day))
             print(f"Error: {e}")
 
-        # prev column 제거
-        # prev는 diff 값 및 시계열 특성 추출을 위해 쓸 뿐 나중에 입력으로 쓰기엔 별 의미가 없으므로 drop 시킴
+        # prev 컬럼 제거
+        # prev는 diff 값 및 시계열 특성 추출을 위해 쓸 뿐, 나중에 입력으로 쓰기엔 별 의미가 없으므로 drop합니다
         for prev_n in time_periods:
             prefix_col_name = "prev" + str(prev_n) + "_"   
             for col in meaning_col_list:
                 fs_metrics = fs_metrics.drop([prefix_col_name+col], axis=1)
 
-        # 절대 값 column 도 입력으로 쓰기엔 의미 없으니 제거
+        # 절대값 컬럼도 입력으로 쓰기엔 의미 없으니 제거합니다
         abs_col_list = list(set(meaning_col_list) - set(ratio_col_list))
         for col in abs_col_list:
             fs_metrics = fs_metrics.drop([col], axis=1)
 
-        # N% 넘게 비어있는 row drop
+        # N% 넘게 비어있는 row를 drop합니다
         logging.info("before fs_metric len : {}".format(len(fs_metrics)))
         fs_metrics['nan_count_per_row'] = fs_metrics.isnull().sum(axis=1)
         filtered_row = fs_metrics['nan_count_per_row'] < int(len(fs_metrics.columns)*0.7)
@@ -662,7 +666,7 @@ class DateHandler:
                 if f.iloc[0].sort == "low":
                     try:
                         feat_max = fs_metrics[feature].max()
-                        # 양수는 낮을 수록 좋아지도록 만들고, 음수는 양수의 제일 낮은 값보다 더 안좋게만들고
+                        # 양수는 낮을수록 좋아지도록 만들고, 음수는 양수의 제일 낮은 값보다 더 안좋게 만들기
                         fs_metrics[feature_sortedvalue_col_name] = \
                             [s*(-1) if s >= 0 else (s - feat_max) for s in fs_metrics[feature]]
                         # fs_metrics[feature_sortedvalue_col_name] = fs_metrics[feature_sortedvalue_col_name].astype('float32')
@@ -686,10 +690,10 @@ class DateHandler:
             # # fs_metrics = fs_metrics.astype({feature: 'float32'})
         
 
-        # feature 생성 다하고 나서 dtable과 합치기
+        # feature 생성 완료 후 dtable과 합치기
         self.dtable = pd.merge(self.dtable, fs_metrics, how='left', on='symbol')
 
-        # 50% 넘게 비어있는 column 누적
+        # 50% 넘게 비어있는 컬럼 누적
         columns_with_nan_above_threshold = self.dtable.columns[self.dtable.isnull().sum(axis=0)
                                                                >= int(len(self.dtable)*0.5)].tolist()
         for c in columns_with_nan_above_threshold:
@@ -708,14 +712,14 @@ class DateHandler:
 
 
 class EvaluationHandler:
-    """백테스트 성과 평가 핸들러
+    """백테스트 성과 평가 핸들러입니다.
 
     best_k 종목들의 매수/매도 가격을 계산하고, 수익률/MDD/Sharpe 등
-    성과 지표를 산출하여 CSV 레포트로 출력한다.
+    성과 지표를 산출하여 CSV 레포트로 출력합니다.
     """
 
     def __init__(self, backtest):
-        """EvaluationHandler를 초기화한다.
+        """EvaluationHandler를 초기화합니다.
 
         Parameters:
             backtest: Backtest 인스턴스 (설정, 가격 테이블 접근용)
@@ -730,18 +734,18 @@ class EvaluationHandler:
         self.total_asset = backtest.conf['TOTAL_ASSET']
 
     def cal_member_cnt(self):
-        """상위 몇 종목을 구매할 것인가에 대한 계산. 현재는 상위 4개의 주식을 매 period 마다 구매하는 것으로 되어 있음"""
+        """상위 몇 종목을 구매할 것인가에 대한 계산입니다. 현재는 상위 4개의 주식을 매 period마다 구매하는 것으로 되어 있습니다."""
         return self.backtest.conf['MEMBER_CNT']
 
     def print_current_best(self, scored_dh):
-        """현재 시점의 최상위 종목을 result.csv로 출력한다."""
+        """현재 시점의 최상위 종목을 result.csv로 출력합니다."""
         # best_symbol = scored_dh.dtable[scored_dh.dtable.volume_mul_price > 1000000]
         best_symbol = best_symbol.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt)
         best_symbol = best_symbol.assign(count=0)
         best_symbol.to_csv('./result.csv')
 
     def set_best_k(self, date, rebalance_date, scored_dh):
-        """plan_handler.date_handler.symbol_list에 score를 보고 best_k에 append 해주는 함수."""
+        """plan_handler.date_handler.symbol_list에 score를 보고 best_k에 append 해주는 함수입니다."""
         if self.backtest.eval_report_path is not None:
             # best_symbol = scored_dh.dtable[scored_dh.dtable.volume_mul_price > 10000000]
             best_symbol = best_symbol.sort_values(by=["score"], axis=0, ascending=False).head(self.member_cnt * 2)
@@ -754,7 +758,7 @@ class EvaluationHandler:
 
 
     def cal_price(self):
-        """best_k의 각 종목에 대해 매수 가격(price)과 매도 가격(rebalance_day_price)을 계산한다."""
+        """best_k의 각 종목에 대해 매수 가격(price)과 매도 가격(rebalance_day_price)을 계산합니다."""
         pd.set_option('mode.chained_assignment', None)
         logging.info("best k length : %d", len(self.best_k))
         for idx, (date, rebalance_date, best_group, reference_group, period_earning_rate) in enumerate(self.best_k):
@@ -763,7 +767,7 @@ class EvaluationHandler:
                 self.backtest.load_bt_table(date.year)
                 self.backtest.table_year = date.year
 
-            # lastest date
+            # 가장 최근 날짜
             if (idx == len(self.best_k) - 1) and (len(self.best_k) != 1):
                 logging.info("print latest data : " + date.strftime("%Y-%m-%d"))
                 self.best_k[idx][3] = start_dh.dtable
@@ -796,7 +800,7 @@ class EvaluationHandler:
                 self.best_k[idx][3] \
                     = self.best_k[idx][3].sort_values(by=["period_price_diff"],
                                                       axis=0, ascending=False)[:self.backtest.conf['TOP_K_NUM']]
-            # evaluation report 만 뽑는 경우
+            # evaluation report만 뽑는 경우
             else:
                 self.best_k[idx][3] = pd.DataFrame()
 
@@ -826,7 +830,7 @@ class EvaluationHandler:
             logging.info(str(idx) + " " + str(date))
 
     def cal_earning_no_parallel(self):
-        """backtest로 계산한 plan의 수익률을 serial하게 계산하는 함수"""
+        """백테스트로 계산한 plan의 수익률을 직렬(serial)로 계산하는 함수입니다."""
         logging.info("START cal_earning")
         params = copy.deepcopy(self.best_k)
         logging.info("in cal_earning : params : ")
@@ -845,9 +849,9 @@ class EvaluationHandler:
             remain_asset = total_asset - price_mul_stock_cnt.sum()
             if my_asset_period == 0:
                 return
-            # MDD 계산을 위해 이 구간에서 각 종목별 구매 개수 저장
+            # MDD 계산을 위해 이 구간에서 각 종목별 구매 수량 저장
             best[2]['count'] = stock_cnt
-            # rebalance date의 가격으로 구매한 종목들 판매했을 때 자산 계산
+            # rebalance date의 가격으로 구매한 종목들을 판매했을 때 자산 계산
             rebalance_day_price_mul_stock_cnt = best_group['rebalance_day_price'] * stock_cnt
             best[2]['period_earning'] = rebalance_day_price_mul_stock_cnt - price_mul_stock_cnt
             period_earning = rebalance_day_price_mul_stock_cnt.sum() - price_mul_stock_cnt.sum()
@@ -856,7 +860,7 @@ class EvaluationHandler:
 
     @staticmethod
     def cal_earning_func(best_k):
-        """단일 리밸런싱 구간의 수익률을 계산한다 (multiprocessing용 static method)."""
+        """단일 리밸런싱 구간의 수익률을 계산합니다 (multiprocessing용 static method)."""
         # logger = self.backtest.main_ctx.get_multi_logger()
 
         (date, rebalance_date, best_group, reference_group, period_earning_rate) = best_k
@@ -877,10 +881,10 @@ class EvaluationHandler:
         if my_asset_period == 0:
             return
         
-        # MDD 계산을 위해 이 구간에서 각 종목별 구매 개수 저장
+        # MDD 계산을 위해 이 구간에서 각 종목별 구매 수량 저장
         best_k[2]['count'] = stock_cnt
 
-        # rebalance date의 가격으로 구매한 종목들 판매했을 때 자산 계산
+        # rebalance date의 가격으로 구매한 종목들을 판매했을 때 자산 계산
         rebalance_day_price_mul_stock_cnt = best_group['rebalance_day_price'] * stock_cnt
         best_k[2]['period_earning'] = rebalance_day_price_mul_stock_cnt - price_mul_stock_cnt
         period_earning = rebalance_day_price_mul_stock_cnt.sum() - price_mul_stock_cnt.sum()
@@ -890,7 +894,7 @@ class EvaluationHandler:
         return best_k
 
     def cal_earning(self):
-        """backtest로 계산한 plan의 수익률을 계산하는 함수"""
+        """백테스트로 계산한 plan의 수익률을 병렬로 계산하는 함수입니다."""
         logging.info("START cal_earning")
         params = copy.deepcopy(self.best_k)
         # with Pool(processes=multiprocessing.cpu_count()) as pool:
@@ -905,7 +909,7 @@ class EvaluationHandler:
         logging.info("in cal_earning : df_list : ")
         # logging.info(df_list)
         # full_df = reduce(lambda df1, df2: pd.concat(df1, df2), df_list)
-        # 잘들어가는지 check
+        # 정상적으로 들어갔는지 확인
         self.best_k = df_list
         for elem in df_list:
             if elem == None:
@@ -918,7 +922,7 @@ class EvaluationHandler:
                 best_group.to_csv("./earning_test.csv")
 
     def cal_mdd(self, price_table):
-        """MDD를 계산해서 채워주는 함수"""
+        """MDD(Maximum Drawdown)를 계산해서 채워주는 함수입니다."""
         best_asset = -1
         worst_asset = self.total_asset * 100000
         for i, (date, rebalance_date, best_group, reference_group, period_earning_rate) in enumerate(self.best_k):

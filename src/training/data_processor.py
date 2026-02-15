@@ -1,19 +1,19 @@
 """
-Unified Data Preprocessing Pipeline
+통합 데이터 전처리 파이프라인
 
-This module provides a centralized DataProcessor that ensures regressor.py
-and ml_backtest.py use identical preprocessing steps.
+이 모듈은 regressor.py와 ml_backtest.py가 동일한 전처리 단계를 사용하도록
+보장하는 중앙화된 DataProcessor를 제공합니다.
 
 Key Features:
-- Sparse row/column removal
-- Outlier clipping (quantile-based)
-- Feature scaling (RobustScaler or StandardScaler)
-- NaN handling
-- Feature/target separation
-- Consistent preprocessing across training and testing
+- 희소 행/열 제거
+- 이상치 클리핑 (분위수 기반)
+- Feature 스케일링 (RobustScaler 또는 StandardScaler)
+- NaN 처리
+- Feature/타겟 분리
+- 학습과 테스트 간 일관된 전처리
 
-Critical: This eliminates code duplication and ensures that bugs fixed in
-one place automatically apply to both regressor.py and ml_backtest.py.
+Critical: 이 모듈은 코드 중복을 제거하고, 한 곳에서 수정된 버그가
+regressor.py와 ml_backtest.py 양쪽에 자동으로 적용되도록 합니다.
 
 Author: Quant Trading Team
 Date: 2025-12-01
@@ -37,24 +37,24 @@ from src.training.data_quality import (
 
 class DataProcessor:
     """
-    Unified data preprocessing pipeline.
+    통합 데이터 전처리 파이프라인입니다.
 
-    This class consolidates all data preprocessing logic from regressor.py
-    and ml_backtest.py into a single, reusable implementation.
+    이 클래스는 regressor.py와 ml_backtest.py의 모든 데이터 전처리 로직을
+    단일하고 재사용 가능한 구현으로 통합합니다.
 
     Purpose:
     --------
-    - Single source of truth for preprocessing
-    - Ensure identical preprocessing in training and backtesting
-    - Enable easy parameter tuning across the entire system
+    - 전처리의 단일 진실 공급원 (Single source of truth)
+    - 학습과 백테스팅에서 동일한 전처리 보장
+    - 전체 시스템에 걸친 쉬운 파라미터 튜닝
 
-    Usage (Training):
+    사용 예시 (학습):
     -----------------
     processor = DataProcessor(config)
     result = processor.full_pipeline(train_df, test_df)
     X_train, y_train = result['X_train'], result['y_train']
 
-    Usage (Backtesting):
+    사용 예시 (백테스팅):
     --------------------
     processor = DataProcessor(config)
     processor.fit(train_df)
@@ -67,19 +67,19 @@ class DataProcessor:
         logger: Optional[logging.Logger] = None
     ):
         """
-        Initialize DataProcessor.
+        DataProcessor를 초기화합니다.
 
         Parameters:
         -----------
         config : Optional[Dict[str, Any]]
-            Configuration dictionary (from conf.yaml)
+            설정 딕셔너리 (conf.yaml에서 로드)
         logger : Optional[logging.Logger]
-            Logger instance
+            Logger 인스턴스
         """
         self.config = config or {}
         self.logger = logger or logging.getLogger('DataProcessor')
 
-        # State variables (for fit/transform pattern)
+        # 상태 변수 (fit/transform 패턴용)
         self.scaler = None
         self.clip_bounds = {}  # {col: (lower, upper)}
         self.dropped_cols = []
@@ -87,7 +87,7 @@ class DataProcessor:
         self.is_fitted = False
 
     # ========================================================================
-    # Data Loading (Quarterly Parquet Files)
+    # 데이터 로딩 (분기별 Parquet 파일)
     # ========================================================================
 
     @staticmethod
@@ -100,46 +100,46 @@ class DataProcessor:
         logger: Optional[logging.Logger] = None
     ) -> pd.DataFrame:
         """
-        Load and concatenate quarterly parquet files.
+        분기별 parquet 파일을 로드하고 연결합니다.
 
-        This method provides a unified way to load quarterly data for both
-        regressor.py (latest prediction) and ml_backtest.py (backtesting).
+        이 메서드는 regressor.py (최신 예측)와 ml_backtest.py (백테스팅) 모두를 위한
+        통합된 분기별 데이터 로딩 방법을 제공합니다.
 
         **Key Features**:
-        - Loads multiple quarterly parquet files (Q1, Q2, Q3, Q4)
-        - Concatenates with ignore_index=True (prevents duplicate indices)
-        - Optional cutoff_date filtering for backtesting
-        - Consistent error handling
+        - 여러 분기별 parquet 파일 로드 (Q1, Q2, Q3, Q4)
+        - ignore_index=True로 연결 (중복 인덱스 방지)
+        - 백테스팅을 위한 선택적 cutoff_date 필터링
+        - 일관된 에러 처리
 
         Parameters:
         -----------
         data_dir : str
-            Directory containing parquet files
+            parquet 파일이 있는 디렉토리
         year : int
-            Year to load (e.g., 2025)
+            로드할 연도 (예: 2025)
         file_prefix : str
-            File prefix (default: 'rnorm_ml')
-            - Use 'rnorm_ml' for backtesting
-            - Use 'rnorm_fs' for latest prediction
+            파일 접두사 (기본값: 'rnorm_ml')
+            - 백테스팅: 'rnorm_ml' 사용
+            - 최신 예측: 'rnorm_fs' 사용
         quarters : Optional[List[str]]
-            Quarters to load (default: ['Q1', 'Q2', 'Q3', 'Q4'])
+            로드할 분기 (기본값: ['Q1', 'Q2', 'Q3', 'Q4'])
         cutoff_date : Optional[pd.Timestamp]
-            If provided, filter data where fillingDate <= cutoff_date
-            Used for backtesting to simulate historical knowledge
+            제공 시 fillingDate <= cutoff_date인 데이터만 필터링
+            백테스팅에서 과거 시점의 정보만 사용하기 위해 사용
         logger : Optional[logging.Logger]
-            Logger instance
+            Logger 인스턴스
 
         Returns:
         --------
         pd.DataFrame
-            Combined quarterly data with clean sequential index
+            깨끗한 순차 인덱스를 가진 결합된 분기별 데이터
 
         Raises:
         -------
         ValueError
-            If no data files found for the specified year
+            지정된 연도에 대한 데이터 파일을 찾을 수 없는 경우
 
-        Example (regressor.py):
+        사용 예시 (regressor.py):
         -----------------------
         ldf = DataProcessor.load_quarterly_data(
             data_dir='../data_parquet/ml_input',
@@ -148,7 +148,7 @@ class DataProcessor:
             logger=logging.getLogger()
         )
 
-        Example (ml_backtest.py):
+        사용 예시 (ml_backtest.py):
         --------------------------
         df = DataProcessor.load_quarterly_data(
             data_dir=self.data_path,
@@ -177,7 +177,7 @@ class DataProcessor:
             try:
                 df = pd.read_parquet(file_path)
 
-                # Apply cutoff_date filter if provided (for backtesting)
+                # 백테스팅을 위한 cutoff_date 필터 적용 (제공된 경우)
                 if cutoff_date is not None and 'fillingDate' in df.columns:
                     df['fillingDate'] = pd.to_datetime(df['fillingDate'])
                     df = df[df['fillingDate'] <= cutoff_date]
@@ -197,8 +197,8 @@ class DataProcessor:
                 f"(prefix='{file_prefix}', quarters={quarters})"
             )
 
-        # ✅ Concat with ignore_index=True to prevent duplicate indices
-        # This is critical for sector predictions using .loc[index]
+        # ✅ ignore_index=True로 연결하여 중복 인덱스 방지
+        # 섹터 예측에서 .loc[index] 사용 시 필수적
         combined_df = pd.concat(all_data, ignore_index=True)
         logger.info(
             f"Loaded {year} data: {len(combined_df)} rows "
@@ -208,7 +208,7 @@ class DataProcessor:
         return combined_df
 
     # ========================================================================
-    # Feature Name Normalization (Common Logic)
+    # Feature 이름 정규화 (공통 로직)
     # ========================================================================
 
     @staticmethod
@@ -217,40 +217,40 @@ class DataProcessor:
         logger: Optional[logging.Logger] = None
     ) -> pd.DataFrame:
         """
-        Normalize feature names to remove special JSON characters.
+        Feature 이름에서 특수 JSON 문자를 제거하여 정규화합니다.
 
-        **Critical for Model Training**: XGBoost, LightGBM, and CatBoost models
-        cannot handle special JSON characters like parentheses (), brackets [],
-        curly braces {}, and commas in feature names.
+        **모델 학습에 필수**: XGBoost, LightGBM, CatBoost 모델은
+        괄호 (), 대괄호 [], 중괄호 {}, 쉼표 등의 특수 JSON 문자를
+        feature 이름에서 처리할 수 없습니다.
 
-        This function ensures consistent feature naming across:
-        - make_mldata.py (ML data preparation)
-        - regressor.py (model training)
-        - ml_backtest.py (walk-forward backtesting)
+        이 함수는 다음 모듈 간 일관된 feature 이름을 보장합니다:
+        - make_mldata.py (ML 데이터 준비)
+        - regressor.py (모델 학습)
+        - ml_backtest.py (walk-forward 백테스팅)
 
-        Common problematic features from tsfresh:
+        tsfresh에서 자주 문제되는 feature 이름:
         - 'feature__param_(value1, value2)' → 'feature_param_value1_value2'
         - 'feature[index]' → 'feature_index'
         - 'feature{key}' → 'feature_key'
         - 'feature:value' → 'feature_value'
 
-        Strategy: Keep only alphanumeric characters and underscores.
-        All other characters (including periods, colons, slashes, etc.)
-        are replaced with underscores for maximum compatibility.
+        전략: 영숫자와 밑줄만 유지합니다.
+        기타 모든 문자(마침표, 콜론, 슬래시 등)는 최대 호환성을 위해
+        밑줄로 대체됩니다.
 
         Parameters:
         -----------
         df : pd.DataFrame
-            DataFrame with potentially problematic feature names
+            문제가 될 수 있는 feature 이름을 가진 DataFrame
         logger : Optional[logging.Logger]
-            Logger for tracking normalization
+            정규화 추적용 Logger
 
         Returns:
         --------
         pd.DataFrame
-            DataFrame with normalized column names
+            정규화된 컬럼 이름을 가진 DataFrame
 
-        Example:
+        사용 예시:
         --------
         >>> import pandas as pd
         >>> df = pd.DataFrame({
@@ -266,27 +266,27 @@ class DataProcessor:
 
         original_cols = df.columns.tolist()
 
-        # Replace special JSON characters with underscores
-        # Strategy: Keep only alphanumeric and underscores, replace everything else
+        # 특수 JSON 문자를 밑줄로 대체
+        # 전략: 영숫자와 밑줄만 유지, 나머지는 모두 대체
         normalized_cols = []
         for col in original_cols:
-            # Replace all non-alphanumeric characters (except underscore) with underscore
-            # This is more aggressive but safer for JSON/XGBoost/LightGBM compatibility
+            # 영숫자가 아닌 모든 문자(밑줄 제외)를 밑줄로 대체
+            # 더 공격적이지만 JSON/XGBoost/LightGBM 호환성을 위해 안전
             new_col = re.sub(r'[^a-zA-Z0-9_]', '_', col)
-            # Remove consecutive underscores
+            # 연속 밑줄 제거
             new_col = re.sub(r'_+', '_', new_col)
-            # Remove leading/trailing underscores
+            # 앞뒤 밑줄 제거
             new_col = new_col.strip('_')
             normalized_cols.append(new_col)
 
-        # Check if any changes were made
+        # 변경 사항이 있는지 확인
         changed_count = sum(1 for orig, norm in zip(original_cols, normalized_cols) if orig != norm)
 
-        # CRITICAL FIX: Handle duplicate normalized names
-        # Different original names can normalize to the same name:
+        # CRITICAL FIX: 정규화 후 중복 이름 처리
+        # 다른 원본 이름이 같은 이름으로 정규화될 수 있음:
         # 'feature(a, b)' → 'feature_a_b'
-        # 'feature[a, b]' → 'feature_a_b'  (duplicate!)
-        # Add numeric suffix to duplicates to ensure uniqueness
+        # 'feature[a, b]' → 'feature_a_b'  (중복!)
+        # 고유성 보장을 위해 중복에 숫자 접미사 추가
         if len(normalized_cols) != len(set(normalized_cols)):
             seen = {}
             unique_cols = []
@@ -307,7 +307,7 @@ class DataProcessor:
         if changed_count > 0:
             if logger:
                 logger.info(f"   🔧 Normalized {changed_count} feature names (removed special characters)")
-                # Show a few examples
+                # 몇 가지 예시 표시
                 examples = [
                     f"      - '{orig}' → '{norm}'"
                     for orig, norm in zip(original_cols, normalized_cols)
@@ -319,14 +319,14 @@ class DataProcessor:
                     if changed_count > 3:
                         logger.info(f"      ... and {changed_count - 3} more")
 
-        # Create new DataFrame with normalized column names
+        # 정규화된 컬럼 이름으로 새 DataFrame 생성
         df_normalized = df.copy()
         df_normalized.columns = normalized_cols
 
         return df_normalized
 
     # ========================================================================
-    # Sector Prediction (Common Logic)
+    # 섹터 예측 (공통 로직)
     # ========================================================================
 
     @staticmethod
@@ -447,38 +447,38 @@ class DataProcessor:
         logger: Optional[logging.Logger] = None
     ) -> pd.DataFrame:
         """
-        Feature alignment for model prediction
+        모델 예측을 위한 Feature 정렬입니다.
 
-        **Critical for regressor.py and ml_backtest.py consistency**
+        **regressor.py와 ml_backtest.py 일관성에 필수적**
 
-        This function ensures that test data has the exact features expected by
-        the trained model, in the correct order. This is essential because:
-        1. Training data may have had features dropped during preprocessing
-        2. Test data may be missing features due to data availability
-        3. XGBoost/LightGBM require exact feature match (names + order)
+        이 함수는 테스트 데이터가 학습된 모델이 기대하는 정확한 feature를
+        올바른 순서로 갖도록 보장합니다. 이것이 필수적인 이유:
+        1. 학습 데이터는 전처리 중 feature가 삭제되었을 수 있음
+        2. 테스트 데이터는 데이터 가용성으로 인해 feature가 누락될 수 있음
+        3. XGBoost/LightGBM은 정확한 feature 일치 필요 (이름 + 순서)
 
         Parameters:
         -----------
         X : pd.DataFrame
-            Test data features (may have different columns than model expects)
+            테스트 데이터 feature (모델이 기대하는 것과 다른 컬럼을 가질 수 있음)
         model : Any
-            Trained model (must have get_booster() method for XGBoost/LightGBM)
+            학습된 모델 (XGBoost/LightGBM용 get_booster() 메서드 필요)
         logger : Optional[logging.Logger]
-            Logger for info/warning messages
+            정보/경고 메시지용 Logger
 
         Returns:
         --------
         pd.DataFrame
-            Aligned features matching model's expected features
+            모델이 기대하는 feature와 일치하도록 정렬된 feature
 
         Process:
         --------
-        1. Extract expected features from model.get_booster().feature_names
-        2. Add missing features (filled with NaN - XGBoost can handle)
-        3. Remove extra features not in model
-        4. Reorder columns to match training order (CRITICAL!)
+        1. model.get_booster().feature_names에서 기대 feature 추출
+        2. 누락된 feature 추가 (NaN으로 채움 - XGBoost가 처리 가능)
+        3. 모델에 없는 추가 feature 제거
+        4. 학습 시 순서에 맞게 컬럼 재정렬 (필수!)
 
-        Example:
+        사용 예시:
         --------
         >>> # regressor.py
         >>> x_test_full = DataProcessor.align_features_to_model(
@@ -494,9 +494,9 @@ class DataProcessor:
 
         Notes:
         ------
-        - This replaces duplicated alignment code in regressor.py and ml_backtest.py
-        - Ensures consistency: bugs fixed here apply to both training and backtesting
-        - Missing features filled with NaN (tree models handle NaN natively)
+        - regressor.py와 ml_backtest.py의 중복된 정렬 코드를 대체합니다
+        - 일관성 보장: 여기서 수정된 버그가 학습과 백테스팅 모두에 적용됩니다
+        - 누락된 feature는 NaN으로 채움 (트리 모델은 NaN을 네이티브로 처리)
         """
         if logger is None:
             logger = logging.getLogger('DataProcessor')
@@ -504,7 +504,7 @@ class DataProcessor:
         # 명시적 복사로 SettingWithCopyWarning 방지
         X = X.copy()
 
-        # Extract expected features from model
+        # 모델에서 기대 feature 추출
         if hasattr(model, 'get_booster'):
             model_features = model.get_booster().feature_names
             if model_features is not None:
@@ -512,20 +512,20 @@ class DataProcessor:
                 logger.info(f"   Model expects {len(model_features)} features")
                 logger.info(f"   Test data has {len(X.columns)} features")
 
-                # Add missing features with NaN
+                # 누락된 feature를 NaN으로 추가
                 missing_features = set(model_features) - set(X.columns)
                 if missing_features:
                     logger.warning(f"   ⚠️  {len(missing_features)} features missing in test data, filling with NaN")
                     for col in missing_features:
                         X.loc[:, col] = np.nan
 
-                # Remove extra features
+                # 추가 feature 제거
                 extra_features = set(X.columns) - set(model_features)
                 if extra_features:
                     logger.info(f"   Removing {len(extra_features)} extra features from test data")
                     X = X.drop(columns=list(extra_features))
 
-                # Reorder features to match training order (CRITICAL!)
+                # 학습 시 순서에 맞게 feature 재정렬 (필수!)
                 X = X[model_features]
                 logger.info(f"   ✅ Feature alignment complete: {len(X.columns)} features")
         else:
@@ -534,7 +534,7 @@ class DataProcessor:
         return X
 
     # ========================================================================
-    # Sparse Data Handling
+    # 희소 데이터 처리
     # ========================================================================
 
     @staticmethod
@@ -543,26 +543,26 @@ class DataProcessor:
         threshold: float = 0.9
     ) -> pd.DataFrame:
         """
-        Remove rows with too many NaN values.
+        NaN 값이 너무 많은 행을 제거합니다.
 
-        This method removes rows where NaN ratio exceeds threshold.
+        NaN 비율이 임계값을 초과하는 행을 제거합니다.
 
         Parameters:
         -----------
         df : pd.DataFrame
-            Input dataframe
+            입력 DataFrame
         threshold : float
-            Threshold for NaN tolerance (default: 0.9)
-            Example: 0.9 means keep rows with <90% NaN
+            NaN 허용 임계값 (기본값: 0.9)
+            예: 0.9는 NaN이 90% 미만인 행만 유지
 
         Returns:
         --------
         pd.DataFrame
-            Cleaned dataframe
+            정리된 DataFrame
 
-        Example:
+        사용 예시:
         --------
-        # Remove rows with >90% NaN
+        # NaN이 90% 초과인 행 제거
         df_clean = DataProcessor.drop_sparse_rows(df, threshold=0.9)
         """
         nan_count_per_row = df.isnull().sum(axis=1)
@@ -583,39 +583,39 @@ class DataProcessor:
         protect_cols: Optional[List[str]] = None
     ) -> Tuple[pd.DataFrame, List[str]]:
         """
-        Remove columns with too many missing values or same values.
+        결측값이 너무 많거나 동일 값이 너무 많은 컬럼을 제거합니다.
 
-        This method identifies and removes columns that are uninformative:
-        1. Columns with >80% missing values
-        2. Columns where >98% of values are identical
+        정보가 없는 컬럼을 식별하고 제거합니다:
+        1. 결측값이 80% 초과인 컬럼
+        2. 값의 98% 이상이 동일한 컬럼
 
-        **Config-driven**: Reads thresholds from FEATURES config (single source of truth)
+        **설정 기반**: FEATURES 설정에서 임계값을 읽습니다 (단일 진실 공급원)
 
         Parameters:
         -----------
         df : pd.DataFrame
-            Input dataframe
+            입력 DataFrame
         missing_threshold : Optional[float]
-            Maximum allowed missing ratio (default: read from FEATURES.MISSING_THRESHOLD or 0.8)
+            최대 허용 결측 비율 (기본값: FEATURES.MISSING_THRESHOLD 또는 0.8에서 읽음)
         same_value_threshold : Optional[float]
-            Maximum allowed same-value ratio (default: read from FEATURES.SAME_VALUE_THRESHOLD or 0.95)
+            최대 허용 동일값 비율 (기본값: FEATURES.SAME_VALUE_THRESHOLD 또는 0.95에서 읽음)
         protect_cols : Optional[List[str]]
-            Columns to never drop (e.g., metadata)
+            절대 삭제하지 않을 컬럼 (예: 메타데이터)
 
         Returns:
         --------
         df_clean : pd.DataFrame
-            Dataframe with sparse columns removed
+            희소 컬럼이 제거된 DataFrame
         dropped_cols : List[str]
-            List of dropped column names
+            삭제된 컬럼 이름 리스트
 
-        Example:
+        사용 예시:
         --------
         processor = DataProcessor(config)
-        df_clean, dropped = processor.drop_sparse_cols(df)  # Uses config values
+        df_clean, dropped = processor.drop_sparse_cols(df)  # 설정 값 사용
         print(f"Dropped {len(dropped)} uninformative columns")
         """
-        # Read from config if not provided (same logic for regressor and ml_backtest)
+        # 제공되지 않으면 config에서 읽기 (regressor와 ml_backtest 동일 로직)
         if missing_threshold is None:
             features_config = self.config.get('FEATURES', {})
             missing_threshold = float(features_config.get('MISSING_THRESHOLD', 0.8))
@@ -632,18 +632,18 @@ class DataProcessor:
         cols_to_drop_same = []
 
         for col in df.columns:
-            # Skip protected columns
+            # 보호된 컬럼 건너뛰기
             if col in protect_cols:
                 continue
 
-            # Check missing ratio
+            # 결측 비율 확인
             missing_ratio = df[col].isna().mean()
             if missing_ratio > missing_threshold:
                 cols_to_drop.append(col)
                 cols_to_drop_missing.append(col)
                 continue
 
-            # Check same-value ratio
+            # 동일값 비율 확인
             value_counts = df[col].value_counts(normalize=True, dropna=False)
             if len(value_counts) > 0:
                 top_value_ratio = value_counts.iloc[0]
@@ -660,7 +660,7 @@ class DataProcessor:
         return df_clean, cols_to_drop
 
     # ========================================================================
-    # Infinite Value Handling
+    # 무한값 처리
     # ========================================================================
 
     @staticmethod
@@ -669,37 +669,37 @@ class DataProcessor:
         y: Optional[pd.Series] = None
     ) -> Tuple[pd.DataFrame, Optional[pd.Series]]:
         """
-        Remove rows with infinite values (XGBoost compatibility).
+        무한값이 있는 행을 제거합니다 (XGBoost 호환성).
 
-        XGBoost cannot handle infinite values and will raise an error.
-        This method removes all rows containing inf or -inf.
+        XGBoost는 무한값을 처리할 수 없으며 에러를 발생시킵니다.
+        이 메서드는 inf 또는 -inf를 포함하는 모든 행을 제거합니다.
 
         Parameters:
         -----------
         X : pd.DataFrame
-            Feature dataframe
+            Feature DataFrame
         y : Optional[pd.Series]
-            Target series (will be aligned with X if provided)
+            타겟 Series (제공 시 X와 정렬됨)
 
         Returns:
         --------
         X_clean : pd.DataFrame
-            Dataframe without infinite values
+            무한값이 없는 DataFrame
         y_clean : Optional[pd.Series]
-            Target series without infinite values (if provided)
+            무한값이 없는 타겟 Series (제공된 경우)
 
-        Example:
+        사용 예시:
         --------
         X_clean, y_clean = DataProcessor.remove_infinite_values(X, y)
         """
-        # Check for infinite values (only on numeric columns)
-        # Object/string columns will cause TypeError in np.isinf()
-        # Memory-efficient: avoid select_dtypes which causes memory spike on large data
+        # 무한값 확인 (숫자 컬럼에서만)
+        # 문자열/객체 컬럼은 np.isinf()에서 TypeError 발생
+        # 메모리 효율적: 대규모 데이터에서 메모리 급증을 유발하는 select_dtypes 사용 회피
         numeric_cols = [col for col in X.columns
                        if pd.api.types.is_numeric_dtype(X[col])]
 
         if len(numeric_cols) == 0:
-            # No numeric columns, nothing to check
+            # 숫자 컬럼이 없으므로 확인할 필요 없음
             return X, y
 
         inf_mask = np.isinf(X[numeric_cols])
@@ -725,24 +725,24 @@ class DataProcessor:
         y: Optional[pd.Series] = None
     ) -> Tuple[pd.DataFrame, Optional[pd.Series]]:
         """
-        Replace infinite values with NaN.
+        무한값을 NaN으로 대체합니다.
 
-        Sometimes it's better to replace inf with NaN rather than removing rows.
-        This allows fillna() to handle them.
+        행을 제거하는 것보다 inf를 NaN으로 대체하는 것이 나은 경우가 있습니다.
+        이렇게 하면 fillna()로 처리할 수 있습니다.
 
         Parameters:
         -----------
         X : pd.DataFrame
-            Feature dataframe
+            Feature DataFrame
         y : Optional[pd.Series]
-            Target series
+            타겟 Series
 
         Returns:
         --------
         X_clean : pd.DataFrame
-            Dataframe with inf replaced by NaN
+            inf가 NaN으로 대체된 DataFrame
         y_clean : Optional[pd.Series]
-            Target with inf replaced by NaN (if provided)
+            inf가 NaN으로 대체된 타겟 (제공된 경우)
         """
         X_clean = X.replace([np.inf, -np.inf], np.nan)
 
@@ -759,34 +759,34 @@ class DataProcessor:
         logger: Optional[logging.Logger] = None
     ) -> bool:
         """
-        Check for duplicate indices in DataFrame and log detailed information.
+        DataFrame의 중복 인덱스를 확인하고 상세 정보를 로깅합니다.
 
-        ✨ UNIFIED: Used by both regressor.py and ml_backtest.py for debugging.
+        ✨ UNIFIED: regressor.py와 ml_backtest.py 모두에서 디버깅에 사용됩니다.
 
-        This function helps track down the source of duplicate index errors by:
-        - Detecting if duplicates exist
-        - Logging which indices are duplicated
-        - Showing how many times each duplicate appears
-        - Providing actionable debugging information
+        이 함수는 중복 인덱스 에러의 원인을 추적하는 데 도움을 줍니다:
+        - 중복 존재 여부 감지
+        - 어떤 인덱스가 중복되었는지 로깅
+        - 각 중복이 몇 번 나타나는지 표시
+        - 실행 가능한 디버깅 정보 제공
 
         Parameters:
         -----------
         df : pd.DataFrame
-            DataFrame to check for duplicate indices
+            중복 인덱스를 확인할 DataFrame
         stage_name : str
-            Description of current processing stage (e.g., "after train/test split")
+            현재 처리 단계 설명 (예: "after train/test split")
         logger : Optional[logging.Logger]
-            Logger instance to use. If None, uses root logger.
+            사용할 Logger 인스턴스. None이면 루트 Logger 사용.
 
         Returns:
         --------
         bool
-            True if duplicates found, False otherwise
+            중복이 발견되면 True, 아니면 False
 
-        Example:
+        사용 예시:
         --------
         >>> if DataProcessor.check_duplicate_index(x_train, "after split", logger):
-        >>>     # Handle duplicates
+        >>>     # 중복 처리
         >>>     x_train = x_train[~x_train.index.duplicated(keep='first')]
         """
         if logger is None:
@@ -799,14 +799,14 @@ class DataProcessor:
             dup_count = df.index.duplicated().sum()
             logger.error(f"❌ FOUND {dup_count} DUPLICATE INDICES!")
 
-            # Show first 10 duplicate indices
+            # 처음 10개의 중복 인덱스 표시
             dup_indices = df.index[df.index.duplicated()].unique()[:10]
             logger.error(f"   First 10 duplicate indices: {list(dup_indices)}")
 
-            # Show shape
+            # Shape 표시
             logger.error(f"   DataFrame shape: {df.shape}")
 
-            # Show most common duplicates
+            # 가장 흔한 중복 표시
             dup_mask = df.index.duplicated(keep=False)
             dup_values = df.index[dup_mask].value_counts().head(5)
             logger.error(f"   Top 5 most common duplicate values:")
@@ -828,46 +828,45 @@ class DataProcessor:
         index: pd.Index
     ) -> pd.DataFrame:
         """
-        Create DataFrame from Series with clean index (avoiding index conflicts).
+        깨끗한 인덱스로 Series에서 DataFrame을 생성합니다 (인덱스 충돌 방지).
 
-        ✨ UNIFIED: Used by regressor.py in multiple places to avoid
-        "cannot reindex on an axis with duplicate labels" errors.
+        ✨ UNIFIED: regressor.py의 여러 곳에서 "cannot reindex on an axis with
+        duplicate labels" 에러를 방지하기 위해 사용됩니다.
 
-        When creating a DataFrame from a Series that already has an index,
-        pandas may try to align the Series' original index with the new index,
-        causing conflicts. This method uses .values to strip the original index
-        and assign a clean new index.
+        이미 인덱스가 있는 Series에서 DataFrame을 생성할 때, pandas가 Series의
+        원본 인덱스를 새 인덱스와 정렬하려고 시도하여 충돌이 발생할 수 있습니다.
+        이 메서드는 .values를 사용하여 원본 인덱스를 제거하고 깨끗한 새 인덱스를 할당합니다.
 
         Parameters:
         -----------
         series : pd.Series
-            Series with data (index will be stripped)
+            데이터가 있는 Series (인덱스가 제거됨)
         columns : pd.Index
-            Column names for the DataFrame
+            DataFrame의 컬럼 이름
         index : pd.Index
-            New clean index to assign
+            할당할 새 깨끗한 인덱스
 
         Returns:
         --------
         pd.DataFrame
-            DataFrame with clean index, no conflicts
+            충돌 없는 깨끗한 인덱스를 가진 DataFrame
 
-        Example:
+        사용 예시:
         --------
         >>> y_clean = pd.Series([1, 2, 3], index=[10, 20, 30])
         >>> new_index = pd.Index([0, 1, 2])
         >>> df = DataProcessor.create_clean_dataframe(y_clean, ['target'], new_index)
         >>> df.index  # [0, 1, 2] not [10, 20, 30]
 
-        Why this matters:
+        이것이 중요한 이유:
         -----------------
-        ❌ WRONG:
+        ❌ 잘못된 방법:
         pd.DataFrame({col: series}, index=new_index)
-        → pandas tries to align series.index with new_index → conflicts!
+        → pandas가 series.index를 new_index와 정렬 시도 → 충돌!
 
-        ✅ CORRECT:
+        ✅ 올바른 방법:
         pd.DataFrame(series.values, columns=[col], index=new_index)
-        → No alignment, clean assignment
+        → 정렬 없이 깨끗한 할당
         """
         return pd.DataFrame(series.values, columns=columns, index=index)
 
@@ -877,26 +876,26 @@ class DataProcessor:
         inverse: bool = False
     ) -> pd.DataFrame:
         """
-        Sign-preserving log transformation for extreme value handling.
+        극단값 처리를 위한 부호 보존 로그 변환입니다.
 
-        ✨ UNIFIED: Replaces hardcoded threshold clipping with adaptive log scaling
-        Used by both regressor.py and ml_backtest.py for:
-        - Unified model (x_train)
-        - Sector models (sector_x_train)
+        ✨ UNIFIED: 하드코딩된 임계값 클리핑을 적응형 로그 스케일링으로 대체합니다.
+        regressor.py와 ml_backtest.py 모두에서 사용됩니다:
+        - 통합 모델 (x_train)
+        - 섹터 모델 (sector_x_train)
 
-        Why log transform is better than clip_extreme_values(threshold=1e10):
+        로그 변환이 clip_extreme_values(threshold=1e10)보다 나은 이유:
         ========================================================================
-        1. ✅ Preserves actual value ordering (Apple $3T > Microsoft $2T)
-        2. ✅ Adaptive to any scale (market cap can grow infinitely)
-        3. ✅ Natural compression (1e12 → 27.6, 1e10 → 23.0)
-        4. ✅ Invertible (can recover original scale if needed)
-        5. ✅ No arbitrary threshold (1e10 is too small for large-cap stocks)
+        1. ✅ 실제 값 순서 보존 (Apple $3T > Microsoft $2T)
+        2. ✅ 모든 스케일에 적응 (시가총액은 무한히 성장 가능)
+        3. ✅ 자연스러운 압축 (1e12 → 27.6, 1e10 → 23.0)
+        4. ✅ 역변환 가능 (필요시 원래 스케일 복원)
+        5. ✅ 임의 임계값 없음 (1e10은 대형주에 너무 작음)
 
-        Problems with hard clipping:
+        하드 클리핑의 문제점:
         ========================================================================
-        - Apple market cap: $3 trillion = 3e12 → clipped to 1e10 (300x compression!)
-        - NVIDIA market cap: $2 trillion = 2e12 → clipped to 1e10 (200x compression!)
-        - All large-cap stocks become indistinguishable
+        - Apple 시가총액: $3조 = 3e12 → 1e10으로 클리핑 (300배 압축!)
+        - NVIDIA 시가총액: $2조 = 2e12 → 1e10으로 클리핑 (200배 압축!)
+        - 모든 대형주가 구분 불가능해짐
 
         Formula:
         ========================================================================
@@ -922,54 +921,54 @@ class DataProcessor:
         Parameters:
         -----------
         X : pd.DataFrame
-            Features to transform
+            변환할 Feature
         inverse : bool
-            If True, inverse transform (exp) back to original scale
-            Default: False (forward transform)
+            True이면 역변환 (exp)으로 원래 스케일 복원
+            기본값: False (정방향 변환)
 
         Returns:
         --------
         X_transformed : pd.DataFrame
-            Log-transformed features (same shape and columns as input)
+            로그 변환된 Feature (입력과 동일한 shape 및 컬럼)
 
-        Usage:
+        사용 예시:
         ------
-        # Training (forward transform)
+        # 학습 (정방향 변환)
         X_train_log = DataProcessor.log_transform_features(X_train)
 
-        # Prediction (use same transform)
+        # 예측 (동일한 변환 사용)
         X_test_log = DataProcessor.log_transform_features(X_test)
 
-        # Interpretation (inverse transform, optional)
+        # 해석 (역변환, 선택 사항)
         X_original = DataProcessor.log_transform_features(X_train_log, inverse=True)
 
         Notes:
         ------
-        - Applied to ALL features (tree-based models don't care about scale)
-        - XGBoost/LightGBM benefit from compressed scale (prevents "value too large" errors)
-        - Preserves feature names and DataFrame structure
+        - 모든 feature에 적용됨 (트리 기반 모델은 스케일에 무관)
+        - XGBoost/LightGBM은 압축된 스케일에서 이점 ("value too large" 에러 방지)
+        - Feature 이름과 DataFrame 구조 보존
         """
-        # Only transform numeric columns, preserve object/string columns as-is
-        # Memory-efficient: avoid select_dtypes which causes memory spike on large data
+        # 숫자 컬럼만 변환, 문자열/객체 컬럼은 그대로 유지
+        # 메모리 효율적: 대규모 데이터에서 메모리 급증을 유발하는 select_dtypes 사용 회피
         numeric_cols = [col for col in X.columns
                        if pd.api.types.is_numeric_dtype(X[col])]
         object_cols = [col for col in X.columns
                       if not pd.api.types.is_numeric_dtype(X[col])]
 
         if len(numeric_cols) == 0:
-            # No numeric columns to transform
+            # 변환할 숫자 컬럼이 없음
             return X.copy()
 
         X_transformed = X.copy()
 
-        # Memory-efficient processing: Process in chunks to avoid memory explosion
-        # With 10,972 features, processing all at once requires 12+ GB
+        # 메모리 효율적 처리: 메모리 폭발을 피하기 위해 청크 단위로 처리
+        # 10,972개 feature를 한 번에 처리하면 12GB 이상 필요
         chunk_size = 500  # Process 500 columns at a time
 
         if inverse:
-            # Inverse: sign(x) * (exp(|x|) - 1)
-            # Recovers original scale from log-transformed values
-            # ✅ CRITICAL FIX: Skip NaN values (preserve them as-is)
+            # 역변환: sign(x) * (exp(|x|) - 1)
+            # 로그 변환된 값에서 원래 스케일 복원
+            # ✅ CRITICAL FIX: NaN 값 건너뛰기 (그대로 보존)
             for i in range(0, len(numeric_cols), chunk_size):
                 chunk_cols = numeric_cols[i:i+chunk_size]
                 X_transformed[chunk_cols] = X[chunk_cols].apply(
@@ -980,9 +979,9 @@ class DataProcessor:
                     )
                 )
         else:
-            # Forward: sign(x) * log(1 + |x|)
-            # Compresses extreme values while preserving order
-            # ✅ CRITICAL FIX: Skip NaN values (preserve them as-is)
+            # 정방향: sign(x) * log(1 + |x|)
+            # 순서를 보존하면서 극단값 압축
+            # ✅ CRITICAL FIX: NaN 값 건너뛰기 (그대로 보존)
             for i in range(0, len(numeric_cols), chunk_size):
                 chunk_cols = numeric_cols[i:i+chunk_size]
                 X_transformed[chunk_cols] = X[chunk_cols].apply(
@@ -993,7 +992,7 @@ class DataProcessor:
                     )
                 )
 
-        # Object columns remain unchanged
+        # 객체 컬럼은 변경되지 않음
         return X_transformed
 
     @staticmethod
@@ -1005,65 +1004,65 @@ class DataProcessor:
         logger=None
     ) -> Tuple[pd.DataFrame, pd.DataFrame, Optional[pd.DataFrame], List[str]]:
         """
-        🎯 SINGLE SOURCE OF TRUTH for ALL training data preprocessing.
+        모든 학습 데이터 전처리의 단일 진실 공급원 (SINGLE SOURCE OF TRUTH)입니다.
 
-        Used by BOTH regressor.py and ml_backtest.py to ensure IDENTICAL preprocessing.
+        regressor.py와 ml_backtest.py 모두에서 동일한 전처리를 보장하기 위해 사용됩니다.
 
-        This method replaces ALL scattered preprocessing code with ONE unified flow.
+        이 메서드는 산재된 모든 전처리 코드를 하나의 통합된 흐름으로 대체합니다.
 
-        Preprocessing Steps (in order):
+        전처리 단계 (순서대로):
         ================================
-        0. Normalize feature names (remove special JSON characters)
-        1. Remove infinite values from X and y
-        2. Replace remaining infinite with NaN (safety)
-        3. Remove rows with infinite in y labels (CRITICAL)
-        4. Log transformation (extreme value compression)
-        5. Remove columns with >50% NaN
-        6. Remove rows with NaN in y labels
-        7. (Optional) Winsorization
-        8. (Optional) Feature selection
+        0. Feature 이름 정규화 (특수 JSON 문자 제거)
+        1. X와 y에서 무한값 제거
+        2. 남은 무한값을 NaN으로 대체 (안전장치)
+        3. y 레이블에서 무한값이 있는 행 제거 (필수)
+        4. 로그 변환 (극단값 압축)
+        5. NaN이 50% 초과인 컬럼 제거
+        6. y 레이블에 NaN이 있는 행 제거
+        7. (선택) Winsorization
+        8. (선택) Feature 선택
 
         Parameters:
         -----------
         X : pd.DataFrame
-            Feature matrix
+            Feature 행렬
         y : pd.DataFrame
-            Regression target (must be DataFrame with column)
+            회귀 타겟 (컬럼이 있는 DataFrame이어야 함)
         y_cls : Optional[pd.DataFrame]
-            Classification target (optional, for regressor.py)
+            분류 타겟 (선택, regressor.py용)
         config : Optional[Dict]
-            Configuration dictionary (for winsorization, feature selection)
+            설정 딕셔너리 (winsorization, feature 선택용)
         logger : Optional
-            Logger for progress messages
+            진행 메시지용 Logger
 
         Returns:
         --------
         X_clean : pd.DataFrame
-            Preprocessed features
+            전처리된 Feature
         y_clean : pd.DataFrame
-            Preprocessed regression target
+            전처리된 회귀 타겟
         y_cls_clean : Optional[pd.DataFrame]
-            Preprocessed classification target (if provided)
+            전처리된 분류 타겟 (제공된 경우)
         dropped_cols : List[str]
-            List of dropped column names
+            삭제된 컬럼 이름 리스트
 
-        Example:
+        사용 예시:
         --------
         >>> X, y, y_cls, dropped = DataProcessor.preprocess_training_data(
         >>>     X_train, y_train, y_train_cls, config, logger
         >>> )
 
-        Why This Matters:
+        이것이 중요한 이유:
         -----------------
-        Before unification:
-        - regressor.py: 10 preprocessing steps scattered across 200 lines
-        - ml_backtest.py: 7 preprocessing steps scattered across 150 lines
-        - Different orders, different logic, different bugs
+        통합 전:
+        - regressor.py: 200줄에 걸쳐 산재된 10개 전처리 단계
+        - ml_backtest.py: 150줄에 걸쳐 산재된 7개 전처리 단계
+        - 다른 순서, 다른 로직, 다른 버그
 
-        After unification:
-        - ONE method, ONE logic, ONE source of truth
-        - Identical preprocessing guaranteed
-        - Backtest validates training accurately
+        통합 후:
+        - 하나의 메서드, 하나의 로직, 하나의 진실 공급원
+        - 동일한 전처리 보장
+        - 백테스트가 학습을 정확하게 검증
         """
         if logger:
             logger.info("=" * 80)
@@ -1073,28 +1072,28 @@ class DataProcessor:
         rows_before = len(X)
         cols_before = len(X.columns)
 
-        # Phase 1: Data quality checks (optional reports)
+        # 1단계: 데이터 품질 검사 (선택적 레포트)
         DataProcessor._preprocess_quality_checks(X, y, config, logger)
 
-        # Phase 2: Normalize feature names & remove non-feature columns
+        # 2단계: Feature 이름 정규화 및 비feature 컬럼 제거
         X = DataProcessor._preprocess_normalize_columns(X, logger)
 
-        # Phase 3: Remove infinities and clean targets (Steps 1-3)
+        # 3단계: 무한값 제거 및 타겟 정리 (Steps 1-3)
         X_clean, y_clean, y_cls_clean = DataProcessor._preprocess_remove_infinities(
             X, y, y_cls, rows_before, logger
         )
 
-        # Phase 4: Transform features and filter NaN (Steps 4-6)
+        # 4단계: Feature 변환 및 NaN 필터링 (Steps 4-6)
         X_clean, y_clean, y_cls_clean = DataProcessor._preprocess_transform_and_filter(
             X_clean, y_clean, y_cls_clean, y.columns, logger
         )
 
-        # Phase 5: Optional processing and feature selection (Steps 7-8)
+        # 5단계: 선택적 처리 및 Feature 선택 (Steps 7-8)
         X_clean, selected_features = DataProcessor._preprocess_optional_steps(
             X_clean, y_clean, config, logger
         )
 
-        # ===== Safety check: ensure y_clean is not None =====
+        # ===== 안전 검사: y_clean이 None이 아닌지 확인 =====
         if y_clean is None:
             if logger:
                 logger.error("❌ CRITICAL: y_clean is None after preprocessing!")
@@ -1102,7 +1101,7 @@ class DataProcessor:
                 logger.error(f"   y_cls_clean type: {type(y_cls_clean)}")
             raise ValueError("preprocess_training_data: y_clean is None after preprocessing pipeline")
 
-        # ===== Final summary =====
+        # ===== 최종 요약 =====
         rows_after = len(X_clean)
         cols_after = len(X_clean.columns)
 
@@ -1117,7 +1116,7 @@ class DataProcessor:
             logger.info(f"   Remaining NaN: {X_clean.isna().sum().sum()}")
             logger.info(f"   y_clean type: {type(y_clean).__name__}, shape: {y_clean.shape}")
 
-            # Summary of data quality settings
+            # 데이터 품질 설정 요약
             if config:
                 dq_config = config.get('DATA_QUALITY', {})
                 if dq_config:

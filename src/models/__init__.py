@@ -1,40 +1,40 @@
-"""Machine learning models package for quantitative trading.
+"""퀀트 트레이딩을 위한 머신러닝 모델 패키지.
 
-This package provides a unified interface for training, evaluating, and deploying
-machine learning models for stock market prediction and trading strategy development.
+이 패키지는 주식 시장 예측 및 트레이딩 전략 개발을 위한 머신러닝 모델의
+학습, 평가, 배포를 위한 통합 인터페이스를 제공합니다.
 
-The package includes:
-1. Base model architecture (BaseModel)
-2. Gradient boosting implementations:
-   - XGBoost: Fast and efficient gradient boosting
-   - LightGBM: Microsoft's gradient boosting with low memory usage
-   - CatBoost: Yandex's gradient boosting with categorical feature support
-3. Ensemble methods:
-   - StackingEnsemble: Meta-learning based ensemble
-   - VotingEnsemble: Voting/averaging based ensemble
-4. Pre-configured settings optimized for financial data
+패키지 구성:
+1. 기본 모델 아키텍처 (BaseModel)
+2. Gradient boosting 구현체:
+   - XGBoost: 빠르고 효율적인 gradient boosting
+   - LightGBM: Microsoft의 저메모리 gradient boosting
+   - CatBoost: Yandex의 범주형 feature 지원 gradient boosting
+3. 앙상블 기법:
+   - StackingEnsemble: 메타러닝 기반 앙상블
+   - VotingEnsemble: 투표/평균 기반 앙상블
+4. 금융 데이터에 최적화된 사전 설정
 
-Key Features:
-- Consistent API across all model types
-- GPU acceleration support for all models
-- Built-in cross-validation and evaluation
-- Feature importance analysis
-- Model persistence (save/load)
-- Early stopping to prevent overfitting
-- Time-series aware cross-validation
+주요 기능:
+- 모든 모델 유형에 걸친 일관된 API
+- 모든 모델에 대한 GPU 가속 지원
+- 내장 교차 검증 및 평가
+- Feature 중요도 분석
+- 모델 영속성 (저장/로드)
+- 과적합 방지를 위한 조기 종료
+- 시계열 인식 교차 검증
 
-Architecture:
-    BaseModel (abstract)
+아키텍처:
+    BaseModel (추상 클래스)
     ├── XGBoostModel
     ├── LightGBMModel
     └── CatBoostModel
 
-    Ensembles
+    앙상블
     ├── StackingEnsemble
     └── VotingEnsemble
 
-Usage Example:
-    Basic model training:
+사용 예시:
+    기본 모델 학습:
         from models import XGBoostModel
 
         # Create and train model
@@ -49,7 +49,7 @@ Usage Example:
         # Save model
         model.save('trained_model.pkl')
 
-    Ensemble training:
+    앙상블 학습:
         from models import StackingEnsemble, XGBoostModel, LightGBMModel, CatBoostModel
 
         # Train base models
@@ -79,7 +79,7 @@ Usage Example:
         # Make predictions
         predictions = ensemble.predict(X_test)
 
-    Cross-validation:
+    교차 검증:
         from models import CatBoostModel
 
         model = CatBoostModel(task='classification').build_model()
@@ -93,40 +93,40 @@ Usage Example:
 
         print(f"CV Accuracy: {avg_scores['accuracy']:.4f}")
 
-Available Models:
-    - BaseModel: Abstract base class for all models
-    - XGBoostModel: XGBoost classifier/regressor
-    - LightGBMModel: LightGBM classifier/regressor
-    - CatBoostModel: CatBoost classifier/regressor
-    - StackingEnsemble: Stacking ensemble combiner
-    - VotingEnsemble: Voting ensemble combiner (not exported by default)
+사용 가능한 모델:
+    - BaseModel: 모든 모델의 추상 기본 클래스
+    - XGBoostModel: XGBoost 분류기/회귀기
+    - LightGBMModel: LightGBM 분류기/회귀기
+    - CatBoostModel: CatBoost 분류기/회귀기
+    - StackingEnsemble: 스태킹 앙상블 결합기
+    - VotingEnsemble: 투표 앙상블 결합기 (기본 export 대상 아님)
 
-Configuration:
-    All models use pre-configured settings from config.py, optimized for
-    financial time series data. Configurations can be customized by:
-    1. Using different config_name presets
-    2. Passing custom parameters to build_model()
-    3. Modifying config.py directly
+설정:
+    모든 모델은 config.py의 사전 설정을 사용하며, 금융 시계열 데이터에
+    최적화되어 있습니다. 설정은 다음 방법으로 커스터마이즈할 수 있습니다:
+    1. 다른 config_name 프리셋 사용
+    2. build_model()에 커스텀 파라미터 전달
+    3. config.py 직접 수정
 
-Model Selection Guide:
-    - XGBoost: Fast training, good general performance, mature library
-    - LightGBM: Fastest training, lowest memory, great for large datasets
-    - CatBoost: Best for overfitting prevention, handles categorical features,
-                excellent out-of-the-box performance (recommended for trading)
-    - Ensemble: Best overall performance, combines strengths of multiple models
+모델 선택 가이드:
+    - XGBoost: 빠른 학습, 우수한 범용 성능, 성숙한 라이브러리
+    - LightGBM: 가장 빠른 학습, 최저 메모리, 대규모 데이터셋에 적합
+    - CatBoost: 과적합 방지에 최적, 범주형 feature 처리,
+                뛰어난 기본 성능 (트레이딩에 권장)
+    - 앙상블: 최고의 종합 성능, 여러 모델의 장점 결합
 
-Performance Tips:
-    - Use GPU acceleration (enabled by default in configs)
-    - Enable early stopping to prevent overfitting
-    - Use cross-validation to assess generalization
-    - Start with CatBoost for robust baseline
-    - Use ensembles for production systems
+성능 팁:
+    - GPU 가속 사용 (설정에서 기본 활성화)
+    - 과적합 방지를 위한 조기 종료 활성화
+    - 일반화 성능 평가를 위한 교차 검증 사용
+    - 견고한 기준선으로 CatBoost부터 시작
+    - 프로덕션 시스템에서는 앙상블 사용
 
 Note:
-    - All models require GPU with CUDA support for GPU acceleration
-    - Time-series cross-validation is recommended for financial data
-    - Feature engineering is critical for model performance
-    - Always validate on out-of-sample data
+    - 모든 모델의 GPU 가속은 CUDA를 지원하는 GPU가 필요합니다
+    - 금융 데이터에는 시계열 교차 검증을 권장합니다
+    - Feature 엔지니어링이 모델 성능에 핵심적입니다
+    - 항상 표본 외 데이터로 검증해야 합니다
 
 Author: Quantitative Trading Team
 License: Proprietary
@@ -152,6 +152,6 @@ __all__ = [
 
 __version__ = '1.0.0'
 
-# Package metadata
+# 패키지 메타데이터
 __author__ = 'Quantitative Trading Team'
 __description__ = 'Machine learning models for quantitative trading'

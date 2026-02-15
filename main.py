@@ -38,7 +38,7 @@ import yaml
 import pandas as pd
 from pathlib import Path
 
-# Add current directory to path for module imports
+# 모듈 임포트를 위해 현재 디렉토리를 경로에 추가
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.infra.context_loader import load_config, MainContext
@@ -52,16 +52,16 @@ from src.backtest import MLBacktest
 
 
 # =============================================================================
-# Helper Functions
+# 헬퍼 함수
 # =============================================================================
 
 def _is_enabled(value: Any) -> bool:
-    """Check if a YAML config value represents 'enabled/true'."""
+    """YAML config 값이 '활성화/true'를 나타내는지 확인합니다."""
     return value in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
 
 
 def _is_disabled(value: Any) -> bool:
-    """Check if a YAML config value represents 'disabled/false'."""
+    """YAML config 값이 '비활성화/false'를 나타내는지 확인합니다."""
     return value in ('N', False, 'no', 'NO', 'No', 'OFF', 'Off', 'off', 'FALSE', 'False')
 
 
@@ -106,7 +106,7 @@ class RegressorIntegrated:
         self.conf = conf
         self.use_new_models = use_new_models
 
-        # Import legacy Regressor as fallback
+        # 폴백용 레거시 Regressor 임포트
         try:
             from src.training.regressor import Regressor
             self.legacy_regressor: Optional['Regressor'] = Regressor(conf)
@@ -386,12 +386,12 @@ def conf_check(config: Dict[str, Any]) -> None:
 
 
 # =============================================================================
-# Pipeline Step Functions
+# 파이프라인 단계 함수
 # =============================================================================
 
 def _initialize_pipeline() -> tuple:
     """
-    Initialize the pipeline: load config, create context, setup logging.
+    파이프라인을 초기화합니다: config 로드, context 생성, 로깅 설정.
 
     Returns:
         tuple: (config, main_ctx, logger)
@@ -420,11 +420,11 @@ def _initialize_pipeline() -> tuple:
 
 def _collect_data(config: Dict[str, Any], main_ctx: 'MainContext', logger: logging.Logger) -> None:
     """
-    Collect data from FMP API or rebuild VIEW tables.
+    FMP API에서 데이터를 수집하거나 VIEW 테이블을 재구축합니다.
 
-    Handles two modes:
-    - GET_FMP=Y: Fetch new data from FMP API and convert to Parquet
-    - MAKE_VIEW=Y: Rebuild VIEW tables from existing data
+    두 가지 모드를 처리합니다:
+    - GET_FMP=Y: FMP API에서 새 데이터를 가져와 Parquet으로 변환
+    - MAKE_VIEW=Y: 기존 데이터에서 VIEW 테이블 재구축
     """
     data_config = config.get('DATA', {})
     storage_type = data_config.get('STORAGE_TYPE', 'PARQUET')
@@ -443,7 +443,7 @@ def _collect_data(config: Dict[str, Any], main_ctx: 'MainContext', logger: loggi
 
 
 def _run_fmp_collection(main_ctx: 'MainContext', storage_type: str, logger: logging.Logger) -> None:
-    """Execute FMP data collection and conversion."""
+    """FMP 데이터 수집 및 변환을 실행합니다."""
     try:
         from src.data.fmp import FMP
         fmp = FMP(main_ctx)
