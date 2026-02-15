@@ -4477,6 +4477,13 @@ class Regressor:
             - 상위 8%의 주식 (100-92=8%)이 양성으로 예측됨
             - PER_SECTOR=True인 경우 섹터별 모델도 평가합니다
         """
+        # ========================================================================
+        # Walk-Forward Mode: Use predictions cache for evaluation
+        # ========================================================================
+        if self.use_walk_forward:
+            self._evaluation_walk_forward()
+            return
+
         MODEL_SAVE_PATH = self.root_path + '/MODELS/'
 
         # 학습된 분류 모델 로드
@@ -4517,6 +4524,249 @@ class Regressor:
             self._evaluate_sector_models(
                 MODEL_SAVE_PATH, threshold_config, THRESHOLD_PERCENTILE, sector_threshold_configs
             )
+
+    def _evaluation_walk_forward(self) -> None:
+        """Walk-Forward 모드에서 predictions cache를 활용한 평가.
+
+        train() 단계에서 생성된 predictions_cache를 로드하고,
+        각 기간별로 실제 수익률(actual return)과 비교하여 평가 지표를 계산합니다.
+
+        평가 지표:
+            - RMSE, MAE, R² (회귀 정확도)
+            - Accuracy, Precision, Recall (방향 예측)
+            - Top-K 평균 예측 수익률 vs 실제 수익률
+        """
+        from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+        from sklearn.metrics import accuracy_score, precision_score, recall_score
+
+        MODEL_SAVE_PATH = self.root_path + '/MODELS/'
+
+        logging.info("="*80)
+        logging.info("📊 WALK-FORWARD EVALUATION (Cache-based)")
+        logging.info("="*80)
+
+        # Load predictions cache
+        eval_config = self.conf.get('EVALUATION', {})
+        cache_file = MODEL_SAVE_PATH + eval_config.get('PREDICTIONS_CACHE_FILE', 'regressor_predictions.pkl')
+
+        if not self.predictions_cache:
+            try:
+                self.predictions_cache = joblib.load(cache_file)
+                logging.info(f"✅ Loaded predictions cache: {cache_file}")
+                logging.info(f"   Periods: {len(self.predictions_cache)}")
+            except FileNotFoundError:
+                logging.error(f"❌ Predictions cache not found: {cache_file}")
+                logging.error("   Run train() first to generate the cache.")
+                return
+
+        if not self.predictions_cache:
+            logging.error("❌ Predictions cache is empty. Nothing to evaluate.")
+            return
+
+        # Load actual returns from test data (rnorm_ml files have price_dev_subavg)
+        aidata_dir = self.root_path + '/processed/ml_data/per_year/'
+
+        all_eval_results = []
+        all_topk_results = []
+        full_prediction_df = pd.DataFrame()
+
+        for date_str, cache_entry in sorted(self.predictions_cache.items()):
+            logging.info(f"\n{'='*60}")
+            logging.info(f"📅 Evaluating period: {date_str}")
+            logging.info(f"{'='*60}")
+
+            predictions_df = cache_entry.get('predictions_df')
+            if predictions_df is None or predictions_df.empty:
+                logging.warning(f"⚠️  {date_str}: Empty predictions, skipping")
+                continue
+
+            top_k_selected = cache_entry.get('top_k_selected', [])
+            train_samples = cache_entry.get('train_samples', 0)
+            predict_samples = cache_entry.get('predict_samples', 0)
+
+            logging.info(f"   Train samples: {train_samples:,}")
+            logging.info(f"   Predict samples: {predict_samples:,}")
+            logging.info(f"   Top-K selected: {len(top_k_selected)} stocks")
+
+            # Load actual returns for this period from rnorm_ml files
+            # rnorm_ml has price_dev_subavg (actual return target)
+            cutoff_date = pd.Timestamp(date_str)
+            year = cutoff_date.year
+            actual_df = self._load_actual_returns_for_period(aidata_dir, cutoff_date)
+
+            if actual_df.empty:
+                logging.warning(f"⚠️  {date_str}: No actual return data available, skipping evaluation")
+                # Still save predictions (without actual comparison)
+                predictions_df['rebalance_date'] = date_str
+                full_prediction_df = pd.concat([full_prediction_df, predictions_df], ignore_index=True)
+                continue
+
+            # Merge predictions with actual returns
+            merged = predictions_df.merge(
+                actual_df[['symbol', 'price_dev_subavg', 'price_dev']],
+                on='symbol',
+                how='inner'
+            )
+            logging.info(f"   Matched stocks: {len(merged)} / {len(predictions_df)} predictions")
+
+            if len(merged) == 0:
+                logging.warning(f"⚠️  {date_str}: No stocks matched between predictions and actuals")
+                continue
+
+            # Calculate regression metrics (predicted return vs actual return)
+            y_actual = merged['price_dev_subavg'].values
+            y_pred = merged[DataSchema.PRED_RETURN].values
+
+            # Remove NaN for metric calculation
+            valid_mask = ~(np.isnan(y_actual) | np.isnan(y_pred))
+            if valid_mask.sum() < 10:
+                logging.warning(f"⚠️  {date_str}: Too few valid samples ({valid_mask.sum()}) for evaluation")
+                continue
+
+            y_actual_valid = y_actual[valid_mask]
+            y_pred_valid = y_pred[valid_mask]
+
+            rmse = np.sqrt(mean_squared_error(y_actual_valid, y_pred_valid))
+            mae = mean_absolute_error(y_actual_valid, y_pred_valid)
+            r2 = r2_score(y_actual_valid, y_pred_valid)
+
+            # Direction accuracy (predicted up/down vs actual up/down)
+            actual_direction = (y_actual_valid > 0).astype(int)
+            pred_direction = (y_pred_valid > 0).astype(int)
+            accuracy = accuracy_score(actual_direction, pred_direction)
+
+            # Handle edge case: all same class
+            try:
+                precision = precision_score(actual_direction, pred_direction, zero_division=0)
+                recall = recall_score(actual_direction, pred_direction, zero_division=0)
+            except Exception:
+                precision = 0.0
+                recall = 0.0
+
+            logging.info(f"   📈 Regression: RMSE={rmse:.4f}, MAE={mae:.4f}, R²={r2:.4f}")
+            logging.info(f"   🎯 Direction:  Accuracy={accuracy:.4f}, Precision={precision:.4f}, Recall={recall:.4f}")
+
+            # Top-K evaluation
+            top_k_mask = merged[DataSchema.SELECTED] == True
+            top_k_merged = merged[top_k_mask]
+
+            if len(top_k_merged) > 0:
+                avg_pred_return = top_k_merged[DataSchema.PRED_RETURN].mean()
+                avg_actual_return = top_k_merged['price_dev_subavg'].mean()
+                avg_ml_score = top_k_merged[DataSchema.ML_SCORE].mean()
+
+                logging.info(f"   🏆 Top-K Performance:")
+                logging.info(f"      Avg predicted return: {avg_pred_return:.4f}")
+                logging.info(f"      Avg actual return:    {avg_actual_return:.4f}")
+                logging.info(f"      Avg ML score:         {avg_ml_score:.4f}")
+                logging.info(f"      Direction correct:    {(top_k_merged['price_dev_subavg'] > 0).sum()}/{len(top_k_merged)}")
+
+                # Log individual top-K stocks
+                for _, row in top_k_merged.iterrows():
+                    symbol = row['symbol']
+                    pred_ret = row[DataSchema.PRED_RETURN]
+                    actual_ret = row.get('price_dev_subavg', float('nan'))
+                    rank = row.get(DataSchema.RANK, '?')
+                    logging.info(f"      #{rank} {symbol}: pred={pred_ret:+.4f}, actual={actual_ret:+.4f}")
+
+                all_topk_results.append({
+                    'period': date_str,
+                    'n_stocks': len(top_k_merged),
+                    'avg_pred_return': avg_pred_return,
+                    'avg_actual_return': avg_actual_return,
+                    'avg_ml_score': avg_ml_score,
+                })
+
+            # Store evaluation results
+            all_eval_results.append({
+                'period': date_str,
+                'n_valid': int(valid_mask.sum()),
+                'rmse': rmse,
+                'mae': mae,
+                'r2': r2,
+                'accuracy': accuracy,
+                'precision': precision,
+                'recall': recall,
+                'train_samples': train_samples,
+                'predict_samples': predict_samples,
+            })
+
+            # Add actual returns to predictions for CSV output
+            merged['rebalance_date'] = date_str
+            full_prediction_df = pd.concat([full_prediction_df, merged], ignore_index=True)
+
+        # ===== Summary Report =====
+        logging.info(f"\n{'='*80}")
+        logging.info("📊 WALK-FORWARD EVALUATION SUMMARY")
+        logging.info(f"{'='*80}")
+
+        if all_eval_results:
+            eval_df = pd.DataFrame(all_eval_results)
+            logging.info(f"\n{eval_df.to_string(index=False)}")
+
+            # Averages
+            logging.info(f"\n📈 Average Metrics:")
+            logging.info(f"   RMSE:      {eval_df['rmse'].mean():.4f}")
+            logging.info(f"   MAE:       {eval_df['mae'].mean():.4f}")
+            logging.info(f"   R²:        {eval_df['r2'].mean():.4f}")
+            logging.info(f"   Accuracy:  {eval_df['accuracy'].mean():.4f}")
+            logging.info(f"   Precision: {eval_df['precision'].mean():.4f}")
+            logging.info(f"   Recall:    {eval_df['recall'].mean():.4f}")
+
+            # Save evaluation metrics CSV
+            eval_df.to_csv(MODEL_SAVE_PATH + 'walk_forward_eval_metrics.csv', index=False)
+            logging.info(f"\n💾 Saved: {MODEL_SAVE_PATH}walk_forward_eval_metrics.csv")
+
+        if all_topk_results:
+            topk_df = pd.DataFrame(all_topk_results)
+            logging.info(f"\n🏆 Top-K Summary:")
+            logging.info(f"{topk_df.to_string(index=False)}")
+            logging.info(f"\n   Average Top-K predicted return:  {topk_df['avg_pred_return'].mean():.4f}")
+            logging.info(f"   Average Top-K actual return:     {topk_df['avg_actual_return'].mean():.4f}")
+
+            topk_df.to_csv(MODEL_SAVE_PATH + 'walk_forward_topk_eval.csv', index=False)
+            logging.info(f"💾 Saved: {MODEL_SAVE_PATH}walk_forward_topk_eval.csv")
+
+        # Save full predictions with actuals
+        if not full_prediction_df.empty:
+            full_prediction_df.to_csv(MODEL_SAVE_PATH + 'prediction_ai.csv', index=False)
+            logging.info(f"💾 Saved: {MODEL_SAVE_PATH}prediction_ai.csv")
+
+        logging.info(f"\n✅ Walk-forward evaluation completed!")
+
+    def _load_actual_returns_for_period(self, aidata_dir: str, cutoff_date: pd.Timestamp) -> pd.DataFrame:
+        """Walk-forward 평가를 위해 특정 기간의 실제 수익률 데이터를 로드합니다.
+
+        rnorm_ml 파일에는 price_dev_subavg (실제 수익률 타겟)이 포함되어 있으므로,
+        cutoff_date에 해당하는 rnorm_ml 파일을 로드하여 실제 수익률을 추출합니다.
+
+        Args:
+            aidata_dir: ML 데이터 디렉토리 경로
+            cutoff_date: 리밸런싱 날짜
+
+        Returns:
+            실제 수익률이 포함된 DataFrame (symbol, price_dev_subavg, price_dev)
+        """
+        year = cutoff_date.year
+        file_pattern = f"{aidata_dir}rnorm_ml_{year}_Q*.parquet"
+        year_files = glob.glob(file_pattern)
+
+        for file_path in sorted(year_files):
+            try:
+                df = pd.read_parquet(file_path)
+                if 'rebalance_date' in df.columns:
+                    df['rebalance_date'] = pd.to_datetime(df['rebalance_date'])
+                    unique_dates = df['rebalance_date'].unique()
+                    nearest_date = _find_nearest_rebalance_date(unique_dates, cutoff_date)
+                    if nearest_date is not None:
+                        matched = df[df['rebalance_date'] == nearest_date]
+                        if not matched.empty and 'price_dev_subavg' in matched.columns:
+                            logging.info(f"   ✅ Loaded actual returns: {len(matched)} stocks from {os.path.basename(file_path)}")
+                            return matched
+            except Exception as e:
+                logging.warning(f"⚠️  Failed to load {file_path}: {e}")
+
+        return pd.DataFrame()
 
     def _load_threshold_config(self, model_save_path: str) -> tuple:
         """Load threshold configuration from saved file.
@@ -5013,22 +5263,27 @@ class Regressor:
         생성합니다. evaluation()과 동일한 2단계 예측 및 앙상블 투표 전략을 따르지만
         과거 테스트 데이터가 아닌 가장 최근 데이터로만 작업합니다.
 
-        파이프라인:
-            1. 모든 학습된 분류 및 회귀 모델 로드
+        Walk-Forward 모드:
+            predictions_cache의 마지막 기간 모델을 사용하여 최신 데이터로 예측합니다.
+
+        Traditional 모드:
+            1. 모든 학습된 분류 및 회귀 모델 로드 (.sav 파일)
             2. 최신 연도 데이터(모든 분기)를 읽고 심볼당 가장 최근 것 유지
             3. 충분한 데이터가 있는 주식으로 필터링 (>60% non-NaN)
-            4. 4개의 분류 모델을 실행하여 이진 예측 얻기
-            5. 2개의 회귀 모델을 실행하여 가격 변동 크기 얻기
-            6. 다양한 투표 전략을 사용하여 앙상블 예측 생성
-            7. 상위 K개 주식 추천 생성
-            8. 예측을 CSV 파일로 저장
+            4. 분류/회귀 모델 실행
+            5. 상위 K개 주식 추천 생성
 
         출력 파일 (MODEL_SAVE_PATH에 저장):
             - latest_prediction.csv: 최신 데이터의 모든 예측
             - latest_prediction_{model}_{col}_top{s}-{e}.csv: 모델당 상위 K개 주식
-            - sec_{sector}_latest_prediction.csv: 섹터별 예측 (PER_SECTOR=True인 경우)
-            - allsector_latest_pred_df.csv: 섹터 기반 상위 K개 요약 (PER_SECTOR=True인 경우)
         """
+        # ========================================================================
+        # Walk-Forward Mode: Use last period's models from cache
+        # ========================================================================
+        if self.use_walk_forward:
+            self._latest_prediction_walk_forward()
+            return
+
         MODEL_SAVE_PATH = self.root_path + '/MODELS/'
 
         # 통합 모델 로딩 메서드 사용
@@ -5052,6 +5307,119 @@ class Regressor:
         # Run sector predictions (if enabled)
         if self.use_sector_model and ldf_with_sector is not None:
             self._predict_latest_sectors(ldf_with_sector, ldf, MODEL_SAVE_PATH)
+
+    def _latest_prediction_walk_forward(self) -> None:
+        """Walk-Forward 모드에서 마지막 기간의 학습 모델로 최신 데이터 예측.
+
+        predictions_cache에서 가장 마지막 기간의 models_used를 가져와서
+        최신 rnorm_fs 데이터로 예측을 생성합니다.
+        """
+        from src.training.data_processor import DataProcessor
+
+        MODEL_SAVE_PATH = self.root_path + '/MODELS/'
+        if not os.path.exists(MODEL_SAVE_PATH):
+            os.makedirs(MODEL_SAVE_PATH)
+
+        logging.info("="*80)
+        logging.info("🔮 WALK-FORWARD LATEST PREDICTION")
+        logging.info("="*80)
+
+        # Load predictions cache to get last period's models
+        eval_config = self.conf.get('EVALUATION', {})
+        cache_file = MODEL_SAVE_PATH + eval_config.get('PREDICTIONS_CACHE_FILE', 'regressor_predictions.pkl')
+
+        if not self.predictions_cache:
+            try:
+                self.predictions_cache = joblib.load(cache_file)
+            except FileNotFoundError:
+                logging.error(f"❌ Predictions cache not found: {cache_file}")
+                logging.error("   Run train() first to generate the cache.")
+                return
+
+        if not self.predictions_cache:
+            logging.error("❌ Predictions cache is empty.")
+            return
+
+        # Get last period's models
+        sorted_dates = sorted(self.predictions_cache.keys())
+        last_date = sorted_dates[-1]
+        last_entry = self.predictions_cache[last_date]
+        models_info = last_entry.get('models_used', {})
+
+        if not models_info:
+            logging.error(f"❌ No models found in cache for last period {last_date}")
+            return
+
+        n_regressors = len(models_info.get('regressors', {}))
+        n_classifiers = len(models_info.get('classifiers', {}))
+        logging.info(f"   Using models from last period: {last_date}")
+        logging.info(f"   Regressors: {n_regressors}, Classifiers: {n_classifiers}")
+
+        # Load latest prediction data (rnorm_fs)
+        aidata_dir = self.root_path + '/processed/ml_data/per_year/'
+        fs_files = sorted(glob.glob(aidata_dir + 'rnorm_fs_*.parquet'))
+
+        if not fs_files:
+            logging.error(f"No rnorm_fs files found in {aidata_dir}")
+            return
+
+        # Find latest year
+        try:
+            years = [int(os.path.basename(f).split('_')[2]) for f in fs_files]
+            latest_year = max(years)
+        except (IndexError, ValueError) as e:
+            logging.error(f"Failed to parse year from filenames: {e}")
+            return
+
+        # Load latest year data using DataProcessor
+        try:
+            ldf = DataProcessor.load_quarterly_data(
+                data_dir=aidata_dir,
+                year=latest_year,
+                file_prefix='rnorm_fs',
+                logger=logging.getLogger()
+            )
+        except ValueError as e:
+            logging.error(f"Failed to load latest data: {e}")
+            return
+
+        # Deduplicate: keep most recent quarter per symbol
+        ldf = ldf.sort_values(by='year_period', ascending=False)
+        ldf = ldf.drop_duplicates(subset='symbol', keep='first')
+        logging.info(f"   Loaded {len(ldf)} unique symbols from {latest_year}")
+
+        # Generate predictions using last period's models
+        logging.info("🔮 Generating predictions with walk-forward models...")
+        predictions_df = _generate_predictions_for_period_standalone(ldf, models_info)
+
+        # Top-K selection
+        top_k = eval_config.get('TOP_K_NUM', 10)
+        predictions_df = _rank_and_select_top_k_standalone(predictions_df, top_k)
+
+        # Save results
+        output_file = MODEL_SAVE_PATH + 'latest_prediction.csv'
+        predictions_df.to_csv(output_file, index=False)
+        logging.info(f"💾 Saved: {output_file}")
+
+        # Log top-K stocks
+        top_k_mask = predictions_df[DataSchema.SELECTED] == True
+        top_k_df = predictions_df[top_k_mask]
+
+        logging.info(f"\n🏆 Top-{top_k} Stock Recommendations:")
+        for _, row in top_k_df.iterrows():
+            symbol = row['symbol']
+            sector = row.get('sector', '?')
+            pred_ret = row[DataSchema.PRED_RETURN]
+            ml_score = row[DataSchema.ML_SCORE]
+            rank = row.get(DataSchema.RANK, '?')
+            logging.info(f"   #{rank} {symbol} ({sector}): pred_return={pred_ret:+.4f}, ml_score={ml_score:.4f}")
+
+        # Save top-K details
+        topk_file = MODEL_SAVE_PATH + f'latest_prediction_top{top_k}.csv'
+        top_k_df.to_csv(topk_file, index=False)
+        logging.info(f"💾 Saved: {topk_file}")
+
+        logging.info(f"\n✅ Walk-forward latest prediction completed!")
 
     def _load_latest_data(self, model_save_path: str) -> tuple:
         """Load and prepare latest quarterly data for prediction.
