@@ -25,13 +25,13 @@
 사용 예시:
     from src.models.config import XGBOOST_CLASSIFIER_CONFIGS
 
-    # Get default XGBoost classifier configuration
+    # 기본 XGBoost 분류기 설정 가져오기
     default_config = XGBOOST_CLASSIFIER_CONFIGS['default']
 
-    # Get deeper XGBoost classifier configuration
+    # 더 깊은 XGBoost 분류기 설정 가져오기
     deep_config = XGBOOST_CLASSIFIER_CONFIGS['depth_10']
 
-    # Create custom configuration by modifying defaults
+    # 기본값을 수정하여 커스텀 설정 생성
     custom_config = XGBOOST_CLASSIFIER_CONFIGS['default'].copy()
     custom_config['learning_rate'] = 0.05
     custom_config['max_depth'] = 10

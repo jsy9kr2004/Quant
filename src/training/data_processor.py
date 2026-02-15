@@ -312,7 +312,7 @@ class DataProcessor:
                     f"      - '{orig}' → '{norm}'"
                     for orig, norm in zip(original_cols, normalized_cols)
                     if orig != norm
-                ][:3]  # Show first 3 examples
+                ][:3]  # 처음 3개 예시만 표시
                 if examples:
                     for example in examples:
                         logger.info(example)
@@ -398,7 +398,7 @@ class DataProcessor:
             model_features = sector_model.get_booster().feature_names
             if model_features is not None:
                 # ✅ FIX: Ensure X is a copy to avoid SettingWithCopyWarning
-                # Direct assignment handles copy internally if needed
+                # 직접 할당은 필요 시 내부적으로 복사를 처리
                 missing_features = set(model_features) - set(X.columns)
                 for col in missing_features:
                     X[col] = np.nan  # ✅ Changed from X.loc[:, col] = np.nan
@@ -963,7 +963,7 @@ class DataProcessor:
 
         # 메모리 효율적 처리: 메모리 폭발을 피하기 위해 청크 단위로 처리
         # 10,972개 feature를 한 번에 처리하면 12GB 이상 필요
-        chunk_size = 500  # Process 500 columns at a time
+        chunk_size = 500  # 한 번에 500개 컬럼씩 처리
 
         if inverse:
             # 역변환: sign(x) * (exp(|x|) - 1)
@@ -974,7 +974,7 @@ class DataProcessor:
                 X_transformed[chunk_cols] = X[chunk_cols].apply(
                     lambda col: np.where(
                         pd.isna(col),
-                        np.nan,  # NaN stays NaN
+                        np.nan,  # NaN은 NaN 유지
                         np.sign(col) * (np.exp(np.abs(col)) - 1)
                     )
                 )
@@ -987,7 +987,7 @@ class DataProcessor:
                 X_transformed[chunk_cols] = X[chunk_cols].apply(
                     lambda col: np.where(
                         pd.isna(col),
-                        np.nan,  # NaN stays NaN (XGBoost will handle it)
+                        np.nan,  # NaN은 NaN 유지 (XGBoost가 처리)
                         np.sign(col) * np.log1p(np.abs(col))
                     )
                 )
@@ -2169,7 +2169,7 @@ class DataProcessor:
                 learning_rate=0.1,
                 random_state=random_state,
                 verbose=-1,
-                force_col_wise=True  # Suppress warning
+                force_col_wise=True  # 경고 억제
             )
         else:  # classification
             model = lgb.LGBMClassifier(
@@ -2396,10 +2396,10 @@ class DataProcessor:
         if drop_cols:
             feature_cols = [col for col in feature_cols if col not in drop_cols]
 
-        # Extract features
+        # Feature 추출
         X = df[feature_cols].copy()
 
-        # Extract target
+        # 타겟 추출
         target_col = DataSchema.get_target_column(target_type)
 
         if target_col not in df.columns:
@@ -2509,11 +2509,11 @@ class DataProcessor:
             features_config = self.config.get('FEATURES', {})
             same_value_col_threshold = float(features_config.get('SAME_VALUE_THRESHOLD', 0.95))
 
-        # Step 1: Drop sparse rows (first pass - aggressive)
+        # Step 1: 희소 행 제거 (1차 - 적극적)
         self.logger.info("\n[1/7] Dropping sparse rows (first pass)...")
         train_clean = self.drop_sparse_rows(train_df, threshold=sparse_row_threshold)
 
-        # Step 2: Drop sparse columns
+        # Step 2: 희소 컬럼 제거
         self.logger.info("\n[2/7] Dropping sparse columns...")
         train_clean, dropped_cols = self.drop_sparse_cols(
             train_clean,
@@ -2522,7 +2522,7 @@ class DataProcessor:
         )
         self.dropped_cols = dropped_cols
 
-        # Step 3: Separate features and target
+        # Step 3: Feature와 타겟 분리
         self.logger.info("\n[3/7] Separating features and target...")
         X_train, y_train = self.prepare_features_and_target(
             train_clean,
@@ -2530,7 +2530,7 @@ class DataProcessor:
             drop_cols=dropped_cols
         )
 
-        # Step 4: Clip outliers (optional)
+        # Step 4: 이상치 클리핑 (선택)
         if clip_outliers:
             self.logger.info("\n[4/7] Clipping outliers...")
             X_train = self.clip_outliers(
@@ -2542,16 +2542,16 @@ class DataProcessor:
         else:
             self.logger.info("\n[4/7] Skipping outlier clipping")
 
-        # Step 5: Drop sparse rows (final pass - conservative)
+        # Step 5: 희소 행 제거 (최종 - 보수적)
         self.logger.info("\n[5/7] Dropping sparse rows (final pass)...")
-        # Recombine for final sparse row check
+        # 최종 희소 행 검사를 위해 재결합
         temp_df = X_train.copy()
         temp_df['_target_'] = y_train
         temp_df = self.drop_sparse_rows(temp_df, threshold=final_sparse_row_threshold)
         y_train = temp_df['_target_']
         X_train = temp_df.drop(columns=['_target_'])
 
-        # Step 6: Scale features
+        # Step 6: Feature 스케일링
         self.logger.info("\n[6/7] Scaling features...")
         X_train_scaled = self.fit_scaler(X_train, scaler_type=scaler_type)
         self.feature_names = X_train.columns.tolist()
@@ -2587,7 +2587,7 @@ class DataProcessor:
             'target_type': target_type
         }
 
-        # Step 7: Process test data (if provided)
+        # Step 7: 테스트 데이터 처리 (제공된 경우)
         if test_df is not None:
             self.logger.info("\n[7/7] Processing test data...")
 

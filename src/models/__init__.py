@@ -37,22 +37,22 @@
     기본 모델 학습:
         from models import XGBoostModel
 
-        # Create and train model
+        # 모델 생성 및 학습
         model = XGBoostModel(task='classification', config_name='default')
         model.build_model()
         model.fit(X_train, y_train, X_val, y_val)
 
-        # Make predictions
+        # 예측 수행
         predictions = model.predict(X_test)
         metrics = model.evaluate(X_test, y_test)
 
-        # Save model
+        # 모델 저장
         model.save('trained_model.pkl')
 
     앙상블 학습:
         from models import StackingEnsemble, XGBoostModel, LightGBMModel, CatBoostModel
 
-        # Train base models
+        # 기본 모델 학습
         xgb = XGBoostModel(task='classification').build_model()
         lgb = LightGBMModel(task='classification').build_model()
         cat = CatBoostModel(task='classification').build_model()
@@ -61,7 +61,7 @@
         lgb.fit(X_train, y_train, X_val, y_val)
         cat.fit(X_train, y_train, X_val, y_val)
 
-        # Create ensemble
+        # 앙상블 생성
         base_models = [
             ('xgboost', xgb.model),
             ('lightgbm', lgb.model),
@@ -76,7 +76,7 @@
         ensemble.build_ensemble()
         ensemble.fit(X_train, y_train)
 
-        # Make predictions
+        # 예측 수행
         predictions = ensemble.predict(X_test)
 
     교차 검증:
@@ -84,10 +84,10 @@
 
         model = CatBoostModel(task='classification').build_model()
 
-        # Cross-validate and train
+        # 교차 검증 및 학습
         avg_scores, fold_scores = model.fit_with_cv(
             X, y,
-            dates=date_series,  # For time-series CV
+            dates=date_series,  # 시계열 교차 검증용
             cv_splits=5
         )
 
@@ -128,8 +128,8 @@ Note:
     - Feature 엔지니어링이 모델 성능에 핵심적입니다
     - 항상 표본 외 데이터로 검증해야 합니다
 
-Author: Quantitative Trading Team
-License: Proprietary
+작성자: Quantitative Trading Team
+라이선스: Proprietary
 """
 
 from .base_model import BaseModel
@@ -154,4 +154,4 @@ __version__ = '1.0.0'
 
 # 패키지 메타데이터
 __author__ = 'Quantitative Trading Team'
-__description__ = 'Machine learning models for quantitative trading'
+__description__ = '퀀트 트레이딩을 위한 머신러닝 모델'
