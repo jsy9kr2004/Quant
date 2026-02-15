@@ -2141,14 +2141,14 @@ class DataProcessor:
         if n_features is not None and top_pct is not None:
             raise ValueError("Cannot specify both n_features and top_pct")
 
-        # Import LightGBM
+        # LightGBM 임포트
         try:
             import lightgbm as lgb
         except ImportError:
             logging.warning("LightGBM not available, returning all features")
             return X.copy(), list(X.columns)
 
-        # Calculate target number of features
+        # 목표 feature 수 계산
         if top_pct is not None:
             n_features = max(1, int(len(X.columns) * top_pct))
 
@@ -2157,11 +2157,11 @@ class DataProcessor:
         logging.info(f"Selecting top {n_features} features from {len(X.columns)} "
                     f"using LightGBM importance ({task})")
 
-        # Prepare data
+        # 데이터 준비
         X_np = X.values
         y_np = y.values.ravel() if hasattr(y, 'values') else y
 
-        # Train LightGBM model for feature importance
+        # Feature 중요도를 위한 LightGBM 모델 학습
         if task == 'regression':
             model = lgb.LGBMRegressor(
                 n_estimators=100,
@@ -2181,20 +2181,20 @@ class DataProcessor:
                 force_col_wise=True
             )
 
-        # Fit model
+        # 모델 적합
         model.fit(X_np, y_np)
 
-        # Get feature importances (gain-based)
+        # Feature 중요도 가져오기 (gain 기반)
         importances = model.feature_importances_
 
-        # Select top N features by importance
+        # 중요도 기준 상위 N개 feature 선택
         top_indices = np.argsort(importances)[-n_features:]
         selected_cols = [X.columns[i] for i in top_indices]
 
-        # Create selected dataframe
+        # 선택된 DataFrame 생성
         X_selected = X[selected_cols].copy()
 
-        # Calculate reduction stats
+        # 축소 통계 계산
         reduction_pct = (1 - n_features / len(X.columns)) * 100
         new_ratio = len(X) / n_features
 
@@ -2213,44 +2213,43 @@ class DataProcessor:
         top_pct: float = 0.50
     ) -> Tuple[pd.DataFrame, float]:
         """
-        Filter stocks by volume*price liquidity metric to select liquid stocks.
+        거래량*가격 유동성 지표로 종목을 필터링하여 유동성 높은 종목을 선택합니다.
 
-        This method ensures consistent liquidity filtering across both
-        regressor.py and ml_backtest.py. Trading illiquid stocks can lead
-        to poor execution and slippage.
+        이 메서드는 regressor.py와 ml_backtest.py에서 일관된 유동성 필터링을
+        보장합니다. 비유동적 종목을 거래하면 체결 불량과 슬리피지가 발생할 수 있습니다.
 
         Args:
-            df: DataFrame with 'symbol' and 'volume_mul_price' columns
-            threshold: Minimum liquidity threshold (if None, compute from top_pct)
-            top_pct: Top percentage to keep (default 0.50 for top 50%)
+            df: 'symbol'과 'volume_mul_price' 컬럼이 있는 DataFrame
+            threshold: 최소 유동성 임계값 (None이면 top_pct에서 계산)
+            top_pct: 유지할 상위 비율 (기본값 0.50 = 상위 50%)
 
         Returns:
-            (filtered_df, threshold_used)
+            (필터링된 df, 사용된 임계값)
 
-        Example:
-            >>> # Training: compute threshold and filter
+        사용 예시:
+            >>> # 학습: 임계값 계산 및 필터링
             >>> df_filtered, threshold = DataProcessor.filter_by_liquidity(train_df)
-            >>> # Save threshold for test data
-            >>> # Test: use saved threshold
+            >>> # 테스트 데이터를 위해 임계값 저장
+            >>> # 테스트: 저장된 임계값 사용
             >>> test_filtered, _ = DataProcessor.filter_by_liquidity(test_df, threshold=threshold)
 
         Note:
-            - Default keeps top 50% most liquid stocks
-            - Prevents model from learning on illiquid stocks
-            - Eliminates 4 duplications in regressor.py (~40 lines)
+            - 기본적으로 유동성 상위 50% 종목 유지
+            - 모델이 비유동적 종목에서 학습하는 것을 방지
+            - regressor.py의 4개 중복 제거 (~40줄)
         """
         if 'symbol' not in df.columns or 'volume_mul_price' not in df.columns:
             logging.warning("Missing required columns for liquidity filtering, returning original df")
             return df, 0.0
 
-        # Compute mean volume*price per symbol
+        # 종목별 평균 거래량*가격 계산
         symbol_means = df.groupby('symbol')['volume_mul_price'].mean().reset_index()
 
         if threshold is None:
-            # Compute threshold from top_pct
+            # top_pct에서 임계값 계산
             threshold = symbol_means['volume_mul_price'].quantile(1.0 - top_pct)
 
-        # Filter symbols above threshold
+        # 임계값 이상인 종목 필터링
         top_symbols = symbol_means[symbol_means['volume_mul_price'] >= threshold]
         filtered_df = df[df['symbol'].isin(top_symbols['symbol'])].copy()
 
@@ -2266,31 +2265,31 @@ class DataProcessor:
         replacement: Optional[float] = None
     ) -> pd.DataFrame:
         """
-        Replace extremely large values to prevent numerical overflow.
+        수치적 오버플로우 방지를 위해 매우 큰 값을 대체합니다.
 
-        This method ensures consistent large value handling. Very large
-        numbers can cause overflow in XGBoost and other models.
+        이 메서드는 일관된 대형 값 처리를 보장합니다. 매우 큰 숫자는
+        XGBoost 및 기타 모델에서 오버플로우를 유발할 수 있습니다.
 
         Args:
-            df: Input DataFrame
-            threshold: Values above this (absolute) are considered too large
-            replacement: Value to use (default: np.finfo(np.float32).max)
+            df: 입력 DataFrame
+            threshold: 이 값(절대값) 이상이면 너무 큰 것으로 간주
+            replacement: 사용할 값 (기본값: np.finfo(np.float32).max)
 
         Returns:
-            DataFrame with large values clipped
+            큰 값이 클리핑된 DataFrame
 
-        Example:
+        사용 예시:
             >>> df_clean = DataProcessor.clip_large_values(df, threshold=1e9)
 
         Note:
-            - Prevents XGBoost overflow errors
-            - Eliminates 3 duplicate implementations (~18 lines)
+            - XGBoost 오버플로우 에러 방지
+            - 3개의 중복 구현 제거 (~18줄)
         """
         if replacement is None:
             replacement = np.finfo(np.float32).max
 
         df = df.copy()
-        # Memory-efficient: avoid select_dtypes which causes memory spike on large data
+        # 메모리 효율적: 대규모 데이터에서 메모리 급증을 유발하는 select_dtypes 사용 회피
         numeric_cols = [col for col in df.columns
                        if pd.api.types.is_numeric_dtype(df[col])]
 
@@ -2312,36 +2311,36 @@ class DataProcessor:
         threshold: float = 0.6
     ) -> pd.DataFrame:
         """
-        Drop rows with excessive NaN values.
+        NaN 값이 과도한 행을 제거합니다.
 
-        This method ensures consistent NaN row filtering. Rows with too
-        many missing values provide little training signal.
+        이 메서드는 일관된 NaN 행 필터링을 보장합니다.
+        결측값이 너무 많은 행은 학습에 유용한 신호를 거의 제공하지 않습니다.
 
         Args:
-            df: Input DataFrame
-            threshold: Drop rows with NaN ratio > threshold
-                      (0.6 = drop if >60% NaN, keep if <=60% NaN)
+            df: 입력 DataFrame
+            threshold: NaN 비율 > threshold인 행 제거
+                      (0.6 = NaN이 60% 초과이면 제거, 60% 이하면 유지)
 
         Returns:
-            DataFrame with excessive-NaN rows removed
+            과도한 NaN 행이 제거된 DataFrame
 
-        Example:
-            >>> # Drop rows with >40% NaN (keep rows with <=40% NaN)
+        사용 예시:
+            >>> # NaN이 40% 초과인 행 제거 (NaN이 40% 이하인 행 유지)
             >>> df_clean = DataProcessor.drop_many_nan_row(df, threshold=0.6)
-            >>> # Drop rows with >5% NaN (stricter)
+            >>> # NaN이 5% 초과인 행 제거 (더 엄격)
             >>> df_clean = DataProcessor.drop_many_nan_row(df, threshold=0.95)
 
         Note:
-            - threshold=0.6 means "drop if NaN% > 60%", keep if <=60%
-            - Eliminates duplicate in regressor.py (~15 lines)
+            - threshold=0.6은 "NaN이 60% 초과면 제거"를 의미, 60% 이하면 유지
+            - regressor.py의 중복 제거 (~15줄)
         """
         if df.empty:
             return df
 
-        # Calculate NaN ratio per row
+        # 행별 NaN 비율 계산
         nan_ratio = df.isna().sum(axis=1) / len(df.columns)
 
-        # Keep rows where NaN ratio <= threshold
+        # NaN 비율이 threshold 이하인 행 유지
         mask = nan_ratio <= threshold
         df_clean = df[mask].copy()
 
@@ -2353,7 +2352,7 @@ class DataProcessor:
         return df_clean
 
     # ========================================================================
-    # Feature/Target Separation
+    # Feature/타겟 분리
     # ========================================================================
 
     def prepare_features_and_target(
@@ -2363,37 +2362,37 @@ class DataProcessor:
         drop_cols: Optional[List[str]] = None
     ) -> Tuple[pd.DataFrame, pd.Series]:
         """
-        Separate features and target variable.
+        Feature와 타겟 변수를 분리합니다.
 
         Parameters:
         -----------
         df : pd.DataFrame
-            Input dataframe
+            입력 DataFrame
         target_type : str
-            'regression', 'classification', or 'sector'
+            'regression', 'classification', 또는 'sector'
         drop_cols : Optional[List[str]]
-            Additional columns to drop (e.g., previously identified sparse cols)
+            추가로 삭제할 컬럼 (예: 이전에 식별된 희소 컬럼)
 
         Returns:
         --------
         X : pd.DataFrame
-            Feature dataframe
+            Feature DataFrame
         y : pd.Series
-            Target series
+            타겟 Series
 
         Raises:
         -------
         KeyError
-            If target column not found
+            타겟 컬럼을 찾을 수 없는 경우
 
-        Example:
+        사용 예시:
         --------
         X, y = processor.prepare_features_and_target(df, target_type='regression')
         """
-        # Get feature columns
+        # Feature 컬럼 가져오기
         feature_cols = DataSchema.get_feature_cols(df)
 
-        # Remove additional dropped columns
+        # 추가 삭제 컬럼 제거
         if drop_cols:
             feature_cols = [col for col in feature_cols if col not in drop_cols]
 
@@ -2435,44 +2434,44 @@ class DataProcessor:
         artifact_dir: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Execute full preprocessing pipeline.
+        전체 전처리 파이프라인을 실행합니다.
 
-        This method runs all preprocessing steps in the correct order:
-        1. Drop sparse rows (first pass)
-        2. Drop sparse columns
-        3. Separate features and target
-        4. Clip outliers (optional)
-        5. Drop sparse rows (final pass)
-        6. Scale features
+        이 메서드는 모든 전처리 단계를 올바른 순서로 실행합니다:
+        1. 희소 행 제거 (1차)
+        2. 희소 컬럼 제거
+        3. Feature와 타겟 분리
+        4. 이상치 클리핑 (선택)
+        5. 희소 행 제거 (최종)
+        6. Feature 스케일링
 
-        **Config-driven**: Reads missing/same-value thresholds from FEATURES config
+        **설정 기반**: FEATURES 설정에서 결측/동일값 임계값을 읽습니다
 
         Parameters:
         -----------
         train_df : pd.DataFrame
-            Training dataframe
+            학습 DataFrame
         test_df : Optional[pd.DataFrame]
-            Testing dataframe (will use same preprocessing)
+            테스트 DataFrame (동일한 전처리 적용)
         sparse_row_threshold : float
-            Initial sparse row threshold (default: 0.6)
+            초기 희소 행 임계값 (기본값: 0.6)
         final_sparse_row_threshold : float
-            Final sparse row threshold (default: 0.95)
+            최종 희소 행 임계값 (기본값: 0.95)
         missing_col_threshold : Optional[float]
-            Column missing value threshold (default: read from FEATURES.MISSING_THRESHOLD or 0.8)
+            컬럼 결측값 임계값 (기본값: FEATURES.MISSING_THRESHOLD 또는 0.8에서 읽음)
         same_value_col_threshold : Optional[float]
-            Column same-value threshold (default: read from FEATURES.SAME_VALUE_THRESHOLD or 0.95)
+            컬럼 동일값 임계값 (기본값: FEATURES.SAME_VALUE_THRESHOLD 또는 0.95에서 읽음)
         clip_outliers : bool
-            Whether to clip outliers (default: True)
+            이상치 클리핑 여부 (기본값: True)
         clip_percentiles : Tuple[float, float]
-            Clipping percentiles (default: (0.02, 0.98))
+            클리핑 백분위수 (기본값: (0.02, 0.98))
         scaler_type : str
-            'robust' or 'standard' (default: 'robust')
+            'robust' 또는 'standard' (기본값: 'robust')
         target_type : str
-            'regression', 'classification', or 'sector'
+            'regression', 'classification', 또는 'sector'
         save_artifacts : bool
-            Save preprocessing artifacts (clip bounds, dropped cols, etc.)
+            전처리 산출물 저장 (클리핑 범위, 삭제된 컬럼 등)
         artifact_dir : Optional[str]
-            Directory to save artifacts
+            산출물 저장 디렉토리
 
         Returns:
         --------
@@ -2480,15 +2479,15 @@ class DataProcessor:
             {
                 'X_train': np.ndarray,
                 'y_train': np.ndarray,
-                'X_test': np.ndarray (if test_df provided),
-                'y_test': np.ndarray (if test_df provided),
+                'X_test': np.ndarray (test_df 제공 시),
+                'y_test': np.ndarray (test_df 제공 시),
                 'feature_names': List[str],
                 'dropped_cols': List[str],
                 'clip_bounds': Dict[str, Tuple[float, float]],
-                'scaler': StandardScaler or RobustScaler
+                'scaler': StandardScaler 또는 RobustScaler
             }
 
-        Example:
+        사용 예시:
         --------
         processor = DataProcessor()
         result = processor.full_pipeline(train_df, test_df, clip_outliers=True)
@@ -2501,7 +2500,7 @@ class DataProcessor:
         if test_df is not None:
             self.logger.info(f"Test shape: {test_df.shape}")
 
-        # Read thresholds from config if not provided (same logic for regressor and ml_backtest)
+        # 제공되지 않으면 config에서 임계값 읽기 (regressor와 ml_backtest 동일 로직)
         if missing_col_threshold is None:
             features_config = self.config.get('FEATURES', {})
             missing_col_threshold = float(features_config.get('MISSING_THRESHOLD', 0.8))
@@ -2558,9 +2557,9 @@ class DataProcessor:
         self.feature_names = X_train.columns.tolist()
         self.is_fitted = True
 
-        # ✅ FIX: Remove rows with NaN in target (CRITICAL BUG FIX)
-        # NaN in target means no future price data (delisting, bankruptcy, etc.)
-        # Filling with 0 is WRONG - it teaches model: "missing data = 0% return"
+        # ✅ FIX: 타겟에서 NaN이 있는 행 제거 (치명적 버그 수정)
+        # 타겟의 NaN은 미래 가격 데이터가 없음을 의미 (상장폐지, 파산 등)
+        # 0으로 채우는 것은 잘못됨 - 모델에 "결측 데이터 = 0% 수익률"로 학습시킴
         nan_mask = y_train.isna()
         if nan_mask.any():
             n_nan = nan_mask.sum()
@@ -2570,14 +2569,14 @@ class DataProcessor:
             self.logger.warning(f"⚠️  Found {n_nan} NaN values in target ({pct_nan:.2f}%)")
             self.logger.warning(f"   Removing these rows (NaN target = invalid training data)")
 
-            # Remove rows with NaN targets
+            # NaN 타겟이 있는 행 제거
             valid_mask = ~nan_mask
             X_train_scaled = X_train_scaled[valid_mask]
             y_train = y_train[valid_mask]
 
             self.logger.info(f"   After NaN removal: {len(y_train)} samples ({n_total - n_nan} valid)")
 
-        # Prepare result
+        # 결과 준비
         result = {
             'X_train': X_train_scaled,
             'y_train': y_train.values,  # ✅ FIX: No fillna(0)!
@@ -2592,24 +2591,24 @@ class DataProcessor:
         if test_df is not None:
             self.logger.info("\n[7/7] Processing test data...")
 
-            # Apply same column drops
+            # 동일한 컬럼 삭제 적용
             test_clean = test_df.drop(columns=self.dropped_cols, errors='ignore')
 
-            # Separate features and target
+            # Feature와 타겟 분리
             X_test, y_test = self.prepare_features_and_target(
                 test_clean,
                 target_type=target_type,
                 drop_cols=self.dropped_cols
             )
 
-            # Apply saved clip bounds
+            # 저장된 클리핑 범위 적용
             if clip_outliers and self.clip_bounds:
                 X_test = self.clip_outliers(X_test, apply_saved_bounds=True)
 
-            # Scale using fitted scaler
+            # 적합된 스케일러로 스케일링
             X_test_scaled = self.transform_scaler(X_test)
 
-            # ✅ FIX: Remove rows with NaN in test target (same as train)
+            # ✅ FIX: 테스트 타겟에서 NaN이 있는 행 제거 (학습과 동일)
             nan_mask_test = y_test.isna()
             if nan_mask_test.any():
                 n_nan_test = nan_mask_test.sum()
@@ -2619,7 +2618,7 @@ class DataProcessor:
                 self.logger.warning(f"⚠️  Found {n_nan_test} NaN values in test target ({pct_nan_test:.2f}%)")
                 self.logger.warning(f"   Removing these rows (NaN target = invalid test data)")
 
-                # Remove rows with NaN targets
+                # NaN 타겟이 있는 행 제거
                 valid_mask_test = ~nan_mask_test
                 X_test_scaled = X_test_scaled[valid_mask_test]
                 y_test = y_test[valid_mask_test]
@@ -2631,7 +2630,7 @@ class DataProcessor:
 
             self.logger.info(f"   Test processed: {X_test_scaled.shape}")
 
-        # Save artifacts (optional)
+        # 산출물 저장 (선택)
         if save_artifacts and artifact_dir:
             self._save_artifacts(artifact_dir, result)
 
@@ -2645,51 +2644,51 @@ class DataProcessor:
         return result
 
     # ========================================================================
-    # Artifact Management
+    # 산출물 관리
     # ========================================================================
 
     def _save_artifacts(self, artifact_dir: str, result: Dict[str, Any]):
-        """Save preprocessing artifacts for reproducibility."""
+        """재현성을 위해 전처리 산출물을 저장합니다."""
         artifact_path = Path(artifact_dir)
         artifact_path.mkdir(parents=True, exist_ok=True)
 
-        # Save dropped columns
+        # 삭제된 컬럼 저장
         with open(artifact_path / 'dropped_cols.json', 'w') as f:
             json.dump(self.dropped_cols, f, indent=2)
 
-        # Save clip bounds
+        # 클리핑 범위 저장
         if self.clip_bounds:
             with open(artifact_path / 'clip_bounds.json', 'w') as f:
                 json.dump(self.clip_bounds, f, indent=2)
 
-        # Save feature names
+        # Feature 이름 저장
         with open(artifact_path / 'feature_names.json', 'w') as f:
             json.dump(self.feature_names, f, indent=2)
 
         self.logger.info(f"   Saved artifacts to {artifact_path}")
 
     def load_artifacts(self, artifact_dir: str):
-        """Load preprocessing artifacts from directory."""
+        """디렉토리에서 전처리 산출물을 로드합니다."""
         artifact_path = Path(artifact_dir)
 
-        # Load dropped columns
+        # 삭제된 컬럼 로드
         with open(artifact_path / 'dropped_cols.json', 'r') as f:
             self.dropped_cols = json.load(f)
 
-        # Load clip bounds
+        # 클리핑 범위 로드
         clip_bounds_file = artifact_path / 'clip_bounds.json'
         if clip_bounds_file.exists():
             with open(clip_bounds_file, 'r') as f:
                 self.clip_bounds = json.load(f)
 
-        # Load feature names
+        # Feature 이름 로드
         with open(artifact_path / 'feature_names.json', 'r') as f:
             self.feature_names = json.load(f)
 
         self.logger.info(f"   Loaded artifacts from {artifact_path}")
 
     # ========================================================================
-    # Trading Date Utilities
+    # 거래일 유틸리티
     # ========================================================================
 
     @staticmethod
@@ -2786,7 +2785,7 @@ class DataProcessor:
             return valid_dates.index.max()  # 과거 방향: 가장 큰 날짜
 
     # ========================================================================
-    # Sector Categorization Utilities
+    # 섹터 카테고리화 유틸리티
     # ========================================================================
 
     @staticmethod

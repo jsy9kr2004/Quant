@@ -751,14 +751,14 @@ class MLBacktest:
         return date_pairs
 
     def _execute_walk_forward(self, date_pairs: list, price_table: pd.DataFrame):
-        """Walk-Forward 백테스트 루프 실행 (캐시 기반, 결과를 self.backtest_results, self.detailed_results에 저장)"""
+        """Walk-Forward 백테스트 루프를 실행합니다 (캐시 기반, 결과를 self.backtest_results, self.detailed_results에 저장)."""
 
         for i, (original_rebalance_date, actual_rebalance_date) in enumerate(date_pairs):
             self.logger.info(f"\n{'='*80}")
             self.logger.info(f"Rebalance #{i+1}: {original_rebalance_date.date()} (actual: {actual_rebalance_date.date()})")
             self.logger.info(f"{'='*80}")
 
-            # 1. 캐시에서 예측 로드 (regressor.py는 원본 cutoff_date를 키로 사용)
+            # 1. 캐시에서 예측 로드 (regressor.py는 원본 cutoff_date를 키로 사용합니다)
             cache_key = original_rebalance_date.strftime('%Y-%m-%d')
 
             if cache_key not in self.predictions_cache:
@@ -776,16 +776,16 @@ class MLBacktest:
             self.logger.info(f"   Loaded {len(predictions)} predictions from cache")
             self.logger.info(f"   Top-K selected: {len(cached_data['top_k_selected'])} stocks")
 
-            # 2. 상위 K개 선택 (symbol + sector 포함)
+            # 2. 상위 K개 선택 (symbol + sector 포함합니다)
             selected_stocks = self._select_top_k(predictions)
             self.logger.info(f"📊 Selected {len(selected_stocks)} stocks")
 
-            # 3. 수익률 계산 (다음 리밸런싱 날짜까지)
+            # 3. 수익률 계산 (다음 리밸런싱 날짜까지의 기간)
             if i < len(date_pairs) - 1:
                 # 다음 리밸런싱의 실제 거래일 사용
                 next_actual_rebalance = date_pairs[i + 1][1]
                 period_result = self._calculate_period_return(
-                    selected_stocks,  # ✅ DataFrame (symbol, sector 포함)
+                    selected_stocks,  # DataFrame (symbol, sector 포함)
                     actual_rebalance_date,  # 실제 매수일
                     next_actual_rebalance,   # 실제 매도일
                     price_table
@@ -794,64 +794,64 @@ class MLBacktest:
                 avg_return = period_result['avg_return']
                 self.logger.info(f"💰 Period return: {avg_return*100:.2f}%")
 
-                # 결과 저장 (요약) - 원래 날짜와 실제 거래일 구분
+                # 결과 저장 (요약) - 원래 날짜와 실제 거래일을 구분합니다
                 self.backtest_results.append({
                     'rebalance_date': original_rebalance_date,  # 원래 리밸런싱 날짜
                     'actual_buy_date': period_result['actual_buy_date'],
                     'actual_sell_date': period_result['actual_sell_date'],
-                    'num_stocks': len(selected_stocks),  # ✅ DataFrame 길이
+                    'num_stocks': len(selected_stocks),  # DataFrame 길이
                     'avg_return': avg_return,
                     'retrained': False
                 })
 
-                # 상세 정보 저장 (각 종목별 + 섹터 + 카테고리 + 상장폐지 여부)
+                # 상세 정보 저장 (종목별 + 섹터 + 카테고리 + 상장폐지 여부)
                 for detail in period_result['details']:
                     self.detailed_results.append({
                         'rebalance_date': original_rebalance_date,  # 원래 리밸런싱 날짜
                         'actual_buy_date': period_result['actual_buy_date'],
                         'actual_sell_date': period_result['actual_sell_date'],
                         'symbol': detail['symbol'],
-                        'sector': detail.get('sector', 'Unknown'),      # ✅ 섹터 정보 추가
-                        'category': detail.get('category', 'Unknown'),  # ✅ 카테고리 정보 추가
+                        'sector': detail.get('sector', 'Unknown'),      # 섹터 정보
+                        'category': detail.get('category', 'Unknown'),  # 카테고리 정보
                         'buy_price': detail['buy_price'],
                         'sell_price': detail['sell_price'],
                         'return': detail['return'],
                         'return_pct': detail['return_pct'],
                         'delisted': detail.get('delisted', False),              # 상장폐지 여부
-                        'delisted_status': detail.get('delisted_status', 'active')  # ✅ 상세 상태
+                        'delisted_status': detail.get('delisted_status', 'active')  # 상세 상태
                     })
 
     def _compile_results_and_benchmark(self, date_pairs: list,
                                         price_table: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """백테스트 결과 집계 및 벤치마크 계산"""
-        # 7. 최종 리포트
+        """백테스트 결과를 집계하고 벤치마크를 계산합니다."""
+        # 최종 리포트 생성
         results_df = pd.DataFrame(self.backtest_results)
         if not results_df.empty:
             self._print_summary(results_df)
         else:
             self.logger.warning("⚠️ No backtest results to summarize (all periods skipped or cache miss)")
 
-        # 8. 벤치마크 계산 (전체 백테스트 기간)
+        # 벤치마크 계산 (전체 백테스트 기간)
         benchmark_df = pd.DataFrame()
         if len(date_pairs) > 0:
-            backtest_start = date_pairs[0][1]  # 첫 번째 실제 거래일
-            backtest_end = date_pairs[-1][1]   # 마지막 실제 거래일
+            backtest_start = date_pairs[0][1]   # 첫 번째 실제 거래일
+            backtest_end = date_pairs[-1][1]    # 마지막 실제 거래일
             benchmark_df = self._calculate_benchmark_returns(backtest_start, backtest_end, price_table)
 
-            # ML 모델 성능 추가 (비교용)
+            # ML 모델 성능을 벤치마크에 추가 (비교용)
             if not results_df.empty:
                 total_return = (1 + results_df['avg_return']).prod() - 1
                 avg_return = results_df['avg_return'].mean()
                 std_return = results_df['avg_return'].std()
-                sharpe = (avg_return / std_return) * np.sqrt(4) if std_return > 0 else 0.0  # Quarterly → Annual
+                sharpe = (avg_return / std_return) * np.sqrt(4) if std_return > 0 else 0.0  # 분기별 → 연율화
 
-                # MDD 계산
+                # MDD 계산 (벤치마크 비교용)
                 cumulative_returns = (1 + results_df['avg_return']).cumprod()
                 running_max = cumulative_returns.expanding().max()
                 drawdown = (cumulative_returns - running_max) / running_max
                 max_drawdown = drawdown.min()
 
-                # Win Rate
+                # Win Rate 계산
                 win_rate = (results_df['avg_return'] > 0).sum() / len(results_df)
 
                 ml_model_result = pd.DataFrame([{
@@ -868,7 +868,7 @@ class MLBacktest:
                     'num_days': len(results_df)
                 }])
 
-                # ML Model을 첫 번째 행으로 추가
+                # ML Model을 첫 번째 행으로 추가합니다
                 if not benchmark_df.empty:
                     benchmark_df = pd.concat([ml_model_result, benchmark_df], ignore_index=True)
                 else:
@@ -878,7 +878,7 @@ class MLBacktest:
 
     def _save_backtest_report(self, results_df: pd.DataFrame, benchmark_df: pd.DataFrame,
                                date_pairs: list, price_table: pd.DataFrame):
-        """백테스트 결과를 Excel 통합 레포트로 저장"""
+        """백테스트 결과를 Excel 통합 레포트로 저장합니다."""
         # 결과 저장 - Excel 통합 레포트
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_dir = Path('outputs/reports')
@@ -887,20 +887,20 @@ class MLBacktest:
         excel_file = report_dir / f'ml_backtest_report_{timestamp}.xlsx'
         detailed_df = pd.DataFrame(self.detailed_results)
 
-        # Excel Writer로 여러 시트 저장
+        # Excel Writer로 여러 시트를 저장합니다
         with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
-            # Sheet 1: Summary (요약)
+            # 시트 1: Summary (요약)
             results_df.to_excel(writer, sheet_name='Summary', index=False)
 
-            # Sheet 2: Detailed (상세)
+            # 시트 2: Detailed (상세)
             if not detailed_df.empty:
                 detailed_df.to_excel(writer, sheet_name='Detailed', index=False)
 
-            # Sheet 3: Benchmark (벤치마크 비교) - 전체 기간 요약
+            # 시트 3: Benchmark (벤치마크 비교) - 전체 기간 요약
             if not benchmark_df.empty:
                 benchmark_df.to_excel(writer, sheet_name='Benchmark', index=False)
 
-            # ✅ Task #7: Sheet 4 - Period-by-Period Benchmark Comparison
+            # 시트 4: 기간별 벤치마크 비교
             if not benchmark_df.empty and not results_df.empty:
                 period_comparison_df = self._create_period_benchmark_comparison(
                     results_df, date_pairs, price_table
@@ -908,7 +908,7 @@ class MLBacktest:
                 if not period_comparison_df.empty:
                     period_comparison_df.to_excel(writer, sheet_name='Benchmark_Periods', index=False)
 
-            # ✅ Task #6: Auto-adjust column widths for all sheets
+            # 모든 시트의 컬럼 너비를 자동 조정합니다
             self._adjust_excel_column_widths(writer)
 
         self.logger.info(f"\n✅ Backtest report saved: {excel_file}")
@@ -919,7 +919,7 @@ class MLBacktest:
 
 
     def _print_summary(self, results: pd.DataFrame):
-        """백테스트 요약 출력"""
+        """백테스트 요약을 출력합니다."""
         self.logger.info("\n" + "="*80)
         self.logger.info("BACKTEST SUMMARY")
         self.logger.info("="*80)
@@ -948,8 +948,8 @@ class MLBacktest:
 
     def _adjust_excel_column_widths(self, writer: pd.ExcelWriter):
         """
-        ✅ Task #6: Auto-adjust Excel column widths for all sheets.
-        Date columns get minimum width of 12 to display YYYY-MM-DD properly.
+        모든 시트의 Excel 컬럼 너비를 자동 조정합니다.
+        날짜 컬럼은 YYYY-MM-DD 형식을 제대로 표시하기 위해 최소 너비 12를 적용합니다.
         """
         from openpyxl.utils import get_column_letter
 
@@ -966,14 +966,14 @@ class MLBacktest:
                     except (TypeError, ValueError):
                         pass
 
-                # Date columns need minimum width of 12 (YYYY-MM-DD)
+                # 날짜 컬럼은 최소 너비 12 필요 (YYYY-MM-DD 형식)
                 header_cell = ws.cell(row=1, column=col_idx)
                 header_value = str(header_cell.value) if header_cell.value else ""
                 if 'date' in header_value.lower():
                     max_length = max(max_length, 12)
 
-                # Add padding and set width
-                adjusted_width = min(max_length + 2, 50)  # Cap at 50
+                # 패딩 추가 및 너비 설정
+                adjusted_width = min(max_length + 2, 50)  # 최대 50으로 제한
                 ws.column_dimensions[column_letter].width = adjusted_width
 
     def _create_period_benchmark_comparison(
@@ -983,9 +983,9 @@ class MLBacktest:
         price_table: pd.DataFrame
     ) -> pd.DataFrame:
         """
-        ✅ Task #7: Create period-by-period comparison with benchmarks.
+        기간별 벤치마크 비교 데이터를 생성합니다.
 
-        Returns a DataFrame with ML model returns vs benchmark returns for each period.
+        각 기간별로 ML 모델 수익률 대 벤치마크 수익률을 비교하는 DataFrame을 반환합니다.
         """
         from src.backtest.etf_data_loader import ETFDataLoader
 
@@ -997,7 +997,7 @@ class MLBacktest:
         if not benchmark_symbols:
             return pd.DataFrame()
 
-        # Load ETF data
+        # ETF 데이터 로드
         try:
             etf_loader = ETFDataLoader(
                 config=self.config,
@@ -1022,13 +1022,13 @@ class MLBacktest:
             self.logger.warning(f"⚠️ Error loading ETF data: {e}")
             return pd.DataFrame()
 
-        # Calculate period-by-period returns
+        # 기간별 수익률 계산
         period_data = []
 
         for i, (original_date, actual_date) in enumerate(date_pairs[:-1]):
             next_actual_date = date_pairs[i + 1][1]
 
-            # Get ML model return for this period
+            # 이 기간의 ML 모델 수익률 가져오기
             ml_return = results_df.iloc[i]['avg_return'] if i < len(results_df) else 0.0
 
             period_row = {
@@ -1039,7 +1039,7 @@ class MLBacktest:
                 'ml_model_return_pct': ml_return * 100
             }
 
-            # Calculate benchmark returns for each symbol
+            # 각 벤치마크 심볼의 기간별 수익률 계산
             for symbol in benchmark_symbols:
                 symbol_prices = etf_price_table[etf_price_table['symbol'] == symbol]
 
