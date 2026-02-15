@@ -59,7 +59,7 @@ class MLflowTracker:
 
     def start_run(self, run_name: Optional[str] = None, tags: Optional[Dict] = None):
         """
-        새로운 실험 Run 시작
+        새로운 실험 Run을 시작합니다.
 
         Args:
             run_name: Run 이름

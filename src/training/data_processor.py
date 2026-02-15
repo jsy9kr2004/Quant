@@ -1634,7 +1634,7 @@ class DataProcessor:
         return df_clipped
 
     # ========================================================================
-    # Feature Scaling
+    # Feature 스케일링
     # ========================================================================
 
     @staticmethod
@@ -1644,41 +1644,41 @@ class DataProcessor:
         fitted_scaler: Optional[Any] = None
     ) -> Tuple[np.ndarray, Any]:
         """
-        Unified feature scaling.
+        통합 Feature 스케일링입니다.
 
-        Provides consistent scaling across regressor.py and ml_backtest.py.
+        regressor.py와 ml_backtest.py에서 일관된 스케일링을 제공합니다.
 
         Parameters:
         -----------
         X : pd.DataFrame
-            Feature dataframe
+            Feature DataFrame
         scaler_type : str
-            'robust' (default) or 'standard'
+            'robust' (기본값) 또는 'standard'
         fitted_scaler : Optional[Any]
-            Pre-fitted scaler for transform mode
-            If None, creates new scaler and fits (train mode)
+            변환 모드용 사전 적합된 스케일러
+            None이면 새 스케일러를 생성하고 적합 (학습 모드)
 
         Returns:
         --------
         X_scaled : np.ndarray
-            Scaled features
+            스케일링된 Feature
         scaler : Any
-            Fitted scaler object (for use in transform mode)
+            적합된 스케일러 객체 (변환 모드에서 사용)
 
-        Example:
+        사용 예시:
         --------
-        # Train mode (fit new scaler)
+        # 학습 모드 (새 스케일러 적합)
         X_train_scaled, scaler = DataProcessor.scale_features(X_train, 'robust')
 
-        # Test mode (use fitted scaler)
+        # 테스트 모드 (적합된 스케일러 사용)
         X_test_scaled, _ = DataProcessor.scale_features(X_test, fitted_scaler=scaler)
         """
         if fitted_scaler is not None:
-            # Transform mode (use existing scaler)
+            # 변환 모드 (기존 스케일러 사용)
             X_scaled = fitted_scaler.transform(X)
             return X_scaled, fitted_scaler
         else:
-            # Fit mode (create and fit new scaler)
+            # 적합 모드 (새 스케일러 생성 및 적합)
             if scaler_type == 'robust':
                 scaler = RobustScaler()
             elif scaler_type == 'standard':
@@ -1691,16 +1691,16 @@ class DataProcessor:
 
             return X_scaled, scaler
 
-    # Backward compatibility methods
+    # 하위 호환성 메서드
     def fit_scaler(
         self,
         X: pd.DataFrame,
         scaler_type: str = 'robust'
     ) -> np.ndarray:
         """
-        Fit scaler and transform features (backward compatibility).
+        스케일러를 적합하고 Feature를 변환합니다 (하위 호환성).
 
-        Use DataProcessor.scale_features() for new code.
+        새 코드에서는 DataProcessor.scale_features()를 사용하세요.
         """
         X_scaled, scaler = self.scale_features(X, scaler_type)
         self.scaler = scaler
@@ -1708,9 +1708,9 @@ class DataProcessor:
 
     def transform_scaler(self, X: pd.DataFrame) -> np.ndarray:
         """
-        Transform features using fitted scaler (backward compatibility).
+        적합된 스케일러로 Feature를 변환합니다 (하위 호환성).
 
-        Use DataProcessor.scale_features(X, fitted_scaler=scaler) for new code.
+        새 코드에서는 DataProcessor.scale_features(X, fitted_scaler=scaler)를 사용하세요.
         """
         if self.scaler is None:
             raise ValueError("Scaler not fitted! Call fit_scaler() first.")
@@ -1728,59 +1728,59 @@ class DataProcessor:
         analyze: bool = False
     ) -> Union[pd.Series, pd.DataFrame]:
         """
-        Convert regression target to binary classification target.
+        회귀 타겟을 이진 분류 타겟으로 변환합니다.
 
-        This method ensures consistent binary classification across both
-        regressor.py and ml_backtest.py.
+        이 메서드는 regressor.py와 ml_backtest.py 모두에서 일관된
+        이진 분류를 보장합니다.
 
         Args:
-            y: Regression target values (price_dev or price_dev_subavg)
-            mode: Classification mode
-                  - "negative_screen": Identify BAD stocks (extreme losses)
-                    → 1 = BAD (should avoid), 0 = OK (safe to consider)
-                  - "positive_screen": Identify GOOD stocks (gains)
-                    → 1 = GOOD (likely gain), 0 = LOSS (likely loss)
-            threshold: Threshold value
-                      - For negative_screen: loss threshold (e.g., -0.3 = -30% loss)
-                      - For positive_screen: gain threshold (e.g., 0.0 = breakeven)
-            config: Optional config dict to read mode/threshold from
-            logger: Optional logger for distribution analysis
-            analyze: If True, print distribution analysis for multiple thresholds
+            y: 회귀 타겟 값 (price_dev 또는 price_dev_subavg)
+            mode: 분류 모드
+                  - "negative_screen": BAD 종목 식별 (극단적 손실)
+                    → 1 = BAD (회피해야 함), 0 = OK (고려 가능)
+                  - "positive_screen": GOOD 종목 식별 (이익)
+                    → 1 = GOOD (이익 가능성 높음), 0 = LOSS (손실 가능성 높음)
+            threshold: 임계값
+                      - negative_screen: 손실 임계값 (예: -0.3 = -30% 손실)
+                      - positive_screen: 이익 임계값 (예: 0.0 = 손익분기)
+            config: 모드/임계값을 읽을 선택적 설정 딕셔너리
+            logger: 분포 분석용 선택적 Logger
+            analyze: True이면 여러 임계값에 대한 분포 분석 출력
 
         Returns:
-            Binary target (1d Series)
+            이진 타겟 (1차원 Series)
 
-        Example (Negative Screening):
+        사용 예시 (Negative Screening):
             >>> y = pd.Series([0.05, -0.10, -0.35, 0.02, -0.45])
             >>> binary = DataProcessor.create_binary_target(
             ...     y, mode="negative_screen", threshold=-0.3
             ... )
-            >>> # Result: [0, 0, 1, 0, 1]  (1 = BAD: -35%, -45%)
-            >>> # Meaning: Remove stocks with >30% loss
+            >>> # 결과: [0, 0, 1, 0, 1]  (1 = BAD: -35%, -45%)
+            >>> # 의미: 30% 이상 손실 종목 제거
 
-        Example (Positive Screening):
+        사용 예시 (Positive Screening):
             >>> y = pd.Series([0.05, -0.01, -0.03, 0.02])
             >>> binary = DataProcessor.create_binary_target(
             ...     y, mode="positive_screen", threshold=0.0
             ... )
-            >>> # Result: [1, 0, 0, 1]  (1 = GOOD: +5%, +2%)
+            >>> # 결과: [1, 0, 0, 1]  (1 = GOOD: +5%, +2%)
 
         Note:
-            Negative screening is more robust:
-            - Easier to identify "obvious losers" (bankruptcy, extreme losses)
-            - Conservative strategy: avoid bad > find good
-            - Uses more training data (remove bottom 5~10%, keep rest 90~95%)
+            Negative screening이 더 견고합니다:
+            - "명백한 패배자" 식별이 더 쉬움 (파산, 극단적 손실)
+            - 보수적 전략: 나쁜 것 피하기 > 좋은 것 찾기
+            - 더 많은 학습 데이터 사용 (하위 5~10% 제거, 나머지 90~95% 유지)
         """
         if logger is None:
             logger = logging.getLogger('DataProcessor')
 
-        # Extract Series from DataFrame
+        # DataFrame에서 Series 추출
         if isinstance(y, pd.DataFrame):
             y_values = y.iloc[:, 0]
         else:
             y_values = y
 
-        # Read mode and threshold from config if provided
+        # 제공된 경우 config에서 모드와 임계값 읽기
         if config is not None:
             ml_config = config.get('ML', {})
             mode = ml_config.get('CLASSIFIER_MODE', mode)
@@ -1789,12 +1789,12 @@ class DataProcessor:
                 neg_config = ml_config.get('NEGATIVE_SCREEN', {})
                 threshold = neg_config.get('LOSS_THRESHOLD', threshold)
 
-                # Analyze threshold candidates if requested
+                # 요청된 경우 임계값 후보 분석
                 if analyze and neg_config.get('ANALYZE_THRESHOLDS', False):
                     candidates = neg_config.get('THRESHOLD_CANDIDATES', [-0.2, -0.3, -0.4, -0.5])
                     DataProcessor._analyze_threshold_candidates(y_values, candidates, logger)
 
-        # Create binary target based on mode
+        # 모드에 따라 이진 타겟 생성
         if mode == "negative_screen":
             # 1 = BAD (extreme loss), 0 = OK
             binary = (y_values < threshold).astype(int)
@@ -1836,12 +1836,12 @@ class DataProcessor:
         logger: logging.Logger
     ) -> None:
         """
-        Analyze distribution for multiple threshold candidates.
+        여러 임계값 후보에 대한 분포를 분석합니다.
 
-        Helps find the optimal threshold by showing:
-        - How many stocks are labeled as BAD
-        - Average loss of BAD stocks
-        - Average return of OK stocks
+        다음을 표시하여 최적 임계값 찾기를 도와줍니다:
+        - BAD으로 레이블된 종목 수
+        - BAD 종목의 평균 손실
+        - OK 종목의 평균 수익률
         """
         logger.info("")
         logger.info("="*80)
@@ -1883,37 +1883,36 @@ class DataProcessor:
         exclude_cols: Optional[List[str]] = None
     ) -> Dict[str, Tuple[float, float]]:
         """
-        Compute clipping bounds for outlier removal based on percentiles.
+        백분위수 기반으로 이상치 제거를 위한 클리핑 범위를 계산합니다.
 
-        This method ensures consistent outlier handling across both
-        regressor.py and ml_backtest.py. Extreme values can negatively
-        impact model training and predictions.
+        이 메서드는 regressor.py와 ml_backtest.py 모두에서 일관된 이상치 처리를
+        보장합니다. 극단값은 모델 학습과 예측에 부정적인 영향을 줄 수 있습니다.
 
         Args:
-            df: Training data to compute bounds from
-            lower_percentile: Lower percentile (default 0.02 = 2nd percentile)
-            upper_percentile: Upper percentile (default 0.98 = 98th percentile)
-            exclude_cols: Columns to skip (e.g., ['sector'])
+            df: 범위를 계산할 학습 데이터
+            lower_percentile: 하위 백분위수 (기본값 0.02 = 2번째 백분위수)
+            upper_percentile: 상위 백분위수 (기본값 0.98 = 98번째 백분위수)
+            exclude_cols: 건너뛸 컬럼 (예: ['sector'])
 
         Returns:
-            Dictionary mapping column names to (lower, upper) bounds
+            컬럼 이름을 (하한, 상한) 범위로 매핑하는 딕셔너리
 
-        Example:
-            >>> # Fit on training data
+        사용 예시:
+            >>> # 학습 데이터에서 적합
             >>> clip_bounds = DataProcessor.fit_outlier_clipper(X_train)
-            >>> # Apply to both train and test
+            >>> # 학습과 테스트 모두에 적용
             >>> X_train_clipped = DataProcessor.apply_outlier_clipper(X_train, clip_bounds)
             >>> X_test_clipped = DataProcessor.apply_outlier_clipper(X_test, clip_bounds)
 
         Note:
-            - Default 2-98 percentile removes top/bottom 2% extreme values
-            - For targets, use 1-97 percentile (more aggressive)
-            - Saves ~50 lines of duplicated clipping code
+            - 기본 2-98 백분위수는 상위/하위 2% 극단값을 제거
+            - 타겟에는 1-97 백분위수 사용 (더 공격적)
+            - ~50줄의 중복된 클리핑 코드 절약
         """
         exclude_cols = exclude_cols or []
         clip_bounds = {}
 
-        # Memory-efficient: avoid select_dtypes which causes memory spike on large data
+        # 메모리 효율적: 대규모 데이터에서 메모리 급증을 유발하는 select_dtypes 사용 회피
         numeric_cols = [col for col in df.columns
                        if pd.api.types.is_numeric_dtype(df[col])]
 
@@ -1936,24 +1935,24 @@ class DataProcessor:
         clip_bounds: Dict[str, Tuple[float, float]]
     ) -> pd.DataFrame:
         """
-        Apply pre-computed clipping bounds to remove outliers.
+        사전 계산된 클리핑 범위를 적용하여 이상치를 제거합니다.
 
         Args:
-            df: Data to clip (train, test, or new data)
-            clip_bounds: Dictionary from fit_outlier_clipper()
+            df: 클리핑할 데이터 (학습, 테스트, 또는 새 데이터)
+            clip_bounds: fit_outlier_clipper()에서 얻은 딕셔너리
 
         Returns:
-            Clipped DataFrame (copy, original unchanged)
+            클리핑된 DataFrame (복사본, 원본 변경 없음)
 
-        Example:
-            >>> # First fit on training data
+        사용 예시:
+            >>> # 먼저 학습 데이터에서 적합
             >>> clip_bounds = DataProcessor.fit_outlier_clipper(X_train)
-            >>> # Then apply to test data
+            >>> # 그 다음 테스트 데이터에 적용
             >>> X_test_clipped = DataProcessor.apply_outlier_clipper(X_test, clip_bounds)
 
         Note:
-            - Only clips columns present in both df and clip_bounds
-            - Silently skips columns not in df (for flexibility)
+            - df와 clip_bounds 모두에 있는 컬럼만 클리핑
+            - df에 없는 컬럼은 조용히 건너뜀 (유연성을 위해)
         """
         df = df.copy()
 
@@ -1963,7 +1962,7 @@ class DataProcessor:
                 original_values = df[col].copy()
                 df[col] = df[col].clip(lower, upper)
 
-                # Count how many values were clipped
+                # 클리핑된 값의 수 확인
                 clipped = ((original_values < lower) | (original_values > upper)).sum()
                 if clipped > 0:
                     clipped_count += 1
@@ -1982,44 +1981,44 @@ class DataProcessor:
         enabled: bool = True
     ) -> pd.DataFrame:
         """
-        Apply Winsorization to handle outliers by capping at percentiles.
+        백분위수에서 캡핑하여 이상치를 처리하는 Winsorization을 적용합니다.
 
-        Winsorization replaces extreme values with percentile values rather than
-        removing them. This is gentler than clipping and preserves information.
+        Winsorization은 극단값을 제거하는 대신 백분위수 값으로 대체합니다.
+        클리핑보다 부드럽고 정보를 보존합니다.
 
-        DIFFERENCE from clipping:
-        - Clipping: [1, 2, 5, 10, 50, 100, 1000] → [2, 2, 5, 10, 50, 100, 100]
-          (cuts off extremes, hard boundary)
+        클리핑과의 차이:
+        - 클리핑: [1, 2, 5, 10, 50, 100, 1000] → [2, 2, 5, 10, 50, 100, 100]
+          (극단값 절단, 하드 경계)
         - Winsorization: [1, 2, 5, 10, 50, 100, 1000] → [2, 2, 5, 10, 50, 100, 100]
-          (replaces with percentile values, soft cap)
+          (백분위수 값으로 대체, 소프트 캡)
 
         Args:
-            df: Input DataFrame
+            df: 입력 DataFrame
             lower_percentile: Lower percentile (default 0.01 = 1%)
             upper_percentile: Upper percentile (default 0.99 = 99%)
             exclude_cols: Columns to skip (e.g., ['sector'])
-            enabled: If False, returns df unchanged (for easy on/off toggle)
+            enabled: False이면 df를 변경 없이 반환 (쉬운 켜기/끄기 토글)
 
         Returns:
-            Winsorized DataFrame
+            Winsorization이 적용된 DataFrame
 
-        Example:
-            >>> # Enable Winsorization
+        사용 예시:
+            >>> # Winsorization 활성화
             >>> df_clean = DataProcessor.winsorize_features(df, enabled=True)
             >>>
-            >>> # Disable for comparison
+            >>> # 비교를 위해 비활성화
             >>> df_raw = DataProcessor.winsorize_features(df, enabled=False)
             >>>
-            >>> # More aggressive (0.5-99.5 percentile)
+            >>> # 더 공격적 (0.5-99.5 백분위수)
             >>> df_gentle = DataProcessor.winsorize_features(
             ...     df, lower_percentile=0.005, upper_percentile=0.995
             ... )
 
         Note:
-            - enabled=False: Easy way to disable without changing code
-            - Recommended for tree-based models: Try enabled=False first
-            - Use Winsorization if raw data has too many extreme outliers
-            - Default 1-99% is gentler than clipping's 2-98%
+            - enabled=False: 코드 변경 없이 쉽게 비활성화하는 방법
+            - 트리 기반 모델 권장: 먼저 enabled=False로 시도
+            - 원시 데이터에 극단적 이상치가 너무 많으면 Winsorization 사용
+            - 기본 1-99%는 클리핑의 2-98%보다 부드러움
         """
         if not enabled:
             logging.info("Winsorization disabled (enabled=False)")
@@ -2028,15 +2027,15 @@ class DataProcessor:
         exclude_cols = exclude_cols or []
         df = df.copy()
 
-        # CRITICAL FIX: Remove duplicate columns first
-        # Duplicate columns cause df[col] to return DataFrame instead of Series
-        # which makes quantile() return Series instead of scalar → ambiguous boolean error
+        # CRITICAL FIX: 먼저 중복 컬럼 제거
+        # 중복 컬럼은 df[col]이 Series 대신 DataFrame을 반환하게 만들어
+        # quantile()이 스칼라 대신 Series를 반환 → 모호한 불리언 에러
         if df.columns.duplicated().any():
             duplicated_cols = df.columns[df.columns.duplicated()].tolist()
             logging.warning(f"⚠️  Found {len(duplicated_cols)} duplicate columns, keeping first occurrence")
             df = df.loc[:, ~df.columns.duplicated(keep='first')]
 
-        # Memory-efficient: avoid select_dtypes which causes memory spike on large data
+        # 메모리 효율적: 대규모 데이터에서 메모리 급증을 유발하는 select_dtypes 사용 회피
         numeric_cols = [col for col in df.columns
                        if pd.api.types.is_numeric_dtype(df[col])]
         winsorized_count = 0
@@ -2045,35 +2044,35 @@ class DataProcessor:
             if col in exclude_cols:
                 continue
 
-            # Get column data (should be Series after duplicate removal)
+            # 컬럼 데이터 가져오기 (중복 제거 후 Series여야 함)
             col_data = df[col]
 
-            # Skip if not a Series (shouldn't happen after duplicate removal, but defensive)
+            # Series가 아니면 건너뛰기 (중복 제거 후 발생하지 않아야 하지만, 방어적으로)
             if not isinstance(col_data, pd.Series):
                 logging.warning(f"⚠️  Column '{col}' is not a Series, skipping winsorization")
                 continue
 
-            # Get percentile values (should be scalar)
+            # 백분위수 값 가져오기 (스칼라여야 함)
             lower_val = col_data.quantile(lower_percentile)
             upper_val = col_data.quantile(upper_percentile)
 
-            # Skip if quantile values are NaN (all NaN column) or not scalar
-            # Use np.isscalar for safe scalar check
+            # 분위수 값이 NaN이거나 (모두 NaN인 컬럼) 스칼라가 아니면 건너뛰기
+            # 안전한 스칼라 확인을 위해 np.isscalar 사용
             if not np.isscalar(lower_val) or not np.isscalar(upper_val):
                 continue
             if pd.isna(lower_val) or pd.isna(upper_val):
                 continue
 
-            # Count how many will be winsorized
+            # Winsorization될 값의 수 확인
             lower_mask = col_data < lower_val
             upper_mask = col_data > upper_val
 
-            # Explicit boolean conversion for safety (handles edge cases)
+            # 안전을 위한 명시적 불리언 변환 (엣지 케이스 처리)
             has_lower_outliers = bool(lower_mask.any())
             has_upper_outliers = bool(upper_mask.any())
 
             if has_lower_outliers or has_upper_outliers:
-                # Replace extreme values with percentile values
+                # 극단값을 백분위수 값으로 대체
                 df.loc[lower_mask, col] = lower_val
                 df.loc[upper_mask, col] = upper_val
                 winsorized_count += 1
@@ -2095,49 +2094,48 @@ class DataProcessor:
         random_state: int = 42
     ) -> Tuple[pd.DataFrame, List[str]]:
         """
-        Select features using model-based importance (LightGBM).
+        모델 기반 중요도 (LightGBM)를 사용하여 Feature를 선택합니다.
 
-        Uses LightGBM's built-in feature importance to identify the most
-        predictive features. This is more robust than correlation-based
-        methods and handles multicollinearity automatically.
+        LightGBM의 내장 feature 중요도를 사용하여 가장 예측력 있는 feature를
+        식별합니다. 상관관계 기반 방법보다 견고하고 다중공선성을 자동으로 처리합니다.
 
-        STRATEGY: Model-based selection (강력한 방법)
-        - Trains a LightGBM model to compute feature importances
-        - Selects top N features or top percentage
-        - Handles interactions and non-linear relationships
-        - No need for feature scaling
+        전략: 모델 기반 선택 (강력한 방법)
+        - LightGBM 모델을 학습하여 feature 중요도 계산
+        - 상위 N개 feature 또는 상위 비율 선택
+        - 상호작용 및 비선형 관계 처리
+        - Feature 스케일링 불필요
 
         Args:
-            X: Feature dataframe
-            y: Target variable
-            n_features: Number of top features to select (e.g., 1000)
-            top_pct: Percentage of top features (e.g., 0.3 for top 30%)
-            task: 'regression' or 'classification'
-            enabled: If False, returns all features unchanged
-            random_state: Random seed for reproducibility
+            X: Feature DataFrame
+            y: 타겟 변수
+            n_features: 선택할 상위 feature 수 (예: 1000)
+            top_pct: 상위 feature 비율 (예: 0.3 = 상위 30%)
+            task: 'regression' 또는 'classification'
+            enabled: False이면 모든 feature를 변경 없이 반환
+            random_state: 재현성을 위한 랜덤 시드
 
         Returns:
-            Tuple of (selected feature dataframe, list of selected feature names)
+            (선택된 feature DataFrame, 선택된 feature 이름 리스트) 튜플
 
-        Example:
-            >>> # Reduce from 4,279 to 1,000 features
+        사용 예시:
+            >>> # 4,279개에서 1,000개 feature로 축소
             >>> X_selected, selected_cols = DataProcessor.select_features_by_importance(
             ...     X, y, n_features=1000, task='regression'
             ... )
-            >>> # Apply same selection to test set
+            >>> # 테스트 셋에 동일한 선택 적용
             >>> X_test_selected = X_test[selected_cols]
 
         Note:
-            - Default disabled (enabled=False) - user can test with/without
-            - Must specify either n_features or top_pct (not both)
-            - Selected feature names must be saved for test set application
-            - Target ratio recommendation: samples/features >= 10:1
+            - 기본 비활성화 (enabled=False) - 사용자가 유무를 테스트 가능
+            - n_features 또는 top_pct 중 하나만 지정 (둘 다 불가)
+            - 선택된 feature 이름은 테스트 셋 적용을 위해 저장 필수
+            - 타겟 비율 권장: 샘플/feature >= 10:1
         """
         if not enabled:
             logging.info("Feature selection disabled (enabled=False)")
             return X.copy(), list(X.columns)
 
-        # Validate parameters
+        # 파라미터 검증
         if n_features is None and top_pct is None:
             raise ValueError("Must specify either n_features or top_pct")
         if n_features is not None and top_pct is not None:

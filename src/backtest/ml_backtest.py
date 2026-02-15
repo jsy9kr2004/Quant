@@ -334,11 +334,11 @@ class MLBacktest:
                     # 옵션 1: 스킵 (보수적)
                     # 옵션 2: 마지막 가격 사용 (낙관적)
                     if not symbol_prices.empty:
-                        # 마지막 가격 사용 (가장 최근 거래 가격)
+                        # 마지막 가격 사용 (가장 최근 거래 가격으로 대체)
                         last_price_row = symbol_prices.sort_values('date').iloc[-1]
                         sell_price = last_price_row['close']
                         gross_ret = (sell_price - buy_price) / buy_price
-                        net_ret = gross_ret  # 거래 비용은 별도 계산
+                        net_ret = gross_ret  # 거래 비용은 별도로 계산합니다
                         is_delisted = False
                         delisted_status = 'data_missing_used_last_price'
                         trading_cost = 0.0
@@ -347,25 +347,25 @@ class MLBacktest:
                             f"from {last_price_row['date'].date()} (return: {gross_ret*100:.2f}%)"
                         )
                     else:
-                        # 가격 데이터가 전혀 없음 - 스킵
+                        # 가격 데이터가 전혀 없음 - 스킵합니다
                         self.logger.warning(f"      → NO PRICE DATA: Skipping {symbol}")
                         continue
             else:
                 sell_price = sell_price_rows.iloc[0]['close']
 
-                # 순수 수익률 (거래 비용 미반영)
+                # 순수 수익률 (거래 비용 미반영 상태)
                 gross_ret = (sell_price - buy_price) / buy_price
 
-                # 거래 비용 반영
+                # 거래 비용 반영합니다
                 if self.trading_costs_enabled:
-                    # 슬리피지: 매수 시 높게, 매도 시 낮게
+                    # 슬리피지: 매수 시 높게, 매도 시 낮게 적용
                     effective_buy_price = buy_price * (1 + self.slippage)
                     effective_sell_price = sell_price * (1 - self.slippage)
 
-                    # 슬리피지 적용 후 수익률
+                    # 슬리피지 적용 후 수익률 계산
                     ret_after_slippage = (effective_sell_price - effective_buy_price) / effective_buy_price
 
-                    # 거래 수수료 (매수 + 매도)
+                    # 거래 수수료 차감 (매수 + 매도)
                     net_ret = ret_after_slippage - 2 * self.commission
                     trading_cost = gross_ret - net_ret
                 else:
@@ -373,7 +373,7 @@ class MLBacktest:
                     trading_cost = 0.0
 
                 is_delisted = False
-                delisted_status = 'active'  # 정상 거래
+                delisted_status = 'active'  # 정상 거래 종목
 
             # 수익률 리스트에 추가 (상장폐지 포함) - 순수익률 사용
             returns.append(net_ret)
@@ -381,8 +381,8 @@ class MLBacktest:
             # 상세 정보 저장 (섹터 + 카테고리 정보 + 상장폐지 여부 + 거래 비용)
             details.append({
                 'symbol': symbol,
-                'sector': sector,      # ✅ 섹터 정보 추가
-                'category': category,  # ✅ 카테고리 정보 추가
+                'sector': sector,      # 섹터 정보
+                'category': category,  # 카테고리 정보
                 'buy_price': buy_price,
                 'sell_price': sell_price,
                 'gross_return': gross_ret,         # 순수 수익률
@@ -390,7 +390,7 @@ class MLBacktest:
                 'return': net_ret,                  # 순수익률 (거래 비용 차감)
                 'return_pct': net_ret * 100,
                 'delisted': is_delisted,           # 상장폐지 여부 (boolean)
-                'delisted_status': delisted_status  # ✅ 상세 상태 (confirmed/data_missing_used_last_price/active)
+                'delisted_status': delisted_status  # 상세 상태 (confirmed/data_missing_used_last_price/active)
             })
 
         if not returns:
@@ -410,7 +410,7 @@ class MLBacktest:
         price_table: pd.DataFrame
     ) -> pd.DataFrame:
         """
-        벤치마크 Buy-and-Hold 수익률 계산
+        벤치마크 Buy-and-Hold 수익률을 계산합니다.
 
         ETF와 주식 데이터를 분리하여 처리합니다:
         - 주식: 기존 price_table 사용
@@ -425,7 +425,7 @@ class MLBacktest:
         end_date : datetime
             백테스트 종료 날짜
         price_table : pd.DataFrame
-            가격 데이터 (주식 only)
+            가격 데이터 (주식만 포함)
 
         Returns:
         -------
@@ -445,7 +445,7 @@ class MLBacktest:
 
         self.logger.info(f"\n📊 Calculating benchmark returns for {len(benchmark_symbols)} symbols...")
 
-        # ✅ ETF 가격 데이터 로드 (별도 파일)
+        # ETF 가격 데이터 로드 (별도 파일)
         # 주식 데이터(price_table)와 완전히 분리하여 ETF 오염 방지
         from src.backtest.etf_data_loader import ETFDataLoader
 
@@ -462,9 +462,9 @@ class MLBacktest:
                 end_date=end_date
             )
 
-            # 주식 + ETF 통합 (벤치마크 계산용만)
+            # 주식 + ETF 통합 (벤치마크 계산 전용)
             # 주의: 이 통합 테이블은 벤치마크 계산에만 사용되며,
-            #      ML 학습 데이터에는 절대 사용되지 않음
+            #      ML 학습 데이터에는 절대 사용되지 않습니다
             if not etf_price_table.empty:
                 combined_price_table = pd.concat([
                     price_table,
@@ -482,7 +482,7 @@ class MLBacktest:
 
         results = []
 
-        # 실제 거래일 찾기 (통합 테이블 사용)
+        # 실제 거래일 찾기 (통합 테이블에서 조회)
         actual_start = DataProcessor.get_trade_date(pd.Timestamp(start_date), combined_price_table)
         actual_end = DataProcessor.get_trade_date(pd.Timestamp(end_date), combined_price_table)
 
@@ -492,32 +492,32 @@ class MLBacktest:
 
         for symbol in benchmark_symbols:
             try:
-                # 심볼 가격 데이터 가져오기 (통합 테이블에서)
-                # 주식이면 price_table에서, ETF면 etf_price_table에서 자동으로 찾음
+                # 심볼 가격 데이터 가져오기 (통합 테이블에서 조회)
+                # 주식이면 price_table에서, ETF면 etf_price_table에서 자동으로 찾습니다
                 symbol_prices = combined_price_table[combined_price_table['symbol'] == symbol]
 
                 if symbol_prices.empty:
                     self.logger.warning(f"   ⚠️  {symbol}: No price data found (symbol may not exist or typo)")
                     continue
 
-                # 시작 가격
+                # 시작 가격 조회
                 start_prices = symbol_prices[symbol_prices['date'] == actual_start]
                 if start_prices.empty:
                     self.logger.warning(f"   ⚠️  {symbol}: No price at start date {actual_start.date()}")
                     continue
                 start_price = start_prices.iloc[0]['close']
 
-                # 종료 가격
+                # 종료 가격 조회
                 end_prices = symbol_prices[symbol_prices['date'] == actual_end]
                 if end_prices.empty:
                     self.logger.warning(f"   ⚠️  {symbol}: No price at end date {actual_end.date()}")
                     continue
                 end_price = end_prices.iloc[0]['close']
 
-                # 총 수익률
+                # 총 수익률 계산
                 total_return = (end_price - start_price) / start_price
 
-                # 기간 내 모든 가격 데이터 (MDD, Sharpe 계산용)
+                # 기간 내 모든 가격 데이터 조회 (MDD, Sharpe 계산용)
                 period_prices = symbol_prices[
                     (symbol_prices['date'] >= actual_start) &
                     (symbol_prices['date'] <= actual_end)
@@ -527,27 +527,27 @@ class MLBacktest:
                     self.logger.warning(f"   ⚠️  {symbol}: Insufficient price data in period")
                     continue
 
-                # 일별 수익률
+                # 일별 수익률 계산
                 period_prices = period_prices.copy()
                 period_prices['daily_return'] = period_prices['close'].pct_change()
 
-                # Sharpe Ratio (연율화: √252)
+                # Sharpe Ratio 계산 (연율화: √252)
                 daily_returns = period_prices['daily_return'].dropna()
                 if len(daily_returns) > 0:
                     sharpe = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252) if daily_returns.std() > 0 else 0.0
                 else:
                     sharpe = 0.0
 
-                # Maximum Drawdown
+                # Maximum Drawdown 계산
                 cumulative = (1 + period_prices['daily_return'].fillna(0)).cumprod()
                 running_max = cumulative.expanding().max()
                 drawdown = (cumulative - running_max) / running_max
                 max_drawdown = drawdown.min()
 
-                # Win Rate (상승일 비율)
+                # Win Rate 계산 (상승일 비율)
                 win_rate = (daily_returns > 0).sum() / len(daily_returns) if len(daily_returns) > 0 else 0.0
 
-                # 결과 저장
+                # 벤치마크 결과 저장
                 results.append({
                     'strategy': symbol,
                     'total_return': total_return,
@@ -579,7 +579,7 @@ class MLBacktest:
 
     def run(self) -> pd.DataFrame:
         """
-        Walk-Forward 백테스트 실행
+        Walk-Forward 백테스트를 실행합니다.
 
         Returns:
         -------
@@ -593,38 +593,38 @@ class MLBacktest:
         self.logger.info(f"Top K: {self.top_k}")
         self.logger.info(f"Cache periods: {len(self.predictions_cache)}")
 
-        # 가격 데이터 로드 (수익률 계산용)
+        # 가격 데이터 로드 (수익률 계산에 사용)
         price_table = pd.read_parquet(self.main_ctx.root_path + "/processed/views/price.parquet")
         price_table['date'] = pd.to_datetime(price_table['date'])
 
-        # Step 1: 리밸런싱 날짜 생성
+        # 1단계: 리밸런싱 날짜 생성
         rebalance_dates = self._generate_rebalance_dates()
 
-        # Step 2: 거래일 조정
+        # 2단계: 거래일 조정
         date_pairs = self._adjust_to_trading_days(rebalance_dates, price_table)
 
-        # Step 3: Walk-Forward 백테스트 실행
+        # 3단계: Walk-Forward 백테스트 실행
         self._execute_walk_forward(date_pairs, price_table)
 
-        # Step 4: 최종 리포트 및 벤치마크
+        # 4단계: 최종 리포트 및 벤치마크
         results_df, benchmark_df = self._compile_results_and_benchmark(date_pairs, price_table)
 
-        # Step 5: Excel 레포트 저장
+        # 5단계: Excel 레포트 저장
         self._save_backtest_report(results_df, benchmark_df, date_pairs, price_table)
 
         return results_df
 
     def _generate_rebalance_dates(self) -> list:
-        """리밸런싱 날짜 목록 생성 (Multi-period 및 Single-period 모드 지원)"""
+        """리밸런싱 날짜 목록을 생성합니다 (Multi-period 및 Single-period 모드 지원)."""
         # 우선순위: EVALUATION > BACKTEST (하위 호환성)
         eval_config = self.config.get('EVALUATION', {})
         backtest_config = self.config.get('BACKTEST', {})
 
-        # PERIODS 읽기 (EVALUATION 우선, BACKTEST 폴백)
+        # PERIODS 읽기 (EVALUATION 우선, BACKTEST fallback)
         periods = eval_config.get('PERIODS', backtest_config.get('PERIODS', []))
 
         if periods:
-            # 여러 구간 모드
+            # 여러 구간 모드 (multi-period)
             self.logger.info(f"📅 Multiple backtest periods configured: {len(periods)} periods")
             source = "EVALUATION" if eval_config.get('PERIODS') else "BACKTEST"
             self.logger.info(f"   Config source: {source}.PERIODS")
@@ -633,10 +633,10 @@ class MLBacktest:
             for i, period in enumerate(periods):
                 start_year = period.get('START_YEAR')
                 end_year = period.get('END_YEAR')
-                # 우선순위:
+                # 시작 월/일 우선순위:
                 # 1) PERIODS[*].START_MONTH/START_DATE
                 # 2) BACKTEST.START_MONTH/START_DATE
-                # 3) 최상위 START_MONTH/START_DATE (레거시 호환 앵커)
+                # 3) 최상위 START_MONTH/START_DATE (레거시 호환용)
                 # 4) 기본값 3/13
                 start_month = int(period.get('START_MONTH', backtest_config.get('START_MONTH', self.config.get('START_MONTH', 3))))
                 start_date_day = int(period.get('START_DATE', backtest_config.get('START_DATE', self.config.get('START_DATE', 13))))
@@ -654,7 +654,7 @@ class MLBacktest:
                 start_date = datetime(start_year, start_month, start_date_day)
                 end_date = datetime(end_year, 12, 31)
 
-                # 이 구간의 리밸런싱 날짜 생성
+                # 이 구간의 리밸런싱 날짜를 생성합니다
                 current = start_date
                 while current <= end_date:
                     all_rebalance_dates.append(current)
@@ -663,7 +663,7 @@ class MLBacktest:
             return sorted(all_rebalance_dates)
 
         else:
-            # 단일 구간 모드 (하위 호환성)
+            # 단일 구간 모드 (하위 호환성 지원)
             start_year = backtest_config.get('START_YEAR')
             end_year = backtest_config.get('END_YEAR')
 
@@ -708,17 +708,17 @@ class MLBacktest:
             return rebalance_dates
 
     def _adjust_to_trading_days(self, rebalance_dates: list, price_table: pd.DataFrame) -> list:
-        """리밸런싱 날짜를 실제 거래일로 조정하여 (원래날짜, 조정날짜) 튜플 리스트 반환"""
-        # ✅ 거래일 조정 (regressor.py/make_mldata.py와 일원화)
-        # 휴장일(주말, 공휴일)을 실제 거래 가능일로 조정
+        """리밸런싱 날짜를 실제 거래일로 조정하여 (원래날짜, 조정날짜) 튜플 리스트를 반환합니다."""
+        # 거래일 조정 (regressor.py/make_mldata.py와 일원화)
+        # 휴장일(주말, 공휴일)을 실제 거래 가능일로 조정합니다
         self.logger.info(f"\n📅 Adjusting rebalance dates to actual trading days...")
-        # (원래 날짜, 조정된 날짜) 튜플 리스트로 저장
+        # (원래 날짜, 조정된 날짜) 튜플 리스트를 생성합니다
         date_pairs = []
 
         for i, target_date in enumerate(rebalance_dates):
-            # DataProcessor.get_trade_date()로 월초/월말 구분하여 거래일 찾기
-            # - 월초(day <= 15): 미래 방향 (같은 분기 유지)
-            # - 월말(day > 15): 과거 방향 (같은 분기 유지)
+            # DataProcessor.get_trade_date()로 월초/월말 구분하여 거래일을 찾습니다
+            # - 월초(day <= 15): 미래 방향으로 검색 (같은 분기 유지)
+            # - 월말(day > 15): 과거 방향으로 검색 (같은 분기 유지)
             actual_trade_date = DataProcessor.get_trade_date(pd.Timestamp(target_date), price_table)
 
             if actual_trade_date is None:
@@ -727,7 +727,7 @@ class MLBacktest:
                 )
                 continue
 
-            # 조정된 날짜가 원래 날짜와 다르면 로깅
+            # 조정된 날짜가 원래 날짜와 다르면 로그에 기록합니다
             if actual_trade_date.date() != target_date.date():
                 self.logger.info(
                     f"   {target_date.date()} → {actual_trade_date.date()} "
@@ -736,7 +736,7 @@ class MLBacktest:
             else:
                 self.logger.info(f"   {target_date.date()} (already a trading day)")
 
-            # (원래 날짜, 조정된 날짜) 튜플로 저장
+            # (원래 날짜, 조정된 날짜) 튜플로 저장합니다
             original_date = target_date if isinstance(target_date, datetime) else target_date.to_pydatetime()
             adjusted_date = actual_trade_date.to_pydatetime()
             date_pairs.append((original_date, adjusted_date))
