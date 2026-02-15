@@ -268,18 +268,18 @@ def predict_proba_with_gpu_support(model, X, use_gpu: bool):
         return model.predict_proba(X)
 
 # ==============================================================================
-# Column Definitions (Unified with ml_backtest.py via DataSchema)
+# 컬럼 정의 (DataSchema를 통해 ml_backtest.py와 통합)
 # ==============================================================================
-# ✨ REFACTORED: Now using DataSchema for single source of truth
-# This ensures regressor.py and ml_backtest.py use identical column definitions
-# Prevents bugs from column name mismatches
+# ✨ 리팩토링 완료: DataSchema를 단일 진실 원천(Single Source of Truth)으로 사용
+# regressor.py와 ml_backtest.py가 동일한 컬럼 정의를 사용하도록 보장
+# 컬럼 이름 불일치로 인한 버그 방지
 y_col_list = DataSchema.get_excluded_cols()
 
-# Backward compatibility: Keep old variable name for existing code
-# TODO: Gradually replace all `y_col_list` references with `DataSchema.get_excluded_cols()`
+# 하위 호환성: 기존 코드를 위해 이전 변수 이름 유지
+# TODO: 모든 `y_col_list` 참조를 `DataSchema.get_excluded_cols()`로 점진적 교체
 
 # ==============================================================================
-# Parallel Training Support (Ray)
+# 병렬 학습 지원 (Ray)
 # ==============================================================================
 try:
     import ray
@@ -300,43 +300,43 @@ def train_single_period_remote(
     classifier_config: Optional[dict] = None
 ) -> Tuple[str, Optional[dict]]:
     """
-    Ray remote function to train models for a single walk-forward period.
+    단일 Walk-Forward 기간에 대한 모델을 학습하는 Ray remote 함수입니다.
 
-    This function is designed to run in parallel across multiple periods.
-    Each worker independently:
-    1. Loads training data until cutoff_date
-    2. Trains models (classifiers + regressors)
-    3. Loads prediction data at cutoff_date
-    4. Generates predictions
-    5. Selects top-K stocks
+    여러 기간에 걸쳐 병렬로 실행되도록 설계되었습니다.
+    각 워커가 독립적으로 수행하는 작업:
+    1. cutoff_date까지의 학습 데이터 로드
+    2. 모델 학습 (분류기 + 회귀기)
+    3. cutoff_date 시점의 예측 데이터 로드
+    4. 예측 생성
+    5. 상위 K개 종목 선택
 
     Parameters:
     -----------
     period_info : dict
-        Period configuration with keys:
+        기간 설정 딕셔너리:
         - cutoff_date: datetime
         - train_start_year: int
         - period_name: str
     root_path : str
-        Root path for data files
+        데이터 파일의 루트 경로
     use_classifier : bool
-        Whether to use classifiers
+        분류기 사용 여부
     use_sector_model : bool
-        Whether to use sector-specific models
+        섹터별 모델 사용 여부
     top_k : int
-        Number of top stocks to select
+        선택할 상위 종목 수
     logger_level : int
-        Logging level for this worker
+        워커의 로깅 레벨
     classifier_config : dict, optional
-        Classifier settings: {mode, loss_threshold}
+        분류기 설정: {mode, loss_threshold}
 
     Returns:
     --------
     Tuple[str, Optional[dict]]
-        - cache_key: str (date string 'YYYY-MM-DD')
-        - cache_entry: dict or None (predictions and metadata)
+        - cache_key: str (날짜 문자열 'YYYY-MM-DD')
+        - cache_entry: dict 또는 None (예측 결과 및 메타데이터)
     """
-    # Configure logging for this worker
+    # 워커의 로깅 설정
     logging.basicConfig(
         level=logger_level,
         format='[Worker] %(levelname)s: %(message)s'
@@ -353,11 +353,11 @@ def train_single_period_remote(
     cache_key = cutoff_date.strftime('%Y-%m-%d')
 
     try:
-        # Use print for Ray worker diagnostics (captured by log_to_driver, more reliable than logging)
+        # Ray 워커 진단용 print 사용 (log_to_driver가 캡처, logging보다 안정적)
         print(f"[Worker:{cache_key}] Starting period {cache_key} ({period_name})")
         logging.info(f"📅 Processing period: {cache_key} ({period_name})")
 
-        # Step 1: Load training data
+        # 1단계: 학습 데이터 로드
         print(f"[Worker:{cache_key}] Loading training data: {train_start_year} ~ {cache_key}, root={root_path}, cwd={os.getcwd()}")
         logging.info(f"📂 Loading training data: {train_start_year} ~ {cache_key}")
         logging.info(f"   root_path={root_path}, cwd={os.getcwd()}")
@@ -373,7 +373,7 @@ def train_single_period_remote(
         logging.info(f"   Has target '{DataSchema.REGRESSION_TARGET}': {DataSchema.REGRESSION_TARGET in train_df.columns}")
         logging.info(f"   Has 'sector': {'sector' in train_df.columns}, use_sector_model={use_sector_model}")
 
-        # Step 2: Train models
+        # 2단계: 모델 학습
         logging.info("🔧 Training models...")
         models_info = _train_models_for_period_standalone(
             train_df, use_classifier, use_sector_model,
@@ -384,7 +384,7 @@ def train_single_period_remote(
                      f"sector_regressors={len(models_info.get('sector_regressors', {}))}, "
                      f"sector_classifiers={len(models_info.get('sector_classifiers', {}))}")
 
-        # Step 3: Load prediction data
+        # 3단계: 예측 데이터 로드
         logging.info(f"📂 Loading prediction data for {cache_key}")
         pred_df = _load_data_for_prediction_standalone(root_path, cutoff_date)
 
@@ -394,17 +394,17 @@ def train_single_period_remote(
 
         logging.info(f"✅ Loaded {len(pred_df)} stocks for prediction")
 
-        # Step 4: Generate predictions
+        # 4단계: 예측 생성
         logging.info("🔮 Generating predictions...")
         predictions_df = _generate_predictions_for_period_standalone(
             pred_df, models_info
         )
 
-        # Step 5: Top-K selection
+        # 5단계: Top-K 선택
         logging.info(f"🎯 Selecting Top-{top_k} stocks...")
         predictions_df = _rank_and_select_top_k_standalone(predictions_df, top_k)
 
-        # Build cache entry
+        # 캐시 항목 구성
         top_k_mask = predictions_df[DataSchema.SELECTED]
         cache_entry = {
             'predictions_df': predictions_df,
@@ -422,21 +422,21 @@ def train_single_period_remote(
     except Exception as e:
         import traceback
         error_tb = traceback.format_exc()
-        # Print to stdout for Ray log_to_driver capture
+        # Ray log_to_driver 캡처를 위해 stdout으로 출력
         print(f"[Worker:{cache_key}] ❌ FAILED: {e}")
         print(f"[Worker:{cache_key}] Traceback:\n{error_tb}")
         logging.error(f"❌ Error processing period {cache_key}: {e}")
         logging.error(error_tb)
-        # Include full traceback in error message so main process can log it
+        # 메인 프로세스에서 로깅할 수 있도록 전체 traceback을 에러 메시지에 포함
         return cache_key, None, f"{str(e)}\n--- Worker Traceback ---\n{error_tb}"
 
 
 # ==============================================================================
-# Standalone Helper Functions for Ray Remote Workers
+# Ray Remote 워커용 독립 헬퍼 함수
 # ==============================================================================
 
 def _load_data_until_cutoff_standalone(root_path: str, train_start_year: int, cutoff_date: datetime.datetime) -> pd.DataFrame:
-    """Standalone version of _load_data_until_cutoff for Ray workers."""
+    """Ray 워커용 _load_data_until_cutoff의 독립 버전입니다."""
     all_train_data = []
     current_year = train_start_year
 
@@ -470,30 +470,30 @@ def _load_data_until_cutoff_standalone(root_path: str, train_start_year: int, cu
 
 def _find_nearest_rebalance_date(unique_dates, cutoff_date, max_days=10):
     """
-    Find the nearest rebalance_date to cutoff_date within max_days window.
+    cutoff_date에 가장 가까운 rebalance_date를 max_days 범위 내에서 찾습니다.
 
-    make_mldata.py converts calendar dates to actual trading dates via
-    DataProcessor.get_trade_date(), so parquet files contain trading dates
-    (e.g., 2024-01-02) not calendar dates (e.g., 2024-01-01).
-    This function bridges that gap by finding the nearest match.
+    make_mldata.py는 달력 날짜를 DataProcessor.get_trade_date()를 통해
+    실제 거래일로 변환하므로, parquet 파일에는 거래일(예: 2024-01-02)이
+    달력 날짜(예: 2024-01-01) 대신 저장됩니다.
+    이 함수는 가장 가까운 매칭을 찾아 그 차이를 연결합니다.
 
-    Direction preference (matches DataProcessor.get_trade_date logic):
-    - Month start (day <= 15): prefer FORWARD (nearest future date)
-    - Month end (day > 15): prefer BACKWARD (nearest past date)
+    방향 선호도 (DataProcessor.get_trade_date 로직과 일치):
+    - 월초 (day <= 15): 전방(FORWARD) 선호 (가장 가까운 미래 날짜)
+    - 월말 (day > 15): 후방(BACKWARD) 선호 (가장 가까운 과거 날짜)
 
     Parameters
     ----------
     unique_dates : array-like
-        Available rebalance_dates in the data file
+        데이터 파일에서 사용 가능한 rebalance_date 목록
     cutoff_date : datetime
-        Calendar cutoff date to match
+        매칭할 달력 기준 날짜
     max_days : int
-        Maximum days of tolerance for matching (default: 10)
+        매칭 허용 최대 일수 (기본값: 10)
 
     Returns
     -------
     pd.Timestamp or None
-        Nearest matching rebalance_date, or None if no match within window
+        가장 가까운 매칭 rebalance_date, 범위 내 매칭 없으면 None
     """
     cutoff_ts = pd.Timestamp(cutoff_date)
     is_month_start = cutoff_ts.day <= 15
@@ -509,19 +509,19 @@ def _find_nearest_rebalance_date(unique_dates, cutoff_date, max_days=10):
         if abs_delta > pd.Timedelta(days=max_days):
             continue
 
-        # Direction preference: month start → forward, month end → backward
+        # 방향 선호도: 월초 → 전방, 월말 → 후방
         if is_month_start:
-            # Prefer future dates (delta >= 0), but accept past if closer
+            # 미래 날짜 선호 (delta >= 0), 더 가까우면 과거도 허용
             if delta >= pd.Timedelta(0):
                 priority_delta = abs_delta
             else:
-                priority_delta = abs_delta + pd.Timedelta(days=max_days)  # penalize backward
+                priority_delta = abs_delta + pd.Timedelta(days=max_days)  # 후방 페널티
         else:
-            # Prefer past dates (delta <= 0)
+            # 과거 날짜 선호 (delta <= 0)
             if delta <= pd.Timedelta(0):
                 priority_delta = abs_delta
             else:
-                priority_delta = abs_delta + pd.Timedelta(days=max_days)  # penalize forward
+                priority_delta = abs_delta + pd.Timedelta(days=max_days)  # 전방 페널티
 
         if priority_delta < best_delta:
             best_delta = priority_delta
@@ -531,11 +531,11 @@ def _find_nearest_rebalance_date(unique_dates, cutoff_date, max_days=10):
 
 
 def _load_data_for_prediction_standalone(root_path: str, cutoff_date: datetime.datetime) -> pd.DataFrame:
-    """Standalone version of _load_data_for_prediction for Ray workers."""
+    """Ray 워커용 _load_data_for_prediction의 독립 버전입니다."""
     year = cutoff_date.year
 
     ml_data_dir = f"{root_path}/processed/ml_data/per_year"
-    # rnorm_fs_ files contain features only (no targets, for prediction)
+    # rnorm_fs_ 파일은 feature만 포함 (타겟 없음, 예측용)
     file_pattern = f"{ml_data_dir}/rnorm_fs_{year}_Q*.parquet"
     year_files = glob.glob(file_pattern)
 
@@ -551,8 +551,8 @@ def _load_data_for_prediction_standalone(root_path: str, cutoff_date: datetime.d
                 unique_dates = sorted(df['rebalance_date'].unique())
                 logging.info(f"   🔍 {os.path.basename(file_path)}: {len(df)} rows, rebalance_dates={[str(d)[:10] for d in unique_dates[:5]]}")
 
-                # Trading day adjustment: find nearest rebalance_date to cutoff_date
-                # (make_mldata.py converts calendar dates to trading dates via DataProcessor.get_trade_date())
+                # 거래일 조정: cutoff_date에 가장 가까운 rebalance_date 찾기
+                # (make_mldata.py가 DataProcessor.get_trade_date()를 통해 달력 날짜를 거래일로 변환)
                 nearest_date = _find_nearest_rebalance_date(unique_dates, cutoff_date)
                 if nearest_date is not None:
                     if nearest_date != pd.Timestamp(cutoff_date):
@@ -580,18 +580,18 @@ def _train_models_for_period_standalone(
     use_sector_model: bool,
     classifier_config: Optional[dict] = None
 ) -> dict:
-    """Standalone version of _train_models_for_period for Ray workers.
+    """Ray 워커용 _train_models_for_period의 독립 버전입니다.
 
     Args:
-        classifier_config: Dict with classifier settings from config:
-            - mode: "negative_screen" or "positive_screen"
-            - loss_threshold: float (for negative_screen, e.g. -0.3)
+        classifier_config: config에서 가져온 분류기 설정 딕셔너리:
+            - mode: "negative_screen" 또는 "positive_screen"
+            - loss_threshold: float (negative_screen용, 예: -0.3)
     """
     from src.training.data_processor import DataProcessor
     from xgboost import XGBClassifier, XGBRegressor
     from lightgbm import LGBMClassifier
 
-    # Parse classifier config
+    # 분류기 설정 파싱
     cls_mode = "positive_screen"
     cls_threshold = 0.0
     if classifier_config:
@@ -608,9 +608,9 @@ def _train_models_for_period_standalone(
         'binary_target_stats': {}
     }
 
-    # NOTE: Do NOT call preprocess_training_data() on the full DataFrame here.
-    # It expects (X, y, y_cls, config, logger) and returns a 4-tuple.
-    # Preprocessing is done per-sector or per-global after splitting X/y.
+    # 주의: 여기서 전체 DataFrame에 preprocess_training_data()를 호출하지 말 것.
+    # (X, y, y_cls, config, logger)를 기대하며 4-tuple을 반환함.
+    # 전처리는 X/y 분리 후 섹터별 또는 글로벌로 수행됨.
 
     target_col = DataSchema.REGRESSION_TARGET
     if target_col not in train_df.columns:
@@ -627,7 +627,7 @@ def _train_models_for_period_standalone(
             X_sector = sector_data[feature_cols]
             y_sector = sector_data[target_col]
 
-            # Preprocess sector data before training
+            # 학습 전 섹터 데이터 전처리
             try:
                 preprocess_result = DataProcessor.preprocess_training_data(
                     X_sector.copy(),
@@ -651,7 +651,7 @@ def _train_models_for_period_standalone(
                 logging.error(f"      Traceback: {traceback.format_exc()}")
                 continue
 
-            # Train sector classifiers
+            # 섹터 분류기 학습
             if use_classifier:
                 y_binary = DataProcessor.create_binary_target(
                     y_sector_clean,
@@ -659,7 +659,7 @@ def _train_models_for_period_standalone(
                     threshold=cls_threshold if cls_mode == "negative_screen" else 0.0,
                     logger=logging
                 )
-                # Record binary target distribution for this sector
+                # 이 섹터의 이진 타겟 분포 기록
                 n_total = len(y_binary)
                 n_class1 = int((y_binary == 1).sum())
                 models_info['binary_target_stats'][f'sector_{sector}'] = {
@@ -680,7 +680,7 @@ def _train_models_for_period_standalone(
                     clf.fit(X_sector_clean, y_binary)
                 models_info['sector_classifiers'][sector] = sector_clfs
 
-            # Train sector regressors
+            # 섹터 회귀기 학습
             sector_regs = {
                 0: XGBRegressor(max_depth=8, n_estimators=100, random_state=42),
                 1: XGBRegressor(max_depth=10, n_estimators=100, random_state=42)
@@ -692,7 +692,7 @@ def _train_models_for_period_standalone(
         X_train = train_df[feature_cols]
         y_train = train_df[target_col]
 
-        # Preprocess global data before training
+        # 학습 전 글로벌 데이터 전처리
         try:
             preprocess_result = DataProcessor.preprocess_training_data(
                 X_train.copy(),
@@ -716,7 +716,7 @@ def _train_models_for_period_standalone(
             logging.error(f"      Traceback: {traceback.format_exc()}")
             return models_info
 
-        # Train global classifiers
+        # 글로벌 분류기 학습
         if use_classifier:
             y_binary = DataProcessor.create_binary_target(
                 y_train_clean,
@@ -724,7 +724,7 @@ def _train_models_for_period_standalone(
                 threshold=cls_threshold if cls_mode == "negative_screen" else 0.0,
                 logger=logging
             )
-            # Record binary target distribution for global model
+            # 글로벌 모델의 이진 타겟 분포 기록
             n_total = len(y_binary)
             n_class1 = int((y_binary == 1).sum())
             models_info['binary_target_stats']['global'] = {
@@ -745,7 +745,7 @@ def _train_models_for_period_standalone(
                 clf.fit(X_train_clean, y_binary)
             models_info['classifiers'] = global_clfs
 
-        # Train global regressors
+        # 글로벌 회귀기 학습
         global_regs = {
             0: XGBRegressor(max_depth=8, n_estimators=100, random_state=42),
             1: XGBRegressor(max_depth=10, n_estimators=100, random_state=42)
@@ -761,13 +761,13 @@ def _generate_predictions_for_period_standalone(
     pred_df: pd.DataFrame,
     models_info: dict
 ) -> pd.DataFrame:
-    """Standalone version of _generate_predictions_for_period for Ray workers."""
+    """Ray 워커용 _generate_predictions_for_period의 독립 버전입니다."""
     from src.training.data_processor import DataProcessor
 
-    # NOTE: Do NOT call preprocess_training_data() here.
-    # It expects (X, y, y_cls, config, logger) and returns a 4-tuple.
-    # For prediction data, we only need feature extraction (no target preprocessing).
-    # Feature name normalization is applied to handle special characters.
+    # 주의: 여기서 preprocess_training_data()를 호출하지 말 것.
+    # (X, y, y_cls, config, logger)를 기대하며 4-tuple을 반환함.
+    # 예측 데이터에는 feature 추출만 필요 (타겟 전처리 불필요).
+    # 특수 문자 처리를 위해 feature 이름 정규화 적용.
     pred_df = DataProcessor.normalize_feature_names(pred_df)
 
     feature_cols = DataSchema.get_feature_cols(pred_df)
@@ -784,18 +784,18 @@ def _generate_predictions_for_period_standalone(
             if sector not in models_info['sector_regressors']:
                 continue
 
-            # Align features to model (training may have dropped columns during preprocessing)
+            # 모델에 맞게 feature 정렬 (학습 중 전처리에서 컬럼이 삭제되었을 수 있음)
             sector_regs = models_info['sector_regressors'][sector]
             first_reg = list(sector_regs.values())[0]
             X_sector_aligned = DataProcessor.align_features_to_model(
                 X_sector, first_reg, logging.getLogger()
             )
 
-            # Predict returns
+            # 수익률 예측
             y_pred_return = np.mean([reg.predict(X_sector_aligned) for reg in sector_regs.values()], axis=0)
             pred_df.loc[sector_mask, DataSchema.PRED_RETURN] = y_pred_return
 
-            # Predict probabilities
+            # 확률 예측
             if models_info['use_classifier'] and sector in models_info['sector_classifiers']:
                 sector_clfs = models_info['sector_classifiers'][sector]
                 first_clf = list(sector_clfs.values())[0]
@@ -805,7 +805,7 @@ def _generate_predictions_for_period_standalone(
                 y_pred_proba = np.mean([clf.predict_proba(X_sector_clf)[:, 1] for clf in sector_clfs.values()], axis=0)
                 pred_df.loc[sector_mask, DataSchema.PRED_PROBA] = y_pred_proba
     else:
-        # Global predictions - align features to model
+        # 글로벌 예측 - 모델에 맞게 feature 정렬
         global_regs = models_info['regressors']
         first_reg = list(global_regs.values())[0]
         X_pred_aligned = DataProcessor.align_features_to_model(
@@ -823,21 +823,21 @@ def _generate_predictions_for_period_standalone(
             y_pred_proba = np.mean([clf.predict_proba(X_pred_clf)[:, 1] for clf in global_clfs.values()], axis=0)
             pred_df[DataSchema.PRED_PROBA] = y_pred_proba
 
-    # Calculate ML score
+    # ML 점수 계산
     pred_df[DataSchema.ML_SCORE] = pred_df[DataSchema.PRED_PROBA] * pred_df[DataSchema.PRED_RETURN]
 
     return pred_df
 
 
 def _rank_and_select_top_k_standalone(predictions_df: pd.DataFrame, top_k: int) -> pd.DataFrame:
-    """Standalone version of _rank_and_select_top_k for Ray workers."""
-    # Sort by ML score descending
+    """Ray 워커용 _rank_and_select_top_k의 독립 버전입니다."""
+    # ML 점수 기준 내림차순 정렬
     predictions_df = predictions_df.sort_values(by=DataSchema.ML_SCORE, ascending=False)
 
-    # Add rank
+    # 순위 추가
     predictions_df[DataSchema.RANK] = range(1, len(predictions_df) + 1)
 
-    # Mark top-K as selected
+    # 상위 K개를 선택됨으로 표시
     predictions_df[DataSchema.SELECTED] = False
     predictions_df.loc[predictions_df.index[:top_k], DataSchema.SELECTED] = True
 
@@ -1541,13 +1541,13 @@ class Regressor:
         logging.info("=" * 80)
 
     def _load_training_files(self) -> list:
-        """Load all training parquet files with fillingDate filtering.
+        """fillingDate 필터링을 적용하여 모든 학습 parquet 파일을 로드합니다.
 
         Returns:
-            List of DataFrames loaded from parquet files.
+            parquet 파일에서 로드된 DataFrame 리스트.
 
         Raises:
-            ValueError: If no training data files are found.
+            ValueError: 학습 데이터 파일을 찾을 수 없는 경우.
         """
         logging.info("STEP 1/5: Loading training parquet files...")
         train_dfs = []
@@ -1555,26 +1555,26 @@ class Regressor:
         for fpath in self.train_files:
             logging.info(f"  Loading: {os.path.basename(fpath)}")
 
-            # Skip missing files with warning
+            # 누락 파일은 경고와 함께 건너뛰기
             if not os.path.exists(fpath):
                 logging.warning(f"  ⚠️  Train file not found, skipping: {fpath}")
                 continue
 
-            # Read parquet (5-10x faster than CSV, 70-90% smaller)
+            # Parquet 읽기 (CSV보다 5-10배 빠르고, 70-90% 작음)
             df = pd.read_parquet(fpath, engine='pyarrow')
 
-            # ✅ UNIFIED: Apply fillingDate filtering (same as ml_backtest.py)
-            # Only use data that has been publicly filed (prevents future leakage)
+            # ✅ 통합: fillingDate 필터링 적용 (ml_backtest.py와 동일)
+            # 공시된 데이터만 사용 (미래 정보 유출 방지)
             if 'fillingDate' in df.columns:
                 df['fillingDate'] = pd.to_datetime(df['fillingDate'], errors='coerce')
                 before_filter = len(df)
-                # For training, we don't have a specific cutoff, so just ensure fillingDate is valid
+                # 학습 시에는 특정 cutoff가 없으므로, fillingDate가 유효한지만 확인
                 df = df.dropna(subset=['fillingDate'])
                 after_filter = len(df)
                 if before_filter != after_filter:
                     logging.info(f"    Filtered by fillingDate: {before_filter} → {after_filter} rows")
 
-            # Drop rows with missing target (price_diff)
+            # 타겟이 누락된 행 제거 (price_diff)
             df = df.dropna(axis=0, subset=['price_diff'])
 
             if len(df) > 0:
@@ -1591,14 +1591,14 @@ class Regressor:
         return train_dfs
 
     def _calculate_sector_features(self) -> list:
-        """Calculate sector-based price deviation features on training data.
+        """학습 데이터에서 섹터별 가격 편차 feature를 계산합니다.
 
-        Computes sec_price_dev_subavg (sector-adjusted price deviation) for each sector.
+        각 섹터에 대해 sec_price_dev_subavg (섹터 조정 가격 편차)를 계산합니다.
 
         Returns:
-            List of valid sector names found in the data.
+            데이터에서 발견된 유효한 섹터 이름 리스트.
         """
-        # TODO: Move this to make_mldata.py (should be done during data generation)
+        # TODO: make_mldata.py로 이동 (데이터 생성 시 수행되어야 함)
         logging.info("\nSTEP 2/5: Calculating sector-based features...")
 
         if 'industry' not in self.train_df.columns:
@@ -1612,7 +1612,7 @@ class Regressor:
             if pd.notna(x) and x is not None and isinstance(x, str) and x.strip()
         ]
 
-        # Log invalid sectors and affected rows
+        # 유효하지 않은 섹터 및 영향 받는 행 로깅
         invalid_sectors = [
             x for x in all_sectors
             if not (pd.notna(x) and x is not None and isinstance(x, str) and x.strip())
@@ -1633,7 +1633,7 @@ class Regressor:
 
         logging.info(f"  Found {len(sector_list)} valid sectors: {sector_list}")
 
-        # Calculate sector-adjusted price deviation
+        # 섹터 조정 가격 편차 계산
         for sec in sector_list:
             sec_mask = self.train_df['sector'] == sec
             sec_count = sec_mask.sum()
@@ -1646,22 +1646,22 @@ class Regressor:
         return sector_list
 
     def _preprocess_and_split_training_data(self) -> None:
-        """Apply unified preprocessing, store training data, and split by sector.
+        """통합 전처리를 적용하고 학습 데이터를 저장하며 섹터별로 분할합니다.
 
-        Performs DataProcessor.preprocess_training_data() and splits data into
-        sector-specific subsets if USE_SECTOR_MODEL is enabled.
+        DataProcessor.preprocess_training_data()를 수행하고 USE_SECTOR_MODEL이
+        활성화된 경우 데이터를 섹터별 서브셋으로 분할합니다.
 
         Side effects:
-            Sets self.x_train, self.y_train, self.y_train_cls, self.selected_features,
+            self.x_train, self.y_train, self.y_train_cls, self.selected_features,
             self.drop_col_list, self.sector_list, self.sector_train_dfs,
-            self.sector_x_train, self.sector_y_train, self.sector_y_train_cls.
+            self.sector_x_train, self.sector_y_train, self.sector_y_train_cls를 설정합니다.
         """
         # ========================================================================
         # STEP 3: Unified preprocessing using DataProcessor
         # ========================================================================
         logging.info("\nSTEP 3/5: Applying unified preprocessing (DataProcessor.preprocess_training_data)...")
 
-        # Separate features and targets BEFORE preprocessing
+        # 전처리 전에 feature와 타겟 분리
         excluded_cols = DataSchema.get_excluded_cols()
         feature_cols = [col for col in self.train_df.columns if col not in excluded_cols]
 
@@ -1671,8 +1671,8 @@ class Regressor:
 
         logging.info(f"  Before preprocessing: {len(X_train)} rows, {len(feature_cols)} features")
 
-        # 🎯 UNIFIED PREPROCESSING (Single Source of Truth)
-        # This replaces ALL scattered preprocessing with ONE unified method
+        # 🎯 통합 전처리 (단일 진실 원천)
+        # 분산된 모든 전처리를 하나의 통합 메서드로 대체
         X_train, y_train, y_train_cls, selected_features = DataProcessor.preprocess_training_data(
             X_train,
             y_train,
@@ -1681,7 +1681,7 @@ class Regressor:
             logger=logging.getLogger()
         )
 
-        # Store selected features for later use
+        # 선택된 feature를 나중에 사용하기 위해 저장
         if selected_features is not None:
             self.selected_features = selected_features
             logging.info(f"  Feature selection applied: {len(feature_cols)} → {len(selected_features)} features")
@@ -1784,15 +1784,15 @@ class Regressor:
             logging.info(f"  ✅ Split into {len(self.sector_list)} sectors")
 
     def _load_and_preprocess_test_files(self, sector_list: list) -> None:
-        """Load test files and apply same preprocessing as training data.
+        """테스트 파일을 로드하고 학습 데이터와 동일한 전처리를 적용합니다.
 
         Args:
-            sector_list: List of valid sector names (from _calculate_sector_features,
-                         used for test data sector feature calculation).
+            sector_list: 유효한 섹터 이름 리스트 (_calculate_sector_features에서 반환,
+                         테스트 데이터의 섹터 feature 계산에 사용).
 
         Side effects:
-            Sets self.test_df_list, self.test_df, self.x_test, self.y_test,
-            self.y_test_cls, self.sector_test_df_lists.
+            self.test_df_list, self.test_df, self.x_test, self.y_test,
+            self.y_test_cls, self.sector_test_df_lists를 설정합니다.
         """
         logging.info("\nSTEP 5/5: Loading and preprocessing test files...")
 
@@ -1806,20 +1806,20 @@ class Regressor:
         for fpath in self.test_files:
             logging.info(f"  Loading: {os.path.basename(fpath)}")
 
-            # Skip missing files with warning
+            # 누락 파일은 경고와 함께 건너뛰기
             if not os.path.exists(fpath):
                 logging.warning(f"  ⚠️  Test file not found, skipping: {fpath}")
                 continue
 
-            # Read parquet
+            # Parquet 읽기
             df = pd.read_parquet(fpath, engine='pyarrow')
 
-            # Apply fillingDate filtering (same as train)
+            # fillingDate 필터링 적용 (학습과 동일)
             if 'fillingDate' in df.columns:
                 df['fillingDate'] = pd.to_datetime(df['fillingDate'], errors='coerce')
                 df = df.dropna(subset=['fillingDate'])
 
-            # Drop rows with missing target
+            # 타겟이 누락된 행 제거
             df = df.dropna(axis=0, subset=['price_diff'])
 
             if len(df) == 0:
