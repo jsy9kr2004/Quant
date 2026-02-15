@@ -1131,8 +1131,8 @@ class DataProcessor:
     def _preprocess_quality_checks(X: pd.DataFrame, y: pd.DataFrame,
                                     config: Optional[Dict], logger) -> None:
         """Phase 1: Data Quality Report 및 A/B Cleaning Test (optional)"""
-        # ===== Data Quality Report (BEFORE preprocessing) =====
-        # Generate report to capture original data state
+        # ===== 데이터 품질 레포트 (전처리 이전) =====
+        # 원본 데이터 상태를 캡처하기 위해 레포트 생성
         data_quality_config = config.get('DATA_QUALITY', {}) if config else {}
         generate_report = data_quality_config.get('GENERATE_REPORT', 'N') == 'Y'
 
@@ -1144,7 +1144,7 @@ class DataProcessor:
             report = DataQualityReport(X, y_series, config, logger)
             report.generate()
 
-            # Save report if path is configured
+            # 경로가 설정된 경우 레포트 저장
             report_path = data_quality_config.get('REPORT_OUTPUT_PATH')
             if report_path:
                 try:
@@ -1153,7 +1153,7 @@ class DataProcessor:
                     if logger:
                         logger.warning(f"Failed to save data quality report: {e}")
 
-        # ===== A/B Test for Cleaning Effect (optional, config-controlled) =====
+        # ===== 클리닝 효과 A/B 테스트 (선택, 설정 제어) =====
         validate_cleaning = data_quality_config.get('VALIDATE_CLEANING_EFFECT', 'N') == 'Y'
 
         if validate_cleaning:
@@ -1165,7 +1165,7 @@ class DataProcessor:
                 validator = DataCleaningValidator(X, y_series, config, logger)
                 validation_results = validator.validate_cleaning_effect()
 
-                # Log recommendation
+                # 권고 사항 로깅
                 rec = validation_results.get('recommendation', {})
                 if logger:
                     logger.info(f"A/B Test Result: {rec.get('preferred', 'N/A').upper()} preferred")
@@ -1177,25 +1177,25 @@ class DataProcessor:
     @staticmethod
     def _preprocess_normalize_columns(X: pd.DataFrame, logger) -> pd.DataFrame:
         """Phase 2: Feature name 정규화, metadata 컬럼 제거, non-numeric 컬럼 제거"""
-        # ===== Step 0: Normalize feature names (Critical for model training) =====
-        # Remove special JSON characters from feature names to prevent errors
-        # in XGBoost, LightGBM, and CatBoost
+        # ===== Step 0: Feature 이름 정규화 (모델 학습에 필수) =====
+        # XGBoost, LightGBM, CatBoost에서의 에러 방지를 위해
+        # feature 이름에서 특수 JSON 문자 제거
         if logger:
             logger.info("Step 0/8: Normalizing feature names...")
         X = DataProcessor.normalize_feature_names(X, logger=logger)
 
-        # ===== Step 0.5: Remove metadata columns =====
-        # 🚨 CRITICAL: Remove non-feature columns that are used for grouping/filtering
-        # These should never be used as ML features
+        # ===== Step 0.5: 메타데이터 컬럼 제거 =====
+        # 🚨 CRITICAL: 그룹화/필터링에 사용되는 비feature 컬럼 제거
+        # 이들은 절대 ML feature로 사용되어서는 안 됨
         METADATA_COLUMNS = [
-            'sector_category',      # Sector categorization metadata
-            'sector_original',      # Original sector before categorization
-            'sector',               # Sector information (if still present)
-            'symbol',               # Stock ticker
-            'date',                 # Date information
-            'rebalance_date',       # Rebalancing date
-            'report_date',          # Financial report date
-            'filingDate',           # SEC filing date
+            'sector_category',      # 섹터 카테고리화 메타데이터
+            'sector_original',      # 카테고리화 전 원본 섹터
+            'sector',               # 섹터 정보 (아직 남아있는 경우)
+            'symbol',               # 종목 코드
+            'date',                 # 날짜 정보
+            'rebalance_date',       # 리밸런싱 날짜
+            'report_date',          # 재무제표 보고 날짜
+            'filingDate',           # SEC 공시 날짜
         ]
 
         metadata_found = [col for col in METADATA_COLUMNS if col in X.columns]
@@ -1207,11 +1207,11 @@ class DataProcessor:
             if logger:
                 logger.info(f"   ✅ Removed metadata columns. Remaining: {len(X.columns)} columns")
 
-        # ===== DIAGNOSTIC: Check for remaining object/string columns =====
-        # 🚨 CRITICAL: ML models require numeric input only
-        # Object/string columns cause errors in np.isinf(), np.abs(), log transform
+        # ===== 진단: 남은 문자열/객체 컬럼 확인 =====
+        # 🚨 CRITICAL: ML 모델은 숫자 입력만 필요
+        # 문자열/객체 컬럼은 np.isinf(), np.abs(), 로그 변환에서 에러 발생
         if logger:
-            # Memory-efficient check: avoid select_dtypes which causes 10GB memory spike
+            # 메모리 효율적 확인: 10GB 메모리 급증을 유발하는 select_dtypes 사용 회피
             object_cols = [col for col in X.columns
                           if not pd.api.types.is_numeric_dtype(X[col])]
             if len(object_cols) > 0:
@@ -1219,14 +1219,14 @@ class DataProcessor:
                 logger.warning(f"   Columns: {list(object_cols[:10])}")
                 if len(object_cols) > 10:
                     logger.warning(f"   ... and {len(object_cols) - 10} more")
-                # Show sample values to diagnose root cause
+                # 근본 원인 진단을 위한 샘플 값 표시
                 for col in object_cols[:3]:
                     sample_vals = X[col].dropna().unique()[:5]
                     logger.warning(f"   '{col}' sample values: {sample_vals}")
 
-                # 🔧 AUTO-FIX: Remove remaining object columns
+                # 🔧 자동 수정: 남은 객체 컬럼 제거
                 logger.warning(f"   🔧 Removing {len(object_cols)} object columns...")
-                # Memory-efficient drop: avoid select_dtypes
+                # 메모리 효율적 삭제: select_dtypes 사용 회피
                 X = X.drop(columns=object_cols)
                 logger.warning(f"   ✅ Removed. Remaining columns: {len(X.columns)}")
             else:
@@ -1240,7 +1240,7 @@ class DataProcessor:
                                        rows_before: int,
                                        logger) -> Tuple[pd.DataFrame, pd.Series, Optional[pd.DataFrame]]:
         """Phase 3: 무한값 제거 및 타겟 변수 정리 (Steps 1-3)"""
-        # ===== Step 1: Remove infinite values from X and y =====
+        # ===== Step 1: X와 y에서 무한값 제거 =====
         if logger:
             logger.info("Step 1/8: Removing infinite values from X and y...")
 
@@ -1250,13 +1250,13 @@ class DataProcessor:
         if rows_removed_inf > 0 and logger:
             logger.warning(f"   ⚠️  Removed {rows_removed_inf} rows with infinite values in X or y")
 
-        # ===== Step 2: Replace remaining infinite with NaN (safety) =====
+        # ===== Step 2: 남은 무한값을 NaN으로 대체 (안전장치) =====
         if logger:
             logger.info("Step 2/8: Replacing remaining infinite with NaN...")
 
         X_clean, y_clean = DataProcessor.replace_infinite_with_nan(X_clean, y_clean)
 
-        # ===== Step 3: Remove rows with infinite in y_cls (if provided) =====
+        # ===== Step 3: y_cls에서 무한값이 있는 행 제거 (제공된 경우) =====
         y_cls_clean = None
         if y_cls is not None:
             if logger:
@@ -1271,10 +1271,10 @@ class DataProcessor:
             if rows_removed_y_cls > 0 and logger:
                 logger.warning(f"   ⚠️  Removed {rows_removed_y_cls} rows with infinite in y_cls")
 
-            # Align y with final index
+            # y를 최종 인덱스에 맞춤
             y_clean = y_clean.loc[X_clean.index]
 
-            # Convert y_cls back to DataFrame
+            # y_cls를 다시 DataFrame으로 변환
             y_cls_clean = DataProcessor.create_clean_dataframe(
                 y_cls_series, y_cls.columns, X_clean.index
             )
@@ -1286,11 +1286,11 @@ class DataProcessor:
                                           y_cls_clean: Optional[pd.DataFrame],
                                           y_columns, logger) -> Tuple[pd.DataFrame, pd.DataFrame, Optional[pd.DataFrame]]:
         """Phase 4: Log 변환, 고NaN 컬럼 제거, NaN 라벨 행 제거 (Steps 4-6)"""
-        # ===== Step 4: Log transformation =====
+        # ===== Step 4: 로그 변환 =====
         if logger:
             logger.info("Step 4/8: Applying log transformation...")
-            # Only check numeric columns for max value
-            # Memory-efficient: avoid select_dtypes which causes 10GB memory spike
+            # 숫자 컬럼에서만 최대값 확인
+            # 메모리 효율적: 10GB 메모리 급증을 유발하는 select_dtypes 사용 회피
             numeric_cols = [col for col in X_clean.columns
                            if pd.api.types.is_numeric_dtype(X_clean[col])]
             if len(numeric_cols) > 0:
@@ -1302,15 +1302,15 @@ class DataProcessor:
         X_clean = DataProcessor.log_transform_features(X_clean)
 
         if logger:
-            # Only check numeric columns for max value
-            # Memory-efficient: avoid select_dtypes which causes 10GB memory spike
+            # 숫자 컬럼에서만 최대값 확인
+            # 메모리 효율적: 10GB 메모리 급증을 유발하는 select_dtypes 사용 회피
             numeric_cols = [col for col in X_clean.columns
                            if pd.api.types.is_numeric_dtype(X_clean[col])]
             if len(numeric_cols) > 0:
                 max_after = np.nanmax(np.abs(X_clean[numeric_cols].values))
                 logger.info(f"   After: max abs value = {max_after:.2f}")
 
-        # ===== Step 5: Remove columns with >50% NaN =====
+        # ===== Step 5: NaN이 50% 초과인 컬럼 제거 =====
         if logger:
             logger.info("Step 5/8: Removing columns with >50% NaN...")
 
@@ -1328,17 +1328,17 @@ class DataProcessor:
 
             X_clean = X_clean.drop(columns=high_nan_cols)
 
-        # ===== Step 6: Remove rows with NaN in y labels =====
+        # ===== Step 6: y 레이블에 NaN이 있는 행 제거 =====
         if logger:
             logger.info("Step 6/8: Removing rows with NaN in y labels...")
 
-        # Initialize y_df to handle both Series and DataFrame cases safely
+        # Series와 DataFrame 케이스 모두를 안전하게 처리하기 위해 y_df 초기화
         y_df = None
 
         if isinstance(y_clean, pd.Series):
             nan_mask_y = y_clean.isna()
         elif isinstance(y_clean, pd.DataFrame):
-            # Reconstruct y as DataFrame
+            # y를 DataFrame으로 재구성
             y_df = DataProcessor.create_clean_dataframe(y_clean, y_columns, X_clean.index)
             nan_mask_y = y_df.isna().any(axis=1)
         else:
@@ -1364,7 +1364,7 @@ class DataProcessor:
             if y_cls_clean is not None:
                 y_cls_clean = y_cls_clean[~nan_mask_labels]
 
-        # Reconstruct y as DataFrame
+        # y를 DataFrame으로 재구성
         if isinstance(y_clean, pd.Series):
             y_clean = DataProcessor.create_clean_dataframe(y_clean, y_columns, X_clean.index)
         elif y_df is not None:
@@ -1443,35 +1443,34 @@ class DataProcessor:
         enabled: bool = True
     ) -> Tuple[pd.DataFrame, Optional[pd.Series], int]:
         """
-        Clip extreme values for XGBoost/LightGBM compatibility.
+        XGBoost/LightGBM 호환성을 위해 극단값을 클리핑합니다.
 
-        XGBoost errors with "Input data contains inf or a value too large"
-        when values exceed ~1e10, even if not strictly infinite.
+        값이 ~1e10을 초과하면 (엄밀히 무한이 아니더라도) XGBoost는
+        "Input data contains inf or a value too large" 에러를 발생시킵니다.
 
-        This method provides unified extreme value handling across
-        regressor.py and ml_backtest.py.
+        이 메서드는 regressor.py와 ml_backtest.py에서 통합된 극단값 처리를 제공합니다.
 
         Parameters:
         -----------
         X : pd.DataFrame
-            Feature dataframe
+            Feature DataFrame
         y : Optional[pd.Series]
-            Target series (unchanged, only X is clipped)
+            타겟 Series (변경되지 않음, X만 클리핑됨)
         threshold : float
-            Maximum absolute value allowed (default: 1e10)
+            허용되는 최대 절대값 (기본값: 1e10)
         enabled : bool
-            Whether to apply clipping (default: True)
+            클리핑 적용 여부 (기본값: True)
 
         Returns:
         --------
         X_clipped : pd.DataFrame
-            Dataframe with extreme values clipped to [-threshold, threshold]
+            극단값이 [-threshold, threshold]로 클리핑된 DataFrame
         y : Optional[pd.Series]
-            Target series (unchanged)
+            타겟 Series (변경되지 않음)
         n_clipped : int
-            Number of values that were clipped
+            클리핑된 값의 수
 
-        Example:
+        사용 예시:
         --------
         >>> X_safe, y, n = DataProcessor.clip_extreme_values(X, y, threshold=1e10)
         >>> if n > 0:
@@ -1479,15 +1478,15 @@ class DataProcessor:
 
         Note:
         -----
-        - Tree-based models (XGBoost/LightGBM) are robust to outliers
-        - BUT they cannot handle values > 1e10 (XGBoost internal limit)
-        - Clipping preserves information (direction + relative magnitude)
-        - Removing rows would lose valuable data
+        - 트리 기반 모델 (XGBoost/LightGBM)은 이상치에 견고함
+        - 하지만 1e10 초과 값은 처리 불가 (XGBoost 내부 제한)
+        - 클리핑은 정보를 보존 (방향 + 상대적 크기)
+        - 행 제거는 귀중한 데이터를 잃게 됨
         """
         if not enabled:
             return X, y, 0
 
-        # Count extreme values before clipping
+        # 클리핑 전 극단값 개수 확인
         if isinstance(X, pd.DataFrame):
             extreme_mask = (X.abs() > threshold)
             n_extreme = extreme_mask.sum().sum()
@@ -1502,7 +1501,7 @@ class DataProcessor:
             return X, y, 0
 
     # ========================================================================
-    # NaN Handling
+    # NaN 처리
     # ========================================================================
 
     @staticmethod
@@ -1513,29 +1512,29 @@ class DataProcessor:
         fill_value: Any = 0
     ) -> Tuple[pd.DataFrame, Optional[pd.Series]]:
         """
-        Unified NaN handling.
+        통합 NaN 처리입니다.
 
-        Provides consistent NaN handling across regressor.py and ml_backtest.py.
+        regressor.py와 ml_backtest.py에서 일관된 NaN 처리를 제공합니다.
 
         Parameters:
         -----------
         X : pd.DataFrame
-            Feature dataframe
+            Feature DataFrame
         y : Optional[pd.Series]
-            Target series
+            타겟 Series
         method : str
-            'fillna' (default), 'drop', or 'forward_fill'
+            'fillna' (기본값), 'drop', 또는 'forward_fill'
         fill_value : Any
-            Value to fill NaN with (default: 0)
+            NaN을 채울 값 (기본값: 0)
 
         Returns:
         --------
         X_clean : pd.DataFrame
-            Dataframe with NaN handled
+            NaN이 처리된 DataFrame
         y_clean : Optional[pd.Series]
-            Target with NaN handled (if provided)
+            NaN이 처리된 타겟 (제공된 경우)
 
-        Example:
+        사용 예시:
         --------
         X, y = DataProcessor.handle_nan(X, y, method='fillna', fill_value=0)
         """
@@ -1555,7 +1554,7 @@ class DataProcessor:
         return X_clean, y_clean
 
     # ========================================================================
-    # Outlier Handling
+    # 이상치 처리
     # ========================================================================
 
     def clip_outliers(
@@ -1567,50 +1566,50 @@ class DataProcessor:
         apply_saved_bounds: bool = False
     ) -> pd.DataFrame:
         """
-        Clip outliers using quantile-based bounds.
+        분위수 기반 범위로 이상치를 클리핑합니다.
 
-        This method clips extreme values to prevent model distortion.
+        이 메서드는 모델 왜곡을 방지하기 위해 극단값을 클리핑합니다.
 
-        Critical: This was present in regressor.py but MISSING in ml_backtest.py,
-        causing inconsistent preprocessing! Now unified.
+        Critical: 이 로직은 regressor.py에만 있고 ml_backtest.py에는 누락되어
+        일관성 없는 전처리를 야기했습니다! 현재는 통합되었습니다.
 
         Parameters:
         -----------
         df : pd.DataFrame
-            Input dataframe
+            입력 DataFrame
         lower_percentile : float
-            Lower quantile (default: 0.02 = 2nd percentile)
+            하위 분위수 (기본값: 0.02 = 2번째 백분위수)
         upper_percentile : float
-            Upper quantile (default: 0.98 = 98th percentile)
+            상위 분위수 (기본값: 0.98 = 98번째 백분위수)
         save_bounds : bool
-            If True, save bounds for later use on test data
+            True이면 테스트 데이터에 사용할 범위 저장
         apply_saved_bounds : bool
-            If True, use previously saved bounds (for test data)
+            True이면 이전에 저장된 범위 사용 (테스트 데이터용)
 
         Returns:
         --------
         pd.DataFrame
-            Dataframe with clipped values
+            클리핑된 값을 가진 DataFrame
 
-        Example:
+        사용 예시:
         --------
-        # Training: clip and save bounds
+        # 학습: 클리핑 및 범위 저장
         df_train_clipped = processor.clip_outliers(df_train, save_bounds=True)
 
-        # Testing: apply saved bounds
+        # 테스트: 저장된 범위 적용
         df_test_clipped = processor.clip_outliers(df_test, apply_saved_bounds=True)
         """
         feature_cols = DataSchema.get_feature_cols(df)
         df_clipped = df.copy()
 
-        # Exclude non-numeric columns (like 'sector')
+        # 비숫자 컬럼 제외 ('sector' 등)
         numeric_features = [
             col for col in feature_cols
             if col in df.columns and df[col].dtype in [np.float64, np.float32, np.int64, np.int32]
         ]
 
         if apply_saved_bounds:
-            # Use saved bounds (for test data)
+            # 저장된 범위 사용 (테스트 데이터용)
             if not self.clip_bounds:
                 self.logger.warning("No saved clip bounds found! Skipping clipping.")
                 return df_clipped
@@ -1622,7 +1621,7 @@ class DataProcessor:
             self.logger.info(f"   Applied saved clip bounds to {len(self.clip_bounds)} columns")
 
         else:
-            # Calculate new bounds (for training data)
+            # 새 범위 계산 (학습 데이터용)
             for col in numeric_features:
                 lower, upper = df[col].quantile([lower_percentile, upper_percentile])
                 df_clipped[col] = df[col].clip(lower, upper)

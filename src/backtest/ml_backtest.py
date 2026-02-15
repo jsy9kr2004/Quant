@@ -22,8 +22,8 @@ from dateutil.relativedelta import relativedelta
 from pathlib import Path
 from typing import Dict, Any, Tuple
 
-# ✨ REFACTORED: Import unified data schema and preprocessing
-# DataProcessor now handles all scaling (RobustScaler, StandardScaler)
+# ✨ 리팩토링: 통합 데이터 스키마 및 전처리 import
+# DataProcessor가 모든 스케일링(RobustScaler, StandardScaler)을 처리합니다
 from src.constants.data_schema import DataSchema
 from src.training.data_processor import DataProcessor
 
@@ -104,7 +104,7 @@ class MLBacktest:
                 f"{'='*60}"
             )
 
-        # 거래 비용 설정 (Trading Costs)
+        # 거래 비용 설정
         backtest_config = config.get('BACKTEST', {})
         trading_costs = backtest_config.get('TRADING_COSTS', {})
         self.trading_costs_enabled = trading_costs.get('ENABLED', 'N') == 'Y'
@@ -118,15 +118,15 @@ class MLBacktest:
         else:
             self.logger.info("💰 Trading costs disabled (pure returns)")
 
-        # ✅ 상장폐지 데이터 로드 (검증용)
+        # 상장폐지 데이터 로드 (검증용)
         self.delisted_data = self._load_delisted_data()
 
     def _load_delisted_data(self) -> pd.DataFrame:
         """
-        상장폐지 종목 데이터 로드.
+        상장폐지 종목 데이터를 로드합니다.
 
-        FMP의 delisted_companies 데이터를 로드하여 상장폐지 여부 검증에 사용.
-        데이터가 없으면 빈 DataFrame 반환 (검증 스킵).
+        FMP의 delisted_companies 데이터를 로드하여 상장폐지 여부 검증에 사용합니다.
+        데이터가 없으면 빈 DataFrame을 반환합니다 (검증 스킵).
         """
         delisted_dir = Path(self.main_ctx.root_path) / 'fmp_raw' / 'delisted_companies'
 
@@ -147,7 +147,7 @@ class MLBacktest:
 
             delisted_df = pd.concat(all_delisted, ignore_index=True)
 
-            # 필요한 컬럼만 유지
+            # 필요한 컬럼만 유지합니다
             required_cols = ['symbol', 'delistedDate']
             available_cols = [c for c in required_cols if c in delisted_df.columns]
 
@@ -169,7 +169,7 @@ class MLBacktest:
 
     def _is_truly_delisted(self, symbol: str, check_date: pd.Timestamp) -> tuple:
         """
-        종목이 특정 날짜에 실제로 상장폐지되었는지 검증.
+        종목이 특정 날짜에 실제로 상장폐지되었는지 검증합니다.
 
         Returns:
         -------
@@ -179,24 +179,24 @@ class MLBacktest:
             - status: 'confirmed_delisted', 'data_missing', 'active'
         """
         if self.delisted_data.empty:
-            # 검증 데이터 없음 - 가격 없으면 data_missing으로 처리
+            # 검증 데이터 없음 - 가격 없으면 data_missing으로 처리합니다
             return (False, None, 'unverified')
 
         symbol_data = self.delisted_data[self.delisted_data['symbol'] == symbol]
 
         if symbol_data.empty:
-            # 상장폐지 리스트에 없음 - 아직 상장 중이거나 데이터 누락
+            # 상장폐지 리스트에 없음 - 아직 상장 중이거나 데이터 누락입니다
             return (False, None, 'not_in_delisted_list')
 
         # 상장폐지 리스트에 있음
         if 'delistedDate' in symbol_data.columns:
             delisted_date = symbol_data.iloc[0]['delistedDate']
             if pd.notna(delisted_date):
-                # 상장폐지 날짜가 체크 날짜 이전인지 확인
+                # 상장폐지 날짜가 체크 날짜 이전인지 확인합니다
                 if delisted_date <= check_date:
                     return (True, delisted_date.strftime('%Y-%m-%d'), 'confirmed_delisted')
                 else:
-                    # 아직 상장폐지 전
+                    # 아직 상장폐지 전입니다
                     return (False, delisted_date.strftime('%Y-%m-%d'), 'will_be_delisted')
 
         # 상장폐지 날짜 정보 없음
@@ -204,7 +204,7 @@ class MLBacktest:
 
     def _select_top_k(self, predictions: pd.DataFrame) -> pd.DataFrame:
         """
-        상위 K개 종목 선택
+        상위 K개 종목을 선택합니다.
 
         Parameters:
         ----------
@@ -219,28 +219,28 @@ class MLBacktest:
         # ml_score 기준으로 정렬
         sorted_df = predictions.sort_values('ml_score', ascending=False)
 
-        # 상위 K개 선택 (symbol과 sector 모두 포함)
+        # 상위 K개 선택 (symbol과 sector 모두 포함합니다)
         top_k_df = sorted_df.head(self.top_k).copy()
 
-        # ✅ Task #2: Ensure sector has value (fix empty sector issue)
+        # sector 값 보장 (빈 sector 이슈 수정)
         if 'sector' not in top_k_df.columns:
             top_k_df['sector'] = 'Unknown'
         else:
             top_k_df['sector'] = top_k_df['sector'].fillna('Unknown')
 
-        # ✅ Task #3: Add category column using SECTOR_CATEGORIZATION config
+        # SECTOR_CATEGORIZATION 설정을 사용하여 category 컬럼 추가
         top_k_df = DataProcessor.map_sectors_to_categories(
             top_k_df,
             self.config,
             sector_column='sector',
-            logger=None  # Don't log during prediction
+            logger=None  # 예측 시에는 로깅하지 않음
         )
-        # Rename sector_category to category for clarity
+        # 명확성을 위해 sector_category를 category로 이름 변경
         if 'sector_category' in top_k_df.columns:
             top_k_df['category'] = top_k_df['sector_category']
             top_k_df.drop(columns=['sector_category'], inplace=True, errors='ignore')
         else:
-            top_k_df['category'] = top_k_df['sector']  # Fallback: use sector as category
+            top_k_df['category'] = top_k_df['sector']  # Fallback: sector를 category로 사용
 
         return top_k_df[['symbol', 'sector', 'category']].copy()
 
@@ -252,7 +252,7 @@ class MLBacktest:
         price_table: pd.DataFrame
     ) -> dict:
         """
-        기간 수익률 계산 (상세 정보 포함)
+        기간 수익률을 계산합니다 (상세 정보 포함).
 
         Parameters:
         ----------
@@ -274,7 +274,7 @@ class MLBacktest:
             }
         """
         # 실제 거래일 찾기 (주말/휴일 처리)
-        # ✅ 일원화: DataProcessor.get_trade_date() 사용 (make_mldata.py, regressor.py 공통)
+        # 일원화: DataProcessor.get_trade_date() 사용 (make_mldata.py, regressor.py 공통)
         actual_buy_date = DataProcessor.get_trade_date(pd.Timestamp(buy_date), price_table)
         actual_sell_date = DataProcessor.get_trade_date(pd.Timestamp(sell_date), price_table)
 
@@ -287,31 +287,31 @@ class MLBacktest:
         returns = []
         details = []
 
-        # ✅ 섹터 + 카테고리 정보 포함하여 반복
+        # 섹터 + 카테고리 정보 포함하여 반복
         for _, stock in selected_stocks.iterrows():
             symbol = stock['symbol']
-            sector = stock.get('sector', 'Unknown')  # sector가 없으면 'Unknown'
-            category = stock.get('category', sector)  # category가 없으면 sector 사용
+            sector = stock.get('sector', 'Unknown')  # sector가 없으면 'Unknown' 사용
+            category = stock.get('category', sector)  # category가 없으면 sector를 사용
 
             symbol_prices = price_table[price_table['symbol'] == symbol]
 
-            # 매수 가격 (실제 거래일)
+            # 매수 가격 조회 (실제 거래일)
             buy_price_rows = symbol_prices[symbol_prices['date'] == actual_buy_date]
             if buy_price_rows.empty:
-                # 매수일에 가격 없음 = 데이터 오류 (거래 불가능)
+                # 매수일에 가격 없음 = 데이터 오류 (거래 불가능합니다)
                 self.logger.warning(f"   ⚠️  {symbol}: No price at buy date {actual_buy_date.date()} - skipping")
                 continue
             buy_price = buy_price_rows.iloc[0]['close']
 
-            # 매도 가격 (실제 거래일)
+            # 매도 가격 조회 (실제 거래일)
             sell_price_rows = symbol_prices[symbol_prices['date'] == actual_sell_date]
             if sell_price_rows.empty:
-                # ✅ 가격 데이터 없음 - 상장폐지 여부 검증
+                # 가격 데이터 없음 - 상장폐지 여부 검증
                 is_delisted_verified, delisted_date, status = self._is_truly_delisted(
                     symbol, actual_sell_date
                 )
 
-                # 디버그 로그: 가격이 없는 종목의 상세 정보
+                # 디버그 로그: 가격이 없는 종목의 상세 정보를 기록합니다
                 last_price_date = symbol_prices['date'].max() if not symbol_prices.empty else None
                 self.logger.warning(
                     f"   🔍 {symbol}: No price at {actual_sell_date.date()} | "
@@ -321,7 +321,7 @@ class MLBacktest:
                 )
 
                 if is_delisted_verified or status in ('confirmed_delisted', 'delisted_no_date'):
-                    # 확인된 상장폐지: -100% 수익률
+                    # 확인된 상장폐지: -100% 수익률 처리
                     gross_ret = -1.0
                     net_ret = -1.0
                     sell_price = 0.0
@@ -330,7 +330,7 @@ class MLBacktest:
                     trading_cost = 0.0
                     self.logger.warning(f"      → CONFIRMED DELISTED: -100% return")
                 else:
-                    # 상장폐지 미확인: 데이터 누락으로 처리 (스킵하거나 마지막 가격 사용)
+                    # 상장폐지 미확인: 데이터 누락으로 처리합니다 (스킵하거나 마지막 가격 사용)
                     # 옵션 1: 스킵 (보수적)
                     # 옵션 2: 마지막 가격 사용 (낙관적)
                     if not symbol_prices.empty:

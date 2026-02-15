@@ -932,11 +932,11 @@ class EvaluationHandler:
             # if i == len(self.best_k)-1:
             #     break
             else:
-                # prev_date ~ date 까지 모든 date에 대해 자산 총액 계산
+                # prev_date ~ date까지 모든 date에 대해 자산 총액 계산
                 allday_price_allsymbol = []
                 syms = best_group['symbol']
-                # symbol 별로 rebalancing day 기준으로 prev_date ~ date 의 price 정보 가져오고,
-                # rebalancing day에 계산한 symbol 당 구매 수 column인 'count' 와 'close' 가격 곱해서 종목별 일별 자산 구함
+                # 종목별로 rebalancing day 기준으로 prev_date ~ date의 price 정보를 가져오고,
+                # rebalancing day에 계산한 종목당 구매 수량 'count'와 'close' 가격을 곱해서 종목별 일별 자산을 구합니다
                 for sym in syms:
                     allday_price_per_symbol = price_table.query("(symbol == @sym) and "
                                                                 "(date <= @date and date >= @prev_date)")
@@ -953,7 +953,7 @@ class EvaluationHandler:
                 if allday_price_allsymbol == "":
                     logging.warning("allday_price_allsymbol is empty. can't calc MDD.")
                     return
-                # 각 종목별 일별 자산을 모두 더하여 일별 총자산 구함
+                # 각 종목별 일별 자산을 모두 더하여 일별 총자산을 구합니다
                 accum_df = pd.DataFrame()
                 for j, df in enumerate(allday_price_allsymbol):
                     df = df.reset_index(drop=True)
@@ -962,10 +962,10 @@ class EvaluationHandler:
                     else:
                         accum_df = accum_df[['my_asset']] + df[['my_asset']]
 
-                # concat 'date' column
+                # 'date' 컬럼 연결
                 accum_df['date'] = df['date']
 
-                # memory
+                # 최고/최저 자산 기록
                 if accum_df['my_asset'].max(axis=0) > best_asset:
                     best_asset = accum_df['my_asset'].max(axis=0)
                     best_date = accum_df.loc[accum_df['my_asset'].idxmax(), 'date']
@@ -978,13 +978,13 @@ class EvaluationHandler:
         self.MDD = mdd
 
     def cal_sharp(self):
-        """sharp를 계산해서 채워주는 함수"""
+        """Sharpe Ratio를 계산해서 채워주는 함수입니다."""
         sharp = 0
         self.sharp = sharp
 
     @staticmethod
     def write_csv(path, date, rebalance_date, elem):
-        """CSV 레포트에 날짜 헤더와 DataFrame 내용을 append 한다."""
+        """CSV 레포트에 날짜 헤더와 DataFrame 내용을 append합니다."""
         fd = open(path, 'a')
         writer = csv.writer(fd, delimiter=",")
         writer.writerow("")
@@ -993,7 +993,7 @@ class EvaluationHandler:
         elem.to_csv(path, mode="a")
 
     def print_report(self):
-        """EVAL/RANK/AVG 레포트를 생성하고, 벤치마크 대비 수익률을 계산하여 CSV에 기록한다."""
+        """EVAL/RANK/AVG 레포트를 생성하고, 벤치마크 대비 수익률을 계산하여 CSV에 기록합니다."""
         plan_earning = 1
         total_asset = 100000000
         accumulated_earning = 100
@@ -1029,8 +1029,8 @@ class EvaluationHandler:
                 start_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.start_year, 1, 1))
                 end_date = self.backtest.get_trade_date(datetime.datetime(self.backtest.main_ctx.end_year, 12, 31))
                 if end_date is None:
-                    # get_trade_date는 기준일로부터 4일 이내 거래일을 가져오는 함수
-                    # 가장 마지막 년도에는 12월 31일을 기준으로 가져오면 None이 return 됨
+                    # get_trade_date는 기준일로부터 4일 이내 거래일을 가져오는 함수입니다
+                    # 가장 마지막 년도에는 12월 31일을 기준으로 가져오면 None이 반환됩니다
                     end_date = self.backtest.price_table["date"].max()
                     logging.debug(ref_sym)
                     logging.debug("start_date : " + start_date.strftime("%Y-%m-%d")
@@ -1070,7 +1070,7 @@ class EvaluationHandler:
             fd.close()
 
     def run(self, price_table):
-        """평가 파이프라인을 실행한다: 가격 계산 → 수익률 계산 → 레포트 출력."""
+        """평가 파이프라인을 실행합니다: 가격 계산 -> 수익률 계산 -> 레포트 출력."""
         self.cal_price()
         if self.backtest.eval_report_path is not None:
             self.cal_earning()

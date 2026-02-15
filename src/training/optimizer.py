@@ -170,7 +170,7 @@ class OptunaOptimizer:
         return self.best_params
 
     def get_best_model(self, task: str = 'classification'):
-        """최적 파라미터로 모델 생성"""
+        """최적 파라미터로 모델을 생성합니다."""
         if self.best_params is None:
             raise ValueError("Optimization not run. Call optimize() first.")
 
@@ -180,7 +180,7 @@ class OptunaOptimizer:
         return model
 
     def plot_optimization_history(self, save_path: str = None):
-        """최적화 히스토리 플롯"""
+        """최적화 이력을 플롯합니다."""
         if self.study is None:
             raise ValueError("Optimization not run. Call optimize() first.")
 
@@ -197,7 +197,7 @@ class OptunaOptimizer:
         plt.close()
 
     def plot_param_importances(self, save_path: str = None):
-        """파라미터 중요도 플롯"""
+        """파라미터 중요도를 플롯합니다."""
         if self.study is None:
             raise ValueError("Optimization not run. Call optimize() first.")
 
