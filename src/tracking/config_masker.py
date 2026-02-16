@@ -198,13 +198,6 @@ class ConfigMasker:
                 else:
                     display_items.append(f"{short_key}={after}")
 
-                # 너무 많으면 생략
-                if len(display_items) >= 5:
-                    remaining = len(changes) - len(display_items)
-                    if remaining > 0:
-                        display_items.append(f"...+{remaining} more")
-                    break
-
         return ", ".join(display_items)
 
 
