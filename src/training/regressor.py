@@ -4644,7 +4644,95 @@ class Regressor:
                 recall = 0.0
 
             logging.info(f"   📈 Regression: RMSE={rmse:.4f}, MAE={mae:.4f}, R²={r2:.4f}")
-            logging.info(f"   🎯 Direction:  Accuracy={accuracy:.4f}, Precision={precision:.4f}, Recall={recall:.4f}")
+            logging.info(f"   🎯 Direction (Regressor): Accuracy={accuracy:.4f}, Precision={precision:.4f}, Recall={recall:.4f}")
+
+            # ===== Classifier Evaluation =====
+            cls_accuracy = None
+            cls_precision = None
+            cls_recall = None
+            cls_f1 = None
+            cls_filter_rate = None
+
+            if self.use_classifier and DataSchema.PRED_PROBA in merged.columns and 'price_dev' in merged.columns:
+                from sklearn.metrics import f1_score
+
+                ml_config = self.conf.get('ML', {})
+                classifier_mode = ml_config.get('CLASSIFIER_MODE', 'positive_screen')
+                loss_threshold = float(ml_config.get('NEGATIVE_SCREEN', {}).get('LOSS_THRESHOLD', -0.3))
+
+                pred_proba = merged[DataSchema.PRED_PROBA].values
+                actual_price_dev = merged['price_dev'].values
+
+                # Valid mask (no NaN)
+                cls_valid = ~(np.isnan(pred_proba) | np.isnan(actual_price_dev))
+
+                if cls_valid.sum() >= 10:
+                    proba_valid = pred_proba[cls_valid]
+                    price_dev_valid = actual_price_dev[cls_valid]
+
+                    if classifier_mode == "negative_screen":
+                        # Class 1 = BAD (price_dev < loss_threshold)
+                        actual_binary = (price_dev_valid < loss_threshold).astype(int)
+                        # pred_proba = P(BAD), high proba = BAD
+                        # Use percentile-based threshold (consistent with training)
+                        remove_pct_min = int(ml_config.get('CLASSIFIER_REMOVE_PCT_MIN', 2))
+                        remove_pct_max = int(ml_config.get('CLASSIFIER_REMOVE_PCT_MAX', 15))
+                        mid_pct = (remove_pct_min + remove_pct_max) // 2
+                        cls_threshold = np.percentile(proba_valid, 100 - mid_pct)
+                        pred_binary = (proba_valid >= cls_threshold).astype(int)
+
+                        label_pos = "BAD"
+                        label_neg = "OK"
+                        actual_bad_rate = actual_binary.mean() * 100
+                        logging.info(f"   🔍 Classifier (negative_screen):")
+                        logging.info(f"      Loss threshold: {loss_threshold}, Actual BAD rate: {actual_bad_rate:.1f}%")
+                        logging.info(f"      Pred threshold: {cls_threshold:.3f} (top {mid_pct}% flagged as BAD)")
+                    else:
+                        # positive_screen: Class 1 = GOOD (price_dev > 0)
+                        actual_binary = (price_dev_valid > 0).astype(int)
+                        # pred_proba = P(GOOD), high proba = GOOD
+                        remove_pct_min = int(ml_config.get('CLASSIFIER_REMOVE_PCT_MIN', 2))
+                        remove_pct_max = int(ml_config.get('CLASSIFIER_REMOVE_PCT_MAX', 15))
+                        mid_pct = (remove_pct_min + remove_pct_max) // 2
+                        cls_threshold = np.percentile(proba_valid, mid_pct)
+                        pred_binary = (proba_valid >= cls_threshold).astype(int)
+
+                        label_pos = "GOOD"
+                        label_neg = "LOSS"
+                        actual_good_rate = actual_binary.mean() * 100
+                        logging.info(f"   🔍 Classifier (positive_screen):")
+                        logging.info(f"      Actual GOOD rate: {actual_good_rate:.1f}%")
+                        logging.info(f"      Pred threshold: {cls_threshold:.3f} (bottom {mid_pct}% flagged as LOSS)")
+
+                    cls_accuracy = accuracy_score(actual_binary, pred_binary)
+                    cls_precision = precision_score(actual_binary, pred_binary, zero_division=0)
+                    cls_recall = recall_score(actual_binary, pred_binary, zero_division=0)
+                    cls_f1 = f1_score(actual_binary, pred_binary, zero_division=0)
+                    cls_filter_rate = pred_binary.mean() * 100  # % flagged
+
+                    logging.info(f"      Accuracy:  {cls_accuracy:.4f}")
+                    logging.info(f"      Precision: {cls_precision:.4f} (flagged as {label_pos} → actually {label_pos})")
+                    logging.info(f"      Recall:    {cls_recall:.4f} (actual {label_pos} → correctly flagged)")
+                    logging.info(f"      F1:        {cls_f1:.4f}")
+                    logging.info(f"      Filter rate: {cls_filter_rate:.1f}% flagged")
+
+                    # Filtering effectiveness: among stocks NOT filtered out, what's the BAD rate?
+                    if classifier_mode == "negative_screen":
+                        kept_mask = pred_binary == 0  # OK stocks
+                        if kept_mask.sum() > 0:
+                            bad_in_kept = (price_dev_valid[kept_mask] < loss_threshold).mean() * 100
+                            bad_in_all = actual_bad_rate
+                            logging.info(f"      Filtering effect: BAD rate {bad_in_all:.1f}% → {bad_in_kept:.1f}% (after removal)")
+                    else:
+                        kept_mask = pred_binary == 1  # GOOD stocks
+                        if kept_mask.sum() > 0:
+                            good_in_kept = (price_dev_valid[kept_mask] > 0).mean() * 100
+                            good_in_all = actual_good_rate
+                            logging.info(f"      Filtering effect: GOOD rate {good_in_all:.1f}% → {good_in_kept:.1f}% (after filtering)")
+                else:
+                    logging.warning(f"   ⚠️  Classifier: Too few valid samples ({cls_valid.sum()}) for evaluation")
+            elif not self.use_classifier:
+                logging.info(f"   🔍 Classifier: Disabled (USE_CLASSIFIER=N)")
 
             # Top-K evaluation
             top_k_mask = merged[DataSchema.SELECTED] == True
@@ -4678,18 +4766,28 @@ class Regressor:
                 })
 
             # Store evaluation results
-            all_eval_results.append({
+            eval_entry = {
                 'period': date_str,
                 'n_valid': int(valid_mask.sum()),
                 'rmse': rmse,
                 'mae': mae,
                 'r2': r2,
-                'accuracy': accuracy,
-                'precision': precision,
-                'recall': recall,
+                'reg_accuracy': accuracy,
+                'reg_precision': precision,
+                'reg_recall': recall,
                 'train_samples': train_samples,
                 'predict_samples': predict_samples,
-            })
+            }
+            # Classifier metrics (if available)
+            if cls_accuracy is not None:
+                eval_entry.update({
+                    'cls_accuracy': cls_accuracy,
+                    'cls_precision': cls_precision,
+                    'cls_recall': cls_recall,
+                    'cls_f1': cls_f1,
+                    'cls_filter_rate': cls_filter_rate,
+                })
+            all_eval_results.append(eval_entry)
 
             # Add actual returns to predictions for CSV output
             merged['rebalance_date'] = date_str
@@ -4704,14 +4802,34 @@ class Regressor:
             eval_df = pd.DataFrame(all_eval_results)
             logging.info(f"\n{eval_df.to_string(index=False)}")
 
-            # Averages
-            logging.info(f"\n📈 Average Metrics:")
+            # Averages - Regressor
+            logging.info(f"\n📈 Average Regressor Metrics:")
             logging.info(f"   RMSE:      {eval_df['rmse'].mean():.4f}")
             logging.info(f"   MAE:       {eval_df['mae'].mean():.4f}")
             logging.info(f"   R²:        {eval_df['r2'].mean():.4f}")
-            logging.info(f"   Accuracy:  {eval_df['accuracy'].mean():.4f}")
-            logging.info(f"   Precision: {eval_df['precision'].mean():.4f}")
-            logging.info(f"   Recall:    {eval_df['recall'].mean():.4f}")
+            logging.info(f"   Accuracy:  {eval_df['reg_accuracy'].mean():.4f}")
+            logging.info(f"   Precision: {eval_df['reg_precision'].mean():.4f}")
+            logging.info(f"   Recall:    {eval_df['reg_recall'].mean():.4f}")
+
+            # Averages - Classifier (if available)
+            if 'cls_accuracy' in eval_df.columns and eval_df['cls_accuracy'].notna().any():
+                cls_mask = eval_df['cls_accuracy'].notna()
+                logging.info(f"\n🔍 Average Classifier Metrics ({cls_mask.sum()} periods):")
+                logging.info(f"   Accuracy:    {eval_df.loc[cls_mask, 'cls_accuracy'].mean():.4f}")
+                logging.info(f"   Precision:   {eval_df.loc[cls_mask, 'cls_precision'].mean():.4f}")
+                logging.info(f"   Recall:      {eval_df.loc[cls_mask, 'cls_recall'].mean():.4f}")
+                logging.info(f"   F1:          {eval_df.loc[cls_mask, 'cls_f1'].mean():.4f}")
+                logging.info(f"   Filter rate: {eval_df.loc[cls_mask, 'cls_filter_rate'].mean():.1f}%")
+
+                # Interpretation
+                avg_cls_acc = eval_df.loc[cls_mask, 'cls_accuracy'].mean()
+                avg_cls_prec = eval_df.loc[cls_mask, 'cls_precision'].mean()
+                if avg_cls_acc < 0.55:
+                    logging.warning(f"   ⚠️  Classifier accuracy {avg_cls_acc:.3f} < 0.55 → 동전 던지기 수준, 필터링 효과 미미")
+                elif avg_cls_acc < 0.65:
+                    logging.info(f"   ⚠️  Classifier accuracy {avg_cls_acc:.3f} < 0.65 → 약간의 신호, 개선 필요")
+                else:
+                    logging.info(f"   ✅ Classifier accuracy {avg_cls_acc:.3f} >= 0.65 → 유의미한 신호")
 
             # Save evaluation metrics CSV
             eval_df.to_csv(MODEL_SAVE_PATH + 'walk_forward_eval_metrics.csv', index=False)
