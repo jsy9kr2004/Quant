@@ -15,16 +15,16 @@ unified logging system과 통합됩니다.
 
         from src.infra.context_loader import ConfigLoader, MainContext
 
-        # Load configuration
+        # Configuration 로드
         config_loader = ConfigLoader('config/conf.yaml')
 
-        # Access with dot notation
+        # Dot notation으로 접근
         start_year = config_loader.get('DATA.START_YEAR', 2015)
 
-        # Get section config
+        # 섹션 config 가져오기
         ml_config = config_loader.get_ml_config()
 
-        # Create main context
+        # 메인 context 생성
         context = MainContext(config_loader.config)
         logger = context.get_logger('MyModule')
         logger.info('Application started')
@@ -33,16 +33,16 @@ unified logging system과 통합됩니다.
 
         from src.infra.context_loader import ContextLoader
 
-        # Create legacy context
+        # 레거시 context 생성
         context = ContextLoader()
         logger = context.get_logger('MyModule')
 
 Attributes:
-    None (module-level)
+    없음 (모듈 레벨)
 
 See Also:
-    - src.infra.logger: Unified logging system
-    - config/conf.yaml: Configuration file format
+    - src.infra.logger: 통합 로깅 시스템
+    - config/conf.yaml: Configuration 파일 형식
 """
 
 import yaml
@@ -50,7 +50,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-# Import new logging system
+# 새로운 로깅 시스템 임포트
 from src.infra.logger import setup_logging, get_logger
 
 
@@ -437,12 +437,12 @@ class ContextLoader:
                 '%(message)s (%(filename)s:%(lineno)d)'
             )
 
-            # Console handler
+            # 콘솔 handler
             stream_handler = logging.StreamHandler()
             stream_handler.setFormatter(formatter)
             logger.addHandler(stream_handler)
 
-            # File handler
+            # 파일 handler
             file_handler = logging.FileHandler(self.log_path, mode="a+")
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
@@ -535,7 +535,7 @@ class MainContext:
         self.end_year = int(data_config.get('END_YEAR', 2023))
         self.root_path = data_config.get('ROOT_PATH', '/home/user/Quant/data')
 
-        # Debug mode: Save CSV files alongside Parquet for inspection
+        # 디버그 모드: 검사를 위해 Parquet과 함께 CSV 파일 저장
         save_debug_csv_value = data_config.get('SAVE_DEBUG_CSV', 'N')
         self.save_debug_csv = (save_debug_csv_value == 'Y' or save_debug_csv_value == True)
 
@@ -545,7 +545,7 @@ class MainContext:
         self.ex_symbol = data_config.get('EX_SYMBOL', 'AAPL')  # URL 파싱을 위한 예제 심볼
         self.target_api_list = data_config.get('TARGET_API_LIST', 'src/data_collector/target_api_list.csv')
 
-        # Logging configuration
+        # 로깅 설정
         # 정수 log level을 문자열 이름으로 매핑
         log_level_map = {10: 'DEBUG', 20: 'INFO', 30: 'WARNING', 40: 'ERROR', 50: 'CRITICAL'}
         log_lvl_int = int(config.get('LOG_LVL', 20))

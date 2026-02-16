@@ -142,7 +142,7 @@ class XGBoostModel(BaseModel):
         super().__init__(model_type='xgboost', task=task)
         self.config_name = config_name
 
-        # Load default configuration based on task type
+        # 작업 유형에 따른 기본 설정 로드
         if task == 'classification':
             self.default_params = XGBOOST_CLASSIFIER_CONFIGS.get(
                 config_name,
@@ -196,12 +196,12 @@ class XGBoostModel(BaseModel):
         if params is None:
             params = self.default_params
         else:
-            # Merge custom parameters with defaults
+            # 커스텀 파라미터를 기본값과 병합
             merged_params = self.default_params.copy()
             merged_params.update(params)
             params = merged_params
 
-        # Create appropriate model type based on task
+        # 작업 유형에 맞는 모델 생성
         if self.task == 'classification':
             self.model = xgb.XGBClassifier(**params)
         else:
@@ -266,10 +266,10 @@ class XGBoostModel(BaseModel):
             'verbose': verbose
         }
 
-        # Add early stopping parameters if validation data is provided
+        # 검증 데이터가 제공된 경우 조기 종료 파라미터 추가
         if X_val is not None and y_val is not None:
             kwargs['early_stopping_rounds'] = early_stopping_rounds
             kwargs['eval_metric'] = self.model.eval_metric
 
-        # Call parent fit method with prepared kwargs
+        # 준비된 kwargs로 부모 클래스의 fit 메서드 호출
         return super().fit(X_train, y_train, X_val, y_val, **kwargs)

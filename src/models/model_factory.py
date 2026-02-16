@@ -1,15 +1,15 @@
 """
-Unified Model Factory for consistent model creation across the system.
+시스템 전체에서 일관된 모델 생성을 위한 통합 Model Factory.
 
-This module provides a centralized ModelFactory that ensures regressor.py
-and ml_backtest.py use identical models with identical parameters.
+이 모듈은 regressor.py와 ml_backtest.py가 동일한 파라미터로
+동일한 모델을 사용하도록 보장하는 중앙화된 ModelFactory를 제공합니다.
 
-Key Features:
-- Single source of truth for model parameters
-- Optuna hyperparameter optimization support
-- Ensemble model creation (multiple models with different hyperparameters)
-- Sector-specific model creation
-- Consistent model configuration across training and backtesting
+주요 기능:
+- 모델 파라미터의 단일 진실 공급원 (Single Source of Truth)
+- Optuna 하이퍼파라미터 최적화 지원
+- 앙상블 모델 생성 (서로 다른 하이퍼파라미터를 가진 복수 모델)
+- 섹터별 모델 생성
+- 학습과 백테스팅 간 일관된 모델 설정
 
 Author: Quant Trading Team
 Date: 2025-11-28
@@ -39,20 +39,20 @@ from .config import (
 
 class ModelFactory:
     """
-    Factory for creating ML models with consistent parameters.
+    일관된 파라미터로 ML 모델을 생성하는 팩토리.
 
-    This factory ensures that regressor.py and ml_backtest.py use the exact same
-    models, preventing inconsistencies between training and backtesting.
+    이 팩토리는 regressor.py와 ml_backtest.py가 정확히 동일한 모델을 사용하도록
+    보장하여 학습과 백테스팅 간 불일치를 방지합니다.
 
-    Usage (regressor.py - ensemble mode):
+    사용 예시 (regressor.py - 앙상블 모드):
         factory = ModelFactory(config, optuna_params=optuna_best_params)
         classifiers, regressors = factory.create_ensemble_models()
 
-    Usage (ml_backtest.py - single model mode):
+    사용 예시 (ml_backtest.py - 단일 모델 모드):
         factory = ModelFactory(config)
         classifier, regressor = factory.create_single_models()
 
-    Usage (sector models):
+    사용 예시 (섹터 모델):
         factory = ModelFactory(config)
         sector_models = factory.create_sector_models(sector_list)
     """
@@ -65,57 +65,50 @@ class ModelFactory:
         logger: Optional[logging.Logger] = None
     ):
         """
-        Initialize ModelFactory.
+        ModelFactory를 초기화합니다.
 
-        Parameters:
-        ----------
-        config : Dict[str, Any]
-            Configuration dictionary from conf.yaml
-        optuna_params : Optional[Dict[str, Any]]
-            Optuna-optimized parameters to apply to the first classifier
-        use_ensemble : bool
-            If True, create ensemble models (regressor.py mode)
-            If False, create single models (ml_backtest.py mode)
-        logger : Optional[logging.Logger]
-            Logger instance for logging
+        Args:
+            config: conf.yaml에서 로드한 설정 딕셔너리
+            optuna_params: 첫 번째 분류기에 적용할 Optuna 최적화 파라미터
+            use_ensemble: True이면 앙상블 모델 생성 (regressor.py 모드),
+                False이면 단일 모델 생성 (ml_backtest.py 모드)
+            logger: 로깅을 위한 Logger 인스턴스
         """
         self.config = config
         self.optuna_params = optuna_params
         self.use_ensemble = use_ensemble
         self.logger = logger or logging.getLogger('ModelFactory')
 
-        # Get ML configuration
+        # ML 설정 가져오기
         self.ml_config = config.get('ML', {})
         self.use_classifier = self.ml_config.get('USE_CLASSIFIER', 'Y') == 'Y'
         self.use_sector_model = self.ml_config.get('USE_SECTOR_MODEL', 'N') == 'Y'
 
-        # Load sector configuration (원본 섹터별 설정)
+        # 섹터 설정 로드 (원본 섹터별 설정)
         self.sector_config = self.ml_config.get('SECTOR_CONFIG', {}) if self.use_sector_model else {}
 
-        # Load sector categorization configuration (카테고리 통합 설정)
+        # 섹터 카테고리화 설정 로드 (카테고리 통합 설정)
         self.sector_categorization = self.ml_config.get('SECTOR_CATEGORIZATION', {})
         self.use_categorization = self.sector_categorization.get('ENABLED', 'N') == 'Y'
 
-        # Determine which config to use for sector models
+        # 섹터 모델에 사용할 설정 결정
         if self.use_sector_model and self.use_categorization:
-            # ENABLED=Y: Use category-based model configs
+            # ENABLED=Y: 카테고리 기반 모델 설정 사용
             self.effective_sector_config = self._extract_category_configs()
             self.logger.info("🔧 Using category-based model configs (CATEGORIZATION.ENABLED=Y)")
         else:
-            # ENABLED=N: Use original sector-based model configs
+            # ENABLED=N: 원본 섹터 기반 모델 설정 사용
             self.effective_sector_config = self.sector_config
             if self.use_sector_model:
                 self.logger.info("🔧 Using original sector-based model configs (CATEGORIZATION.ENABLED=N)")
 
     def _extract_category_configs(self) -> Dict[str, Dict[str, Any]]:
         """
-        Extract model_config from each category in SECTOR_CATEGORIZATION.
+        SECTOR_CATEGORIZATION의 각 카테고리에서 model_config를 추출합니다.
 
         Returns:
-        -------
-        Dict[str, Dict[str, Any]]
-            Dictionary mapping category name to model_config
-            Example: {'Financial': {'model': 'xgboost', 'n_estimators': 200, ...}, ...}
+            카테고리 이름을 model_config에 매핑하는 딕셔너리.
+            예시: {'Financial': {'model': 'xgboost', 'n_estimators': 200, ...}, ...}
         """
         categories = self.sector_categorization.get('CATEGORIES', {})
         category_configs = {}
@@ -184,36 +177,33 @@ class ModelFactory:
 
     def create_ensemble_models(self) -> Tuple[List[Any], List[Any]]:
         """
-        Create ensemble models (regressor.py mode).
+        앙상블 모델을 생성합니다 (regressor.py 모드).
 
-        Creates multiple models with different hyperparameters for ensemble prediction.
+        앙상블 예측을 위해 서로 다른 하이퍼파라미터를 가진 복수 모델을 생성합니다.
 
-        When USE_CLASSIFIER=Y:
-        - 4 Classifiers: XGB (depth 8,9,10) + CatBoost
-        - 2 Regressors: XGB (depth 8) + CatBoost
+        USE_CLASSIFIER=Y일 때:
+        - 4개 분류기: XGB (depth 8,9,10) + CatBoost
+        - 2개 회귀기: XGB (depth 8) + CatBoost
 
-        When USE_CLASSIFIER=N:
-        - 0 Classifiers (empty list)
-        - 2 Regressors: XGB (depth 8) + CatBoost
+        USE_CLASSIFIER=N일 때:
+        - 0개 분류기 (빈 리스트)
+        - 2개 회귀기: XGB (depth 8) + CatBoost
 
         Returns:
-        -------
-        classifiers : List[Any]
-            List of classification models (empty if USE_CLASSIFIER=N)
-        regressors : List[Any]
-            List of 2 regression models
+            classifiers: 분류 모델 리스트 (USE_CLASSIFIER=N이면 빈 리스트)
+            regressors: 2개의 회귀 모델 리스트
         """
         classifiers = []
         regressors = []
 
-        # ===== Classifiers (only if USE_CLASSIFIER=Y) =====
+        # ===== 분류기 (USE_CLASSIFIER=Y일 때만) =====
         if self.use_classifier:
-            # Classifier 0: XGBoost depth=8 (with Optuna params if available)
+            # 분류기 0: XGBoost depth=8 (Optuna 파라미터가 있으면 적용)
             if self.optuna_params:
                 self.logger.info(f" Using Optuna-optimized params for classifier_0: {self.optuna_params}")
                 clf_0 = xgboost.XGBClassifier(
                     tree_method='hist',
-                    device='cpu',  # Use CPU for compatibility
+                    device='cpu',  # 호환성을 위해 CPU 사용
                     n_estimators=self.optuna_params.get('n_estimators', 500),
                     learning_rate=self.optuna_params.get('learning_rate', 0.1),
                     gamma=self.optuna_params.get('gamma', 0),
@@ -222,37 +212,37 @@ class ModelFactory:
                     max_depth=self.optuna_params.get('max_depth', 8),
                     objective='binary:logistic',
                     eval_metric='logloss',
-                    missing=np.nan  # XGBoost handles NaN automatically (use np.nan, not None)
+                    missing=np.nan  # XGBoost가 NaN을 자동 처리 (None이 아닌 np.nan 사용)
                 )
             else:
                 clf_config = XGBOOST_CLASSIFIER_CONFIGS['default'].copy()
-                clf_config['device'] = 'cpu'  # Override to CPU
+                clf_config['device'] = 'cpu'  # CPU로 오버라이드
                 clf_0 = xgboost.XGBClassifier(**clf_config, missing=np.nan)
 
             classifiers.append(clf_0)
 
-            # Classifier 1: XGBoost depth=9
+            # 분류기 1: XGBoost depth=9
             clf_config_9 = XGBOOST_CLASSIFIER_CONFIGS['depth_9'].copy()
             clf_config_9['device'] = 'cpu'
             clf_1 = xgboost.XGBClassifier(**clf_config_9, missing=np.nan)
             classifiers.append(clf_1)
 
-            # Classifier 2: XGBoost depth=10
+            # 분류기 2: XGBoost depth=10
             clf_config_10 = XGBOOST_CLASSIFIER_CONFIGS['depth_10'].copy()
             clf_config_10['device'] = 'cpu'
             clf_2 = xgboost.XGBClassifier(**clf_config_10, missing=np.nan)
             classifiers.append(clf_2)
 
-            # Classifier 3: CatBoost
+            # 분류기 3: CatBoost
             if CATBOOST_AVAILABLE:
-                # CatBoost (robust baseline, handles noisy features well)
+                # CatBoost (견고한 기준선, 노이즈가 많은 feature를 잘 처리)
                 cb_clf_config = self._build_catboost_config(
                     CATBOOST_CLASSIFIER_CONFIGS['default'],
                     role='classifier', is_sector=False,
                 )
                 clf_3 = CatBoostClassifier(**cb_clf_config)
             else:
-                # Fallback: LightGBM
+                # 대체: LightGBM
                 lgb_clf_config = LIGHTGBM_CLASSIFIER_CONFIGS['default'].copy()
                 lgb_clf_config['device'] = 'cpu'
                 clf_3 = lgb.LGBMClassifier(
@@ -269,14 +259,14 @@ class ModelFactory:
         else:
             self.logger.info(" USE_CLASSIFIER=N: Skipping classifier creation")
 
-        # ===== Regressors =====
-        # Regressor 0: XGBoost depth=8
+        # ===== 회귀기 =====
+        # 회귀기 0: XGBoost depth=8
         reg_config_8 = XGBOOST_REGRESSOR_CONFIGS['default'].copy()
         reg_config_8['device'] = 'cpu'
         reg_0 = xgboost.XGBRegressor(**reg_config_8, missing=np.nan)
         regressors.append(reg_0)
 
-        # Regressor 1: CatBoost (additional model diversity vs XGB-only)
+        # 회귀기 1: CatBoost (XGB 단독 대비 모델 다양성 추가)
         if CATBOOST_AVAILABLE:
             cb_reg_config = self._build_catboost_config(
                 CATBOOST_REGRESSOR_CONFIGS['default'],
@@ -285,7 +275,7 @@ class ModelFactory:
             reg_1 = CatBoostRegressor(**cb_reg_config)
             regressors.append(reg_1)
         else:
-            # Fallback: XGBoost depth=10
+            # 대체: XGBoost depth=10
             reg_config_10 = XGBOOST_REGRESSOR_CONFIGS['depth_10'].copy()
             reg_config_10['device'] = 'cpu'
             reg_1 = xgboost.XGBRegressor(**reg_config_10, missing=np.nan)
@@ -297,37 +287,32 @@ class ModelFactory:
 
     def create_single_models(self, use_gpu: bool = False) -> Tuple[Any, Any]:
         """
-        Create single models (ml_backtest.py mode).
+        단일 모델을 생성합니다 (ml_backtest.py 모드).
 
-        Creates simple single models for walk-forward backtesting.
+        Walk-forward 백테스팅을 위한 단순한 단일 모델을 생성합니다.
 
-        When USE_CLASSIFIER=Y:
-        - 1 Classifier: XGBoost depth=8
-        - 1 Regressor: XGBoost depth=8
+        USE_CLASSIFIER=Y일 때:
+        - 1개 분류기: XGBoost depth=8
+        - 1개 회귀기: XGBoost depth=8
 
-        When USE_CLASSIFIER=N:
-        - Classifier: None
-        - 1 Regressor: XGBoost depth=8
+        USE_CLASSIFIER=N일 때:
+        - 분류기: None
+        - 1개 회귀기: XGBoost depth=8
 
-        Note: To maintain consistency, we use the SAME parameters as ensemble's first model.
+        Note: 일관성 유지를 위해 앙상블의 첫 번째 모델과 동일한 파라미터를 사용합니다.
 
-        Parameters:
-        ----------
-        use_gpu : bool
-            Whether to use GPU acceleration (default: False)
+        Args:
+            use_gpu: GPU 가속 사용 여부 (기본값: False)
 
         Returns:
-        -------
-        classifier : Any
-            Single classification model (None if USE_CLASSIFIER=N)
-        regressor : Any
-            Single regression model
+            classifier: 단일 분류 모델 (USE_CLASSIFIER=N이면 None)
+            regressor: 단일 회귀 모델
         """
         device = 'cuda:0' if use_gpu else 'cpu'
-        # XGBoost 2.0+: Use device parameter for GPU, tree_method='hist' for all cases
+        # XGBoost 2.0+: GPU는 device 파라미터 사용, 모든 경우에 tree_method='hist'
         tree_method = 'hist'
 
-        # ===== Classifier (only if USE_CLASSIFIER=Y) =====
+        # ===== 분류기 (USE_CLASSIFIER=Y일 때만) =====
         classifier = None
         if self.use_classifier:
             if self.optuna_params:
@@ -356,7 +341,7 @@ class ModelFactory:
         else:
             self.logger.info(" USE_CLASSIFIER=N: Skipping single classifier creation")
 
-        # ===== Regressor =====
+        # ===== 회귀기 =====
         reg_config = XGBOOST_REGRESSOR_CONFIGS['default'].copy()
         reg_config['device'] = device
         reg_config['tree_method'] = tree_method
@@ -373,53 +358,46 @@ class ModelFactory:
         sector_optuna_params: Optional[Dict[str, Dict[str, Any]]] = None
     ) -> Tuple[Dict[Tuple[str, int], Any], Dict[Tuple[str, int], Any]]:
         """
-        Create sector-specific models.
+        섹터별 모델을 생성합니다.
 
-        Creates separate models for each sector with slightly different
-        hyperparameters to capture sector-specific patterns.
+        섹터별 고유 패턴을 포착하기 위해 약간 다른 하이퍼파라미터를 가진
+        각 섹터별 독립 모델을 생성합니다.
 
-        When USE_CLASSIFIER=Y:
-        - Per sector: 4 classifiers (XGB depth 8/9/10 + CatBoost) + 2 regressors
+        USE_CLASSIFIER=Y일 때:
+        - 섹터당: 4개 분류기 (XGB depth 8/9/10 + CatBoost) + 2개 회귀기
 
-        When USE_CLASSIFIER=N:
-        - Per sector: 0 classifiers + 2 regressors
+        USE_CLASSIFIER=N일 때:
+        - 섹터당: 0개 분류기 + 2개 회귀기
 
-        **Parameter Priority**: Optuna > SECTOR_CONFIG > Default
+        **파라미터 우선순위**: Optuna > SECTOR_CONFIG > Default
 
-        Parameters:
-        ----------
-        sector_list : List[str]
-            List of sector names (e.g., ['Technology', 'Financial', ...])
-        num_regressor_variants : int
-            Number of regressor variants per sector (default: 2)
-        sector_optuna_params : Optional[Dict[str, Dict[str, Any]]]
-            Optuna-optimized parameters per sector
-            Format: {'Technology': {...}, 'Financial': {...}, ...}
+        Args:
+            sector_list: 섹터 이름 리스트 (예: ['Technology', 'Financial', ...])
+            num_regressor_variants: 섹터당 회귀기 변형 수 (기본값: 2)
+            sector_optuna_params: 섹터별 Optuna 최적화 파라미터.
+                형식: {'Technology': {...}, 'Financial': {...}, ...}
 
         Returns:
-        -------
-        sector_classifiers : Dict[Tuple[str, int], Any]
-            Dictionary mapping (sector, variant_idx) to classifier
-            Empty dict if USE_CLASSIFIER=N
-        sector_regressors : Dict[Tuple[str, int], Any]
-            Dictionary mapping (sector, variant_idx) to regressor
-            Example: {('Technology', 0): model, ('Technology', 1): model, ...}
+            sector_classifiers: (섹터, 변형_인덱스)를 분류기에 매핑하는 딕셔너리.
+                USE_CLASSIFIER=N이면 빈 딕셔너리
+            sector_regressors: (섹터, 변형_인덱스)를 회귀기에 매핑하는 딕셔너리.
+                예시: {('Technology', 0): model, ('Technology', 1): model, ...}
         """
         sector_classifiers = {}
         sector_regressors = {}
 
         for sector in sector_list:
-            # Get sector-specific or category-specific config
-            # When CATEGORIZATION.ENABLED=Y: sector = category name (e.g., "Financial")
-            # When CATEGORIZATION.ENABLED=N: sector = original sector name (e.g., "Financials")
+            # 섹터별 또는 카테고리별 설정 가져오기
+            # CATEGORIZATION.ENABLED=Y일 때: sector = 카테고리 이름 (예: "Financial")
+            # CATEGORIZATION.ENABLED=N일 때: sector = 원본 섹터 이름 (예: "Financials")
             sector_cfg = self.effective_sector_config.get(sector, {})
 
-            # Get Optuna-optimized params if available
+            # Optuna 최적화 파라미터가 있으면 가져오기
             optuna_cfg = sector_optuna_params.get(sector, {}) if sector_optuna_params else {}
 
-            # ===== Classifiers (only if USE_CLASSIFIER=Y) =====
+            # ===== 분류기 (USE_CLASSIFIER=Y일 때만) =====
             if self.use_classifier:
-                # Classifier 0: XGBoost depth=8 (with Optuna params if available)
+                # 분류기 0: XGBoost depth=8 (Optuna 파라미터가 있으면 적용)
                 if optuna_cfg:
                     clf_0 = xgboost.XGBClassifier(
                         tree_method='hist',
@@ -440,19 +418,19 @@ class ModelFactory:
                     clf_0 = xgboost.XGBClassifier(**clf_config, missing=np.nan)
                 sector_classifiers[(sector, 0)] = clf_0
 
-                # Classifier 1: XGBoost depth=9
+                # 분류기 1: XGBoost depth=9
                 clf_config_9 = XGBOOST_CLASSIFIER_CONFIGS['depth_9'].copy()
                 clf_config_9['device'] = 'cpu'
                 clf_1 = xgboost.XGBClassifier(**clf_config_9, missing=np.nan)
                 sector_classifiers[(sector, 1)] = clf_1
 
-                # Classifier 2: XGBoost depth=10
+                # 분류기 2: XGBoost depth=10
                 clf_config_10 = XGBOOST_CLASSIFIER_CONFIGS['depth_10'].copy()
                 clf_config_10['device'] = 'cpu'
                 clf_2 = xgboost.XGBClassifier(**clf_config_10, missing=np.nan)
                 sector_classifiers[(sector, 2)] = clf_2
 
-                # Classifier 3: CatBoost (fallback to LightGBM if CatBoost unavailable)
+                # 분류기 3: CatBoost (CatBoost 사용 불가 시 LightGBM으로 대체)
                 if CATBOOST_AVAILABLE:
                     cb_clf_config = self._build_catboost_config(
                         CATBOOST_CLASSIFIER_CONFIGS['default'],
@@ -472,9 +450,9 @@ class ModelFactory:
                         boost_from_average=False
                     )
 
-            # ===== Regressors =====
-            # Default parameters (matching regressor.py sector models)
-            # Priority: Optuna > SECTOR_CONFIG > Default
+            # ===== 회귀기 =====
+            # 기본 파라미터 (regressor.py 섹터 모델과 일치)
+            # 우선순위: Optuna > SECTOR_CONFIG > Default
             default_params = {
                 'tree_method': 'hist',
                 'device': 'cpu',
@@ -485,16 +463,16 @@ class ModelFactory:
                 'colsample_bytree': optuna_cfg.get('colsample_bytree', 0.7),
                 'objective': 'reg:squarederror',
                 'eval_metric': 'rmse',
-                'missing': np.nan  # ✅ CRITICAL FIX: Set to np.nan for NaN handling
+                'missing': np.nan  # ✅ 핵심 수정: NaN 처리를 위해 np.nan으로 설정
             }
 
-            # Variant 0: XGBoost regressor (sector-config / optuna aware)
+            # 변형 0: XGBoost 회귀기 (섹터 설정 / Optuna 인식)
             params_0 = default_params.copy()
             base_depth = optuna_cfg.get('max_depth', 7)
             params_0['max_depth'] = base_depth
             sector_regressors[(sector, 0)] = xgboost.XGBRegressor(**params_0)
 
-            # Variant 1: CatBoost regressor (fallback to XGBoost depth+1 if CatBoost unavailable)
+            # 변형 1: CatBoost 회귀기 (CatBoost 사용 불가 시 XGBoost depth+1로 대체)
             if CATBOOST_AVAILABLE:
                 cb_reg_config = self._build_catboost_config(
                     CATBOOST_REGRESSOR_CONFIGS['default'],
@@ -531,12 +509,10 @@ class ModelFactory:
 
     def is_gpu_available(self) -> bool:
         """
-        Check if GPU is available for training.
+        학습을 위한 GPU 사용 가능 여부를 확인합니다.
 
         Returns:
-        -------
-        bool
-            True if GPU is available, False otherwise
+            GPU를 사용할 수 있으면 True, 그렇지 않으면 False
         """
         try:
             import cupy
@@ -546,7 +522,7 @@ class ModelFactory:
 
 
 # ============================================================================
-# Convenience Functions
+# 편의 함수
 # ============================================================================
 
 def create_models_for_regressor(
@@ -557,32 +533,21 @@ def create_models_for_regressor(
     sector_optuna_params: Optional[Dict[str, Dict[str, Any]]] = None
 ) -> Tuple[List[Any], List[Any], Dict[Tuple[str, int], Any], Dict[Tuple[str, int], Any]]:
     """
-    Create all models for regressor.py (ensemble + sectors).
+    regressor.py용 모든 모델을 생성합니다 (앙상블 + 섹터).
 
-    Parameters:
-    ----------
-    config : Dict[str, Any]
-        Configuration from conf.yaml
-    optuna_params : Optional[Dict[str, Any]]
-        Optuna-optimized parameters for ensemble classifier
-    sector_list : Optional[List[str]]
-        List of sectors for sector models
-    use_sector_model : bool
-        Whether to create sector models
-    sector_optuna_params : Optional[Dict[str, Dict[str, Any]]]
-        Optuna-optimized parameters per sector
-        Format: {'Technology': {...}, 'Financial': {...}, ...}
+    Args:
+        config: conf.yaml에서 로드한 설정
+        optuna_params: 앙상블 분류기용 Optuna 최적화 파라미터
+        sector_list: 섹터 모델을 위한 섹터 리스트
+        use_sector_model: 섹터 모델 생성 여부
+        sector_optuna_params: 섹터별 Optuna 최적화 파라미터.
+            형식: {'Technology': {...}, 'Financial': {...}, ...}
 
     Returns:
-    -------
-    classifiers : List[Any]
-        Ensemble classification models (empty if USE_CLASSIFIER=N)
-    regressors : List[Any]
-        Ensemble regression models
-    sector_classifiers : Dict[Tuple[str, int], Any]
-        Sector-specific classifiers (empty if use_sector_model=False or USE_CLASSIFIER=N)
-    sector_regressors : Dict[Tuple[str, int], Any]
-        Sector-specific regressors (empty if use_sector_model=False)
+        classifiers: 앙상블 분류 모델 (USE_CLASSIFIER=N이면 빈 리스트)
+        regressors: 앙상블 회귀 모델
+        sector_classifiers: 섹터별 분류기 (use_sector_model=False 또는 USE_CLASSIFIER=N이면 빈 딕셔너리)
+        sector_regressors: 섹터별 회귀기 (use_sector_model=False이면 빈 딕셔너리)
     """
     factory = ModelFactory(config, optuna_params=optuna_params, use_ensemble=True)
 
@@ -604,25 +569,18 @@ def create_models_for_backtest(
     use_gpu: bool = False
 ) -> Tuple[Any, Any]:
     """
-    Create models for ml_backtest.py (single models).
+    ml_backtest.py용 모델을 생성합니다 (단일 모델).
 
-    **Logic Unification**: Uses same Optuna-optimized parameters as regressor.py
+    **로직 일원화**: regressor.py와 동일한 Optuna 최적화 파라미터를 사용합니다.
 
-    Parameters:
-    ----------
-    config : Dict[str, Any]
-        Configuration from conf.yaml
-    optuna_params : Optional[Dict[str, Any]]
-        Optuna-optimized parameters (loaded from regressor.py results)
-    use_gpu : bool
-        Whether to use GPU acceleration
+    Args:
+        config: conf.yaml에서 로드한 설정
+        optuna_params: Optuna 최적화 파라미터 (regressor.py 결과에서 로드)
+        use_gpu: GPU 가속 사용 여부
 
     Returns:
-    -------
-    classifier : Any
-        Single classification model
-    regressor : Any
-        Single regression model
+        classifier: 단일 분류 모델
+        regressor: 단일 회귀 모델
     """
     factory = ModelFactory(config, optuna_params=optuna_params, use_ensemble=False)
     return factory.create_single_models(use_gpu=use_gpu)

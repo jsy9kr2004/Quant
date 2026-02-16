@@ -1,7 +1,7 @@
 """
-Time Series Cross-Validation
+시계열 교차 검증
 
-시계열 데이터를 위한 교차 검증
+시계열 데이터를 위한 교차 검증 모듈입니다.
 """
 
 import numpy as np
@@ -13,21 +13,21 @@ from typing import Optional, List, Tuple, Dict, Any
 
 class TimeSeriesCV:
     """
-    시계열 데이터를 위한 교차 검증
+    시계열 데이터를 위한 교차 검증을 수행합니다.
 
-    예시:
-    2020-01 ~ 2023-12 데이터를 5-fold로 나누면:
-    Fold 1: Train(2020-01~2021-06) → Test(2021-07~2021-12)
-    Fold 2: Train(2020-01~2022-06) → Test(2022-07~2022-12)
-    ...
+    사용 예시:
+        2020-01 ~ 2023-12 데이터를 5-fold로 나누면:
+        Fold 1: Train(2020-01~2021-06) -> Test(2021-07~2021-12)
+        Fold 2: Train(2020-01~2022-06) -> Test(2022-07~2022-12)
+        ...
 
-    미래 데이터 누출(data leakage)을 방지하며 robust한 검증 수행
+    미래 데이터 누출(data leakage)을 방지하며 안정적인 검증을 수행합니다.
     """
 
     def __init__(self, n_splits: int = 5, test_size_ratio: float = 0.2):
         """
         Args:
-            n_splits: Cross-validation fold 수
+            n_splits: 교차 검증 fold 수
             test_size_ratio: 테스트 데이터 비율
         """
         self.n_splits = n_splits
@@ -35,10 +35,10 @@ class TimeSeriesCV:
 
     def split(self, X: pd.DataFrame, y: Optional[pd.Series] = None) -> List[Tuple[np.ndarray, np.ndarray]]:
         """
-        데이터를 시계열 방식으로 분할
+        데이터를 시계열 방식으로 분할합니다.
 
         Args:
-            X: 특징 데이터
+            X: feature 데이터
             y: 타겟 데이터 (선택)
 
         Returns:
@@ -58,10 +58,10 @@ class TimeSeriesCV:
 
     def split_by_date(self, df: pd.DataFrame, date_col: str = 'date') -> List[Tuple[pd.DataFrame, pd.DataFrame]]:
         """
-        날짜 컬럼 기반으로 데이터 분할
+        날짜 컬럼 기반으로 데이터를 분할합니다.
 
         Args:
-            df: 데이터프레임
+            df: DataFrame
             date_col: 날짜 컬럼명
 
         Returns:
@@ -91,11 +91,11 @@ class TimeSeriesCV:
                             dates: Optional[pd.Series] = None,
                             verbose: bool = True) -> Tuple[Dict[str, float], List[Dict[str, float]]]:
         """
-        모델 교차 검증 수행
+        모델 교차 검증을 수행합니다.
 
         Args:
             model: 학습할 모델 (fit, evaluate 메서드 필요)
-            X: 특징 데이터
+            X: feature 데이터
             y: 타겟 데이터
             dates: 날짜 정보 (선택)
             verbose: 상세 로그 출력 여부
@@ -146,14 +146,14 @@ class TimeSeriesCV:
 
 class ExpandingWindowCV:
     """
-    확장 윈도우 방식의 교차 검증
+    확장 윈도우 방식의 교차 검증을 수행합니다.
 
-    학습 데이터는 계속 누적되고, 테스트 데이터만 이동
+    학습 데이터는 계속 누적되고, 테스트 데이터만 이동합니다.
 
-    예시:
-    Fold 1: Train(2020-01~2020-12) → Test(2021-01~2021-03)
-    Fold 2: Train(2020-01~2021-03) → Test(2021-04~2021-06)
-    Fold 3: Train(2020-01~2021-06) → Test(2021-07~2021-09)
+    사용 예시:
+        Fold 1: Train(2020-01~2020-12) -> Test(2021-01~2021-03)
+        Fold 2: Train(2020-01~2021-03) -> Test(2021-04~2021-06)
+        Fold 3: Train(2020-01~2021-06) -> Test(2021-07~2021-09)
     """
 
     def __init__(self, initial_train_size: int, test_size: int, step_size: int = None):
@@ -168,7 +168,7 @@ class ExpandingWindowCV:
         self.step_size = step_size if step_size is not None else test_size
 
     def split(self, X: pd.DataFrame) -> List[Tuple[np.ndarray, np.ndarray]]:
-        """데이터를 확장 윈도우 방식으로 분할"""
+        """데이터를 확장 윈도우 방식으로 분할합니다."""
         n_samples = len(X)
         splits = []
 
@@ -193,14 +193,14 @@ class ExpandingWindowCV:
 
 class RollingWindowCV:
     """
-    롤링 윈도우 방식의 교차 검증
+    롤링 윈도우 방식의 교차 검증을 수행합니다.
 
-    학습 데이터와 테스트 데이터 모두 이동 (고정된 크기 유지)
+    학습 데이터와 테스트 데이터 모두 이동합니다 (고정된 크기 유지).
 
-    예시:
-    Fold 1: Train(2020-01~2020-12) → Test(2021-01~2021-03)
-    Fold 2: Train(2020-04~2021-03) → Test(2021-04~2021-06)
-    Fold 3: Train(2020-07~2021-06) → Test(2021-07~2021-09)
+    사용 예시:
+        Fold 1: Train(2020-01~2020-12) -> Test(2021-01~2021-03)
+        Fold 2: Train(2020-04~2021-03) -> Test(2021-04~2021-06)
+        Fold 3: Train(2020-07~2021-06) -> Test(2021-07~2021-09)
     """
 
     def __init__(self, train_size: int, test_size: int, step_size: int = None):
@@ -215,7 +215,7 @@ class RollingWindowCV:
         self.step_size = step_size if step_size is not None else test_size
 
     def split(self, X: pd.DataFrame) -> List[Tuple[np.ndarray, np.ndarray]]:
-        """데이터를 롤링 윈도우 방식으로 분할"""
+        """데이터를 롤링 윈도우 방식으로 분할합니다."""
         n_samples = len(X)
         splits = []
 

@@ -16,20 +16,20 @@ Logging system은 QueueHandler와 QueueListener를 사용하여 여러 프로세
     - 표준 Python logging으로부터의 쉬운 마이그레이션
     - 애플리케이션 전체에서 일관된 logging을 위한 중앙화된 configuration
 
-Architecture:
-    Main Process:
+아키텍처:
+    메인 프로세스:
         setup_logging() -> QueueListener -> [ConsoleHandler, FileHandler]
                               ^
                               |
-    Child Processes:         Queue
+    자식 프로세스:            Queue
         Logger -> QueueHandler -|
 
-Usage:
-    Basic setup (call once at application start)::
+사용 예시:
+    기본 설정 (애플리케이션 시작 시 한 번 호출)::
 
         from src.infra.logger import setup_logging, get_logger
 
-        # Setup logging system once
+        # 로깅 시스템 한 번 설정
         setup_logging(
             log_level='INFO',
             log_file='app.log',
@@ -37,41 +37,41 @@ Usage:
             use_colors=True
         )
 
-        # Get logger in any module
+        # 모듈에서 logger 가져오기
         logger = get_logger(__name__)
         logger.info("Application started")
         logger.error("Error occurred", extra={'symbol': 'AAPL', 'price': 150})
 
-    Multiprocessing usage::
+    Multiprocessing 사용::
 
         from src.infra.logger import setup_logger_for_multiprocessing, get_logger
         import multiprocessing as mp
 
         def worker_function(symbol):
-            # Setup logger in child process
+            # 자식 프로세스에서 logger 설정
             setup_logger_for_multiprocessing()
             logger = get_logger(__name__)
             logger.info(f"Processing {symbol}")
 
         if __name__ == '__main__':
-            setup_logging()  # Setup in main process
+            setup_logging()  # 메인 프로세스에서 설정
             with mp.Pool(4) as pool:
                 pool.map(worker_function, ['AAPL', 'GOOGL', 'MSFT'])
 
-    Custom context::
+    사용자 정의 context::
 
         logger = get_logger(__name__, context={'module': 'DataCollector'})
         logger.info("Data collected", extra={'records': 1000})
 
-Module Attributes:
-    _log_queue (Optional[Queue]): Global queue for multiprocessing logs.
-    _queue_listener (Optional[QueueListener]): Listener that processes queued logs.
-    _initialized (bool): Flag indicating if logging system is initialized.
+모듈 속성:
+    _log_queue (Optional[Queue]): Multiprocessing 로그를 위한 전역 큐.
+    _queue_listener (Optional[QueueListener]): 큐에 있는 로그를 처리하는 리스너.
+    _initialized (bool): 로깅 시스템 초기화 여부 플래그.
 
-See Also:
-    - src.infra.context_loader: For MainContext that auto-configures logging
-    - Python logging documentation: https://docs.python.org/3/library/logging.html
-    - QueueHandler/QueueListener: For multiprocessing details
+참고:
+    - src.infra.context_loader: 로깅을 자동 구성하는 MainContext
+    - Python logging 문서: https://docs.python.org/3/library/logging.html
+    - QueueHandler/QueueListener: Multiprocessing 상세 정보
 """
 
 import logging
@@ -119,16 +119,16 @@ class LogColors:
     BOLD = '\033[1m'
 
     # 로그 레벨 - 각 레벨은 고유한 색상을 가집니다
-    DEBUG = '\033[36m'      # Cyan
-    INFO = '\033[32m'       # Green
-    WARNING = '\033[33m'    # Yellow
-    ERROR = '\033[31m'      # Red
-    CRITICAL = '\033[35m'   # Magenta
+    DEBUG = '\033[36m'      # 청록색
+    INFO = '\033[32m'       # 녹색
+    WARNING = '\033[33m'    # 노란색
+    ERROR = '\033[31m'      # 빨간색
+    CRITICAL = '\033[35m'   # 자홍색
 
     # 컴포넌트 - 로그 메시지의 다른 부분에 사용됩니다
-    TIME = '\033[90m'       # Dark gray
-    LEVEL = '\033[1m'       # Bold
-    NAME = '\033[94m'       # Blue
+    TIME = '\033[90m'       # 어두운 회색
+    LEVEL = '\033[1m'       # 굵게
+    NAME = '\033[94m'       # 파란색
 
 
 class ColoredFormatter(logging.Formatter):

@@ -1,14 +1,14 @@
 """
-Data Schema and Column Definitions
+데이터 스키마 및 열 정의
 
-This module provides the SINGLE SOURCE OF TRUTH for all column names,
-metadata definitions, and data contracts used across the entire system.
+이 모듈은 시스템 전체에서 사용되는 모든 열 이름, 메타데이터 정의, 데이터 계약에 대한
+단일 진실 공급원(SINGLE SOURCE OF TRUTH)을 제공합니다.
 
-Critical: This ensures regressor.py and ml_backtest.py use identical
-column definitions, preventing bugs from column name mismatches.
+중요: regressor.py와 ml_backtest.py가 동일한 열 정의를 사용하도록 보장하여
+열 이름 불일치로 인한 버그를 방지합니다.
 
-Author: Quant Trading Team
-Date: 2025-12-01
+작성자: Quant Trading Team
+날짜: 2025-12-01
 """
 
 from typing import List, Set
@@ -16,138 +16,134 @@ from typing import List, Set
 
 class DataSchema:
     """
-    Unified data schema definition.
+    통합 데이터 스키마 정의입니다.
 
-    This class defines all column names and metadata used in the ML pipeline.
+    이 클래스는 ML 파이프라인에서 사용되는 모든 열 이름과 메타데이터를 정의합니다.
 
-    Purpose:
+    목적:
     --------
-    - Single source of truth for column definitions
-    - Prevent column name mismatches between regressor.py and ml_backtest.py
-    - Enable consistent feature engineering across all modules
+    - 열 정의에 대한 단일 진실 공급원
+    - regressor.py와 ml_backtest.py 간 열 이름 불일치 방지
+    - 모든 모듈에서 일관된 feature engineering 지원
 
-    Usage:
+    사용 예시:
     ------
-    # Get columns to exclude from features
+    # feature에서 제외할 열 가져오기
     excluded = DataSchema.get_excluded_cols()
 
-    # Get feature columns from dataframe
+    # DataFrame에서 feature 열 가져오기
     features = DataSchema.get_feature_cols(df)
 
-    # Get target column for regression
+    # 회귀 타겟 열 가져오기
     target = DataSchema.REGRESSION_TARGET
     """
 
     # ========================================================================
-    # Metadata Columns (Stock identifiers and company info)
+    # 메타데이터 열 (종목 식별자 및 기업 정보)
     # ========================================================================
     METADATA_COLS: List[str] = [
-        "symbol",              # Stock ticker symbol (e.g., AAPL, TSLA)
-        "exchangeShortName",   # Exchange name (e.g., NASDAQ, NYSE)
-        "type",                # Security type (e.g., 'stock', 'ETF')
-        "delistedDate",        # Delisting date if applicable
-        "industry",            # Industry classification
-        "ipoDate",             # IPO date
-        "sector",              # Sector classification (e.g., Technology, Financial)
+        "symbol",              # 종목 티커 심볼 (예: AAPL, TSLA)
+        "exchangeShortName",   # 거래소 이름 (예: NASDAQ, NYSE)
+        "type",                # 증권 유형 (예: 'stock', 'ETF')
+        "delistedDate",        # 상장폐지 날짜 (해당되는 경우)
+        "industry",            # 산업 분류
+        "ipoDate",             # IPO 날짜
+        "sector",              # 섹터 분류 (예: Technology, Financial)
     ]
 
     # ========================================================================
-    # Date Columns (Temporal information)
+    # 날짜 열 (시간 정보)
     # ========================================================================
     DATE_COLS: List[str] = [
-        "rebalance_date",      # Portfolio rebalancing date
-        "report_date",         # Financial report date
-        "fillingDate",         # Filing date (SEC submission)
-        "fillingDate_x",       # Filing date variant (from data merge)
-        "acceptedDate",        # Report acceptance date
-        "start_date",          # Period start date
-        "year_period",         # Year period identifier
-        "date",                # Generic date column
+        "rebalance_date",      # 포트폴리오 리밸런싱 날짜
+        "report_date",         # 재무 보고 날짜
+        "fillingDate",         # 공시 날짜 (SEC 제출)
+        "fillingDate_x",       # 공시 날짜 변형 (데이터 병합에서 발생)
+        "acceptedDate",        # 보고서 승인 날짜
+        "start_date",          # 기간 시작 날짜
+        "year_period",         # 연도 기간 식별자
+        "date",                # 일반 날짜 열
     ]
 
     # ========================================================================
-    # Price/Volume Columns (Market data - NOT used as features)
+    # 가격/거래량 열 (시장 데이터 - feature로 사용하지 않음)
     # ========================================================================
-    # These are excluded because they contain future information or
-    # are used only for calculating targets/returns
+    # 미래 정보를 포함하거나 타겟/수익률 계산에만 사용되므로 제외
     PRICE_VOLUME_COLS: List[str] = [
-        "price",               # Stock price (future leakage risk)
-        "volume",              # Trading volume (future leakage risk)
-        "marketCap",           # Market capitalization (derived from price)
-        "price_diff",          # Price difference (target-related)
-        "volume_mul_price",    # Volume * Price (used for filtering only)
+        "price",               # 주가 (미래 유출 위험)
+        "volume",              # 거래량 (미래 유출 위험)
+        "marketCap",           # 시가총액 (주가에서 파생)
+        "price_diff",          # 가격 차이 (타겟 관련)
+        "volume_mul_price",    # 거래량 * 주가 (필터링에만 사용)
     ]
 
     # ========================================================================
-    # Target Variable Columns (Labels for ML models)
+    # 타겟 변수 열 (ML 모델 레이블)
     # ========================================================================
     TARGET_COLS: List[str] = [
-        "price_dev",              # Binary target: price deviation (up/down)
-        "price_dev_subavg",       # Main regression target: price deviation - avg
-        "sec_price_dev_subavg",   # Sector-adjusted price deviation
-        "price_dev_prediction",   # Model prediction output
-        "price_diff_prediction",  # Price difference prediction
-        "price_diff_3month",      # 3-month price difference
-        "price_diff_6month",      # 6-month price difference
+        "price_dev",              # 이진 타겟: 가격 편차 (상승/하락)
+        "price_dev_subavg",       # 주요 회귀 타겟: 가격 편차 - 평균
+        "sec_price_dev_subavg",   # 섹터 조정 가격 편차
+        "price_dev_prediction",   # 모델 예측 출력
+        "price_diff_prediction",  # 가격 차이 예측
+        "price_diff_3month",      # 3개월 가격 차이
+        "price_diff_6month",      # 6개월 가격 차이
     ]
 
     # ========================================================================
-    # Target Variable Names (Single source of truth)
+    # 타겟 변수 이름 (단일 진실 공급원)
     # ========================================================================
-    REGRESSION_TARGET = "price_dev_subavg"        # Main regression target
-    CLASSIFICATION_TARGET = "price_dev"           # Binary classification target
-    SECTOR_REGRESSION_TARGET = "sec_price_dev_subavg"  # Sector-specific target
+    REGRESSION_TARGET = "price_dev_subavg"        # 주요 회귀 타겟
+    CLASSIFICATION_TARGET = "price_dev"           # 이진 분류 타겟
+    SECTOR_REGRESSION_TARGET = "sec_price_dev_subavg"  # 섹터별 타겟
 
     # ========================================================================
-    # Prediction Columns (ML Model Outputs)
+    # 예측 열 (ML 모델 출력)
     # ========================================================================
-    PRED_RETURN = 'pred_return'           # Predicted return (regressor output)
-    PRED_PROBA = 'pred_proba'             # Predicted probability (classifier output, 0~1)
-    ML_SCORE = 'ml_score'                 # Final score (pred_proba × pred_return)
-    RANK = 'rank'                         # Ranking by ml_score (1, 2, 3, ...)
-    SELECTED = 'selected'                 # Top-K selection flag (True/False)
-    PRED_LABEL = 'pred_label'             # Predicted label (UP/DOWN)
+    PRED_RETURN = 'pred_return'           # 예측 수익률 (regressor 출력)
+    PRED_PROBA = 'pred_proba'             # 예측 확률 (classifier 출력, 0~1)
+    ML_SCORE = 'ml_score'                 # 최종 점수 (pred_proba x pred_return)
+    RANK = 'rank'                         # ml_score 기준 순위 (1, 2, 3, ...)
+    SELECTED = 'selected'                 # Top-K 선택 여부 (True/False)
+    PRED_LABEL = 'pred_label'             # 예측 레이블 (UP/DOWN)
 
     # ========================================================================
-    # Backtest Columns (Actual Trading Results)
+    # 백테스트 열 (실제 거래 결과)
     # ========================================================================
-    ACTUAL_RETURN = 'actual_return'       # Actual return ((sell-buy)/buy)
-    BUY_PRICE = 'buy_price'               # Buy price at entry
-    SELL_PRICE = 'sell_price'             # Sell price at exit
-    BUY_DATE = 'buy_date'                 # Actual buy date (trade-day adjusted)
-    SELL_DATE = 'sell_date'               # Actual sell date (trade-day adjusted)
-    HOLDING_DAYS = 'holding_days'         # Holding period in days
+    ACTUAL_RETURN = 'actual_return'       # 실제 수익률 ((매도가-매수가)/매수가)
+    BUY_PRICE = 'buy_price'               # 진입 시 매수가
+    SELL_PRICE = 'sell_price'             # 청산 시 매도가
+    BUY_DATE = 'buy_date'                 # 실제 매수일 (거래일 조정)
+    SELL_DATE = 'sell_date'               # 실제 매도일 (거래일 조정)
+    HOLDING_DAYS = 'holding_days'         # 보유 기간 (일)
 
     # ========================================================================
-    # Evaluation Columns (Prediction vs Actual)
+    # 평가 열 (예측 vs 실제)
     # ========================================================================
     PREDICTION_ERROR = 'prediction_error' # abs(pred_return - actual_return)
-    DIRECTION_CORRECT = 'direction_correct'  # Direction prediction correct (True/False)
-    ACTUAL_LABEL = 'actual_label'         # Actual label (UP/DOWN)
+    DIRECTION_CORRECT = 'direction_correct'  # 방향 예측 정확 여부 (True/False)
+    ACTUAL_LABEL = 'actual_label'         # 실제 레이블 (UP/DOWN)
 
     # ========================================================================
-    # Additional Info Columns
+    # 추가 정보 열
     # ========================================================================
-    COMPANY_NAME = 'company_name'         # Company name (user-friendly display)
+    COMPANY_NAME = 'company_name'         # 기업명 (사용자 친화적 표시)
 
     # ========================================================================
-    # Class Methods
+    # 클래스 메서드
     # ========================================================================
 
     @classmethod
     def get_excluded_cols(cls) -> List[str]:
         """
-        Get all columns that should be EXCLUDED from model features.
+        모델 feature에서 제외해야 하는 모든 열을 가져옵니다.
 
         Returns:
-        --------
-        List[str]
-            Combined list of all metadata, date, price/volume, and target columns
+            List[str]: 모든 메타데이터, 날짜, 가격/거래량, 타겟 열의 통합 리스트
 
-        Usage:
-        ------
-        excluded = DataSchema.get_excluded_cols()
-        features = [col for col in df.columns if col not in excluded]
+        사용 예시:
+            excluded = DataSchema.get_excluded_cols()
+            features = [col for col in df.columns if col not in excluded]
         """
         return (
             cls.METADATA_COLS +
@@ -159,38 +155,30 @@ class DataSchema:
     @classmethod
     def get_excluded_cols_set(cls) -> Set[str]:
         """
-        Get excluded columns as a set for faster lookup.
+        빠른 조회를 위해 제외 열을 set으로 가져옵니다.
 
         Returns:
-        --------
-        Set[str]
-            Set of all excluded column names
+            Set[str]: 모든 제외 열 이름의 set
         """
         return set(cls.get_excluded_cols())
 
     @classmethod
     def get_feature_cols(cls, df) -> List[str]:
         """
-        Extract feature column names from a dataframe.
+        DataFrame에서 feature 열 이름을 추출합니다.
 
-        This method automatically excludes all metadata, dates, price/volume,
-        and target columns, returning only the columns that should be used
-        as features for ML models.
+        이 메서드는 모든 메타데이터, 날짜, 가격/거래량, 타겟 열을 자동으로 제외하고
+        ML 모델의 feature로 사용해야 하는 열만 반환합니다.
 
-        Parameters:
-        -----------
-        df : pd.DataFrame
-            Input dataframe
+        Args:
+            df (pd.DataFrame): 입력 DataFrame
 
         Returns:
-        --------
-        List[str]
-            List of feature column names
+            List[str]: feature 열 이름 리스트
 
-        Usage:
-        ------
-        feature_cols = DataSchema.get_feature_cols(train_df)
-        X = train_df[feature_cols]
+        사용 예시:
+            feature_cols = DataSchema.get_feature_cols(train_df)
+            X = train_df[feature_cols]
         """
         excluded = cls.get_excluded_cols_set()
         return [col for col in df.columns if col not in excluded]
@@ -198,19 +186,14 @@ class DataSchema:
     @classmethod
     def validate_dataframe(cls, df, require_target: bool = True) -> dict:
         """
-        Validate that a dataframe contains required columns.
+        DataFrame이 필수 열을 포함하고 있는지 검증합니다.
 
-        Parameters:
-        -----------
-        df : pd.DataFrame
-            Dataframe to validate
-        require_target : bool
-            If True, check that regression target exists
+        Args:
+            df (pd.DataFrame): 검증할 DataFrame
+            require_target (bool): True인 경우 회귀 타겟 존재 여부 확인
 
         Returns:
-        --------
-        dict
-            {
+            dict: {
                 'valid': bool,
                 'missing_cols': List[str],
                 'warnings': List[str]
@@ -222,12 +205,12 @@ class DataSchema:
             'warnings': []
         }
 
-        # Check for required target
+        # 필수 타겟 확인
         if require_target and cls.REGRESSION_TARGET not in df.columns:
             result['valid'] = False
             result['missing_cols'].append(cls.REGRESSION_TARGET)
 
-        # Check for metadata columns (optional but recommended)
+        # 메타데이터 열 확인 (선택 사항이지만 권장)
         for col in ['symbol', 'sector']:
             if col not in df.columns:
                 result['warnings'].append(f"Recommended column '{col}' not found")
@@ -237,22 +220,16 @@ class DataSchema:
     @classmethod
     def get_target_column(cls, target_type: str = 'regression') -> str:
         """
-        Get target column name based on task type.
+        작업 유형에 따른 타겟 열 이름을 가져옵니다.
 
-        Parameters:
-        -----------
-        target_type : str
-            'regression', 'classification', or 'sector'
+        Args:
+            target_type (str): 'regression', 'classification', 또는 'sector'
 
         Returns:
-        --------
-        str
-            Target column name
+            str: 타겟 열 이름
 
         Raises:
-        -------
-        ValueError
-            If target_type is invalid
+            ValueError: target_type이 유효하지 않은 경우
         """
         if target_type == 'regression':
             return cls.REGRESSION_TARGET
@@ -269,38 +246,34 @@ class DataSchema:
     @classmethod
     def get_detailed_trades_columns(cls) -> List[str]:
         """
-        Get column order for Detailed Trades report sheet.
+        Detailed Trades 레포트 시트의 열 순서를 가져옵니다.
 
-        This defines the canonical column order for the integrated report's
-        "Detailed Trades" sheet, combining regressor predictions with
-        backtest actual results.
+        통합 레포트의 "Detailed Trades" 시트에 대한 표준 열 순서를 정의하며,
+        regressor 예측과 백테스트 실제 결과를 결합합니다.
 
         Returns:
-        --------
-        List[str]
-            Ordered list of column names for Detailed Trades sheet
+            List[str]: Detailed Trades 시트의 정렬된 열 이름 리스트
 
-        Usage:
-        ------
-        detailed_df = detailed_df[DataSchema.get_detailed_trades_columns()]
+        사용 예시:
+            detailed_df = detailed_df[DataSchema.get_detailed_trades_columns()]
         """
         return [
-            # Basic Info
+            # 기본 정보
             'rebalance_date',
             'symbol',
             'company_name',
             'sector',
 
-            # Selection Info
+            # 선택 정보
             'rank',
             'selected',
 
-            # Predictions (from regressor)
+            # 예측 (regressor에서)
             'pred_return',
             'pred_proba',
             'ml_score',
 
-            # Actuals (from backtest)
+            # 실제 결과 (백테스트에서)
             'actual_return',
             'buy_price',
             'sell_price',
@@ -308,7 +281,7 @@ class DataSchema:
             'sell_date',
             'holding_days',
 
-            # Evaluation
+            # 평가
             'prediction_error',
             'direction_correct'
         ]
@@ -316,12 +289,10 @@ class DataSchema:
     @classmethod
     def summary(cls) -> str:
         """
-        Get a summary of the data schema.
+        데이터 스키마의 요약을 가져옵니다.
 
         Returns:
-        --------
-        str
-            Formatted summary string
+            str: 서식이 적용된 요약 문자열
         """
         return f"""
 Data Schema Summary
@@ -342,21 +313,21 @@ Detailed Trades Columns: {len(cls.get_detailed_trades_columns())}
 
 
 # ============================================================================
-# Backward Compatibility Aliases
+# 하위 호환성 별칭
 # ============================================================================
-# These allow gradual migration from old code
+# 기존 코드에서 점진적 마이그레이션을 허용합니다
 
-# Old name from regressor.py: y_col_list
-# New unified name: DataSchema.get_excluded_cols()
+# regressor.py의 기존 이름: y_col_list
+# 새 통합 이름: DataSchema.get_excluded_cols()
 y_col_list = DataSchema.get_excluded_cols()
 
-# Old name from ml_backtest.py: exclude_cols
-# New unified name: DataSchema.get_excluded_cols()
+# ml_backtest.py의 기존 이름: exclude_cols
+# 새 통합 이름: DataSchema.get_excluded_cols()
 exclude_cols = DataSchema.get_excluded_cols()
 
 
 if __name__ == "__main__":
-    # Self-test and documentation
+    # 자체 테스트 및 문서 출력
     print(DataSchema.summary())
     print("\nExcluded columns:")
     for i, col in enumerate(DataSchema.get_excluded_cols(), 1):

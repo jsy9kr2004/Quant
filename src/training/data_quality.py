@@ -1,21 +1,20 @@
 """
-Data Quality Report and Validation Module
+데이터 품질 보고서 및 검증 모듈입니다.
 
-This module provides:
-1. Detailed data quality reporting (NaN, Infinite, distribution analysis)
-2. A/B testing for data cleaning effect validation
-3. Enhanced logging for all data cleaning operations
+이 모듈은 다음 기능을 제공합니다:
+1. 상세 데이터 품질 보고서 (NaN, Infinite, 분포 분석)
+2. 데이터 클리닝 효과 검증을 위한 A/B 테스트
+3. 모든 데이터 클리닝 작업에 대한 강화된 로깅
 
-Usage:
-------
-# Generate quality report
-report = DataQualityReport(X, y, config, logger)
-report.generate()
-report.save('outputs/data_quality_report.xlsx')
+사용 예시:
+    # 품질 보고서 생성
+    report = DataQualityReport(X, y, config, logger)
+    report.generate()
+    report.save('outputs/data_quality_report.xlsx')
 
-# A/B test for cleaning effect
-validator = DataCleaningValidator(X, y, config, logger)
-results = validator.validate_cleaning_effect()
+    # 클리닝 효과 A/B 테스트
+    validator = DataCleaningValidator(X, y, config, logger)
+    results = validator.validate_cleaning_effect()
 
 Author: Claude Code Analysis
 Created: 2026-01-17
@@ -31,13 +30,13 @@ import os
 
 class DataQualityReport:
     """
-    Generates comprehensive data quality reports.
+    종합적인 데이터 품질 보고서를 생성하는 클래스입니다.
 
-    Reports include:
-    - NaN analysis by column and reason
-    - Infinite value analysis and root causes
-    - Distribution statistics
-    - Removal impact summary
+    보고서 내용:
+    - 컬럼별 NaN 분석 및 원인
+    - Infinite 값 분석 및 근본 원인
+    - 분포 통계
+    - 제거 영향 요약
     """
 
     def __init__(
@@ -52,7 +51,7 @@ class DataQualityReport:
         self.config = config or {}
         self.logger = logger or logging.getLogger(__name__)
 
-        # Report data storage
+        # 보고서 데이터 저장소
         self.report_data = {
             'summary': {},
             'nan_analysis': {},
@@ -64,7 +63,7 @@ class DataQualityReport:
         self.generated = False
 
     def generate(self) -> Dict[str, Any]:
-        """Generate comprehensive data quality report."""
+        """종합적인 데이터 품질 보고서를 생성합니다."""
         self.logger.info("=" * 60)
         self.logger.info("📊 DATA QUALITY REPORT")
         self.logger.info("=" * 60)
@@ -81,7 +80,7 @@ class DataQualityReport:
         return self.report_data
 
     def _analyze_basic_stats(self):
-        """Analyze basic dataset statistics."""
+        """기본 데이터셋 통계를 분석합니다."""
         self.report_data['summary'] = {
             'timestamp': datetime.now().isoformat(),
             'total_rows': len(self.X),
@@ -98,7 +97,7 @@ class DataQualityReport:
             self.report_data['summary']['target_nan_pct'] = float(self.y.isna().mean() * 100)
 
     def _analyze_nan_values(self):
-        """Detailed NaN analysis."""
+        """상세 NaN 분석을 수행합니다."""
         nan_analysis = {
             'total_nan_cells': int(self.X.isna().sum().sum()),
             'total_cells': int(self.X.size),
@@ -109,10 +108,10 @@ class DataQualityReport:
             'columns_by_nan_ratio': {}
         }
 
-        # Column-level analysis
+        # 컬럼 수준 분석
         nan_ratio_per_col = self.X.isna().mean()
 
-        # Categorize columns by NaN ratio
+        # NaN 비율로 컬럼 분류
         nan_analysis['columns_by_nan_ratio'] = {
             'no_nan (0%)': int((nan_ratio_per_col == 0).sum()),
             'low_nan (0-10%)': int(((nan_ratio_per_col > 0) & (nan_ratio_per_col <= 0.1)).sum()),
@@ -121,7 +120,7 @@ class DataQualityReport:
             'very_high_nan (>90%)': int((nan_ratio_per_col > 0.9).sum())
         }
 
-        # Top NaN columns
+        # NaN 비율 상위 컬럼
         top_nan_cols = nan_ratio_per_col.nlargest(20)
         nan_analysis['top_nan_columns'] = {
             col: {'nan_pct': float(pct * 100), 'nan_count': int(self.X[col].isna().sum())}
@@ -131,7 +130,7 @@ class DataQualityReport:
         self.report_data['nan_analysis'] = nan_analysis
 
     def _analyze_infinite_values(self):
-        """Detailed Infinite value analysis."""
+        """상세 Infinite 값 분석을 수행합니다."""
         numeric_cols = [c for c in self.X.columns
                        if pd.api.types.is_numeric_dtype(self.X[c])]
 
@@ -152,7 +151,7 @@ class DataQualityReport:
             'inf_columns_detail': {}
         }
 
-        # Column-level infinite analysis
+        # 컬럼 수준 Infinite 분석
         inf_count_per_col = inf_mask.sum()
         inf_cols = inf_count_per_col[inf_count_per_col > 0]
 
@@ -161,7 +160,7 @@ class DataQualityReport:
             pos_inf = np.sum(np.isposinf(col_data))
             neg_inf = np.sum(np.isneginf(col_data))
 
-            # Try to identify cause
+            # 원인 식별 시도
             cause = self._identify_inf_cause(col)
 
             inf_analysis['inf_columns_detail'][col] = {
@@ -174,7 +173,7 @@ class DataQualityReport:
         self.report_data['infinite_analysis'] = inf_analysis
 
     def _identify_inf_cause(self, col_name: str) -> str:
-        """Try to identify the probable cause of infinite values."""
+        """Infinite 값의 추정 원인을 식별합니다."""
         col_lower = col_name.lower()
 
         if 'per' in col_lower or 'pe_' in col_lower or '_pe' in col_lower:
@@ -193,7 +192,7 @@ class DataQualityReport:
             return "Unknown (likely division by zero)"
 
     def _analyze_distribution(self):
-        """Analyze value distribution for anomalies."""
+        """이상치 탐지를 위한 값 분포를 분석합니다."""
         numeric_cols = [c for c in self.X.columns
                        if pd.api.types.is_numeric_dtype(self.X[c])]
 
@@ -207,12 +206,12 @@ class DataQualityReport:
             'statistics': {}
         }
 
-        for col in numeric_cols[:100]:  # Limit to first 100 columns for performance
+        for col in numeric_cols[:100]:  # 성능을 위해 처음 100개 컬럼으로 제한
             col_data = self.X[col].dropna()
             if len(col_data) == 0:
                 continue
 
-            # Check for extreme values
+            # 극단값 확인
             max_val = col_data.abs().max()
             if max_val > 1e10:
                 dist_analysis['extreme_value_columns'].append({
@@ -221,7 +220,7 @@ class DataQualityReport:
                     'recommendation': 'Consider log transformation'
                 })
 
-            # Check for same-value columns
+            # 단일 값 컬럼 확인
             value_counts = col_data.value_counts(normalize=True)
             if len(value_counts) > 0 and value_counts.iloc[0] > 0.95:
                 dist_analysis['same_value_columns'].append({
@@ -230,7 +229,7 @@ class DataQualityReport:
                     'top_value_pct': float(value_counts.iloc[0] * 100)
                 })
 
-        # Summary statistics
+        # 요약 통계
         dist_analysis['statistics'] = {
             'extreme_value_columns_count': len(dist_analysis['extreme_value_columns']),
             'same_value_columns_count': len(dist_analysis['same_value_columns'])
@@ -239,14 +238,14 @@ class DataQualityReport:
         self.report_data['distribution'] = dist_analysis
 
     def _generate_recommendations(self):
-        """Generate actionable recommendations based on analysis."""
+        """분석 결과를 기반으로 실행 가능한 권고사항을 생성합니다."""
         recommendations = []
 
         nan_analysis = self.report_data.get('nan_analysis', {})
         inf_analysis = self.report_data.get('infinite_analysis', {})
         dist_analysis = self.report_data.get('distribution', {})
 
-        # NaN recommendations
+        # NaN 관련 권고
         very_high_nan = nan_analysis.get('columns_by_nan_ratio', {}).get('very_high_nan (>90%)', 0)
         if very_high_nan > 0:
             recommendations.append({
@@ -265,7 +264,7 @@ class DataQualityReport:
                 'action': 'Consider imputation instead of removal'
             })
 
-        # Infinite recommendations
+        # Infinite 관련 권고
         rows_with_inf = inf_analysis.get('rows_with_inf', 0)
         if rows_with_inf > 0:
             recommendations.append({
@@ -275,7 +274,7 @@ class DataQualityReport:
                 'action': 'Review ratio calculations (division by zero)'
             })
 
-        # Distribution recommendations
+        # 분포 관련 권고
         extreme_count = dist_analysis.get('statistics', {}).get('extreme_value_columns_count', 0)
         if extreme_count > 10:
             recommendations.append({
@@ -305,7 +304,7 @@ class DataQualityReport:
         self.report_data['recommendations'] = recommendations
 
     def _log_summary(self):
-        """Log summary to console/file."""
+        """요약 결과를 콘솔/파일에 로깅합니다."""
         summary = self.report_data['summary']
         nan = self.report_data['nan_analysis']
         inf = self.report_data['infinite_analysis']
@@ -345,20 +344,20 @@ class DataQualityReport:
         self.logger.info("=" * 60)
 
     def save(self, filepath: str):
-        """Save report to Excel file."""
+        """보고서를 Excel 파일로 저장합니다."""
         if not self.generated:
             self.generate()
 
-        # Ensure directory exists
+        # 디렉토리 존재 확인
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
         with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
-            # Summary sheet
+            # 요약 시트
             summary_df = pd.DataFrame([self.report_data['summary']]).T
             summary_df.columns = ['Value']
             summary_df.to_excel(writer, sheet_name='Summary')
 
-            # NaN analysis sheet
+            # NaN 분석 시트
             nan_df = pd.DataFrame([
                 {'metric': k, 'value': v}
                 for k, v in self.report_data['nan_analysis'].items()
@@ -366,7 +365,7 @@ class DataQualityReport:
             ])
             nan_df.to_excel(writer, sheet_name='NaN_Analysis', index=False)
 
-            # Top NaN columns
+            # NaN 상위 컬럼
             top_nan = self.report_data['nan_analysis'].get('top_nan_columns', {})
             if top_nan:
                 top_nan_df = pd.DataFrame([
@@ -374,7 +373,7 @@ class DataQualityReport:
                 ])
                 top_nan_df.to_excel(writer, sheet_name='Top_NaN_Columns', index=False)
 
-            # Infinite analysis sheet
+            # Infinite 분석 시트
             if not self.report_data['infinite_analysis'].get('no_numeric_columns', False):
                 inf_cols = self.report_data['infinite_analysis'].get('inf_columns_detail', {})
                 if inf_cols:
@@ -383,14 +382,14 @@ class DataQualityReport:
                     ])
                     inf_df.to_excel(writer, sheet_name='Infinite_Columns', index=False)
 
-            # Recommendations sheet
+            # 권고사항 시트
             rec_df = pd.DataFrame(self.report_data['recommendations'])
             rec_df.to_excel(writer, sheet_name='Recommendations', index=False)
 
         self.logger.info(f"📄 Report saved to: {filepath}")
 
     def get_cleaning_stats(self) -> Dict[str, Any]:
-        """Get statistics for data cleaning impact estimation."""
+        """데이터 클리닝 영향 추정을 위한 통계를 반환합니다."""
         if not self.generated:
             self.generate()
 
@@ -412,11 +411,11 @@ class DataQualityReport:
 
 class DataCleaningValidator:
     """
-    Validates the effect of data cleaning through A/B testing.
+    A/B 테스트를 통해 데이터 클리닝 효과를 검증하는 클래스입니다.
 
-    Compares model performance:
-    - Case A: Without aggressive cleaning (replace NaN/Inf with median/0)
-    - Case B: With current cleaning (remove rows with NaN/Inf)
+    모델 성능을 비교합니다:
+    - Case A: 비적극적 클리닝 (NaN/Inf를 중앙값/0으로 대체)
+    - Case B: 현재 방식의 클리닝 (NaN/Inf가 있는 행 제거)
     """
 
     def __init__(
@@ -435,27 +434,28 @@ class DataCleaningValidator:
 
     def validate_cleaning_effect(self) -> Dict[str, Any]:
         """
-        Run A/B test comparing cleaning strategies.
+        클리닝 전략을 비교하는 A/B 테스트를 실행합니다.
 
-        Returns dict with:
-        - case_a_stats: Statistics for imputation-based cleaning
-        - case_b_stats: Statistics for removal-based cleaning
-        - comparison: Performance comparison
-        - recommendation: Which approach is better
+        Returns:
+            다음 키를 포함하는 딕셔너리:
+            - case_a_stats: Imputation 기반 클리닝 통계
+            - case_b_stats: 제거 기반 클리닝 통계
+            - comparison: 성능 비교
+            - recommendation: 더 나은 접근 방식 권고
         """
         self.logger.info("=" * 60)
         self.logger.info("🧪 DATA CLEANING A/B TEST")
         self.logger.info("=" * 60)
 
-        # Case A: Imputation-based (replace with median/0)
+        # Case A: Imputation 기반 (중앙값/0으로 대체)
         self.logger.info("\n📊 Case A: Imputation-based cleaning")
         X_a, y_a, stats_a = self._clean_with_imputation()
 
-        # Case B: Removal-based (current approach)
+        # Case B: 제거 기반 (현재 방식)
         self.logger.info("\n📊 Case B: Removal-based cleaning")
         X_b, y_b, stats_b = self._clean_with_removal()
 
-        # Compare
+        # 비교
         comparison = self._compare_approaches(stats_a, stats_b)
 
         self.validation_results = {
@@ -478,7 +478,7 @@ class DataCleaningValidator:
         return self.validation_results
 
     def _clean_with_imputation(self) -> Tuple[pd.DataFrame, pd.Series, Dict]:
-        """Clean data using imputation (replace NaN/Inf)."""
+        """Imputation을 사용하여 데이터를 정제합니다 (NaN/Inf 대체)."""
         X = self.X_original.copy()
         y = self.y_original.copy()
 
@@ -488,25 +488,25 @@ class DataCleaningValidator:
             'cols_before': len(X.columns)
         }
 
-        # Get numeric columns only
+        # 수치형 컬럼만 추출
         numeric_cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
 
-        # Replace infinite with NaN first
+        # 먼저 Infinite를 NaN으로 대체
         for col in numeric_cols:
             X[col] = X[col].replace([np.inf, -np.inf], np.nan)
 
-        # Count NaN before imputation
+        # Imputation 전 NaN 수 카운트
         nan_before = X[numeric_cols].isna().sum().sum()
         stats['nan_cells_imputed'] = int(nan_before)
 
-        # Impute with median
+        # 중앙값으로 Imputation
         for col in numeric_cols:
             median_val = X[col].median()
             if pd.isna(median_val):
                 median_val = 0
             X[col] = X[col].fillna(median_val)
 
-        # Handle y NaN (must remove, can't impute target)
+        # 타겟(y)의 NaN 처리 (제거 필수, 타겟은 imputation 불가)
         y_nan_mask = y.isna()
         if y_nan_mask.sum() > 0:
             X = X[~y_nan_mask]
@@ -523,7 +523,7 @@ class DataCleaningValidator:
         return X, y, stats
 
     def _clean_with_removal(self) -> Tuple[pd.DataFrame, pd.Series, Dict]:
-        """Clean data using removal (current approach)."""
+        """제거 방식으로 데이터를 정제합니다 (현재 사용 중인 방식)."""
         X = self.X_original.copy()
         y = self.y_original.copy()
 
@@ -533,23 +533,23 @@ class DataCleaningValidator:
             'cols_before': len(X.columns)
         }
 
-        # Get numeric columns only
+        # 수치형 컬럼만 추출
         numeric_cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
 
-        # Remove rows with infinite
+        # Infinite가 있는 행 제거
         inf_mask = np.isinf(X[numeric_cols]).any(axis=1)
         stats['inf_rows_removed'] = int(inf_mask.sum())
         X = X[~inf_mask]
         y = y[~inf_mask]
 
-        # Remove rows with NaN in y
+        # 타겟(y)에 NaN이 있는 행 제거
         y_nan_mask = y.isna()
         if y_nan_mask.sum() > 0:
             X = X[~y_nan_mask]
             y = y[~y_nan_mask]
             stats['y_nan_removed'] = int(y_nan_mask.sum())
 
-        # Remove rows with too many NaN (>50% of columns)
+        # NaN이 너무 많은 행 제거 (컬럼의 >50%)
         nan_ratio_per_row = X[numeric_cols].isna().mean(axis=1)
         high_nan_mask = nan_ratio_per_row > 0.5
         stats['high_nan_rows_removed'] = int(high_nan_mask.sum())
@@ -568,7 +568,7 @@ class DataCleaningValidator:
         return X, y, stats
 
     def _compare_approaches(self, stats_a: Dict, stats_b: Dict) -> Dict:
-        """Compare the two cleaning approaches."""
+        """두 가지 클리닝 접근 방식을 비교합니다."""
         comparison = {
             'data_retention': {
                 'imputation_pct': stats_a['rows_kept_pct'],
@@ -582,7 +582,7 @@ class DataCleaningValidator:
         return comparison
 
     def _generate_recommendation(self, stats_a: Dict, stats_b: Dict, comparison: Dict) -> Dict:
-        """Generate recommendation based on comparison."""
+        """비교 결과를 기반으로 권고사항을 생성합니다."""
         data_diff = comparison['data_retention']['difference_pct']
 
         if data_diff > 20:
@@ -615,7 +615,7 @@ class DataCleaningValidator:
             }
 
     def _log_results(self):
-        """Log validation results."""
+        """검증 결과를 로깅합니다."""
         results = self.validation_results
         comparison = results['comparison']
         rec = results['recommendation']
@@ -647,11 +647,10 @@ def generate_data_quality_report(
     save_path: Optional[str] = None
 ) -> DataQualityReport:
     """
-    Convenience function to generate data quality report.
+    데이터 품질 보고서를 생성하는 편의 함수입니다.
 
-    Usage:
-    ------
-    report = generate_data_quality_report(X_train, y_train, config, logger)
+    사용 예시:
+        report = generate_data_quality_report(X_train, y_train, config, logger)
     """
     report = DataQualityReport(X, y, config, logger)
     report.generate()
@@ -669,11 +668,10 @@ def validate_data_cleaning(
     logger: Optional[logging.Logger] = None
 ) -> Dict[str, Any]:
     """
-    Convenience function to validate data cleaning effect.
+    데이터 클리닝 효과를 검증하는 편의 함수입니다.
 
-    Usage:
-    ------
-    results = validate_data_cleaning(X_train, y_train, config, logger)
+    사용 예시:
+        results = validate_data_cleaning(X_train, y_train, config, logger)
     """
     validator = DataCleaningValidator(X, y, config, logger)
     return validator.validate_cleaning_effect()

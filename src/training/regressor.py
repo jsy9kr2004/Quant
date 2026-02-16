@@ -103,7 +103,7 @@ from sklearn.metrics import accuracy_score, classification_report, precision_sco
 # from src.infra.g_variables import ratio_col_list, meaning_col_list, cal_ev_col_list, sparse_col_list
 # ==============================================================================
 
-# Optuna for hyperparameter optimization
+# Optuna 하이퍼파라미터 최적화
 try:
     import optuna
     from optuna.samplers import TPESampler
@@ -118,10 +118,10 @@ MODEL_SAVE_PATH = ""  # 학습된 모델 저장 경로 (메서드에서 설정�
 THRESHOLD = 92  # 분류를 위한 백분위수 임계값 (92 = 상위 8%가 양성으로 예측됨)
 
 # Preprocessing 설정은 config에서 읽음 (ml_backtest.py와 동일한 방식)
-TARGET_FEATURES = 1000  # Feature selection 시 목표 feature 수
+TARGET_FEATURES = 1000  # Feature 선택 시 목표 feature 수
 
 # ==============================================================================
-# GPU/CPU Device Detection
+# GPU/CPU 디바이스 감지
 # ==============================================================================
 
 def detect_xgboost_device() -> str:
@@ -268,18 +268,18 @@ def predict_proba_with_gpu_support(model, X, use_gpu: bool):
         return model.predict_proba(X)
 
 # ==============================================================================
-# Column Definitions (Unified with ml_backtest.py via DataSchema)
+# 컬럼 정의 (DataSchema를 통해 ml_backtest.py와 통합)
 # ==============================================================================
-# ✨ REFACTORED: Now using DataSchema for single source of truth
-# This ensures regressor.py and ml_backtest.py use identical column definitions
-# Prevents bugs from column name mismatches
+# ✨ 리팩토링 완료: DataSchema를 단일 진실 원천(Single Source of Truth)으로 사용
+# regressor.py와 ml_backtest.py가 동일한 컬럼 정의를 사용하도록 보장
+# 컬럼 이름 불일치로 인한 버그 방지
 y_col_list = DataSchema.get_excluded_cols()
 
-# Backward compatibility: Keep old variable name for existing code
-# TODO: Gradually replace all `y_col_list` references with `DataSchema.get_excluded_cols()`
+# 하위 호환성: 기존 코드를 위해 이전 변수 이름 유지
+# TODO: 모든 `y_col_list` 참조를 `DataSchema.get_excluded_cols()`로 점진적 교체
 
 # ==============================================================================
-# Parallel Training Support (Ray)
+# 병렬 학습 지원 (Ray)
 # ==============================================================================
 try:
     import ray
@@ -300,43 +300,43 @@ def train_single_period_remote(
     classifier_config: Optional[dict] = None
 ) -> Tuple[str, Optional[dict]]:
     """
-    Ray remote function to train models for a single walk-forward period.
+    단일 Walk-Forward 기간에 대한 모델을 학습하는 Ray remote 함수입니다.
 
-    This function is designed to run in parallel across multiple periods.
-    Each worker independently:
-    1. Loads training data until cutoff_date
-    2. Trains models (classifiers + regressors)
-    3. Loads prediction data at cutoff_date
-    4. Generates predictions
-    5. Selects top-K stocks
+    여러 기간에 걸쳐 병렬로 실행되도록 설계되었습니다.
+    각 워커가 독립적으로 수행하는 작업:
+    1. cutoff_date까지의 학습 데이터 로드
+    2. 모델 학습 (분류기 + 회귀기)
+    3. cutoff_date 시점의 예측 데이터 로드
+    4. 예측 생성
+    5. 상위 K개 종목 선택
 
     Parameters:
     -----------
     period_info : dict
-        Period configuration with keys:
+        기간 설정 딕셔너리:
         - cutoff_date: datetime
         - train_start_year: int
         - period_name: str
     root_path : str
-        Root path for data files
+        데이터 파일의 루트 경로
     use_classifier : bool
-        Whether to use classifiers
+        분류기 사용 여부
     use_sector_model : bool
-        Whether to use sector-specific models
+        섹터별 모델 사용 여부
     top_k : int
-        Number of top stocks to select
+        선택할 상위 종목 수
     logger_level : int
-        Logging level for this worker
+        워커의 로깅 레벨
     classifier_config : dict, optional
-        Classifier settings: {mode, loss_threshold}
+        분류기 설정: {mode, loss_threshold}
 
     Returns:
     --------
     Tuple[str, Optional[dict]]
-        - cache_key: str (date string 'YYYY-MM-DD')
-        - cache_entry: dict or None (predictions and metadata)
+        - cache_key: str (날짜 문자열 'YYYY-MM-DD')
+        - cache_entry: dict 또는 None (예측 결과 및 메타데이터)
     """
-    # Configure logging for this worker
+    # 워커의 로깅 설정
     logging.basicConfig(
         level=logger_level,
         format='[Worker] %(levelname)s: %(message)s'
@@ -353,11 +353,11 @@ def train_single_period_remote(
     cache_key = cutoff_date.strftime('%Y-%m-%d')
 
     try:
-        # Use print for Ray worker diagnostics (captured by log_to_driver, more reliable than logging)
+        # Ray 워커 진단용 print 사용 (log_to_driver가 캡처, logging보다 안정적)
         print(f"[Worker:{cache_key}] Starting period {cache_key} ({period_name})")
         logging.info(f"📅 Processing period: {cache_key} ({period_name})")
 
-        # Step 1: Load training data
+        # 1단계: 학습 데이터 로드
         print(f"[Worker:{cache_key}] Loading training data: {train_start_year} ~ {cache_key}, root={root_path}, cwd={os.getcwd()}")
         logging.info(f"📂 Loading training data: {train_start_year} ~ {cache_key}")
         logging.info(f"   root_path={root_path}, cwd={os.getcwd()}")
@@ -373,7 +373,7 @@ def train_single_period_remote(
         logging.info(f"   Has target '{DataSchema.REGRESSION_TARGET}': {DataSchema.REGRESSION_TARGET in train_df.columns}")
         logging.info(f"   Has 'sector': {'sector' in train_df.columns}, use_sector_model={use_sector_model}")
 
-        # Step 2: Train models
+        # 2단계: 모델 학습
         logging.info("🔧 Training models...")
         models_info = _train_models_for_period_standalone(
             train_df, use_classifier, use_sector_model,
@@ -384,7 +384,7 @@ def train_single_period_remote(
                      f"sector_regressors={len(models_info.get('sector_regressors', {}))}, "
                      f"sector_classifiers={len(models_info.get('sector_classifiers', {}))}")
 
-        # Step 3: Load prediction data
+        # 3단계: 예측 데이터 로드
         logging.info(f"📂 Loading prediction data for {cache_key}")
         pred_df = _load_data_for_prediction_standalone(root_path, cutoff_date)
 
@@ -394,17 +394,17 @@ def train_single_period_remote(
 
         logging.info(f"✅ Loaded {len(pred_df)} stocks for prediction")
 
-        # Step 4: Generate predictions
+        # 4단계: 예측 생성
         logging.info("🔮 Generating predictions...")
         predictions_df = _generate_predictions_for_period_standalone(
             pred_df, models_info
         )
 
-        # Step 5: Top-K selection
+        # 5단계: Top-K 선택
         logging.info(f"🎯 Selecting Top-{top_k} stocks...")
         predictions_df = _rank_and_select_top_k_standalone(predictions_df, top_k)
 
-        # Build cache entry
+        # 캐시 항목 구성
         top_k_mask = predictions_df[DataSchema.SELECTED]
         cache_entry = {
             'predictions_df': predictions_df,
@@ -422,29 +422,29 @@ def train_single_period_remote(
     except Exception as e:
         import traceback
         error_tb = traceback.format_exc()
-        # Print to stdout for Ray log_to_driver capture
+        # Ray log_to_driver 캡처를 위해 stdout으로 출력
         print(f"[Worker:{cache_key}] ❌ FAILED: {e}")
         print(f"[Worker:{cache_key}] Traceback:\n{error_tb}")
         logging.error(f"❌ Error processing period {cache_key}: {e}")
         logging.error(error_tb)
-        # Include full traceback in error message so main process can log it
+        # 메인 프로세스에서 로깅할 수 있도록 전체 traceback을 에러 메시지에 포함
         return cache_key, None, f"{str(e)}\n--- Worker Traceback ---\n{error_tb}"
 
 
 # ==============================================================================
-# Standalone Helper Functions for Ray Remote Workers
+# Ray Remote 워커용 독립 헬퍼 함수
 # ==============================================================================
 
 def _load_data_until_cutoff_standalone(root_path: str, train_start_year: int, cutoff_date: datetime.datetime) -> pd.DataFrame:
-    """Standalone version of _load_data_until_cutoff for Ray workers."""
+    """Ray 워커용 _load_data_until_cutoff의 독립 버전입니다."""
     all_train_data = []
     current_year = train_start_year
 
-    # ✅ FIX: Use correct path where make_mldata.py saves training data
+    # ✅ FIX: make_mldata.py가 학습 데이터를 저장하는 올바른 경로 사용
     ml_data_dir = f"{root_path}/processed/ml_data/per_year"
 
     while current_year <= cutoff_date.year:
-        # ✅ FIX: Use correct file pattern - rnorm_ml_YYYY_QN.parquet
+        # ✅ FIX: 올바른 파일 패턴 사용 - rnorm_ml_YYYY_QN.parquet
         file_pattern = f"{ml_data_dir}/rnorm_ml_{current_year}_Q*.parquet"
         year_files = glob.glob(file_pattern)
 
@@ -470,30 +470,30 @@ def _load_data_until_cutoff_standalone(root_path: str, train_start_year: int, cu
 
 def _find_nearest_rebalance_date(unique_dates, cutoff_date, max_days=10):
     """
-    Find the nearest rebalance_date to cutoff_date within max_days window.
+    cutoff_date에 가장 가까운 rebalance_date를 max_days 범위 내에서 찾습니다.
 
-    make_mldata.py converts calendar dates to actual trading dates via
-    DataProcessor.get_trade_date(), so parquet files contain trading dates
-    (e.g., 2024-01-02) not calendar dates (e.g., 2024-01-01).
-    This function bridges that gap by finding the nearest match.
+    make_mldata.py는 달력 날짜를 DataProcessor.get_trade_date()를 통해
+    실제 거래일로 변환하므로, parquet 파일에는 거래일(예: 2024-01-02)이
+    달력 날짜(예: 2024-01-01) 대신 저장됩니다.
+    이 함수는 가장 가까운 매칭을 찾아 그 차이를 연결합니다.
 
-    Direction preference (matches DataProcessor.get_trade_date logic):
-    - Month start (day <= 15): prefer FORWARD (nearest future date)
-    - Month end (day > 15): prefer BACKWARD (nearest past date)
+    방향 선호도 (DataProcessor.get_trade_date 로직과 일치):
+    - 월초 (day <= 15): 전방(FORWARD) 선호 (가장 가까운 미래 날짜)
+    - 월말 (day > 15): 후방(BACKWARD) 선호 (가장 가까운 과거 날짜)
 
     Parameters
     ----------
     unique_dates : array-like
-        Available rebalance_dates in the data file
+        데이터 파일에서 사용 가능한 rebalance_date 목록
     cutoff_date : datetime
-        Calendar cutoff date to match
+        매칭할 달력 기준 날짜
     max_days : int
-        Maximum days of tolerance for matching (default: 10)
+        매칭 허용 최대 일수 (기본값: 10)
 
     Returns
     -------
     pd.Timestamp or None
-        Nearest matching rebalance_date, or None if no match within window
+        가장 가까운 매칭 rebalance_date, 범위 내 매칭 없으면 None
     """
     cutoff_ts = pd.Timestamp(cutoff_date)
     is_month_start = cutoff_ts.day <= 15
@@ -503,25 +503,25 @@ def _find_nearest_rebalance_date(unique_dates, cutoff_date, max_days=10):
 
     for d in unique_dates:
         d_ts = pd.Timestamp(d)
-        delta = d_ts - cutoff_ts  # signed difference
+        delta = d_ts - cutoff_ts  # 부호 있는 차이
         abs_delta = abs(delta)
 
         if abs_delta > pd.Timedelta(days=max_days):
             continue
 
-        # Direction preference: month start → forward, month end → backward
+        # 방향 선호도: 월초 → 전방, 월말 → 후방
         if is_month_start:
-            # Prefer future dates (delta >= 0), but accept past if closer
+            # 미래 날짜 선호 (delta >= 0), 더 가까우면 과거도 허용
             if delta >= pd.Timedelta(0):
                 priority_delta = abs_delta
             else:
-                priority_delta = abs_delta + pd.Timedelta(days=max_days)  # penalize backward
+                priority_delta = abs_delta + pd.Timedelta(days=max_days)  # 후방 페널티
         else:
-            # Prefer past dates (delta <= 0)
+            # 과거 날짜 선호 (delta <= 0)
             if delta <= pd.Timedelta(0):
                 priority_delta = abs_delta
             else:
-                priority_delta = abs_delta + pd.Timedelta(days=max_days)  # penalize forward
+                priority_delta = abs_delta + pd.Timedelta(days=max_days)  # 전방 페널티
 
         if priority_delta < best_delta:
             best_delta = priority_delta
@@ -531,11 +531,11 @@ def _find_nearest_rebalance_date(unique_dates, cutoff_date, max_days=10):
 
 
 def _load_data_for_prediction_standalone(root_path: str, cutoff_date: datetime.datetime) -> pd.DataFrame:
-    """Standalone version of _load_data_for_prediction for Ray workers."""
+    """Ray 워커용 _load_data_for_prediction의 독립 버전입니다."""
     year = cutoff_date.year
 
     ml_data_dir = f"{root_path}/processed/ml_data/per_year"
-    # rnorm_fs_ files contain features only (no targets, for prediction)
+    # rnorm_fs_ 파일은 feature만 포함 (타겟 없음, 예측용)
     file_pattern = f"{ml_data_dir}/rnorm_fs_{year}_Q*.parquet"
     year_files = glob.glob(file_pattern)
 
@@ -551,8 +551,8 @@ def _load_data_for_prediction_standalone(root_path: str, cutoff_date: datetime.d
                 unique_dates = sorted(df['rebalance_date'].unique())
                 logging.info(f"   🔍 {os.path.basename(file_path)}: {len(df)} rows, rebalance_dates={[str(d)[:10] for d in unique_dates[:5]]}")
 
-                # Trading day adjustment: find nearest rebalance_date to cutoff_date
-                # (make_mldata.py converts calendar dates to trading dates via DataProcessor.get_trade_date())
+                # 거래일 조정: cutoff_date에 가장 가까운 rebalance_date 찾기
+                # (make_mldata.py가 DataProcessor.get_trade_date()를 통해 달력 날짜를 거래일로 변환)
                 nearest_date = _find_nearest_rebalance_date(unique_dates, cutoff_date)
                 if nearest_date is not None:
                     if nearest_date != pd.Timestamp(cutoff_date):
@@ -580,18 +580,18 @@ def _train_models_for_period_standalone(
     use_sector_model: bool,
     classifier_config: Optional[dict] = None
 ) -> dict:
-    """Standalone version of _train_models_for_period for Ray workers.
+    """Ray 워커용 _train_models_for_period의 독립 버전입니다.
 
     Args:
-        classifier_config: Dict with classifier settings from config:
-            - mode: "negative_screen" or "positive_screen"
-            - loss_threshold: float (for negative_screen, e.g. -0.3)
+        classifier_config: config에서 가져온 분류기 설정 딕셔너리:
+            - mode: "negative_screen" 또는 "positive_screen"
+            - loss_threshold: float (negative_screen용, 예: -0.3)
     """
     from src.training.data_processor import DataProcessor
     from xgboost import XGBClassifier, XGBRegressor
     from lightgbm import LGBMClassifier
 
-    # Parse classifier config
+    # 분류기 설정 파싱
     cls_mode = "positive_screen"
     cls_threshold = 0.0
     if classifier_config:
@@ -608,9 +608,9 @@ def _train_models_for_period_standalone(
         'binary_target_stats': {}
     }
 
-    # NOTE: Do NOT call preprocess_training_data() on the full DataFrame here.
-    # It expects (X, y, y_cls, config, logger) and returns a 4-tuple.
-    # Preprocessing is done per-sector or per-global after splitting X/y.
+    # 주의: 여기서 전체 DataFrame에 preprocess_training_data()를 호출하지 말 것.
+    # (X, y, y_cls, config, logger)를 기대하며 4-tuple을 반환함.
+    # 전처리는 X/y 분리 후 섹터별 또는 글로벌로 수행됨.
 
     target_col = DataSchema.REGRESSION_TARGET
     if target_col not in train_df.columns:
@@ -627,7 +627,7 @@ def _train_models_for_period_standalone(
             X_sector = sector_data[feature_cols]
             y_sector = sector_data[target_col]
 
-            # Preprocess sector data before training
+            # 학습 전 섹터 데이터 전처리
             try:
                 preprocess_result = DataProcessor.preprocess_training_data(
                     X_sector.copy(),
@@ -651,7 +651,7 @@ def _train_models_for_period_standalone(
                 logging.error(f"      Traceback: {traceback.format_exc()}")
                 continue
 
-            # Train sector classifiers
+            # 섹터 분류기 학습
             if use_classifier:
                 y_binary = DataProcessor.create_binary_target(
                     y_sector_clean,
@@ -659,7 +659,7 @@ def _train_models_for_period_standalone(
                     threshold=cls_threshold if cls_mode == "negative_screen" else 0.0,
                     logger=logging
                 )
-                # Record binary target distribution for this sector
+                # 이 섹터의 이진 타겟 분포 기록
                 n_total = len(y_binary)
                 n_class1 = int((y_binary == 1).sum())
                 models_info['binary_target_stats'][f'sector_{sector}'] = {
@@ -680,7 +680,7 @@ def _train_models_for_period_standalone(
                     clf.fit(X_sector_clean, y_binary)
                 models_info['sector_classifiers'][sector] = sector_clfs
 
-            # Train sector regressors
+            # 섹터 회귀기 학습
             sector_regs = {
                 0: XGBRegressor(max_depth=8, n_estimators=100, random_state=42),
                 1: XGBRegressor(max_depth=10, n_estimators=100, random_state=42)
@@ -692,7 +692,7 @@ def _train_models_for_period_standalone(
         X_train = train_df[feature_cols]
         y_train = train_df[target_col]
 
-        # Preprocess global data before training
+        # 학습 전 글로벌 데이터 전처리
         try:
             preprocess_result = DataProcessor.preprocess_training_data(
                 X_train.copy(),
@@ -716,7 +716,7 @@ def _train_models_for_period_standalone(
             logging.error(f"      Traceback: {traceback.format_exc()}")
             return models_info
 
-        # Train global classifiers
+        # 글로벌 분류기 학습
         if use_classifier:
             y_binary = DataProcessor.create_binary_target(
                 y_train_clean,
@@ -724,7 +724,7 @@ def _train_models_for_period_standalone(
                 threshold=cls_threshold if cls_mode == "negative_screen" else 0.0,
                 logger=logging
             )
-            # Record binary target distribution for global model
+            # 글로벌 모델의 이진 타겟 분포 기록
             n_total = len(y_binary)
             n_class1 = int((y_binary == 1).sum())
             models_info['binary_target_stats']['global'] = {
@@ -745,7 +745,7 @@ def _train_models_for_period_standalone(
                 clf.fit(X_train_clean, y_binary)
             models_info['classifiers'] = global_clfs
 
-        # Train global regressors
+        # 글로벌 회귀기 학습
         global_regs = {
             0: XGBRegressor(max_depth=8, n_estimators=100, random_state=42),
             1: XGBRegressor(max_depth=10, n_estimators=100, random_state=42)
@@ -761,13 +761,13 @@ def _generate_predictions_for_period_standalone(
     pred_df: pd.DataFrame,
     models_info: dict
 ) -> pd.DataFrame:
-    """Standalone version of _generate_predictions_for_period for Ray workers."""
+    """Ray 워커용 _generate_predictions_for_period의 독립 버전입니다."""
     from src.training.data_processor import DataProcessor
 
-    # NOTE: Do NOT call preprocess_training_data() here.
-    # It expects (X, y, y_cls, config, logger) and returns a 4-tuple.
-    # For prediction data, we only need feature extraction (no target preprocessing).
-    # Feature name normalization is applied to handle special characters.
+    # 주의: 여기서 preprocess_training_data()를 호출하지 말 것.
+    # (X, y, y_cls, config, logger)를 기대하며 4-tuple을 반환함.
+    # 예측 데이터에는 feature 추출만 필요 (타겟 전처리 불필요).
+    # 특수 문자 처리를 위해 feature 이름 정규화 적용.
     pred_df = DataProcessor.normalize_feature_names(pred_df)
 
     feature_cols = DataSchema.get_feature_cols(pred_df)
@@ -784,18 +784,18 @@ def _generate_predictions_for_period_standalone(
             if sector not in models_info['sector_regressors']:
                 continue
 
-            # Align features to model (training may have dropped columns during preprocessing)
+            # 모델에 맞게 feature 정렬 (학습 중 전처리에서 컬럼이 삭제되었을 수 있음)
             sector_regs = models_info['sector_regressors'][sector]
             first_reg = list(sector_regs.values())[0]
             X_sector_aligned = DataProcessor.align_features_to_model(
                 X_sector, first_reg, logging.getLogger()
             )
 
-            # Predict returns
+            # 수익률 예측
             y_pred_return = np.mean([reg.predict(X_sector_aligned) for reg in sector_regs.values()], axis=0)
             pred_df.loc[sector_mask, DataSchema.PRED_RETURN] = y_pred_return
 
-            # Predict probabilities
+            # 확률 예측
             if models_info['use_classifier'] and sector in models_info['sector_classifiers']:
                 sector_clfs = models_info['sector_classifiers'][sector]
                 first_clf = list(sector_clfs.values())[0]
@@ -805,7 +805,7 @@ def _generate_predictions_for_period_standalone(
                 y_pred_proba = np.mean([clf.predict_proba(X_sector_clf)[:, 1] for clf in sector_clfs.values()], axis=0)
                 pred_df.loc[sector_mask, DataSchema.PRED_PROBA] = y_pred_proba
     else:
-        # Global predictions - align features to model
+        # 글로벌 예측 - 모델에 맞게 feature 정렬
         global_regs = models_info['regressors']
         first_reg = list(global_regs.values())[0]
         X_pred_aligned = DataProcessor.align_features_to_model(
@@ -823,21 +823,21 @@ def _generate_predictions_for_period_standalone(
             y_pred_proba = np.mean([clf.predict_proba(X_pred_clf)[:, 1] for clf in global_clfs.values()], axis=0)
             pred_df[DataSchema.PRED_PROBA] = y_pred_proba
 
-    # Calculate ML score
+    # ML 점수 계산
     pred_df[DataSchema.ML_SCORE] = pred_df[DataSchema.PRED_PROBA] * pred_df[DataSchema.PRED_RETURN]
 
     return pred_df
 
 
 def _rank_and_select_top_k_standalone(predictions_df: pd.DataFrame, top_k: int) -> pd.DataFrame:
-    """Standalone version of _rank_and_select_top_k for Ray workers."""
-    # Sort by ML score descending
+    """Ray 워커용 _rank_and_select_top_k의 독립 버전입니다."""
+    # ML 점수 기준으로 내림차순 정렬
     predictions_df = predictions_df.sort_values(by=DataSchema.ML_SCORE, ascending=False)
 
-    # Add rank
+    # 순위 추가
     predictions_df[DataSchema.RANK] = range(1, len(predictions_df) + 1)
 
-    # Mark top-K as selected
+    # 상위 K개를 선택됨으로 표시
     predictions_df[DataSchema.SELECTED] = False
     predictions_df.loc[predictions_df.index[:top_k], DataSchema.SELECTED] = True
 
@@ -959,12 +959,12 @@ class Regressor:
         self.top_k_num = int(backtest_config.get('TOP_K_NUM', 20))
 
         # ========================================================================
-        # Walk-Forward Evaluation Settings (Phase 3: New Feature)
+        # Walk-Forward 평가 설정
         # ========================================================================
         eval_config = conf.get('EVALUATION', {})
         self.use_walk_forward = eval_config.get('USE_WALK_FORWARD', 'N') == 'Y'
-        self.walk_forward_periods = []  # Will be populated in dataload()
-        self.predictions_cache = {}  # Store predictions for each cutoff_date
+        self.walk_forward_periods = []  # dataload()에서 채워짐
+        self.predictions_cache = {}  # 각 cutoff_date별 예측 결과 저장
 
         if self.use_walk_forward:
             logging.info("🔄 Walk-Forward mode ENABLED")
@@ -1015,15 +1015,15 @@ class Regressor:
         self.sector_test_df_lists: List = []
 
         # 모델 컨테이너
-        self.clsmodels: Dict[int, Any] = dict()  # Ensemble classifiers (global)
-        self.models: Dict[int, Any] = dict()  # Ensemble regressors (global)
-        self.sector_classifiers: Dict[Tuple[str, int], Any] = dict()  # Sector classifiers
-        self.sector_models: Dict[Tuple[str, int], Any] = dict()  # Sector regressors (legacy name)
+        self.clsmodels: Dict[int, Any] = dict()  # 앙상블 분류기 (전역)
+        self.models: Dict[int, Any] = dict()  # 앙상블 회귀기 (전역)
+        self.sector_classifiers: Dict[Tuple[str, int], Any] = dict()  # 섹터별 분류기
+        self.sector_models: Dict[Tuple[str, int], Any] = dict()  # 섹터별 회귀기
 
         # 섹터별 학습 데이터
         self.sector_x_train: Dict[str, pd.DataFrame] = dict()
         self.sector_y_train: Dict[str, pd.DataFrame] = dict()
-        self.sector_y_train_cls: Dict[str, pd.DataFrame] = dict()  # Classification targets for sector models
+        self.sector_y_train_cls: Dict[str, pd.DataFrame] = dict()  # 섹터 모델의 분류 타겟
 
         # 특성 선택 추적
         self.drop_col_list: List[str] = []
@@ -1183,7 +1183,7 @@ class Regressor:
         new_n_list = list(new_names.values())
 
         # 인덱스를 추가하여 중복 이름 처리
-        # [LightGBM] Feature appears more than one time.
+        # [LightGBM] Feature가 두 번 이상 나타나는 경우 처리
         new_names = {col: f'{new_col}_{i}' if new_col in new_n_list[:i] else new_col
                      for i, (col, new_col) in enumerate(new_names.items())}
         df = df.rename(columns=new_names)
@@ -1272,7 +1272,7 @@ class Regressor:
             return
 
         for sec in sector_list:
-            for i in range(4):  # 4 classifiers per sector (XGB depth 8/9/10 + CatBoost)
+            for i in range(4):  # 섹터당 4개 분류기 (XGB depth 8/9/10 + CatBoost)
                 k = (sec, i)
                 filename = f"{model_save_path}{sec}_clsmodel_{i}.sav"
                 self.sector_classifiers[k] = joblib.load(filename)
@@ -1490,37 +1490,37 @@ class Regressor:
         logging.info("=" * 80)
 
         # ========================================================================
-        # Walk-Forward Mode: Generate periods and skip traditional loading
+        # Walk-Forward 모드: 평가 기간 생성 및 기존 로딩 스킵
         # ========================================================================
         if self.use_walk_forward:
             logging.info("🔄 Walk-Forward mode: Generating evaluation periods...")
             self._generate_walk_forward_periods()
             logging.info(f"✅ Generated {len(self.walk_forward_periods)} walk-forward periods")
-            return  # Skip traditional data loading
+            return  # 기존 데이터 로딩 스킵
 
         # ========================================================================
-        # Traditional Mode: Load all training/test files
+        # 기존 모드: 학습/테스트 파일 전체 로드
         # ========================================================================
         logging.info("📊 Traditional mode: Loading train/test files...")
 
-        # STEP 1: Load all training files from parquet
+        # STEP 1: 모든 학습 parquet 파일 로드
         train_dfs = self._load_training_files()
 
-        # Concatenate all training data
+        # 모든 학습 데이터 병합
         self.train_df = pd.concat(train_dfs, axis=0, ignore_index=True)
         logging.info(f"✅ Combined training data: {len(self.train_df)} rows from {len(train_dfs)} files")
 
-        # STEP 2: Calculate sector-based features (BEFORE preprocessing)
+        # STEP 2: 섹터 기반 특성 계산 (전처리 전에 수행)
         sector_list = self._calculate_sector_features()
 
-        # STEP 3-4: Unified preprocessing and store training data
+        # STEP 3-4: 통합 전처리 및 학습 데이터 저장
         self._preprocess_and_split_training_data()
 
-        # STEP 5: Load and preprocess test files
+        # STEP 5: 테스트 파일 로드 및 전처리
         self._load_and_preprocess_test_files(sector_list)
 
         # ========================================================================
-        # Final validation and logging
+        # 최종 검증 및 로깅
         # ========================================================================
         logging.info("\n" + "=" * 80)
         logging.info("✅ DATALOAD COMPLETE")
@@ -1529,7 +1529,7 @@ class Regressor:
         logging.info(f"Test data: {len(self.test_df)} rows")
         logging.info(f"Dropped columns: {len(self.drop_col_list)}")
 
-        # Class distribution
+        # 클래스 분포
         positive_count = (self.y_train_cls.iloc[:, 0] > 0).sum()
         negative_count = (self.y_train_cls.iloc[:, 0] <= 0).sum()
         logging.info(f"Class distribution: positive={positive_count}, negative={negative_count} "
@@ -1541,13 +1541,13 @@ class Regressor:
         logging.info("=" * 80)
 
     def _load_training_files(self) -> list:
-        """Load all training parquet files with fillingDate filtering.
+        """fillingDate 필터링을 적용하여 모든 학습 parquet 파일을 로드합니다.
 
         Returns:
-            List of DataFrames loaded from parquet files.
+            parquet 파일에서 로드된 DataFrame 리스트.
 
         Raises:
-            ValueError: If no training data files are found.
+            ValueError: 학습 데이터 파일을 찾을 수 없는 경우.
         """
         logging.info("STEP 1/5: Loading training parquet files...")
         train_dfs = []
@@ -1555,26 +1555,26 @@ class Regressor:
         for fpath in self.train_files:
             logging.info(f"  Loading: {os.path.basename(fpath)}")
 
-            # Skip missing files with warning
+            # 누락 파일은 경고와 함께 건너뛰기
             if not os.path.exists(fpath):
                 logging.warning(f"  ⚠️  Train file not found, skipping: {fpath}")
                 continue
 
-            # Read parquet (5-10x faster than CSV, 70-90% smaller)
+            # Parquet 읽기 (CSV보다 5-10배 빠르고, 70-90% 작음)
             df = pd.read_parquet(fpath, engine='pyarrow')
 
-            # ✅ UNIFIED: Apply fillingDate filtering (same as ml_backtest.py)
-            # Only use data that has been publicly filed (prevents future leakage)
+            # ✅ 통합: fillingDate 필터링 적용 (ml_backtest.py와 동일)
+            # 공시된 데이터만 사용 (미래 정보 유출 방지)
             if 'fillingDate' in df.columns:
                 df['fillingDate'] = pd.to_datetime(df['fillingDate'], errors='coerce')
                 before_filter = len(df)
-                # For training, we don't have a specific cutoff, so just ensure fillingDate is valid
+                # 학습 시에는 특정 cutoff가 없으므로, fillingDate가 유효한지만 확인
                 df = df.dropna(subset=['fillingDate'])
                 after_filter = len(df)
                 if before_filter != after_filter:
                     logging.info(f"    Filtered by fillingDate: {before_filter} → {after_filter} rows")
 
-            # Drop rows with missing target (price_diff)
+            # 타겟이 누락된 행 제거 (price_diff)
             df = df.dropna(axis=0, subset=['price_diff'])
 
             if len(df) > 0:
@@ -1591,14 +1591,14 @@ class Regressor:
         return train_dfs
 
     def _calculate_sector_features(self) -> list:
-        """Calculate sector-based price deviation features on training data.
+        """학습 데이터에서 섹터별 가격 편차 feature를 계산합니다.
 
-        Computes sec_price_dev_subavg (sector-adjusted price deviation) for each sector.
+        각 섹터에 대해 sec_price_dev_subavg (섹터 조정 가격 편차)를 계산합니다.
 
         Returns:
-            List of valid sector names found in the data.
+            데이터에서 발견된 유효한 섹터 이름 리스트.
         """
-        # TODO: Move this to make_mldata.py (should be done during data generation)
+        # TODO: make_mldata.py로 이동 (데이터 생성 시 수행되어야 함)
         logging.info("\nSTEP 2/5: Calculating sector-based features...")
 
         if 'industry' not in self.train_df.columns:
@@ -1612,7 +1612,7 @@ class Regressor:
             if pd.notna(x) and x is not None and isinstance(x, str) and x.strip()
         ]
 
-        # Log invalid sectors and affected rows
+        # 유효하지 않은 섹터 및 영향 받는 행 로깅
         invalid_sectors = [
             x for x in all_sectors
             if not (pd.notna(x) and x is not None and isinstance(x, str) and x.strip())
@@ -1633,7 +1633,7 @@ class Regressor:
 
         logging.info(f"  Found {len(sector_list)} valid sectors: {sector_list}")
 
-        # Calculate sector-adjusted price deviation
+        # 섹터 조정 가격 편차 계산
         for sec in sector_list:
             sec_mask = self.train_df['sector'] == sec
             sec_count = sec_mask.sum()
@@ -1646,33 +1646,33 @@ class Regressor:
         return sector_list
 
     def _preprocess_and_split_training_data(self) -> None:
-        """Apply unified preprocessing, store training data, and split by sector.
+        """통합 전처리를 적용하고 학습 데이터를 저장하며 섹터별로 분할합니다.
 
-        Performs DataProcessor.preprocess_training_data() and splits data into
-        sector-specific subsets if USE_SECTOR_MODEL is enabled.
+        DataProcessor.preprocess_training_data()를 수행하고 USE_SECTOR_MODEL이
+        활성화된 경우 데이터를 섹터별 서브셋으로 분할합니다.
 
         Side effects:
-            Sets self.x_train, self.y_train, self.y_train_cls, self.selected_features,
+            self.x_train, self.y_train, self.y_train_cls, self.selected_features,
             self.drop_col_list, self.sector_list, self.sector_train_dfs,
-            self.sector_x_train, self.sector_y_train, self.sector_y_train_cls.
+            self.sector_x_train, self.sector_y_train, self.sector_y_train_cls를 설정합니다.
         """
         # ========================================================================
-        # STEP 3: Unified preprocessing using DataProcessor
+        # STEP 3: DataProcessor를 활용한 통합 전처리
         # ========================================================================
         logging.info("\nSTEP 3/5: Applying unified preprocessing (DataProcessor.preprocess_training_data)...")
 
-        # Separate features and targets BEFORE preprocessing
+        # 전처리 전에 feature와 타겟 분리
         excluded_cols = DataSchema.get_excluded_cols()
         feature_cols = [col for col in self.train_df.columns if col not in excluded_cols]
 
         X_train = self.train_df[feature_cols].copy()
-        y_train = self.train_df[[DataSchema.REGRESSION_TARGET]].copy()  # DataFrame with column name
-        y_train_cls = self.train_df[[DataSchema.CLASSIFICATION_TARGET]].copy()  # DataFrame with column name
+        y_train = self.train_df[[DataSchema.REGRESSION_TARGET]].copy()  # 컬럼명을 유지하는 DataFrame
+        y_train_cls = self.train_df[[DataSchema.CLASSIFICATION_TARGET]].copy()  # 컬럼명을 유지하는 DataFrame
 
         logging.info(f"  Before preprocessing: {len(X_train)} rows, {len(feature_cols)} features")
 
-        # 🎯 UNIFIED PREPROCESSING (Single Source of Truth)
-        # This replaces ALL scattered preprocessing with ONE unified method
+        # 🎯 통합 전처리 (단일 진실 원천)
+        # 분산된 모든 전처리를 하나의 통합 메서드로 대체
         X_train, y_train, y_train_cls, selected_features = DataProcessor.preprocess_training_data(
             X_train,
             y_train,
@@ -1681,50 +1681,50 @@ class Regressor:
             logger=logging.getLogger()
         )
 
-        # Store selected features for later use
+        # 선택된 feature를 나중에 사용하기 위해 저장
         if selected_features is not None:
             self.selected_features = selected_features
             logging.info(f"  Feature selection applied: {len(feature_cols)} → {len(selected_features)} features")
         else:
             self.selected_features = list(X_train.columns)
 
-        # Track dropped columns for test data
+        # 테스트 데이터에서 제거할 컬럼 추적
         self.drop_col_list = [col for col in feature_cols if col not in X_train.columns]
 
         logging.info(f"✅ Preprocessing complete: {len(X_train)} rows, {len(X_train.columns)} features")
         logging.info(f"  Dropped {len(self.drop_col_list)} sparse columns")
 
         # ========================================================================
-        # STEP 4: Store preprocessed training data
+        # STEP 4: 전처리된 학습 데이터 저장
         # ========================================================================
         logging.info("\nSTEP 4/5: Storing preprocessed training data...")
 
-        # Reconstruct train_df with preprocessed features + metadata
+        # 전처리된 feature + 메타데이터로 train_df 재구성
         metadata_cols = ['symbol', 'sector', 'industry'] if 'sector' in self.train_df.columns else ['symbol', 'industry']
         metadata_cols = [col for col in metadata_cols if col in self.train_df.columns]
 
-        # Align metadata with preprocessed indices
+        # 메타데이터를 전처리된 인덱스와 정렬
         metadata_df = self.train_df.loc[X_train.index, metadata_cols].reset_index(drop=True)
         X_train_reset = X_train.reset_index(drop=True)
         y_train_reset = y_train.reset_index(drop=True)
         y_train_cls_reset = y_train_cls.reset_index(drop=True)
 
-        # Combine into full train_df
-        # Include sec_price_dev_subavg for sector models if available
+        # 전체 train_df로 결합
+        # 섹터 모델용 sec_price_dev_subavg가 있으면 포함
         if self.use_sector_model and 'sec_price_dev_subavg' in self.train_df.columns:
             sec_target = self.train_df.loc[X_train.index, ['sec_price_dev_subavg']].reset_index(drop=True)
             self.train_df = pd.concat([metadata_df, X_train_reset, y_train_reset, y_train_cls_reset, sec_target], axis=1)
         else:
             self.train_df = pd.concat([metadata_df, X_train_reset, y_train_reset, y_train_cls_reset], axis=1)
 
-        # Store X, y separately
+        # X, y를 별도로 저장
         self.x_train = X_train
         self.y_train = y_train
         self.y_train_cls = y_train_cls
 
         logging.info(f"  Training data stored: {len(self.train_df)} rows")
 
-        # PER_SECTOR mode: Split training data by sector
+        # PER_SECTOR 모드: 섹터별로 학습 데이터 분할
         if self.use_sector_model and 'sector' in self.train_df.columns:
             logging.info("  🔧 Sector model enabled: Splitting training data by sector...")
 
@@ -1748,7 +1748,7 @@ class Regressor:
             self.train_df['sector_original'] = self.train_df['sector']
             self.train_df['sector'] = self.train_df['sector_category']
 
-            # Log invalid sectors and affected rows
+            # 유효하지 않은 섹터 및 영향 받는 행 로깅
             invalid_sectors = [
                 x for x in all_sectors
                 if not (pd.notna(x) and x is not None and isinstance(x, str) and x.strip())
@@ -1775,7 +1775,7 @@ class Regressor:
                 self.sector_x_train[sec] = self.sector_train_dfs[sec][sec_feature_cols]
                 self.sector_y_train[sec] = self.sector_train_dfs[sec][['sec_price_dev_subavg']]
 
-                # Extract classification target for sector models (if USE_CLASSIFIER=Y)
+                # 섹터 모델의 분류 타겟 추출 (USE_CLASSIFIER=Y인 경우)
                 if self.use_classifier and DataSchema.CLASSIFICATION_TARGET in self.sector_train_dfs[sec].columns:
                     self.sector_y_train_cls[sec] = self.sector_train_dfs[sec][[DataSchema.CLASSIFICATION_TARGET]]
 
@@ -1784,15 +1784,15 @@ class Regressor:
             logging.info(f"  ✅ Split into {len(self.sector_list)} sectors")
 
     def _load_and_preprocess_test_files(self, sector_list: list) -> None:
-        """Load test files and apply same preprocessing as training data.
+        """테스트 파일을 로드하고 학습 데이터와 동일한 전처리를 적용합니다.
 
         Args:
-            sector_list: List of valid sector names (from _calculate_sector_features,
-                         used for test data sector feature calculation).
+            sector_list: 유효한 섹터 이름 리스트 (_calculate_sector_features에서 반환,
+                         테스트 데이터의 섹터 feature 계산에 사용).
 
         Side effects:
-            Sets self.test_df_list, self.test_df, self.x_test, self.y_test,
-            self.y_test_cls, self.sector_test_df_lists.
+            self.test_df_list, self.test_df, self.x_test, self.y_test,
+            self.y_test_cls, self.sector_test_df_lists를 설정합니다.
         """
         logging.info("\nSTEP 5/5: Loading and preprocessing test files...")
 
@@ -1806,27 +1806,27 @@ class Regressor:
         for fpath in self.test_files:
             logging.info(f"  Loading: {os.path.basename(fpath)}")
 
-            # Skip missing files with warning
+            # 누락 파일은 경고와 함께 건너뛰기
             if not os.path.exists(fpath):
                 logging.warning(f"  ⚠️  Test file not found, skipping: {fpath}")
                 continue
 
-            # Read parquet
+            # Parquet 파일 읽기
             df = pd.read_parquet(fpath, engine='pyarrow')
 
-            # Apply fillingDate filtering (same as train)
+            # fillingDate 필터링 적용 (학습과 동일)
             if 'fillingDate' in df.columns:
                 df['fillingDate'] = pd.to_datetime(df['fillingDate'], errors='coerce')
                 df = df.dropna(subset=['fillingDate'])
 
-            # Drop rows with missing target
+            # 타겟이 누락된 행 제거
             df = df.dropna(axis=0, subset=['price_diff'])
 
             if len(df) == 0:
                 logging.warning(f"    ⚠️  No valid rows after filtering")
                 continue
 
-            # Calculate sector features (same as train)
+            # 섹터 특성 계산 (학습과 동일)
             if 'industry' in df.columns:
                 df["sector"] = df["industry"].map(sector_map)
                 for sec in sector_list:
@@ -1836,27 +1836,27 @@ class Regressor:
                         df.loc[sec_mask, 'sec_price_dev_subavg'] = \
                             df.loc[sec_mask, 'price_dev'] - sec_mean
 
-            # Apply same column drops as training
+            # 학습과 동일한 컬럼 제거 적용
             df = df.drop(columns=self.drop_col_list, errors='ignore')
 
-            # Separate features and targets
+            # Feature와 타겟 분리
             test_feature_cols = [col for col in df.columns if col not in excluded_cols]
             X_test = df[test_feature_cols].copy()
             y_test = df[[DataSchema.REGRESSION_TARGET]].copy()
             y_test_cls = df[[DataSchema.CLASSIFICATION_TARGET]].copy()
 
-            # Apply SAME preprocessing as training (without fitting)
-            # Note: We only apply log transform and NaN removal, not refitting scalers
+            # 학습과 동일한 전처리 적용 (재적합 없이)
+            # 참고: 로그 변환과 NaN 제거만 수행하고, 스케일러는 재적합하지 않음
             X_test = DataProcessor.log_transform_features(X_test)
 
-            # Remove rows with NaN in labels
+            # 레이블에 NaN이 있는 행 제거
             nan_mask_y = y_test.isna().any(axis=1) | y_test_cls.isna().any(axis=1)
             if nan_mask_y.sum() > 0:
                 X_test = X_test[~nan_mask_y]
                 y_test = y_test[~nan_mask_y]
                 y_test_cls = y_test_cls[~nan_mask_y]
 
-            # Reconstruct test df with preprocessed data
+            # 전처리된 데이터로 테스트 df 재구성
             metadata_df_test = df.loc[X_test.index, metadata_cols].reset_index(drop=True) if 'sector' in df.columns else df.loc[X_test.index, ['symbol', 'industry']].reset_index(drop=True)
             X_test_reset = X_test.reset_index(drop=True)
             y_test_reset = y_test.reset_index(drop=True)
@@ -1869,14 +1869,14 @@ class Regressor:
 
             logging.info(f"    ✅ Loaded {len(df_processed)} rows")
 
-            # PER_SECTOR mode: Split test data by sector
+            # PER_SECTOR 모드: 섹터별로 테스트 데이터 분할
             if self.use_sector_model and 'sector' in df_processed.columns:
                 for sec in self.sector_list:
                     sec_df = df_processed[df_processed['sector'] == sec].copy()
                     if len(sec_df) > 0:
                         self.sector_test_df_lists.append([fpath, sec_df, sec])
 
-        # Combine all test data
+        # 모든 테스트 데이터 병합
         if test_dfs:
             self.test_df = pd.concat(test_dfs, axis=0, ignore_index=True)
             self.x_test = self.test_df[[col for col in self.x_train.columns if col in self.test_df.columns]]
@@ -1926,7 +1926,7 @@ class Regressor:
 
         logging.info("🔧 Creating models using ModelFactory (ensures consistency with ml_backtest.py)")
 
-        # Use ModelFactory to create all models
+        # ModelFactory로 모든 모델 생성
         classifiers, regressors, sector_classifiers, sector_regressors = create_models_for_regressor(
             config=self.conf,
             optuna_params=optuna_params,
@@ -1935,7 +1935,7 @@ class Regressor:
             sector_optuna_params=sector_optuna_params
         )
 
-        # Assign to instance variables
+        # 인스턴스 변수에 할당
         for i, clf in enumerate(classifiers):
             self.clsmodels[i] = clf
 
@@ -1946,7 +1946,7 @@ class Regressor:
             self.sector_classifiers = sector_classifiers
             self.sector_models = sector_regressors
 
-        # Logging
+        # 로깅
         msg = f"✅ Models created: {len(classifiers)} ensemble classifiers, {len(regressors)} ensemble regressors"
         if self.use_sector_model:
             msg += f", {len(sector_classifiers)} sector classifiers, {len(sector_regressors)} sector regressors"
@@ -2020,7 +2020,7 @@ class Regressor:
         X_values = X.values
         original_max = np.nanmax(np.abs(X_values[np.isfinite(X_values)])) if np.isfinite(X_values).any() else 0
 
-        # ✅ REFACTORED: Use DataProcessor for clipping
+        # ✅ 리팩토링: DataProcessor의 클리핑 함수 사용
         X_clipped, _, n_extreme = DataProcessor.clip_extreme_values(
             X,
             y=None,
@@ -2063,21 +2063,21 @@ class Regressor:
         import json
         from pathlib import Path
 
-        # Use ROOT_PATH/models/optuna/ for portability
+        # ROOT_PATH/models/optuna/ 경로 사용 (이식성)
         output_dir = os.path.join(self.root_path, 'models', 'optuna')
         output_path = Path(output_dir)
 
         if not output_path.exists():
             return None
 
-        # Find latest optuna_best_params_{model_name}_*.json
+        # 최신 optuna_best_params_{model_name}_*.json 파일 찾기
         pattern = str(output_path / f'optuna_best_params_{model_name}_*.json')
         json_files = glob.glob(pattern)
 
         if not json_files:
             return None
 
-        # Get the latest file
+        # 가장 최신 파일 가져오기
         latest_file = max(json_files, key=os.path.getmtime)
 
         try:
@@ -2125,7 +2125,7 @@ class Regressor:
         if max_age_days == 0:
             return True  # Always reuse if max_age is 0
 
-        # Use ROOT_PATH/models/optuna/ for portability
+        # ROOT_PATH/models/optuna/ 경로 사용 (이식성)
         output_dir = os.path.join(self.root_path, 'models', 'optuna')
         output_path = Path(output_dir)
 
@@ -2442,7 +2442,7 @@ class Regressor:
 
         if not results:
             logging.warning("⚠️  No valid remove percentage found! Using default 8%")
-            # Fallback to 8%
+            # 8%로 폴백
             remove_pct = 8
             if classifier_mode == "negative_screen":
                 percentile = 100 - remove_pct  # 92
@@ -2557,7 +2557,7 @@ class Regressor:
             start_dt = datetime(start_year, start_month, start_date)
             end_dt = datetime(end_year, 12, 31)
 
-            # Generate rebalancing dates for this period
+            # 이 기간의 리밸런싱 날짜 생성
             current = start_dt
             while current <= end_dt:
                 self.walk_forward_periods.append({
@@ -2638,17 +2638,17 @@ class Regressor:
         # exit()
 
         # ========================================================================
-        # Walk-Forward Mode: Train models for each period
+        # Walk-Forward 모드: 각 기간별 모델 학습
         # ========================================================================
         if self.use_walk_forward:
             logging.info("="*80)
             logging.info("🔄 WALK-FORWARD TRAINING")
             logging.info("="*80)
             self._train_walk_forward()
-            return  # Skip traditional training
+            return  # 기존 학습 스킵
 
         # ========================================================================
-        # Traditional Mode: Train models once on all training data
+        # 기존 모드: 전체 학습 데이터로 모델 한 번 학습
         # ========================================================================
         logging.info("="*80)
         logging.info("📊 TRADITIONAL TRAINING (single train/test split)")
@@ -2663,23 +2663,23 @@ class Regressor:
         ml_config = self.conf.get('ML', {})
         use_optuna = ml_config.get('USE_OPTUNA', False)
 
-        # Step 1: Optuna hyperparameter optimization (global)
+        # Step 1: Optuna 하이퍼파라미터 최적화 (전역)
         optuna_best_params = self._run_optuna_optimization(ml_config, use_optuna)
 
-        # Step 2: Sector-specific Optuna optimization
+        # Step 2: 섹터별 Optuna 최적화
         sector_optuna_params = self._run_sector_optuna_optimization(ml_config, use_optuna)
 
-        # Step 3: Define models with Optuna results
+        # Step 3: Optuna 결과로 모델 정의
         self.def_model(optuna_params=optuna_best_params, sector_optuna_params=sector_optuna_params)
 
         # LightGBM 호환성을 위해 특성 이름 정리 (Optuna를 사용하지 않은 경우에만)
         if not (use_optuna and OPTUNA_AVAILABLE):
             self.x_train = self.clean_feature_names(self.x_train)
 
-        # Step 4: Train global models (classifiers + regressors)
+        # Step 4: 전역 모델 학습 (분류기 + 회귀기)
         self._train_global_models(MODEL_SAVE_PATH, ml_config)
 
-        # Step 5: Train sector models (if enabled)
+        # Step 5: 섹터 모델 학습 (활성화된 경우)
         if self.use_sector_model:
             self._train_sector_models(MODEL_SAVE_PATH, ml_config)
 
@@ -2802,7 +2802,7 @@ class Regressor:
             logging.info("="*80)
             logging.info("")
 
-            # Baseline 성능 측정
+            # 기준선(Baseline) 성능 측정
             from sklearn.model_selection import cross_val_score
             baseline_model = xgboost.XGBClassifier(
                 **baseline_params,
@@ -2835,7 +2835,7 @@ class Regressor:
                     logging.info("✅ Reusing existing Optuna results (saved time!)")
                     optuna_best_params = existing_params
 
-                    # Skip optimization, but still show results
+                    # 최적화 건너뛰고 결과만 표시
                     logging.info("="*80)
                     logging.info("✅ USING CACHED OPTUNA RESULTS")
                     logging.info("="*80)
@@ -2847,7 +2847,7 @@ class Regressor:
                     else:
                         logging.info("⏩ Existing results are stale, running optimization...")
 
-                    # Run optimization
+                    # 최적화 실행
                     study, best_params = optimize_xgboost_params(
                         self.x_train,
                         y_train_binary_optuna,
@@ -2861,7 +2861,7 @@ class Regressor:
                 logging.info("")
                 logging.info("⏩ OPTUNA_REUSE_EXISTING=N, running optimization...")
 
-                # Run optimization
+                # 최적화 실행
                 study, best_params = optimize_xgboost_params(
                     self.x_train,
                     y_train_binary_optuna,
@@ -2872,7 +2872,7 @@ class Regressor:
                     task='classification'
                 )
 
-            # Process optimization results (only if we ran optimization)
+            # 최적화 결과 처리 (최적화를 실행한 경우에만)
             if study and best_params:
                 optuna_best_params = best_params
                 improvement = study.best_value - baseline_score
@@ -2895,7 +2895,7 @@ class Regressor:
 
                 logging.info("="*80)
             elif not reuse_existing or (reuse_existing and not existing_params):
-                # Only show warning if we tried to optimize and failed
+                # 최적화를 시도했지만 실패한 경우에만 경고 표시
                 logging.warning("⚠️  Optuna optimization failed, using baseline params")
 
         elif use_optuna and not OPTUNA_AVAILABLE:
@@ -3019,7 +3019,7 @@ class Regressor:
                     'gamma': 0.01
                 }
 
-                # Baseline 성능 측정
+                # 기준선(Baseline) 성능 측정
                 from sklearn.model_selection import cross_val_score
                 baseline_model = xgboost.XGBRegressor(
                     **baseline_params,
@@ -3119,20 +3119,20 @@ class Regressor:
             ml_config: ML configuration dictionary.
         """
         # ========================================
-        # 🎯 UNIFIED PREPROCESSING (Single Source of Truth)
+        # 🎯 통합 전처리 (단일 진실 원천)
         # ========================================
-        # Replaces ALL scattered preprocessing with ONE unified method
-        # Used by BOTH regressor.py and ml_backtest.py for IDENTICAL preprocessing
+        # 분산된 모든 전처리를 하나의 통합 메서드로 대체
+        # regressor.py와 ml_backtest.py 모두 동일한 전처리를 사용
         #
-        # Steps performed (in order):
-        # 1. Remove infinite values from X and y
-        # 2. Replace remaining infinite with NaN
-        # 3. Remove rows with infinite in y labels (CRITICAL)
-        # 4. Log transformation (extreme value compression)
-        # 5. Remove columns with >50% NaN
-        # 6. Remove rows with NaN in y labels
-        # 7. (Optional) Winsorization
-        # 8. (Optional) Feature selection
+        # 수행 단계 (순서대로):
+        # 1. X와 y에서 무한값 제거
+        # 2. 나머지 무한값을 NaN으로 대체
+        # 3. y 레이블에 무한값이 있는 행 제거 (중요)
+        # 4. 로그 변환 (극단값 압축)
+        # 5. NaN이 50% 초과인 컬럼 제거
+        # 6. y 레이블에 NaN이 있는 행 제거
+        # 7. (선택) 윈저화(Winsorization)
+        # 8. (선택) Feature 선택
 
         self.x_train, self.y_train, self.y_train_cls, self.selected_features = \
             DataProcessor.preprocess_training_data(
@@ -3143,9 +3143,9 @@ class Regressor:
                 logging.getLogger()
             )
 
-        # ✅ Create binary target for classification after preprocessing
-        # (preprocessing may change indices, so recreate after)
-        # analyze=True: Show threshold analysis on first training
+        # ✅ 전처리 후 분류용 이진 타겟 생성
+        # (전처리가 인덱스를 변경할 수 있으므로 이후에 재생성)
+        # analyze=True: 첫 학습 시 임계값 분석 표시
         y_train_binary = DataProcessor.create_binary_target(
             self.y_train_cls,
             config=self.conf,
@@ -4143,26 +4143,26 @@ class Regressor:
 
         # Generate predictions based on model type
         if models_info['use_sector']:
-            # Sector-specific predictions
+            # 섹터별 예측
             for sector in pred_df['sector'].unique():
                 sector_mask = pred_df['sector'] == sector
                 X_sector = pred_df.loc[sector_mask, feature_cols]
 
                 if sector not in models_info['sector_regressors']:
-                    continue  # Skip if no model for this sector
+                    continue  # 해당 섹터의 모델이 없으면 스킵
 
-                # Align features to model (training may have dropped columns during preprocessing)
+                # 모델에 맞게 Feature 정렬 (학습 중 전처리로 컬럼이 제거되었을 수 있음)
                 sector_regs = models_info['sector_regressors'][sector]
                 first_reg = list(sector_regs.values())[0]
                 X_sector_aligned = DataProcessor.align_features_to_model(
                     X_sector, first_reg, logging.getLogger()
                 )
 
-                # Predict returns
+                # 수익률 예측
                 y_pred_return = np.mean([reg.predict(X_sector_aligned) for reg in sector_regs.values()], axis=0)
                 pred_df.loc[sector_mask, DataSchema.PRED_RETURN] = y_pred_return
 
-                # Predict probabilities (if classifier enabled)
+                # 확률 예측 (분류기 활성화 시)
                 if models_info['use_classifier'] and sector in models_info['sector_classifiers']:
                     sector_clfs = models_info['sector_classifiers'][sector]
                     first_clf = list(sector_clfs.values())[0]
@@ -4172,7 +4172,7 @@ class Regressor:
                     y_pred_proba = np.mean([clf.predict_proba(X_sector_clf)[:, 1] for clf in sector_clfs.values()], axis=0)
                     pred_df.loc[sector_mask, DataSchema.PRED_PROBA] = y_pred_proba
         else:
-            # Global predictions - align features to model
+            # 전역 예측 - 모델에 맞게 Feature 정렬
             global_regs = models_info['regressors']
             first_reg = list(global_regs.values())[0]
             X_pred_aligned = DataProcessor.align_features_to_model(
@@ -4181,7 +4181,7 @@ class Regressor:
             y_pred_return = np.mean([reg.predict(X_pred_aligned) for reg in global_regs.values()], axis=0)
             pred_df[DataSchema.PRED_RETURN] = y_pred_return
 
-            # Predict probabilities (if classifier enabled)
+            # 확률 예측 (분류기 활성화 시)
             if models_info['use_classifier']:
                 global_clfs = models_info['classifiers']
                 first_clf = list(global_clfs.values())[0]
@@ -4191,12 +4191,12 @@ class Regressor:
                 y_pred_proba = np.mean([clf.predict_proba(X_pred_clf)[:, 1] for clf in global_clfs.values()], axis=0)
                 pred_df[DataSchema.PRED_PROBA] = y_pred_proba
 
-        # Calculate ML score
+        # ML 점수 계산
         pred_df[DataSchema.ML_SCORE] = pred_df[DataSchema.PRED_PROBA] * pred_df[DataSchema.PRED_RETURN]
 
-        # Select relevant columns for output
+        # 출력용 관련 컬럼 선택
         output_cols = ['symbol', 'sector', DataSchema.PRED_RETURN, DataSchema.PRED_PROBA, DataSchema.ML_SCORE]
-        # Add company_name if available
+        # company_name이 있으면 추가
         if DataSchema.COMPANY_NAME in pred_df.columns:
             output_cols.insert(2, DataSchema.COMPANY_NAME)
 
@@ -4220,13 +4220,13 @@ class Regressor:
         pd.DataFrame
             Predictions with added columns: rank, selected
         """
-        # Sort by ml_score descending
+        # ml_score 기준 내림차순 정렬
         predictions_df = predictions_df.sort_values(DataSchema.ML_SCORE, ascending=False).reset_index(drop=True)
 
-        # Add rank (1-indexed)
+        # 순위 추가 (1부터 시작)
         predictions_df[DataSchema.RANK] = range(1, len(predictions_df) + 1)
 
-        # Select top K
+        # 상위 K개 선택
         predictions_df[DataSchema.SELECTED] = predictions_df[DataSchema.RANK] <= top_k
 
         logging.info(f"   Ranked {len(predictions_df)} stocks, selected top {top_k}")
@@ -4248,16 +4248,16 @@ class Regressor:
         Returns:
             Tuple of (X_train, X_val, y_train, y_val)
         """
-        # ✅ FIX: Reset indices to ensure .iloc works correctly
-        # When X and y come from filtered DataFrames (e.g., sector filtering),
-        # their indices might be non-contiguous (e.g., [100, 200, 300, ...])
-        # .iloc uses positional indexing, so we need 0-based contiguous indices
+        # ✅ FIX: .iloc이 올바르게 동작하도록 인덱스 초기화
+        # 필터링된 DataFrame(예: 섹터 필터링)에서 X와 y가 올 때,
+        # 인덱스가 비연속적일 수 있음 (예: [100, 200, 300, ...])
+        # .iloc은 위치 기반 인덱싱을 사용하므로 0부터 시작하는 연속 인덱스가 필요
         X = X.reset_index(drop=True)
         y = y.reset_index(drop=True)
 
-        # ✅ FIX: Remove NaN values in target before splitting
-        # NaN in target means no future price data (delisting, bankruptcy, etc.)
-        # XGBoost/LightGBM cannot handle NaN in labels
+        # ✅ FIX: 분할 전 타겟의 NaN 값 제거
+        # 타겟의 NaN은 미래 가격 데이터 없음을 의미 (상장폐지, 파산 등)
+        # XGBoost/LightGBM은 레이블의 NaN을 처리할 수 없음
         nan_mask = y.isna()
         if nan_mask.any():
             n_nan = nan_mask.sum()
@@ -4265,7 +4265,7 @@ class Regressor:
             pct_nan = (n_nan / n_total) * 100
             logging.warning(f"   ⚠️  Found {n_nan} NaN in target ({pct_nan:.2f}%) - removing these rows")
 
-            # Remove rows with NaN in target
+            # 타겟에 NaN이 있는 행 제거
             valid_mask = ~nan_mask
             X = X[valid_mask].reset_index(drop=True)
             y = y[valid_mask].reset_index(drop=True)
@@ -4295,29 +4295,29 @@ class Regressor:
         """
         classifiers = {}
 
-        # ✅ Use DataProcessor.create_binary_target with config for correct mode
-        # This respects CLASSIFIER_MODE (negative_screen/positive_screen) and LOSS_THRESHOLD
+        # ✅ DataProcessor.create_binary_target을 config와 함께 사용하여 올바른 모드 적용
+        # CLASSIFIER_MODE (negative_screen/positive_screen)와 LOSS_THRESHOLD를 준수
         y_binary = DataProcessor.create_binary_target(
             y_train,
             config=self.conf,
             logger=logging
         )
 
-        # ✅ ADD: Temporal train/val split for early stopping
+        # ✅ 조기 종료를 위한 시간순 학습/검증 분할
         X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_train, y_binary, val_ratio=0.2)
 
-        # Train 4 classifiers with early stopping
+        # 조기 종료를 적용하여 4개 분류기 학습
         from xgboost import XGBClassifier
         from lightgbm import LGBMClassifier
 
-        # ✅ CHANGE: Increase n_estimators, add early_stopping_rounds
+        # ✅ n_estimators 증가 및 early_stopping_rounds 추가
         classifiers[0] = XGBClassifier(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
         classifiers[1] = XGBClassifier(max_depth=9, n_estimators=500, random_state=42, early_stopping_rounds=50)
         classifiers[2] = XGBClassifier(max_depth=10, n_estimators=500, random_state=42, early_stopping_rounds=50)
         classifiers[3] = LGBMClassifier(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
 
         for idx, clf in classifiers.items():
-            # ✅ ADD: Fit with validation set for early stopping
+            # ✅ 조기 종료를 위한 검증 세트 적용
             if isinstance(clf, LGBMClassifier):
                 clf.fit(X_tr, y_tr,
                        eval_set=[(X_val, y_val)],
@@ -4339,17 +4339,17 @@ class Regressor:
         """Train global regressors with early stopping validation."""
         regressors = {}
 
-        # ✅ ADD: Temporal train/val split for early stopping
+        # ✅ 조기 종료를 위한 시간순 학습/검증 분할
         X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_train, y_train, val_ratio=0.2)
 
         from xgboost import XGBRegressor
 
-        # ✅ CHANGE: Increase n_estimators, add early_stopping_rounds
+        # ✅ n_estimators 증가 및 early_stopping_rounds 추가
         regressors[0] = XGBRegressor(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
         regressors[1] = XGBRegressor(max_depth=10, n_estimators=500, random_state=42, early_stopping_rounds=50)
 
         for idx, reg in regressors.items():
-            # ✅ ADD: Fit with validation set for early stopping
+            # ✅ 조기 종료를 위한 검증 세트 적용
             reg.fit(X_tr, y_tr,
                    eval_set=[(X_val, y_val)],
                    verbose=False)
@@ -4371,28 +4371,28 @@ class Regressor:
         """
         classifiers = {}
 
-        # ✅ Use DataProcessor.create_binary_target with config for correct mode
-        # This respects CLASSIFIER_MODE (negative_screen/positive_screen) and LOSS_THRESHOLD
+        # ✅ DataProcessor.create_binary_target을 config와 함께 사용하여 올바른 모드 적용
+        # CLASSIFIER_MODE (negative_screen/positive_screen)와 LOSS_THRESHOLD를 준수
         y_binary = DataProcessor.create_binary_target(
             y_sector,
             config=self.conf,
             logger=logging
         )
 
-        # ✅ ADD: Temporal train/val split for early stopping
+        # ✅ 조기 종료를 위한 시간순 학습/검증 분할
         X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_sector, y_binary, val_ratio=0.2)
 
         from xgboost import XGBClassifier
         from lightgbm import LGBMClassifier
 
-        # ✅ CHANGE: Increase n_estimators, add early_stopping_rounds
+        # ✅ n_estimators 증가 및 early_stopping_rounds 추가
         classifiers[0] = XGBClassifier(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
         classifiers[1] = XGBClassifier(max_depth=9, n_estimators=500, random_state=42, early_stopping_rounds=50)
         classifiers[2] = XGBClassifier(max_depth=10, n_estimators=500, random_state=42, early_stopping_rounds=50)
         classifiers[3] = LGBMClassifier(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
 
         for idx, clf in classifiers.items():
-            # ✅ ADD: Fit with validation set for early stopping
+            # ✅ 조기 종료를 위한 검증 세트 적용
             if isinstance(clf, LGBMClassifier):
                 clf.fit(X_tr, y_tr,
                        eval_set=[(X_val, y_val)],
@@ -4414,17 +4414,17 @@ class Regressor:
         """Train sector regressors with early stopping validation."""
         regressors = {}
 
-        # ✅ ADD: Temporal train/val split for early stopping
+        # ✅ 조기 종료를 위한 시간순 학습/검증 분할
         X_tr, X_val, y_tr, y_val = self._temporal_train_val_split(X_sector, y_sector, val_ratio=0.2)
 
         from xgboost import XGBRegressor
 
-        # ✅ CHANGE: Increase n_estimators, add early_stopping_rounds
+        # ✅ n_estimators 증가 및 early_stopping_rounds 추가
         regressors[0] = XGBRegressor(max_depth=8, n_estimators=500, random_state=42, early_stopping_rounds=50)
         regressors[1] = XGBRegressor(max_depth=10, n_estimators=500, random_state=42, early_stopping_rounds=50)
 
         for idx, reg in regressors.items():
-            # ✅ ADD: Fit with validation set for early stopping
+            # ✅ 조기 종료를 위한 검증 세트 적용
             reg.fit(X_tr, y_tr,
                    eval_set=[(X_val, y_val)],
                    verbose=False)
@@ -4492,19 +4492,19 @@ class Regressor:
         self._load_classifiers(MODEL_SAVE_PATH)
         self._load_regressors(MODEL_SAVE_PATH)
 
-        # Load threshold configs
+        # 임계값 설정 로드
         threshold_config, THRESHOLD_PERCENTILE = self._load_threshold_config(MODEL_SAVE_PATH)
         sector_threshold_configs = self._load_sector_threshold_configs(MODEL_SAVE_PATH)
 
         # 통합 메서드로 예측 컬럼 이름 생성
         pred_col_list = self._build_prediction_column_names()
 
-        # Evaluate global models across all test periods
+        # 모든 테스트 기간에 걸쳐 전역 모델 평가
         full_df, model_eval_hist = self._evaluate_global_models(
             MODEL_SAVE_PATH, threshold_config, THRESHOLD_PERCENTILE, pred_col_list
         )
 
-        # Generate global evaluation report
+        # 전역 평가 보고서 생성
         col_name = ['start_date', 'model', 'krange', 'avg_earning_per_stock', 'cur_model_pred',
                    'loss_y_and_pred', 'cur_model_pred_ispositive', 'avg_pred', 'model0_pred',
                    'model1_pred', 'model0_pred_wbinary_0', 'model1_pred_wbinary_0',
@@ -4519,7 +4519,7 @@ class Regressor:
         pred_df.to_csv(MODEL_SAVE_PATH+'pred_df_topk.csv', index=False)
         full_df.to_csv(MODEL_SAVE_PATH+'prediction_ai.csv', index=False)
 
-        # Evaluate sector models (if enabled)
+        # 섹터 모델 평가 (활성화된 경우)
         if self.use_sector_model:
             self._evaluate_sector_models(
                 MODEL_SAVE_PATH, threshold_config, THRESHOLD_PERCENTILE, sector_threshold_configs
@@ -4812,7 +4812,7 @@ class Regressor:
             logging.info("="*80)
             logging.info("")
         except FileNotFoundError:
-            # Fallback to config or hardcoded value
+            # config 또는 하드코딩된 값으로 폴백
             ml_config = self.conf.get('ML', {})
             THRESHOLD_PERCENTILE = int(ml_config.get('CLASSIFIER_THRESHOLD_PERCENTILE', 92))
             logging.warning(f"⚠️  Threshold config not found, using default: {THRESHOLD_PERCENTILE}")
@@ -4874,7 +4874,7 @@ class Regressor:
             x_test = df[df.columns.difference(y_col_list)]
             y_test = df[['price_dev_subavg']]
             y_test_cls = df[['price_dev']]
-            # ✅ REFACTORED: Use DataProcessor for binary target
+            # ✅ 리팩토링: DataProcessor의 이진 타겟 생성 함수 사용
             y_test_binary = DataProcessor.create_binary_target(y_test_cls, config=self.conf, logger=logging.getLogger())
 
             df['label'] = y_test  # 실제 가격 변동
@@ -4883,7 +4883,7 @@ class Regressor:
             # LightGBM을 위해 특성 이름 정리
             x_test = self.clean_feature_names(x_test)
 
-            # ===== Feature Alignment (피처 정렬) =====
+            # ===== 피처 정렬 =====
             # 학습 시 사용한 피처 리스트 로드
             feature_columns_file = model_save_path + 'feature_columns.pkl'
             try:
@@ -4926,8 +4926,8 @@ class Regressor:
                 logging.warning(f"⚠️  Feature columns file not found: {feature_columns_file}")
                 logging.warning("   Proceeding without feature alignment (may cause errors)")
 
-            # ✅ Winsorization: Apply if enabled during training
-            # Must match training preprocessing for consistency
+            # ✅ Winsorization: 학습 시 활성화된 경우 적용
+            # 일관성을 위해 학습 전처리와 동일하게 적용해야 함
             if self.use_winsorization:
                 x_test = DataProcessor.winsorize_features(
                     x_test,
@@ -4970,7 +4970,7 @@ class Regressor:
             # === 분류 단계 ===
             # 4개의 모든 분류기를 실행하고 성능 평가
             for i, model in self.clsmodels.items():
-                logging.info(f"classification model # {i}")
+                logging.info(f"분류 모델 # {i}")
                 pred_col_name = 'clsmodel_' + str(i) + '_prediction'
                 correct_col_name = 'clsmodel_' + str(i) + '_correct'
 
@@ -5147,11 +5147,11 @@ class Regressor:
             if len(x_test_full) == 0:
                 continue
 
-            # ===== Feature Alignment (Unified via DataProcessor) =====
-            # Uses DataProcessor.align_features_to_model() to ensure consistency
-            # with ml_backtest.py and eliminate code duplication
+            # ===== 피처 정렬 (DataProcessor로 통합) =====
+            # DataProcessor.align_features_to_model()을 사용하여
+            # ml_backtest.py와의 일관성 보장 및 코드 중복 제거
 
-            # Align for global classifier
+            # 전역 분류기용 피처 정렬
             logging.info(f"   Global classifier: Aligning features...")
             x_test_full = DataProcessor.align_features_to_model(
                 x_test_full,
@@ -5159,7 +5159,7 @@ class Regressor:
                 logging.getLogger()
             )
 
-            # Align for sector models
+            # 섹터 모델용 피처 정렬
             logging.info(f"   Sector {sec}: Aligning features...")
             x_test_sector = DataProcessor.align_features_to_model(
                 x_test_full.copy(),
@@ -5174,7 +5174,7 @@ class Regressor:
             # GPU 지원으로 device mismatch 워닝 방지
             y_probs = predict_proba_with_gpu_support(self.clsmodels[2], x_test_full, self.use_gpu_prediction)[:, 1]
 
-            # Use sector-specific threshold if available, otherwise use global threshold
+            # 섹터별 임계값이 있으면 사용, 없으면 전역 임계값 사용
             if sec in sector_threshold_configs:
                 sector_config = sector_threshold_configs[sec]
                 sector_threshold_pct = sector_config['percentile']
@@ -5190,7 +5190,7 @@ class Regressor:
             else:  # positive_screen
                 y_predict_binary = (y_probs > threshold).astype(int)
 
-            # 섹터별 모델 실행 (use sector-specific features!)
+            # 섹터별 모델 실행 (섹터 전용 피처 사용!)
             for i in range(2):
                 k = (sec, i)
                 model = self.sector_models[k]
@@ -5208,7 +5208,7 @@ class Regressor:
             df.to_csv(model_save_path+ "sec_{}_prediction_ai_{}.csv".format(sec, tdate))
 
             # 섹터별 예측의 상위 K개 평가
-            # Sector models only have basic predictions (no ensemble variants)
+            # 섹터 모델은 기본 예측만 보유 (앙상블 변형 없음)
             sector_pred_col_list = [
                 'ai_pred_avg',
                 'model_0_prediction',
@@ -5292,19 +5292,19 @@ class Regressor:
         self._load_classifiers(MODEL_SAVE_PATH)
         self._load_regressors(MODEL_SAVE_PATH)
 
-        # Load threshold config
+        # 임계값 설정 로드
         threshold_config, THRESHOLD_PERCENTILE = self._load_threshold_config(MODEL_SAVE_PATH)
 
-        # Load and prepare latest data
+        # 최신 데이터 로드 및 준비
         ldf, ldf_with_sector = self._load_latest_data(MODEL_SAVE_PATH)
         if ldf is None:
             return
 
-        # Run global predictions
+        # 전역 예측 실행
         pred_col_list = self._build_prediction_column_names()
         self._predict_latest_global(ldf, MODEL_SAVE_PATH, threshold_config, THRESHOLD_PERCENTILE, pred_col_list)
 
-        # Run sector predictions (if enabled)
+        # 섹터 예측 실행 (활성화된 경우)
         if self.use_sector_model and ldf_with_sector is not None:
             self._predict_latest_sectors(ldf_with_sector, ldf, MODEL_SAVE_PATH)
 
@@ -5457,8 +5457,8 @@ class Regressor:
             logging.error(f"Failed to parse year from filenames: {e}")
             return None, None
 
-        # ✅ Use unified data loading (DataProcessor.load_quarterly_data)
-        # This ensures consistency with ml_backtest.py and prevents duplicate indices
+        # ✅ 통합 데이터 로딩 사용 (DataProcessor.load_quarterly_data)
+        # ml_backtest.py와의 일관성 보장 및 중복 인덱스 방지
         try:
             ldf = DataProcessor.load_quarterly_data(
                 data_dir=aidata_dir,
@@ -5500,7 +5500,7 @@ class Regressor:
             if pd.notna(x) and x is not None and isinstance(x, str) and x.strip()
         ]
 
-        # Log invalid sectors and affected stocks
+        # 유효하지 않은 섹터 및 영향 받는 종목 로깅
         invalid_sectors = [
             x for x in all_sectors
             if not (pd.notna(x) and x is not None and isinstance(x, str) and x.strip())
@@ -5525,13 +5525,13 @@ class Regressor:
             logging.info(f"  Found {len(self.sector_list)} valid sectors: {self.sector_list}")
 
         # 과도한 누락 데이터가 있는 행 필터링 (>60% NaN)
-        # ⚠️ IMPORTANT: Apply BEFORE dropping sector column
+        # ⚠️ 중요: sector 컬럼 제거 전에 적용
         self.logger.info(f"before dtable len : {len(ldf)}")
         ldf = DataProcessor.drop_many_nan_row(ldf, threshold=0.6)
         self.logger.info(f"after dtable len : {len(ldf)}")
 
         # 섹터별 예측을 위해 sector 컬럼이 있는 복사본 저장
-        # ⚠️ CRITICAL: Save AFTER NaN row removal to ensure same row count
+        # ⚠️ 중요: NaN 행 제거 후 저장하여 동일한 행 수 보장
         ldf_with_sector = ldf.copy() if self.use_sector_model else None
 
         # sector 컬럼 제거 (global 모델은 sector를 사용하지 않음)
@@ -5558,7 +5558,7 @@ class Regressor:
         input = ldf[ldf.columns.difference(y_col_list)]
         input = self.clean_feature_names(input)
 
-        # ===== Feature Alignment (피처 정렬) =====
+        # ===== 피처 정렬 =====
         # 학습 시 사용한 피처 리스트 로드 (evaluation()과 동일한 방식)
         feature_columns_file = model_save_path + 'feature_columns.pkl'
         try:
@@ -5629,8 +5629,8 @@ class Regressor:
             logging.error("   Please run training first to generate feature_columns.pkl")
             return
 
-        # ✅ Winsorization: Apply if enabled during training
-        # Must match training preprocessing for consistency
+        # ✅ Winsorization: 학습 시 활성화된 경우 적용
+        # 일관성을 위해 학습 전처리와 동일하게 적용해야 함
         if self.use_winsorization:
             input = DataProcessor.winsorize_features(
                 input,
@@ -5645,7 +5645,7 @@ class Regressor:
         # === 분류 단계 ===
         # 모든 분류기 실행
         for i, model in self.clsmodels.items():
-            logging.info(f"classification model # {i}")
+            logging.info(f"분류 모델 # {i}")
             pred_col_name = 'clsmodel_' + str(i) + '_prediction'
             # GPU 지원으로 device mismatch 워닝 방지
             y_probs = predict_proba_with_gpu_support(model, input, self.use_gpu_prediction)[:, 1]
@@ -5708,7 +5708,7 @@ class Regressor:
         """
         self.sector_models = dict()
         self.sector_classifiers = dict()
-        # Use the saved copy with sector information
+        # 섹터 정보가 포함된 저장된 복사본 사용
         ldf = ldf_with_sector.copy()
 
         # 섹터별 모델 로드
@@ -5722,8 +5722,8 @@ class Regressor:
         for sec in self.sector_list:
             sec_df = ldf[ldf['sector']==sec].copy()
 
-            # ✅ Use unified preprocessing (DataProcessor.prepare_sector_data)
-            # Ensures consistency with ml_backtest.py
+            # ✅ 통합 전처리 사용 (DataProcessor.prepare_sector_data)
+            # ml_backtest.py와의 일관성 보장
             first_sector_model = self.sector_models[(sec, 0)]
             sec_input = DataProcessor.prepare_sector_data(
                 sector_df=sec_df,
@@ -5992,7 +5992,7 @@ class Regressor:
         input_data = ldf_features[ldf_features.columns.difference(y_col_list)]
         input_data = self.clean_feature_names(input_data)
 
-        # Feature alignment
+        # 피처 정렬
         missing_features = set(train_feature_columns) - set(input_data.columns)
         if missing_features:
             logging.info(f"   Adding {len(missing_features)} missing features with NaN")
@@ -6007,7 +6007,7 @@ class Regressor:
         input_data = input_data[train_feature_columns]
         logging.info(f"   Feature alignment complete: {len(input_data.columns)} features")
 
-        # Winsorization
+        # 윈저화(Winsorization)
         if self.use_winsorization:
             input_data = DataProcessor.winsorize_features(
                 input_data,
@@ -6039,7 +6039,7 @@ class Regressor:
         Returns:
             DataFrame with top-K recommended stocks.
         """
-        # ML Score 계산 (Hard Filtering)
+        # ML 점수 계산 (하드 필터링)
         threshold = np.percentile(avg_proba, threshold_percentile)
 
         if classifier_mode == "negative_screen":
