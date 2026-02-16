@@ -153,7 +153,7 @@ class BaseModel(ABC):
         if self.model is None:
             raise ValueError("Model not built. Call build_model() first.")
 
-        # Extract feature names from DataFrame columns if available
+        # DataFrame 컬럼에서 특성 이름 추출 (사용 가능한 경우)
         self.feature_names = X_train.columns.tolist() if hasattr(X_train, 'columns') else None
 
         logging.info(f"Training {self.model_type} {self.task} model...")
@@ -161,7 +161,7 @@ class BaseModel(ABC):
         if X_val is not None:
             logging.info(f"  Validation samples: {len(X_val):,}")
 
-        # Train the model with or without validation set
+        # 검증 세트 유무에 따라 모델 학습
         if X_val is not None and y_val is not None:
             eval_set = [(X_val, y_val)]
             self.model.fit(X_train, y_train, eval_set=eval_set, **kwargs)
@@ -272,19 +272,19 @@ class BaseModel(ABC):
         metrics = {}
 
         if self.task == 'classification':
-            # Get probability predictions for positive class
+            # 양성 클래스에 대한 확률 예측 가져오기
             y_pred_proba = self.predict_proba(X)[:, 1]
 
-            # Apply threshold if specified, otherwise use default predictions
+            # 임계값이 지정된 경우 적용, 그렇지 않으면 기본 예측 사용
             if threshold is not None:
                 y_pred = (y_pred_proba >= threshold).astype(int)
             else:
                 y_pred = self.predict(X)
 
-            # Compute classification metrics
+            # 분류 메트릭 계산
             metrics['accuracy'] = accuracy_score(y, y_pred)
 
-            # Get precision, recall, and F1 from classification report
+            # 분류 보고서에서 정밀도, 재현율, F1 가져오기
             report = classification_report(y, y_pred, output_dict=True)
             metrics['precision'] = report['1']['precision']
             metrics['recall'] = report['1']['recall']
@@ -297,7 +297,7 @@ class BaseModel(ABC):
 
         else:  # regression
             y_pred = self.predict(X)
-            # Compute regression metrics
+            # 회귀 메트릭 계산
             metrics['rmse'] = np.sqrt(mean_squared_error(y, y_pred))
             metrics['mae'] = np.mean(np.abs(y - y_pred))
 
@@ -333,29 +333,29 @@ class BaseModel(ABC):
         if not self.is_trained:
             raise ValueError("Model not trained. Call fit() first.")
 
-        # Check if model supports feature importance
+        # 모델이 특성 중요도를 지원하는지 확인
         if hasattr(self.model, 'feature_importances_'):
             importances = self.model.feature_importances_
         else:
             logging.warning("Model does not support feature importance")
             return pd.DataFrame()
 
-        # Use stored feature names or generate generic names
+        # 저장된 특성 이름 사용 또는 일반 이름 생성
         if self.feature_names is None:
             feature_names = [f"feature_{i}" for i in range(len(importances))]
         else:
             feature_names = self.feature_names
 
-        # Create DataFrame with feature names and importance scores
+        # 특성 이름과 중요도 점수로 DataFrame 생성
         importance_df = pd.DataFrame({
             'feature': feature_names,
             'importance': importances
         })
 
-        # Sort by importance in descending order
+        # 중요도 내림차순으로 정렬
         importance_df = importance_df.sort_values('importance', ascending=False)
 
-        # Return top N features if specified
+        # 지정된 경우 상위 N개 특성 반환
         if top_n is not None:
             importance_df = importance_df.head(top_n)
 
@@ -381,11 +381,11 @@ class BaseModel(ABC):
         if not self.is_trained:
             raise ValueError("Model not trained. Cannot save untrained model.")
 
-        # Create parent directories if they don't exist
+        # 상위 디렉토리가 없으면 생성
         path_obj = Path(path)
         path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-        # Package model with metadata
+        # 모델과 메타데이터를 패키징
         model_data = {
             'model': self.model,
             'model_type': self.model_type,
@@ -415,10 +415,10 @@ class BaseModel(ABC):
         if not Path(path).exists():
             raise FileNotFoundError(f"Model file not found: {path}")
 
-        # Load model data from file
+        # 파일에서 모델 데이터 로드
         model_data = joblib.load(path)
 
-        # Restore model state
+        # 모델 상태 복원
         self.model = model_data['model']
         self.model_type = model_data['model_type']
         self.task = model_data['task']
@@ -535,10 +535,10 @@ class BaseModel(ABC):
             # 이제 모델은 전체 데이터셋에서 학습됨
             predictions = model.predict(X_test)
         """
-        # Perform cross-validation
+        # 교차 검증 수행
         avg_scores, all_scores = self.cross_validate(X, y, dates, cv_splits)
 
-        # Train final model on full dataset
+        # 전체 데이터셋으로 최종 모델 학습
         logging.info(f"\n{'='*60}")
         logging.info("Training final model on full dataset...")
         logging.info(f"{'='*60}")

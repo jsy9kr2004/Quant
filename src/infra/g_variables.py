@@ -81,22 +81,22 @@ TODO:
 # 전처리 시 특별한 대체(imputation), 제거, 또는 별도 처리가 필요할 수 있습니다.
 
 sparse_col_list = [
-    'Ydiff_dcf',                        # Year-over-year change in DCF
-    'Ydiff_preferredStock',             # Year-over-year change in preferred stock
-    'Qdiff_otherLiabilities',           # Quarter-over-quarter change in other liabilities
-    'Ydiff_capitalLeaseObligations',    # Year-over-year change in capital lease obligations
-    'Qdiff_dcf',                        # Quarter-over-quarter change in DCF
-    'Ydiff_otherLiabilities',           # Year-over-year change in other liabilities
-    'Ydiff_deferredRevenueNonCurrent',  # Year-over-year change in deferred revenue
-    'Qdiff_otherAssets',                # Quarter-over-quarter change in other assets
-    'Qdiff_deferredRevenueNonCurrent',  # Quarter-over-quarter change in deferred revenue
-    'Ydiff_sellingAndMarketingExpenses',# Year-over-year change in S&M expenses
-    'Ydiff_researchAndDdevelopementToRevenue',  # Year-over-year change in R&D ratio
-    'dcf',                              # Discounted Cash Flow valuation
-    'Ydiff_otherAssets',                # Year-over-year change in other assets
-    'OverMC_dcf',                       # DCF over market cap ratio
-    'Qdiff_preferredStock',             # Quarter-over-quarter change in preferred stock
-    'Qdiff_capitalLeaseObligations'     # Quarter-over-quarter change in capital leases
+    'Ydiff_dcf',                        # DCF의 전년 대비 변화
+    'Ydiff_preferredStock',             # 우선주의 전년 대비 변화
+    'Qdiff_otherLiabilities',           # 기타 부채의 전분기 대비 변화
+    'Ydiff_capitalLeaseObligations',    # 자본 리스 의무의 전년 대비 변화
+    'Qdiff_dcf',                        # DCF의 전분기 대비 변화
+    'Ydiff_otherLiabilities',           # 기타 부채의 전년 대비 변화
+    'Ydiff_deferredRevenueNonCurrent',  # 이연 수익의 전년 대비 변화
+    'Qdiff_otherAssets',                # 기타 자산의 전분기 대비 변화
+    'Qdiff_deferredRevenueNonCurrent',  # 이연 수익의 전분기 대비 변화
+    'Ydiff_sellingAndMarketingExpenses',# 판매 및 마케팅 비용의 전년 대비 변화
+    'Ydiff_researchAndDdevelopementToRevenue',  # R&D 비율의 전년 대비 변화
+    'dcf',                              # DCF 밸류에이션
+    'Ydiff_otherAssets',                # 기타 자산의 전년 대비 변화
+    'OverMC_dcf',                       # DCF / 시가총액 비율
+    'Qdiff_preferredStock',             # 우선주의 전분기 대비 변화
+    'Qdiff_capitalLeaseObligations'     # 자본 리스의 전분기 대비 변화
 ]
 
 # ==============================================================================
@@ -106,126 +106,126 @@ sparse_col_list = [
 # Fundamental 분석에서 일반적으로 사용되며 절대값보다 안정적인 경우가 많습니다.
 
 ratio_col_list = [
-    # Valuation Ratios
-    "interestCoverage",                 # EBIT / Interest Expense
-    "dividendYield",                    # Annual Dividend / Stock Price
-    "peRatio",                          # Price / Earnings Per Share
-    "pbRatio",                          # Price / Book Value Per Share
-    "ptbRatio",                         # Price to Tangible Book ratio
-    "priceToSalesRatio",                # Price / Sales Per Share
-    "pfcfRatio",                        # Price / Free Cash Flow Per Share
-    "pocfratio",                        # Price / Operating Cash Flow Per Share
-    "enterpriseValueOverEBITDA",        # Enterprise Value / EBITDA
+    # 밸류에이션 비율
+    "interestCoverage",                 # EBIT / 이자비용
+    "dividendYield",                    # 연간 배당금 / 주가
+    "peRatio",                          # 주가 / 주당순이익 (PER)
+    "pbRatio",                          # 주가 / 주당순자산 (PBR)
+    "ptbRatio",                         # 주가 / 주당유형순자산
+    "priceToSalesRatio",                # 주가 / 주당매출액
+    "pfcfRatio",                        # 주가 / 주당잉여현금흐름
+    "pocfratio",                        # 주가 / 주당영업현금흐름
+    "enterpriseValueOverEBITDA",        # EV / EBITDA
 
-    # Liquidity Ratios
-    "currentRatio",                     # Current Assets / Current Liabilities
+    # 유동성 비율
+    "currentRatio",                     # 유동자산 / 유동부채
 
-    # Efficiency Ratios
-    "inventoryTurnover",                # Cost of Goods Sold / Average Inventory
-    "daysPayablesOutstanding",          # Days to pay suppliers
-    "daysOfInventoryOnHand",            # Days of inventory on hand
-    "payablesTurnover",                 # Cost of Goods Sold / Average Payables
-    "daysSalesOutstanding",             # Days to collect receivables
-    "receivablesTurnover",              # Revenue / Average Receivables
+    # 효율성 비율
+    "inventoryTurnover",                # 매출원가 / 평균재고
+    "daysPayablesOutstanding",          # 매입채무 지급 소요일수
+    "daysOfInventoryOnHand",            # 재고 보유일수
+    "payablesTurnover",                 # 매출원가 / 평균매입채무
+    "daysSalesOutstanding",             # 매출채권 회수 소요일수
+    "receivablesTurnover",              # 매출액 / 평균매출채권
 
-    # Profitability Ratios
-    "roe",                              # Return on Equity
-    "roic",                             # Return on Invested Capital
-    "returnOnTangibleAssets",           # Net Income / Tangible Assets
-    "earningsYield",                    # Earnings Per Share / Price
-    "netIncomeRatio",                   # Net Income / Revenue
-    "grossProfitRatio",                 # Gross Profit / Revenue
-    "operatingIncomeRatio",             # Operating Income / Revenue
-    "incomeBeforeTaxRatio",             # Income Before Tax / Revenue
-    "ebitdaratio",                      # EBITDA / Revenue
+    # 수익성 비율
+    "roe",                              # ROE (자기자본이익률)
+    "roic",                             # ROIC (투하자본수익률)
+    "returnOnTangibleAssets",           # 순이익 / 유형자산
+    "earningsYield",                    # EPS / 주가
+    "netIncomeRatio",                   # 순이익 / 매출액
+    "grossProfitRatio",                 # 매출총이익 / 매출액
+    "operatingIncomeRatio",             # 영업이익 / 매출액
+    "incomeBeforeTaxRatio",             # 세전이익 / 매출액
+    "ebitdaratio",                      # EBITDA / 매출액
 
-    # Leverage Ratios
-    "debtToAssets",                     # Total Debt / Total Assets
-    "debtToEquity",                     # Total Debt / Total Equity
-    "netDebtToEBITDA",                  # Net Debt / EBITDA
-    "incomeQuality",                    # Cash Flow / Net Income
+    # 레버리지 비율
+    "debtToAssets",                     # 총부채 / 총자산
+    "debtToEquity",                     # 총부채 / 총자본
+    "netDebtToEBITDA",                  # 순부채 / EBITDA
+    "incomeQuality",                    # 현금흐름 / 순이익
 
-    # Per Share Metrics
-    "eps",                              # Earnings Per Share
-    "epsdiluted",                       # Diluted Earnings Per Share
-    "revenuePerShare",                  # Revenue / Shares Outstanding
-    "netIncomePerShare",                # Net Income / Shares Outstanding
-    "freeCashFlowPerShare",             # Free Cash Flow / Shares Outstanding
-    "operatingCashFlowPerShare",        # Operating Cash Flow / Shares Outstanding
-    "cashPerShare",                     # Cash / Shares Outstanding
-    "bookValuePerShare",                # Book Value / Shares Outstanding
-    "tangibleBookValuePerShare",        # Tangible Book Value / Shares Outstanding
-    "shareholdersEquityPerShare",       # Shareholders Equity / Shares Outstanding
-    "interestDebtPerShare",             # Interest-Bearing Debt / Shares Outstanding
-    "capexPerShare",                    # Capital Expenditure / Shares Outstanding
+    # 주당 지표
+    "eps",                              # 주당순이익 (EPS)
+    "epsdiluted",                       # 희석 EPS
+    "revenuePerShare",                  # 매출액 / 발행주식수
+    "netIncomePerShare",                # 순이익 / 발행주식수
+    "freeCashFlowPerShare",             # 잉여현금흐름 / 발행주식수
+    "operatingCashFlowPerShare",        # 영업현금흐름 / 발행주식수
+    "cashPerShare",                     # 현금 / 발행주식수
+    "bookValuePerShare",                # 순자산 / 발행주식수
+    "tangibleBookValuePerShare",        # 유형순자산 / 발행주식수
+    "shareholdersEquityPerShare",       # 자기자본 / 발행주식수
+    "interestDebtPerShare",             # 이자부부채 / 발행주식수
+    "capexPerShare",                    # 자본적 지출 / 발행주식수
 
-    # Capital Efficiency Metrics
-    "capexToDepreciation",              # CapEx / Depreciation
-    "capexToRevenue",                   # CapEx / Revenue
-    "capexToOperatingCashFlow",         # CapEx / Operating Cash Flow
-    "stockBasedCompensationToRevenue",  # Stock Comp / Revenue
-    "salesGeneralAndAdministrativeToRevenue",  # SG&A / Revenue
-    "researchAndDdevelopementToRevenue",# R&D / Revenue
-    "intangiblesToTotalAssets",         # Intangibles / Total Assets
+    # 자본효율성 지표
+    "capexToDepreciation",              # 자본적 지출 / 감가상각비
+    "capexToRevenue",                   # 자본적 지출 / 매출액
+    "capexToOperatingCashFlow",         # 자본적 지출 / 영업현금흐름
+    "stockBasedCompensationToRevenue",  # 주식보상비용 / 매출액
+    "salesGeneralAndAdministrativeToRevenue",  # 판관비 / 매출액
+    "researchAndDdevelopementToRevenue",# R&D / 매출액
+    "intangiblesToTotalAssets",         # 무형자산 / 총자산
 
-    # Valuation Metrics
-    "dcf",                              # Discounted Cash Flow
-    "evToOperatingCashFlow",            # EV / Operating Cash Flow
-    "evToFreeCashFlow",                 # EV / Free Cash Flow
-    "evToSales",                        # EV / Sales
-    "freeCashFlowYield",                # Free Cash Flow / Market Cap
-    "grahamNetNet",                     # Graham Net-Net valuation
-    "grahamNumber",                     # Graham Number valuation
+    # 밸류에이션 지표
+    "dcf",                              # DCF (현금흐름할인법)
+    "evToOperatingCashFlow",            # EV / 영업현금흐름
+    "evToFreeCashFlow",                 # EV / 잉여현금흐름
+    "evToSales",                        # EV / 매출액
+    "freeCashFlowYield",                # 잉여현금흐름 / 시가총액
+    "grahamNetNet",                     # 그레이엄 넷넷 밸류에이션
+    "grahamNumber",                     # 그레이엄 넘버 밸류에이션
 
-    # Shareholder Returns
-    "payoutRatio",                      # Dividends / Net Income
+    # 주주환원 지표
+    "payoutRatio",                      # 배당금 / 순이익
 
-    # Growth Metrics (these contain "Growth" in name)
-    "dividendsperShareGrowth",          # Dividend growth rate
-    "netIncomeGrowth",                  # Net income growth rate
-    "epsgrowth",                        # EPS growth rate
-    "epsdilutedGrowth",                 # Diluted EPS growth rate
-    "revenueGrowth",                    # Revenue growth rate
-    "debtGrowth",                       # Debt growth rate
-    "operatingCashFlowGrowth",          # Operating CF growth rate
-    "ebitgrowth",                       # EBIT growth rate
-    "operatingIncomeGrowth",            # Operating income growth rate
-    "assetGrowth",                      # Asset growth rate
-    "freeCashFlowGrowth",               # Free cash flow growth rate
-    "sgaexpensesGrowth",                # SG&A expenses growth rate
-    "receivablesGrowth",                # Receivables growth rate
-    "grossProfitGrowth",                # Gross profit growth rate
-    "weightedAverageSharesGrowth",      # Share count growth
-    "weightedAverageSharesDilutedGrowth",  # Diluted share count growth
-    "bookValueperShareGrowth",          # Book value per share growth
-    "inventoryGrowth",                  # Inventory growth rate
-    "rdexpenseGrowth",                  # R&D expense growth rate
+    # 성장성 지표 (이름에 "Growth" 포함)
+    "dividendsperShareGrowth",          # 배당 성장률
+    "netIncomeGrowth",                  # 순이익 성장률
+    "epsgrowth",                        # EPS 성장률
+    "epsdilutedGrowth",                 # 희석 EPS 성장률
+    "revenueGrowth",                    # 매출 성장률
+    "debtGrowth",                       # 부채 성장률
+    "operatingCashFlowGrowth",          # 영업현금흐름 성장률
+    "ebitgrowth",                       # EBIT 성장률
+    "operatingIncomeGrowth",            # 영업이익 성장률
+    "assetGrowth",                      # 자산 성장률
+    "freeCashFlowGrowth",               # 잉여현금흐름 성장률
+    "sgaexpensesGrowth",                # 판관비 성장률
+    "receivablesGrowth",                # 매출채권 성장률
+    "grossProfitGrowth",                # 매출총이익 성장률
+    "weightedAverageSharesGrowth",      # 발행주식수 증가율
+    "weightedAverageSharesDilutedGrowth",  # 희석주식수 증가율
+    "bookValueperShareGrowth",          # 주당순자산 성장률
+    "inventoryGrowth",                  # 재고 성장률
+    "rdexpenseGrowth",                  # R&D 비용 성장률
 
-    # Multi-Year Growth Metrics
-    "tenYDividendperShareGrowthPerShare",   # 10-year dividend CAGR
-    "threeYDividendperShareGrowthPerShare", # 3-year dividend CAGR
-    "fiveYDividendperShareGrowthPerShare",  # 5-year dividend CAGR
-    "threeYOperatingCFGrowthPerShare",      # 3-year operating CF CAGR
-    "fiveYOperatingCFGrowthPerShare",       # 5-year operating CF CAGR
-    "tenYOperatingCFGrowthPerShare",        # 10-year operating CF CAGR
-    "threeYRevenueGrowthPerShare",          # 3-year revenue CAGR
-    "fiveYRevenueGrowthPerShare",           # 5-year revenue CAGR
-    "tenYRevenueGrowthPerShare",            # 10-year revenue CAGR
-    "threeYShareholdersEquityGrowthPerShare",   # 3-year equity CAGR
-    "fiveYShareholdersEquityGrowthPerShare",    # 5-year equity CAGR
-    "tenYShareholdersEquityGrowthPerShare",     # 10-year equity CAGR
-    "threeYNetIncomeGrowthPerShare",        # 3-year net income CAGR
-    "fiveYNetIncomeGrowthPerShare",         # 5-year net income CAGR
-    "tenYNetIncomeGrowthPerShare",          # 10-year net income CAGR
+    # 다년간 성장 지표
+    "tenYDividendperShareGrowthPerShare",   # 10년 배당 CAGR
+    "threeYDividendperShareGrowthPerShare", # 3년 배당 CAGR
+    "fiveYDividendperShareGrowthPerShare",  # 5년 배당 CAGR
+    "threeYOperatingCFGrowthPerShare",      # 3년 영업현금흐름 CAGR
+    "fiveYOperatingCFGrowthPerShare",       # 5년 영업현금흐름 CAGR
+    "tenYOperatingCFGrowthPerShare",        # 10년 영업현금흐름 CAGR
+    "threeYRevenueGrowthPerShare",          # 3년 매출 CAGR
+    "fiveYRevenueGrowthPerShare",           # 5년 매출 CAGR
+    "tenYRevenueGrowthPerShare",            # 10년 매출 CAGR
+    "threeYShareholdersEquityGrowthPerShare",   # 3년 자기자본 CAGR
+    "fiveYShareholdersEquityGrowthPerShare",    # 5년 자기자본 CAGR
+    "tenYShareholdersEquityGrowthPerShare",     # 10년 자기자본 CAGR
+    "threeYNetIncomeGrowthPerShare",        # 3년 순이익 CAGR
+    "fiveYNetIncomeGrowthPerShare",         # 5년 순이익 CAGR
+    "tenYNetIncomeGrowthPerShare",          # 10년 순이익 CAGR
 
-    # Absolute Value Metrics (also in ratio list for historical reasons)
-    "freeCashFlow",                     # Free Cash Flow (absolute)
-    "operatingCashFlow",                # Operating Cash Flow (absolute)
-    "grossProfit",                      # Gross Profit (absolute)
-    "ebitda",                           # EBITDA (absolute)
-    "netDebt",                          # Net Debt (absolute)
-    "investedCapital",                  # Invested Capital (absolute)
-    "stockBasedCompensation",           # Stock-Based Compensation (absolute)
+    # 절대값 지표 (역사적 이유로 ratio 리스트에도 포함)
+    "freeCashFlow",                     # 잉여현금흐름 (절대값)
+    "operatingCashFlow",                # 영업현금흐름 (절대값)
+    "grossProfit",                      # 매출총이익 (절대값)
+    "ebitda",                           # EBITDA (절대값)
+    "netDebt",                          # 순부채 (절대값)
+    "investedCapital",                  # 투하자본 (절대값)
+    "stockBasedCompensation",           # 주식보상비용 (절대값)
 ]
 
 # ==============================================================================
@@ -235,207 +235,207 @@ ratio_col_list = [
 # 절대값(달러 단위)을 포함합니다. 종합적인 financial 분석을 위해 ratio와 함께 사용됩니다.
 
 meaning_col_list = [
-    # Cash Flow Statement Items
-    "commonStockRepurchased",           # Share buyback amount
-    "netCashProvidedByOperatingActivities",  # Operating cash flow
-    "netCashUsedForInvestingActivites", # Investing cash flow
-    "netCashUsedProvidedByFinancingActivities",  # Financing cash flow
-    "freeCashFlow",                     # Free cash flow (OCF - CapEx)
-    "operatingCashFlow",                # Operating cash flow
-    "netChangeInCash",                  # Net change in cash position
-    "changeInWorkingCapital",           # Change in working capital
-    "capitalExpenditure",               # Capital expenditures
-    "investmentsInPropertyPlantAndEquipment",  # PP&E investments
-    "acquisitionsNet",                  # Net acquisition spending
-    "purchasesOfInvestments",           # Investment purchases
-    "otherInvestingActivites",          # Other investing activities
-    "otherNonCashItems",                # Other non-cash items
-    "depreciationAndAmortization",      # D&A expense
-    "otherWorkingCapital",              # Other working capital changes
-    "effectOfForexChangesOnCash",       # FX impact on cash
+    # 현금흐름표 항목
+    "commonStockRepurchased",           # 자사주 매입 금액
+    "netCashProvidedByOperatingActivities",  # 영업활동 현금흐름
+    "netCashUsedForInvestingActivites", # 투자활동 현금흐름
+    "netCashUsedProvidedByFinancingActivities",  # 재무활동 현금흐름
+    "freeCashFlow",                     # 잉여현금흐름 (영업현금흐름 - 자본적 지출)
+    "operatingCashFlow",                # 영업현금흐름
+    "netChangeInCash",                  # 현금 순변동
+    "changeInWorkingCapital",           # 운전자본 변동
+    "capitalExpenditure",               # 자본적 지출
+    "investmentsInPropertyPlantAndEquipment",  # 유형자산 투자
+    "acquisitionsNet",                  # 순인수 지출
+    "purchasesOfInvestments",           # 투자자산 매입
+    "otherInvestingActivites",          # 기타 투자활동
+    "otherNonCashItems",                # 기타 비현금 항목
+    "depreciationAndAmortization",      # 감가상각비
+    "otherWorkingCapital",              # 기타 운전자본 변동
+    "effectOfForexChangesOnCash",       # 환율 변동이 현금에 미치는 영향
 
-    # Balance Sheet - Assets
-    "totalAssets",                      # Total assets
-    "totalCurrentAssets",               # Total current assets
-    "totalNonCurrentAssets",            # Total non-current assets
-    "cashAndCashEquivalents",           # Cash and equivalents
-    "cashAndShortTermInvestments",      # Cash and short-term investments
-    "shortTermInvestments",             # Short-term investments
-    "totalInvestments",                 # Total investments
-    "longTermInvestments",              # Long-term investments
-    "netReceivables",                   # Net receivables
-    "accountsReceivables",              # Accounts receivable
-    "inventory",                        # Inventory
-    "propertyPlantEquipmentNet",        # Net PP&E
-    "goodwillAndIntangibleAssets",      # Goodwill and intangibles
-    "intangibleAssets",                 # Intangible assets
-    "otherAssets",                      # Other assets
-    "otherCurrentAssets",               # Other current assets
-    "otherNonCurrentAssets",            # Other non-current assets
-    "deferredRevenue",                  # Deferred revenue (liability side)
-    "deferredRevenueNonCurrent",        # Long-term deferred revenue
-    "deferredIncomeTax",                # Deferred tax assets
-    "taxAssets",                        # Tax assets
+    # 대차대조표 - 자산
+    "totalAssets",                      # 총자산
+    "totalCurrentAssets",               # 총유동자산
+    "totalNonCurrentAssets",            # 총비유동자산
+    "cashAndCashEquivalents",           # 현금 및 현금성자산
+    "cashAndShortTermInvestments",      # 현금 및 단기투자
+    "shortTermInvestments",             # 단기투자
+    "totalInvestments",                 # 총투자
+    "longTermInvestments",              # 장기투자
+    "netReceivables",                   # 순매출채권
+    "accountsReceivables",              # 매출채권
+    "inventory",                        # 재고자산
+    "propertyPlantEquipmentNet",        # 순유형자산
+    "goodwillAndIntangibleAssets",      # 영업권 및 무형자산
+    "intangibleAssets",                 # 무형자산
+    "otherAssets",                      # 기타 자산
+    "otherCurrentAssets",               # 기타 유동자산
+    "otherNonCurrentAssets",            # 기타 비유동자산
+    "deferredRevenue",                  # 이연수익 (부채 항목)
+    "deferredRevenueNonCurrent",        # 장기 이연수익
+    "deferredIncomeTax",                # 이연법인세자산
+    "taxAssets",                        # 세금자산
 
-    # Balance Sheet - Liabilities
-    "totalLiabilities",                 # Total liabilities
-    "totalCurrentLiabilities",          # Total current liabilities
-    "totalNonCurrentLiabilities",       # Total non-current liabilities
-    "totalLiabilitiesAndStockholdersEquity",  # Total L&E
-    "totalLiabilitiesAndTotalEquity",   # Total L&E (alternative name)
-    "totalDebt",                        # Total debt
-    "shortTermDebt",                    # Short-term debt
-    "longTermDebt",                     # Long-term debt
-    "accountsPayables",                 # Accounts payable
-    "accountPayables",                  # Accounts payable (alternative name)
-    "taxPayables",                      # Tax payables
-    "otherLiabilities",                 # Other liabilities
-    "otherCurrentLiabilities",          # Other current liabilities
-    "otherNonCurrentLiabilities",       # Other non-current liabilities
-    "capitalLeaseObligations",          # Capital lease obligations
-    "deferredTaxLiabilitiesNonCurrent", # Deferred tax liabilities
+    # 대차대조표 - 부채
+    "totalLiabilities",                 # 총부채
+    "totalCurrentLiabilities",          # 총유동부채
+    "totalNonCurrentLiabilities",       # 총비유동부채
+    "totalLiabilitiesAndStockholdersEquity",  # 총부채 및 자본
+    "totalLiabilitiesAndTotalEquity",   # 총부채 및 자본 (대체 명칭)
+    "totalDebt",                        # 총차입금
+    "shortTermDebt",                    # 단기차입금
+    "longTermDebt",                     # 장기차입금
+    "accountsPayables",                 # 매입채무
+    "accountPayables",                  # 매입채무 (대체 명칭)
+    "taxPayables",                      # 미지급세금
+    "otherLiabilities",                 # 기타 부채
+    "otherCurrentLiabilities",          # 기타 유동부채
+    "otherNonCurrentLiabilities",       # 기타 비유동부채
+    "capitalLeaseObligations",          # 자본 리스 의무
+    "deferredTaxLiabilitiesNonCurrent", # 이연법인세부채
 
-    # Balance Sheet - Equity
-    "totalEquity",                      # Total equity
-    "totalStockholdersEquity",          # Total shareholders equity
-    "commonStock",                      # Common stock
-    "retainedEarnings",                 # Retained earnings
-    "accumulatedOtherComprehensiveIncomeLoss",  # AOCI
-    "othertotalStockholdersEquity",     # Other equity items
-    "minorityInterest",                 # Minority interest
+    # 대차대조표 - 자본
+    "totalEquity",                      # 총자본
+    "totalStockholdersEquity",          # 총주주자본
+    "commonStock",                      # 보통주
+    "retainedEarnings",                 # 이익잉여금
+    "accumulatedOtherComprehensiveIncomeLoss",  # 기타포괄손익누계액
+    "othertotalStockholdersEquity",     # 기타 자본 항목
+    "minorityInterest",                 # 소수주주지분
 
-    # Income Statement
-    "revenue",                          # Total revenue
-    "costOfRevenue",                    # Cost of revenue/COGS
-    "grossProfit",                      # Gross profit
-    "operatingExpenses",                # Total operating expenses
-    "costAndExpenses",                  # Total costs and expenses
-    "sellingGeneralAndAdministrativeExpenses",  # SG&A expenses
-    "sellingAndMarketingExpenses",      # Sales and marketing
-    "generalAndAdministrativeExpenses", # G&A expenses
-    "researchAndDevelopmentExpenses",   # R&D expenses
-    "operatingIncome",                  # Operating income (EBIT)
+    # 손익계산서
+    "revenue",                          # 총매출액
+    "costOfRevenue",                    # 매출원가
+    "grossProfit",                      # 매출총이익
+    "operatingExpenses",                # 총영업비용
+    "costAndExpenses",                  # 총비용
+    "sellingGeneralAndAdministrativeExpenses",  # 판관비
+    "sellingAndMarketingExpenses",      # 판매 및 마케팅 비용
+    "generalAndAdministrativeExpenses", # 일반관리비
+    "researchAndDevelopmentExpenses",   # R&D 비용
+    "operatingIncome",                  # 영업이익 (EBIT)
     "ebitda",                           # EBITDA
-    "interestExpense",                  # Interest expense
-    "interestIncome",                   # Interest income
-    "totalOtherIncomeExpensesNet",      # Other income/expenses
-    "otherExpenses",                    # Other expenses
-    "incomeBeforeTax",                  # Pre-tax income
-    "incomeTaxExpense",                 # Income tax expense
-    "netIncome",                        # Net income
+    "interestExpense",                  # 이자비용
+    "interestIncome",                   # 이자수익
+    "totalOtherIncomeExpensesNet",      # 기타 수익/비용
+    "otherExpenses",                    # 기타 비용
+    "incomeBeforeTax",                  # 세전이익
+    "incomeTaxExpense",                 # 법인세비용
+    "netIncome",                        # 순이익
 
-    # Valuation and Per-Share Metrics
-    "enterpriseValue",                  # Enterprise value
-    "dcf",                              # Discounted cash flow value
-    "stockBasedCompensation",           # Stock-based compensation
-    "workingCapital",                   # Working capital
-    "netCurrentAssetValue",             # NCAV (Graham metric)
-    "tangibleAssetValue",               # Tangible asset value
-    "investedCapital",                  # Invested capital
-    "netDebt",                          # Net debt (debt - cash)
+    # 밸류에이션 및 주당 지표
+    "enterpriseValue",                  # EV (기업가치)
+    "dcf",                              # DCF 가치
+    "stockBasedCompensation",           # 주식보상비용
+    "workingCapital",                   # 운전자본
+    "netCurrentAssetValue",             # NCAV (그레이엄 지표)
+    "tangibleAssetValue",               # 유형자산가치
+    "investedCapital",                  # 투하자본
+    "netDebt",                          # 순부채 (부채 - 현금)
 
-    # Averages (used in ratio calculations)
-    "averageInventory",                 # Average inventory
-    "averagePayables",                  # Average payables
-    "averageReceivables",               # Average receivables
+    # 평균값 (비율 계산에 사용)
+    "averageInventory",                 # 평균 재고
+    "averagePayables",                  # 평균 매입채무
+    "averageReceivables",               # 평균 매출채권
 
-    # Per Share Values (absolute amounts per share)
-    "eps",                              # Earnings per share
-    "epsdiluted",                       # Diluted EPS
-    "revenuePerShare",                  # Revenue per share
-    "netIncomePerShare",                # Net income per share
-    "freeCashFlowPerShare",             # FCF per share
-    "operatingCashFlowPerShare",        # OCF per share
-    "cashPerShare",                     # Cash per share
-    "bookValuePerShare",                # Book value per share
-    "tangibleBookValuePerShare",        # Tangible book value per share
-    "shareholdersEquityPerShare",       # Equity per share
-    "interestDebtPerShare",             # Interest debt per share
-    "capexPerShare",                    # CapEx per share
+    # 주당 가치 (주당 절대 금액)
+    "eps",                              # 주당순이익 (EPS)
+    "epsdiluted",                       # 희석 EPS
+    "revenuePerShare",                  # 주당 매출액
+    "netIncomePerShare",                # 주당 순이익
+    "freeCashFlowPerShare",             # 주당 잉여현금흐름
+    "operatingCashFlowPerShare",        # 주당 영업현금흐름
+    "cashPerShare",                     # 주당 현금
+    "bookValuePerShare",                # 주당 순자산
+    "tangibleBookValuePerShare",        # 주당 유형순자산
+    "shareholdersEquityPerShare",       # 주당 자기자본
+    "interestDebtPerShare",             # 주당 이자부부채
+    "capexPerShare",                    # 주당 자본적 지출
 
-    # Ratios (also included for convenience)
-    "interestCoverage",                 # Interest coverage ratio
-    "dividendYield",                    # Dividend yield
-    "inventoryTurnover",                # Inventory turnover
-    "daysPayablesOutstanding",          # DPO
-    "stockBasedCompensationToRevenue",  # SBC / Revenue
-    "capexToDepreciation",              # CapEx / D&A
-    "currentRatio",                     # Current ratio
-    "daysOfInventoryOnHand",            # DOH
-    "payablesTurnover",                 # Payables turnover
-    "grahamNetNet",                     # Graham net-net
-    "capexToRevenue",                   # CapEx / Revenue
-    "netDebtToEBITDA",                  # Net debt / EBITDA
-    "receivablesTurnover",              # Receivables turnover
-    "capexToOperatingCashFlow",         # CapEx / OCF
-    "evToOperatingCashFlow",            # EV / OCF
-    "evToFreeCashFlow",                 # EV / FCF
-    "debtToAssets",                     # Debt / Assets
-    "peRatio",                          # P/E ratio
+    # 비율 (편의상 포함)
+    "interestCoverage",                 # 이자보상배율
+    "dividendYield",                    # 배당수익률
+    "inventoryTurnover",                # 재고회전율
+    "daysPayablesOutstanding",          # 매입채무 지급일수
+    "stockBasedCompensationToRevenue",  # 주식보상비용 / 매출액
+    "capexToDepreciation",              # 자본적 지출 / 감가상각비
+    "currentRatio",                     # 유동비율
+    "daysOfInventoryOnHand",            # 재고보유일수
+    "payablesTurnover",                 # 매입채무회전율
+    "grahamNetNet",                     # 그레이엄 넷넷
+    "capexToRevenue",                   # 자본적 지출 / 매출액
+    "netDebtToEBITDA",                  # 순부채 / EBITDA
+    "receivablesTurnover",              # 매출채권회전율
+    "capexToOperatingCashFlow",         # 자본적 지출 / 영업현금흐름
+    "evToOperatingCashFlow",            # EV / 영업현금흐름
+    "evToFreeCashFlow",                 # EV / 잉여현금흐름
+    "debtToAssets",                     # 부채 / 자산
+    "peRatio",                          # PER
     "enterpriseValueOverEBITDA",        # EV / EBITDA
-    "pfcfRatio",                        # P/FCF
-    "pocfratio",                        # P/OCF
-    "daysSalesOutstanding",             # DSO
-    "incomeQuality",                    # Income quality
-    "evToSales",                        # EV / Sales
-    "grahamNumber",                     # Graham number
-    "priceToSalesRatio",                # P/S ratio
-    "pbRatio",                          # P/B ratio
-    "ptbRatio",                         # P/TB ratio
-    "roic",                             # Return on invested capital
-    "freeCashFlowYield",                # FCF yield
-    "roe",                              # Return on equity
-    "returnOnTangibleAssets",           # ROTA
-    "earningsYield",                    # Earnings yield
-    "debtToEquity",                     # D/E ratio
-    "payoutRatio",                      # Payout ratio
-    "salesGeneralAndAdministrativeToRevenue",  # SG&A / Revenue
-    "intangiblesToTotalAssets",         # Intangibles / Assets
-    "ebitdaratio",                      # EBITDA margin
-    "dividendsperShareGrowth",          # Dividend growth
-    "netIncomeGrowth",                  # Net income growth
-    "epsgrowth",                        # EPS growth
-    "epsdilutedGrowth",                 # Diluted EPS growth
-    "revenueGrowth",                    # Revenue growth
-    "grossProfitRatio",                 # Gross margin
-    "debtGrowth",                       # Debt growth
-    "tenYDividendperShareGrowthPerShare",  # 10Y dividend CAGR
-    "netIncomeRatio",                   # Net margin
-    "incomeBeforeTaxRatio",             # Pre-tax margin
-    "operatingCashFlowGrowth",          # OCF growth
-    "ebitgrowth",                       # EBIT growth
-    "operatingIncomeGrowth",            # Operating income growth
-    "threeYDividendperShareGrowthPerShare",  # 3Y dividend CAGR
-    "assetGrowth",                      # Asset growth
-    "freeCashFlowGrowth",               # FCF growth
-    "sgaexpensesGrowth",                # SG&A growth
-    "fiveYDividendperShareGrowthPerShare",  # 5Y dividend CAGR
-    "receivablesGrowth",                # Receivables growth
-    "fiveYRevenueGrowthPerShare",       # 5Y revenue CAGR
-    "threeYOperatingCFGrowthPerShare",  # 3Y OCF CAGR
-    "grossProfitGrowth",                # Gross profit growth
-    "operatingIncomeRatio",             # Operating margin
-    "threeYShareholdersEquityGrowthPerShare",  # 3Y equity CAGR
-    "fiveYShareholdersEquityGrowthPerShare",   # 5Y equity CAGR
-    "fiveYOperatingCFGrowthPerShare",   # 5Y OCF CAGR
-    "threeYRevenueGrowthPerShare",      # 3Y revenue CAGR
-    "researchAndDdevelopementToRevenue",# R&D / Revenue
-    "threeYNetIncomeGrowthPerShare",    # 3Y net income CAGR
-    "tenYOperatingCFGrowthPerShare",    # 10Y OCF CAGR
-    "tenYRevenueGrowthPerShare",        # 10Y revenue CAGR
-    "tenYShareholdersEquityGrowthPerShare",  # 10Y equity CAGR
-    "interestExpense",                  # Interest expense
-    "tenYNetIncomeGrowthPerShare",      # 10Y net income CAGR
-    "weightedAverageSharesGrowth",      # Share count growth
-    "weightedAverageSharesDilutedGrowth",  # Diluted share growth
-    "fiveYNetIncomeGrowthPerShare",     # 5Y net income CAGR
-    "bookValueperShareGrowth",          # Book value growth
-    "inventoryGrowth",                  # Inventory growth
-    "rdexpenseGrowth",                  # R&D growth
+    "pfcfRatio",                        # 주가 / 잉여현금흐름
+    "pocfratio",                        # 주가 / 영업현금흐름
+    "daysSalesOutstanding",             # 매출채권 회수일수
+    "incomeQuality",                    # 이익의 질
+    "evToSales",                        # EV / 매출액
+    "grahamNumber",                     # 그레이엄 넘버
+    "priceToSalesRatio",                # PSR
+    "pbRatio",                          # PBR
+    "ptbRatio",                         # 주가 / 유형순자산
+    "roic",                             # ROIC (투하자본수익률)
+    "freeCashFlowYield",                # 잉여현금흐름 수익률
+    "roe",                              # ROE (자기자본이익률)
+    "returnOnTangibleAssets",           # 유형자산수익률
+    "earningsYield",                    # 이익수익률
+    "debtToEquity",                     # 부채비율
+    "payoutRatio",                      # 배당성향
+    "salesGeneralAndAdministrativeToRevenue",  # 판관비 / 매출액
+    "intangiblesToTotalAssets",         # 무형자산 / 총자산
+    "ebitdaratio",                      # EBITDA 마진
+    "dividendsperShareGrowth",          # 배당 성장률
+    "netIncomeGrowth",                  # 순이익 성장률
+    "epsgrowth",                        # EPS 성장률
+    "epsdilutedGrowth",                 # 희석 EPS 성장률
+    "revenueGrowth",                    # 매출 성장률
+    "grossProfitRatio",                 # 매출총이익률
+    "debtGrowth",                       # 부채 성장률
+    "tenYDividendperShareGrowthPerShare",  # 10년 배당 CAGR
+    "netIncomeRatio",                   # 순이익률
+    "incomeBeforeTaxRatio",             # 세전이익률
+    "operatingCashFlowGrowth",          # 영업현금흐름 성장률
+    "ebitgrowth",                       # EBIT 성장률
+    "operatingIncomeGrowth",            # 영업이익 성장률
+    "threeYDividendperShareGrowthPerShare",  # 3년 배당 CAGR
+    "assetGrowth",                      # 자산 성장률
+    "freeCashFlowGrowth",               # 잉여현금흐름 성장률
+    "sgaexpensesGrowth",                # 판관비 성장률
+    "fiveYDividendperShareGrowthPerShare",  # 5년 배당 CAGR
+    "receivablesGrowth",                # 매출채권 성장률
+    "fiveYRevenueGrowthPerShare",       # 5년 매출 CAGR
+    "threeYOperatingCFGrowthPerShare",  # 3년 영업현금흐름 CAGR
+    "grossProfitGrowth",                # 매출총이익 성장률
+    "operatingIncomeRatio",             # 영업이익률
+    "threeYShareholdersEquityGrowthPerShare",  # 3년 자기자본 CAGR
+    "fiveYShareholdersEquityGrowthPerShare",   # 5년 자기자본 CAGR
+    "fiveYOperatingCFGrowthPerShare",   # 5년 영업현금흐름 CAGR
+    "threeYRevenueGrowthPerShare",      # 3년 매출 CAGR
+    "researchAndDdevelopementToRevenue",# R&D / 매출액
+    "threeYNetIncomeGrowthPerShare",    # 3년 순이익 CAGR
+    "tenYOperatingCFGrowthPerShare",    # 10년 영업현금흐름 CAGR
+    "tenYRevenueGrowthPerShare",        # 10년 매출 CAGR
+    "tenYShareholdersEquityGrowthPerShare",  # 10년 자기자본 CAGR
+    "interestExpense",                  # 이자비용
+    "tenYNetIncomeGrowthPerShare",      # 10년 순이익 CAGR
+    "weightedAverageSharesGrowth",      # 발행주식수 증가율
+    "weightedAverageSharesDilutedGrowth",  # 희석주식수 증가율
+    "fiveYNetIncomeGrowthPerShare",     # 5년 순이익 CAGR
+    "bookValueperShareGrowth",          # 주당순자산 성장률
+    "inventoryGrowth",                  # 재고 성장률
+    "rdexpenseGrowth",                  # R&D 비용 성장률
 
-    # Cash Position Metrics
-    "cashAtBeginningOfPeriod",          # Beginning cash
-    "cashAtEndOfPeriod",                # Ending cash
+    # 현금 포지션 지표
+    "cashAtBeginningOfPeriod",          # 기초 현금
+    "cashAtEndOfPeriod",                # 기말 현금
 ]
 
 # ==============================================================================

@@ -1,7 +1,7 @@
 """
-Walk-Forward Validation
+Walk-Forward 검증
 
-시계열 데이터를 위한 walk-forward validation
+시계열 데이터를 위한 walk-forward 검증 모듈입니다.
 """
 
 import pandas as pd
@@ -14,15 +14,16 @@ from typing import Dict, List, Any, Optional, Callable
 
 class WalkForwardValidator:
     """
-    Walk-Forward Validation
+    Walk-Forward 검증을 수행합니다.
 
-    예시 (train_months=24, test_months=3):
-    Period 1: Train(2020-01~2021-12) → Test(2022-01~2022-03)
-    Period 2: Train(2020-04~2022-03) → Test(2022-04~2022-06)  ← 모델 재학습
-    Period 3: Train(2020-07~2022-06) → Test(2022-07~2022-09)  ← 모델 재학습
-    ...
+    사용 예시:
+        (train_months=24, test_months=3인 경우):
+        Period 1: Train(2020-01~2021-12) -> Test(2022-01~2022-03)
+        Period 2: Train(2020-04~2022-03) -> Test(2022-04~2022-06)  <- 모델 재학습
+        Period 3: Train(2020-07~2022-06) -> Test(2022-07~2022-09)  <- 모델 재학습
+        ...
 
-    매 기간마다 모델을 다시 학습하여 시장 변화에 적응
+    매 기간마다 모델을 다시 학습하여 시장 변화에 적응합니다.
     """
 
     def __init__(self,
@@ -35,7 +36,7 @@ class WalkForwardValidator:
             train_months: 학습 데이터 기간 (개월)
             test_months: 테스트 데이터 기간 (개월)
             retrain_frequency: 재학습 빈도 (개월)
-            anchored: True면 train 시작점 고정, False면 rolling window
+            anchored: True이면 학습 시작점 고정, False이면 롤링 윈도우
         """
         self.train_months = train_months
         self.test_months = test_months
@@ -46,7 +47,7 @@ class WalkForwardValidator:
                         start_date: datetime,
                         end_date: datetime) -> List[Dict[str, datetime]]:
         """
-        학습/테스트 윈도우 생성
+        학습/테스트 윈도우를 생성합니다.
 
         Args:
             start_date: 시작 날짜
@@ -62,9 +63,9 @@ class WalkForwardValidator:
         while current_date < end_date:
             # 학습 기간
             if not self.anchored:
-                # Rolling window: 학습 시작점도 이동
+                # 롤링 윈도우: 학습 시작점도 이동
                 train_start = current_date - relativedelta(months=self.train_months)
-            # Anchored window: 학습 시작점 고정
+            # 고정 윈도우: 학습 시작점 고정
 
             train_end = current_date
 
@@ -98,11 +99,11 @@ class WalkForwardValidator:
                 model_params: Optional[Dict] = None,
                 verbose: bool = True) -> pd.DataFrame:
         """
-        Walk-forward validation 수행
+        Walk-forward 검증을 수행합니다.
 
         Args:
             model_class: 모델 클래스 (인스턴스화 가능해야 함)
-            df: 전체 데이터프레임
+            df: 전체 DataFrame
             date_col: 날짜 컬럼명
             feature_cols: 피처 컬럼 리스트
             target_col: 타겟 컬럼명
@@ -112,7 +113,7 @@ class WalkForwardValidator:
             verbose: 상세 로그 출력 여부
 
         Returns:
-            결과 데이터프레임
+            결과 DataFrame
         """
         if model_params is None:
             model_params = {}
@@ -155,7 +156,7 @@ class WalkForwardValidator:
                 logging.info(f"  Train samples: {len(train_df):,}")
                 logging.info(f"  Test samples:  {len(test_df):,}")
 
-            # 모델 재학습 ⭐ 핵심!
+            # 모델 재학습 (핵심!)
             try:
                 model = model_class(**model_params)
 
@@ -164,7 +165,7 @@ class WalkForwardValidator:
                 X_test = test_df[feature_cols]
                 y_test = test_df[target_col]
 
-                # NaN 제거
+                # NaN 값 제거
                 train_valid_mask = ~(X_train.isnull().any(axis=1) | y_train.isnull())
                 test_valid_mask = ~(X_test.isnull().any(axis=1) | y_test.isnull())
 
@@ -244,19 +245,19 @@ class WalkForwardValidator:
                                    end_date: datetime,
                                    **kwargs) -> pd.DataFrame:
         """
-        사용자 정의 학습/평가 함수를 사용한 walk-forward validation
+        사용자 정의 학습/평가 함수를 사용한 walk-forward 검증을 수행합니다.
 
         Args:
             train_func: 학습 함수 (train_df 입력, model 반환)
             evaluate_func: 평가 함수 (model, test_df 입력, metrics dict 반환)
-            df: 전체 데이터프레임
+            df: 전체 DataFrame
             date_col: 날짜 컬럼명
             start_date: 시작 날짜
             end_date: 종료 날짜
             **kwargs: train_func, evaluate_func에 전달할 추가 인자
 
         Returns:
-            결과 데이터프레임
+            결과 DataFrame
         """
         windows = self.generate_windows(start_date, end_date)
         results = []
@@ -280,10 +281,10 @@ class WalkForwardValidator:
                 continue
 
             try:
-                # 사용자 정의 학습
+                # 사용자 정의 함수로 학습
                 model = train_func(train_df, **kwargs)
 
-                # 사용자 정의 평가
+                # 사용자 정의 함수로 평가
                 metrics = evaluate_func(model, test_df, **kwargs)
 
                 result = {

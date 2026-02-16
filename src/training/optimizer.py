@@ -1,5 +1,5 @@
 """
-Optuna hyperparameter optimization
+Optuna 하이퍼파라미터 최적화
 """
 
 import logging
@@ -15,11 +15,11 @@ class OptunaOptimizer:
     """
     Optuna를 사용한 자동 하이퍼파라미터 튜닝
 
-    Features:
-    - Bayesian optimization (TPE)
-    - Pruning for faster search
-    - Cross-validation support
-    - Best model tracking
+    기능:
+    - 베이지안 최적화 (TPE)
+    - 빠른 탐색을 위한 가지치기(Pruning)
+    - 교차 검증 지원
+    - 최적 모델 추적
     """
 
     def __init__(self,
@@ -30,15 +30,15 @@ class OptunaOptimizer:
                  direction: str = 'maximize',
                  pruning: bool = True):
         """
-        Initialize Optuna optimizer
+        Optuna 옵티마이저를 초기화합니다.
 
         Args:
-            model_class: 모델 클래스 (XGBoostModel, LightGBMModel, etc.)
+            model_class: 모델 클래스 (XGBoostModel, LightGBMModel 등)
             search_space: 탐색 공간 딕셔너리
             n_trials: 시도 횟수
-            cv_folds: Cross-validation folds
-            direction: 'maximize' or 'minimize'
-            pruning: Pruning 사용 여부
+            cv_folds: 교차 검증 fold 수
+            direction: 'maximize' 또는 'minimize'
+            pruning: 가지치기(Pruning) 사용 여부
         """
         self.model_class = model_class
         self.search_space = search_space
@@ -53,17 +53,17 @@ class OptunaOptimizer:
 
     def _objective(self, trial: optuna.Trial, X, y, task: str, scoring: str) -> float:
         """
-        Optuna objective function
+        Optuna 목적 함수입니다.
 
         Args:
             trial: Optuna trial
             X: 학습 데이터
             y: 학습 레이블
-            task: 'classification' or 'regression'
-            scoring: sklearn scoring metric
+            task: 'classification' 또는 'regression'
+            scoring: sklearn 평가 메트릭
 
         Returns:
-            Cross-validation score
+            교차 검증 점수
         """
         # 파라미터 샘플링
         params = {}
@@ -74,7 +74,7 @@ class OptunaOptimizer:
             elif isinstance(min_val, float) and isinstance(max_val, float):
                 params[param_name] = trial.suggest_float(param_name, min_val, max_val)
             else:
-                # Categorical
+                # 범주형
                 params[param_name] = trial.suggest_categorical(param_name, [min_val, max_val])
 
         # 모델 생성 및 학습
@@ -82,7 +82,7 @@ class OptunaOptimizer:
             model = self.model_class(task=task)
             model.build_model(params)
 
-            # Cross-validation
+            # 교차 검증
             scores = cross_val_score(
                 model.model,
                 X, y,
@@ -93,7 +93,7 @@ class OptunaOptimizer:
 
             mean_score = scores.mean()
 
-            # Pruning
+            # 가지치기
             if self.pruning:
                 trial.report(mean_score, step=0)
                 if trial.should_prune():
@@ -111,13 +111,13 @@ class OptunaOptimizer:
                  scoring: str = None,
                  verbose: bool = True) -> Dict[str, Any]:
         """
-        하이퍼파라미터 최적화 실행
+        하이퍼파라미터 최적화를 실행합니다.
 
         Args:
             X: 학습 데이터
             y: 학습 레이블
-            task: 'classification' or 'regression'
-            scoring: sklearn scoring metric (None이면 자동 선택)
+            task: 'classification' 또는 'regression'
+            scoring: sklearn 평가 메트릭 (None이면 자동 선택)
             verbose: 로그 출력 여부
 
         Returns:
@@ -170,7 +170,7 @@ class OptunaOptimizer:
         return self.best_params
 
     def get_best_model(self, task: str = 'classification'):
-        """최적 파라미터로 모델 생성"""
+        """최적 파라미터로 모델을 생성합니다."""
         if self.best_params is None:
             raise ValueError("Optimization not run. Call optimize() first.")
 
@@ -180,7 +180,7 @@ class OptunaOptimizer:
         return model
 
     def plot_optimization_history(self, save_path: str = None):
-        """최적화 히스토리 플롯"""
+        """최적화 이력을 플롯합니다."""
         if self.study is None:
             raise ValueError("Optimization not run. Call optimize() first.")
 
@@ -197,7 +197,7 @@ class OptunaOptimizer:
         plt.close()
 
     def plot_param_importances(self, save_path: str = None):
-        """파라미터 중요도 플롯"""
+        """파라미터 중요도를 플롯합니다."""
         if self.study is None:
             raise ValueError("Optimization not run. Call optimize() first.")
 

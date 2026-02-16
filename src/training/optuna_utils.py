@@ -1,5 +1,5 @@
 """
-Optuna hyperparameter optimization utilities for regressor.py
+regressor.py를 위한 Optuna 하이퍼파라미터 최적화 유틸리티
 
 이 모듈은 XGBoost/LightGBM 모델의 하이퍼파라미터 최적화를 위한 유틸리티를 제공합니다.
 """
@@ -67,7 +67,7 @@ def optimize_xgboost_params(
     trial_start_time = None
 
     def objective(trial):
-        """Optuna objective function with time tracking"""
+        """시간 추적이 포함된 Optuna 목적 함수"""
         nonlocal trial_start_time
         trial_start_time = time.time()
 
@@ -83,7 +83,7 @@ def optimize_xgboost_params(
         if task == 'classification':
             model = xgb.XGBClassifier(
                 **params,
-                tree_method='hist',  # Histogram-based (극단값에 robust)
+                tree_method='hist',  # Histogram 기반 (극단값에 robust)
                 device='cpu',
                 objective='binary:logistic',
                 eval_metric='logloss',
@@ -95,7 +95,7 @@ def optimize_xgboost_params(
         else:
             model = xgb.XGBRegressor(
                 **params,
-                tree_method='hist',  # Histogram-based (극단값에 robust)
+                tree_method='hist',  # Histogram 기반 (극단값에 robust)
                 device='cpu',
                 objective='reg:squarederror',
                 eval_metric='rmse',
@@ -105,7 +105,7 @@ def optimize_xgboost_params(
             )
             scoring = 'r2'
 
-        # Cross-validation
+        # 교차 검증
         try:
             scores = cross_val_score(
                 model, x_train, y_train,
@@ -135,12 +135,12 @@ def optimize_xgboost_params(
         pruner=pruner
     )
 
-    # Progress bar와 시간 추적을 위한 callback
+    # Progress bar와 시간 추적을 위한 콜백
     pbar = tqdm(total=n_trials, desc="Optuna Optimization", unit="trial")
     optimization_start = time.time()
 
     def progress_callback(study, trial):
-        """각 trial 완료 시 호출되는 callback"""
+        """각 trial 완료 시 호출되는 콜백"""
         nonlocal trial_start_time, trial_times
 
         if trial.value is not None:
@@ -154,7 +154,7 @@ def optimize_xgboost_params(
             eta_seconds = avg_time * remaining_trials
             eta_time = datetime.now() + timedelta(seconds=eta_seconds)
 
-            # Best score 추적
+            # 최고 점수 추적
             best_score = study.best_value
 
             # Progress bar 업데이트
@@ -175,7 +175,7 @@ def optimize_xgboost_params(
                 f"ETA={eta_time.strftime('%Y-%m-%d %H:%M')}"
             )
         else:
-            # Trial이 실패하거나 pruned된 경우
+            # Trial이 실패하거나 가지치기(pruned)된 경우
             pbar.update(1)
 
     # 최적화 실행
@@ -186,7 +186,7 @@ def optimize_xgboost_params(
             objective,
             n_trials=n_trials,
             timeout=timeout,
-            n_jobs=1,  # Sequential (메모리 안전: max_depth=8 시 trial당 3-5GB)
+            n_jobs=1,  # 순차 실행 (메모리 안전: max_depth=8 시 trial당 3-5GB)
             show_progress_bar=False,
             callbacks=[progress_callback]
         )
@@ -228,7 +228,7 @@ def save_optuna_report(
     Returns:
         리포트 파일 경로
     """
-    # ROOT_PATH가 지정된 경우 models/optuna/ 사용 (포터블, 백업 용이)
+    # ROOT_PATH가 지정된 경우 models/optuna/ 사용 (이식성, 백업 용이)
     if root_path:
         output_dir = os.path.join(root_path, 'models', 'optuna')
 
@@ -247,7 +247,7 @@ def save_optuna_report(
         f.write(f"Total Trials: {len(study.trials)}\n")
         f.write(f"Best Trial: #{study.best_trial.number}\n\n")
 
-        # Baseline vs Best 비교
+        # 기존(Baseline) vs 최적(Best) 비교
         f.write("-"*80 + "\n")
         f.write("BEFORE OPTIMIZATION (Baseline)\n")
         f.write("-"*80 + "\n")
@@ -270,7 +270,7 @@ def save_optuna_report(
         improvement = study.best_value - baseline_score
         f.write(f"  Score: {study.best_value:.4f} ({improvement:+.4f}, {improvement/baseline_score*100:+.2f}%)\n\n")
 
-        # Top 5 trials
+        # 상위 5개 trial
         f.write("-"*80 + "\n")
         f.write("TOP 5 TRIALS\n")
         f.write("-"*80 + "\n")
@@ -280,7 +280,7 @@ def save_optuna_report(
             f.write(f"   {trial.params}\n")
         f.write("\n")
 
-        # Parameter importance (if available)
+        # 파라미터 중요도 (가능한 경우)
         try:
             importance = optuna.importance.get_param_importances(study)
             f.write("-"*80 + "\n")
@@ -294,7 +294,7 @@ def save_optuna_report(
 
     logging.info(f"✅ TXT report saved: {txt_path}")
 
-    # CSV 전체 trials
+    # CSV 전체 trial 기록
     csv_path = f"{output_dir}/optuna_trials_{model_name}_{timestamp}.csv"
     trials_df = study.trials_dataframe()
     trials_df.to_csv(csv_path, index=False)
@@ -339,7 +339,7 @@ def save_optuna_plots(
         logging.warning("⚠️  plotly/kaleido not installed. Skipping plot generation.")
         return
 
-    # ROOT_PATH가 지정된 경우 models/optuna/ 사용 (포터블, 백업 용이)
+    # ROOT_PATH가 지정된 경우 models/optuna/ 사용 (이식성, 백업 용이)
     if root_path:
         output_dir = os.path.join(root_path, 'models', 'optuna')
 
@@ -347,7 +347,7 @@ def save_optuna_plots(
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
     try:
-        # 1. Optimization history
+        # 1. 최적화 이력
         fig = optuna.visualization.plot_optimization_history(study)
         fig.write_image(f"{output_dir}/optuna_history_{model_name}_{timestamp}.png")
         logging.info(f"✅ Saved: optuna_history_{model_name}_{timestamp}.png")
@@ -355,7 +355,7 @@ def save_optuna_plots(
         logging.warning(f"⚠️  Could not save optimization history plot: {e}")
 
     try:
-        # 2. Parameter importances
+        # 2. 파라미터 중요도
         fig = optuna.visualization.plot_param_importances(study)
         fig.write_image(f"{output_dir}/optuna_importance_{model_name}_{timestamp}.png")
         logging.info(f"✅ Saved: optuna_importance_{model_name}_{timestamp}.png")
@@ -363,7 +363,7 @@ def save_optuna_plots(
         logging.warning(f"⚠️  Could not save parameter importance plot: {e}")
 
     try:
-        # 3. Parallel coordinate
+        # 3. 평행 좌표 플롯
         fig = optuna.visualization.plot_parallel_coordinate(study)
         fig.write_image(f"{output_dir}/optuna_parallel_{model_name}_{timestamp}.png")
         logging.info(f"✅ Saved: optuna_parallel_{model_name}_{timestamp}.png")
@@ -371,7 +371,7 @@ def save_optuna_plots(
         logging.warning(f"⚠️  Could not save parallel coordinate plot: {e}")
 
     try:
-        # 4. Slice plot
+        # 4. 슬라이스 플롯
         fig = optuna.visualization.plot_slice(study)
         fig.write_image(f"{output_dir}/optuna_slice_{model_name}_{timestamp}.png")
         logging.info(f"✅ Saved: optuna_slice_{model_name}_{timestamp}.png")

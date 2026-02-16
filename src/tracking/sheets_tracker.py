@@ -34,7 +34,7 @@ except ImportError:
     gspread = None
 
 from src.tracking.config_masker import ConfigMasker
-from src.infra.context_loader import ContextLoader
+from src.infra.context_loader import ConfigLoader, ContextLoader
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class SheetsTracker:
 
         # 2. secrets.yaml에서 관리되는 모든 키도 자동으로 마스킹 대상에 추가
         #    → 추후 secrets.yaml에 새 키가 추가되어도 자동 보호
-        for secret_key, config_path in ContextLoader.SECRETS_KEY_MAPPING.items():
+        for secret_key, config_path in ConfigLoader.SECRETS_KEY_MAPPING.items():
             # secret_key 자체 (예: FMP_API_KEY, GITHUB_PAT)
             if secret_key not in mask_keys:
                 mask_keys.append(secret_key)

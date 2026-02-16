@@ -38,7 +38,7 @@ import yaml
 import pandas as pd
 from pathlib import Path
 
-# Add current directory to path for module imports
+# 모듈 임포트를 위해 현재 디렉토리를 경로에 추가
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.infra.context_loader import load_config, MainContext
@@ -52,16 +52,16 @@ from src.backtest import MLBacktest
 
 
 # =============================================================================
-# Helper Functions
+# 헬퍼 함수
 # =============================================================================
 
 def _is_enabled(value: Any) -> bool:
-    """Check if a YAML config value represents 'enabled/true'."""
+    """YAML config 값이 '활성화/true'를 나타내는지 확인합니다."""
     return value in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
 
 
 def _is_disabled(value: Any) -> bool:
-    """Check if a YAML config value represents 'disabled/false'."""
+    """YAML config 값이 '비활성화/false'를 나타내는지 확인합니다."""
     return value in ('N', False, 'no', 'NO', 'No', 'OFF', 'Off', 'off', 'FALSE', 'False')
 
 
@@ -106,7 +106,7 @@ class RegressorIntegrated:
         self.conf = conf
         self.use_new_models = use_new_models
 
-        # Import legacy Regressor as fallback
+        # 폴백용 레거시 Regressor 임포트
         try:
             from src.training.regressor import Regressor
             self.legacy_regressor: Optional['Regressor'] = Regressor(conf)
@@ -367,7 +367,7 @@ def conf_check(config: Dict[str, Any]) -> None:
     """
     logger = get_logger('config_check')
 
-    # Validate REPORT_LIST
+    # REPORT_LIST 검증
     valid_reports = ["EVAL", "RANK", "AI", "AVG"]
     report_list = config.get('BACKTEST', {}).get('REPORT_LIST', [])
 
@@ -376,7 +376,7 @@ def conf_check(config: Dict[str, Any]) -> None:
             logger.critical(f"Invalid REPORT_LIST: {rep_type}. Valid: {valid_reports}")
             sys.exit(1)
 
-    # Validate required settings
+    # 필수 설정 검증
     data_config = config.get('DATA', {})
     if not data_config.get('ROOT_PATH'):
         logger.critical("ROOT_PATH not set in config")
@@ -386,12 +386,12 @@ def conf_check(config: Dict[str, Any]) -> None:
 
 
 # =============================================================================
-# Pipeline Step Functions
+# 파이프라인 단계 함수
 # =============================================================================
 
 def _initialize_pipeline() -> tuple:
     """
-    Initialize the pipeline: load config, create context, setup logging.
+    파이프라인을 초기화합니다: config 로드, context 생성, 로깅 설정.
 
     Returns:
         tuple: (config, main_ctx, logger)
@@ -420,11 +420,11 @@ def _initialize_pipeline() -> tuple:
 
 def _collect_data(config: Dict[str, Any], main_ctx: 'MainContext', logger: logging.Logger) -> None:
     """
-    Collect data from FMP API or rebuild VIEW tables.
+    FMP API에서 데이터를 수집하거나 VIEW 테이블을 재구축합니다.
 
-    Handles two modes:
-    - GET_FMP=Y: Fetch new data from FMP API and convert to Parquet
-    - MAKE_VIEW=Y: Rebuild VIEW tables from existing data
+    두 가지 모드를 처리합니다:
+    - GET_FMP=Y: FMP API에서 새 데이터를 가져와 Parquet으로 변환
+    - MAKE_VIEW=Y: 기존 데이터에서 VIEW 테이블 재구축
     """
     data_config = config.get('DATA', {})
     storage_type = data_config.get('STORAGE_TYPE', 'PARQUET')
@@ -443,7 +443,7 @@ def _collect_data(config: Dict[str, Any], main_ctx: 'MainContext', logger: loggi
 
 
 def _run_fmp_collection(main_ctx: 'MainContext', storage_type: str, logger: logging.Logger) -> None:
-    """Execute FMP data collection and conversion."""
+    """FMP 데이터 수집 및 변환을 실행합니다."""
     try:
         from src.data.fmp import FMP
         fmp = FMP(main_ctx)
@@ -472,7 +472,7 @@ def _run_fmp_collection(main_ctx: 'MainContext', storage_type: str, logger: logg
 
 
 def _run_view_rebuild(main_ctx: 'MainContext', storage_type: str, logger: logging.Logger) -> None:
-    """Rebuild VIEW tables from existing data."""
+    """기존 데이터에서 VIEW 테이블을 재구축합니다."""
     try:
         if storage_type == 'PARQUET':
             logger.info("Rebuilding VIEW tables from existing data...")
@@ -498,9 +498,9 @@ def _run_view_rebuild(main_ctx: 'MainContext', storage_type: str, logger: loggin
 
 def _run_prediction_only(config: Dict[str, Any], logger: logging.Logger) -> None:
     """
-    Run prediction-only mode using pre-trained models.
+    사전 학습된 모델을 사용하여 예측 전용 모드를 실행합니다.
 
-    This mode skips training/evaluation/backtest and only generates predictions.
+    이 모드는 학습/평가/백테스트를 건너뛰고 예측만 생성합니다.
     """
     prediction_config = config.get('PREDICTION', {})
 
@@ -531,10 +531,10 @@ def _run_prediction_only(config: Dict[str, Any], logger: logging.Logger) -> None
 
 def _run_ml_pipeline(config: Dict[str, Any], main_ctx: 'MainContext', logger: logging.Logger) -> bool:
     """
-    Run the ML training pipeline.
+    ML 학습 파이프라인을 실행합니다.
 
     Returns:
-        bool: True if should exit after ML, False to continue to backtest
+        bool: ML 후 종료해야 하면 True, 백테스트를 계속하려면 False
     """
     ml_config = config.get('ML', {})
 
@@ -545,11 +545,11 @@ def _run_ml_pipeline(config: Dict[str, Any], main_ctx: 'MainContext', logger: lo
     logger.info("Step 2: ML Pipeline")
     logger.info("="*80)
 
-    # Prepare ML training data
+    # ML 학습 데이터 준비
     logger.info("Preparing ML training data...")
     AIDataMaker(main_ctx, config)
 
-    # Train and evaluate models
+    # 모델 학습 및 평가
     logger.info("Training models...")
     use_new_models = _is_enabled(ml_config.get('USE_NEW_MODELS'))
     regressor = RegressorIntegrated(config, use_new_models=use_new_models)
@@ -560,7 +560,7 @@ def _run_ml_pipeline(config: Dict[str, Any], main_ctx: 'MainContext', logger: lo
 
     logger.info("✅ ML pipeline completed")
 
-    # Check if should exit after ML
+    # ML 후 종료 여부 확인
     exit_after_ml = not _is_disabled(ml_config.get('EXIT_AFTER_ML', True))
     if exit_after_ml:
         logger.info("Exiting after ML (set EXIT_AFTER_ML=N to continue to backtest)")
@@ -570,10 +570,10 @@ def _run_ml_pipeline(config: Dict[str, Any], main_ctx: 'MainContext', logger: lo
 
 def _run_backtest(config: Dict[str, Any], main_ctx: 'MainContext', logger: logging.Logger) -> Optional[Dict[str, float]]:
     """
-    Run ML walk-forward backtesting.
+    ML walk-forward 백테스팅을 실행합니다.
 
     Returns:
-        Optional[Dict[str, float]]: Backtest metrics or None if skipped
+        Optional[Dict[str, float]]: 백테스트 메트릭 또는 건너뛴 경우 None
     """
     backtest_config = config.get('BACKTEST', {})
     eval_config = config.get('EVALUATION', {})
@@ -585,14 +585,14 @@ def _run_backtest(config: Dict[str, Any], main_ctx: 'MainContext', logger: loggi
     logger.info("Step 3: ML Walk-Forward Backtesting")
     logger.info("="*80)
 
-    # Get parameters (EVALUATION takes precedence over BACKTEST)
+    # 파라미터 가져오기 (EVALUATION이 BACKTEST보다 우선)
     top_k_num = eval_config.get('TOP_K_NUM', backtest_config.get('TOP_K_NUM', 20))
     rebalance_period = eval_config.get('REBALANCE_PERIOD', backtest_config.get('REBALANCE_PERIOD', 3))
 
     logger.info(f"  Rebalance period: {rebalance_period} months")
     logger.info(f"  Top K: {top_k_num}")
 
-    # Initialize and run backtest (cache-based, requires regressor.py to run first)
+    # 백테스트 초기화 및 실행 (캐시 기반, regressor.py를 먼저 실행해야 합니다)
     ml_backtest = MLBacktest(
         config=config,
         main_ctx=main_ctx,
@@ -606,7 +606,7 @@ def _run_backtest(config: Dict[str, Any], main_ctx: 'MainContext', logger: loggi
     logger.info("✅ ML backtesting completed")
     logger.info("  Results saved to: reports/")
 
-    # Extract metrics for experiment tracking
+    # 실험 추적을 위한 메트릭 추출
     backtest_results = _extract_backtest_metrics(results, ml_backtest.rebalance_period, logger)
 
     del ml_backtest
@@ -615,7 +615,7 @@ def _run_backtest(config: Dict[str, Any], main_ctx: 'MainContext', logger: loggi
 
 def _extract_backtest_metrics(results: Optional['pd.DataFrame'], rebalance_period: int,
                                logger: logging.Logger) -> Optional[Dict[str, float]]:
-    """Extract performance metrics from backtest results."""
+    """백테스트 결과에서 성과 메트릭을 추출합니다."""
     if results is None or len(results) == 0:
         return None
 
@@ -646,7 +646,7 @@ def _extract_backtest_metrics(results: Optional['pd.DataFrame'], rebalance_perio
 
 def _upload_experiment(config: Dict[str, Any], backtest_results: Optional[Dict[str, float]],
                        logger: logging.Logger) -> None:
-    """Upload experiment results to Google Sheets."""
+    """실험 결과를 Google Sheets에 업로드합니다."""
     tracking_config = config.get('EXPERIMENT_TRACKING', {})
 
     if not _is_enabled(tracking_config.get('ENABLED')):
@@ -670,7 +670,7 @@ def _upload_experiment(config: Dict[str, Any], backtest_results: Optional[Dict[s
 
 
 # =============================================================================
-# Main Entry Point
+# 메인 진입점
 # =============================================================================
 
 def main() -> None:
@@ -768,27 +768,27 @@ def main() -> None:
         - README.md: 빠른 시작 가이드
         - config/conf.yaml.template: 설정 템플릿
     """
-    # 1. Initialize pipeline
+    # 1. 파이프라인 초기화
     config, main_ctx, logger = _initialize_pipeline()
 
-    # 2. Data collection (optional)
+    # 2. 데이터 수집 (선택사항)
     _collect_data(config, main_ctx, logger)
 
-    # 3. Prediction-only mode (optional, exits early)
+    # 3. 예측 전용 모드 (선택사항, 조기 종료)
     if _is_enabled(config.get('PREDICTION', {}).get('ENABLED')):
         _run_prediction_only(config, logger)
 
-    # 4. ML pipeline (optional)
+    # 4. ML 파이프라인 (선택사항)
     if _run_ml_pipeline(config, main_ctx, logger):
-        sys.exit(0)  # Exit after ML if configured
+        sys.exit(0)  # 설정된 경우 ML 후 종료
 
-    # 5. Backtesting (optional)
+    # 5. 백테스팅 (선택사항)
     backtest_results = _run_backtest(config, main_ctx, logger)
 
-    # 6. Experiment tracking (optional)
+    # 6. 실험 추적 (선택사항)
     _upload_experiment(config, backtest_results, logger)
 
-    # 7. Done
+    # 7. 완료
     logger.info("="*80)
     logger.info("Pipeline completed successfully!")
     logger.info("="*80)

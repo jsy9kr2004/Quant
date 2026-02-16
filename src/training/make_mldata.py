@@ -48,10 +48,10 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 from warnings import simplefilter
 import warnings
 
-# Import DataProcessor for feature name normalization
+# feature 이름 정규화를 위한 DataProcessor import
 from src.training.data_processor import DataProcessor
 
-# Phase 3: Winsorization을 위한 scipy import
+# Phase 3: Winsorization 적용을 위한 scipy import
 try:
     from scipy.stats.mstats import winsorize
     SCIPY_AVAILABLE = True
@@ -239,7 +239,7 @@ class AIDataMaker:
             self.fs_table['fillingDate'] = pd.to_datetime(self.fs_table['fillingDate'])
             self.fs_table['acceptedDate'] = pd.to_datetime(self.fs_table['acceptedDate'])
 
-            # ✅ UNIFIED: Use DataProcessor to replace infinite with NaN (same as regressor.py/ml_backtest.py)
+            # ✅ 통합: DataProcessor를 사용하여 무한대를 NaN으로 교체 (regressor.py/ml_backtest.py와 동일)
             numeric_cols = self.fs_table.select_dtypes(include=[np.number]).columns
             inf_before = np.isinf(self.fs_table[numeric_cols]).sum().sum()
             if inf_before > 0:
@@ -263,7 +263,7 @@ class AIDataMaker:
         if not self.metrics_table.empty:
             self.metrics_table['date'] = pd.to_datetime(self.metrics_table['date'])
 
-            # ✅ UNIFIED: Use DataProcessor to replace infinite with NaN (same as regressor.py/ml_backtest.py)
+            # ✅ 통합: DataProcessor를 사용하여 무한대를 NaN으로 교체 (regressor.py/ml_backtest.py와 동일)
             numeric_cols = self.metrics_table.select_dtypes(include=[np.number]).columns
             inf_before = np.isinf(self.metrics_table[numeric_cols]).sum().sum()
             if inf_before > 0:
@@ -656,15 +656,15 @@ class AIDataMaker:
         cur_price_table = self.filter_dates(cur_price_table, 'date', cur_year - 4, cur_year)
 
         # 고유동성 주식으로 필터링 (평균 거래 금액 기준)
-        # Config-driven: FEATURES.MIN_VOLUME_PERCENTILE (default: 10%)
-        # Removes bottom X% of stocks by volume (e.g., 10 = remove bottom 10%, keep top 90%)
+        # Config 기반: FEATURES.MIN_VOLUME_PERCENTILE (기본값: 10%)
+        # 거래량 기준 하위 X% 종목 제거 (예: 10 = 하위 10% 제거, 상위 90% 유지)
         min_volume_pct = self.conf.get('FEATURES', {}).get('MIN_VOLUME_PERCENTILE', 10)
         symbol_means = cur_price_table.groupby('symbol')['volume_mul_price'].mean().reset_index()
 
-        # Calculate volume threshold at the Xth percentile
+        # X번째 백분위수에서 거래량 임계값 계산
         volume_threshold = symbol_means['volume_mul_price'].quantile(min_volume_pct / 100)
 
-        # Keep stocks with volume >= threshold (removes bottom X%)
+        # 임계값 이상인 종목 유지 (하위 X% 제거)
         top_symbols = symbol_means[symbol_means['volume_mul_price'] >= volume_threshold]
         cur_price_table = cur_price_table[cur_price_table['symbol'].isin(top_symbols['symbol'])]
 
@@ -769,7 +769,7 @@ class AIDataMaker:
             fs_metrics[new_col_name] = np.where(valid_mask,
                                                 fs_metrics['adaptiveMC_ev']/fs_metrics[col], np.nan)
 
-        # ✅ UNIFIED: Use DataProcessor to replace infinite with NaN (same as regressor.py/ml_backtest.py)
+        # ✅ 통합: DataProcessor를 사용하여 무한대를 NaN으로 교체 (regressor.py/ml_backtest.py와 동일)
         numeric_cols = fs_metrics.select_dtypes(include=[np.number]).columns
         inf_count = np.isinf(fs_metrics[numeric_cols]).sum().sum()
         if inf_count > 0:
@@ -981,9 +981,9 @@ class AIDataMaker:
             self.logger.info(f"   No NaN values found, skipping dropna")
 
         # tsfresh로 특성 추출
-        # ✅ FIX: Use MinimalFCParameters to reduce overfitting
-        # EfficientFCParameters → 794 features (too many, causes overfitting)
-        # MinimalFCParameters → 20-30 features (reduces overfitting + 2-3x faster)
+        # ✅ 수정: 과적합 방지를 위해 MinimalFCParameters 사용
+        # EfficientFCParameters → 794개 feature (과다, 과적합 유발)
+        # MinimalFCParameters → 20-30개 feature (과적합 감소 + 2-3배 빠름)
         self.logger.info(f"🔄 [{base_year_period}] Running tsfresh feature extraction...")
         features = extract_features(df_for_extract_feature,
                                     column_id='id',
@@ -1036,10 +1036,10 @@ class AIDataMaker:
             (excluded_df, filtered_df) 또는 None (데이터 없음 시)
         """
         # ===================================================================
-        # FEATURE NAME NORMALIZATION (Critical for model training)
+        # FEATURE 이름 정규화 (모델 학습에 필수)
         # ===================================================================
-        # Remove special JSON characters from feature names to avoid errors
-        # in XGBoost, LightGBM, and CatBoost model training
+        # XGBoost, LightGBM, CatBoost 모델 학습 시 오류 방지를 위해
+        # feature 이름에서 JSON 특수 문자를 제거합니다
         self.logger.info(f"🔧 [{base_year_period}] Normalizing feature names...")
         features = DataProcessor.normalize_feature_names(features, logger=self.logger)
 
@@ -1161,14 +1161,14 @@ class AIDataMaker:
         # Phase 3: Winsorization 적용 (선택적, config 플래그 확인)
         filtered_df = self._apply_winsorization(filtered_df, base_year_period)
 
-        # ✅ UNIFIED: Use DataProcessor to remove infinite (same as regressor.py/ml_backtest.py)
+        # ✅ 통합: DataProcessor를 사용하여 무한대 제거 (regressor.py/ml_backtest.py와 동일)
         rows_before = len(filtered_df)
-        filtered_df_before = filtered_df.copy()  # Save for export if needed
+        filtered_df_before = filtered_df.copy()  # 내보내기 필요 시 원본 보존
 
-        # Remove infinite values using DataProcessor
+        # DataProcessor를 사용하여 무한대 값 제거
         filtered_df_clean, _ = DataProcessor.remove_infinite_values(filtered_df, None)
 
-        # Check if any rows were removed and log details
+        # 제거된 행이 있으면 상세 로깅
         if len(filtered_df_clean) < rows_before:
             rows_removed = rows_before - len(filtered_df_clean)
             inf_removal_ratio = rows_removed / rows_before * 100
@@ -1184,7 +1184,7 @@ class AIDataMaker:
 
             # 제거될 row 상세 정보 저장 (config 플래그로 제어)
             if self.export_nan_removal_details:
-                # Calculate masks from the before-removal DataFrame
+                # 제거 전 DataFrame에서 마스크 계산
                 inf_mask = np.isinf(filtered_df_before)
                 rows_with_inf_mask = inf_mask.any(axis=1)
 
@@ -1197,7 +1197,7 @@ class AIDataMaker:
                     inf_mask
                 )
 
-            # Update DataFrames (align excluded_df with cleaned filtered_df)
+            # DataFrame 업데이트 (excluded_df를 정제된 filtered_df에 맞춰 정렬)
             filtered_df = filtered_df_clean
             excluded_df = excluded_df.loc[filtered_df.index]
 
@@ -1209,14 +1209,14 @@ class AIDataMaker:
         scaled_data = scaler.fit_transform(filtered_df)
         scaled_df = pd.DataFrame(scaled_data, columns=filtered_df.columns)
 
-        # ✅ UNIFIED: [무한대 체크 #6] 스케일링 직후 (RobustScaler가 infinite 생성 가능성)
+        # ✅ 통합: [무한대 체크 #6] 스케일링 직후 (RobustScaler가 무한대를 생성할 수 있음)
         rows_before_scaling = len(scaled_df)
-        scaled_df_before = scaled_df.copy()  # Save for export if needed
+        scaled_df_before = scaled_df.copy()  # 내보내기 필요 시 원본 보존
 
-        # Remove infinite values using DataProcessor
+        # DataProcessor를 사용하여 무한대 값 제거
         scaled_df_clean, _ = DataProcessor.remove_infinite_values(scaled_df, None)
 
-        # Check if any rows were removed and log details
+        # 제거된 행이 있으면 상세 로깅
         if len(scaled_df_clean) < rows_before_scaling:
             rows_removed = rows_before_scaling - len(scaled_df_clean)
             inf_removal_ratio = rows_removed / rows_before_scaling * 100
@@ -1228,7 +1228,7 @@ class AIDataMaker:
                 self.logger.error(f"❌ [{base_year_period}] WARNING: Scaler produced >5% infinite values!")
                 self.logger.error(f"   This indicates potential data quality or scaling issues")
 
-            # 무한대가 있는 컬럼 분석 (from before-removal DataFrame)
+            # 무한대가 있는 컬럼 분석 (제거 전 DataFrame 기준)
             inf_mask_after_scaling = np.isinf(scaled_df_before)
             inf_cols = inf_mask_after_scaling.any(axis=0)
             cols_with_inf = inf_cols[inf_cols].index.tolist()
@@ -1239,7 +1239,7 @@ class AIDataMaker:
 
             # 제거될 row 상세 정보 저장
             if self.export_nan_removal_details:
-                # Calculate masks from the before-removal DataFrame
+                # 제거 전 DataFrame에서 마스크 계산
                 rows_with_inf_mask = inf_mask_after_scaling.any(axis=1)
 
                 # excluded_df와 scaled_df를 결합하여 전체 정보 포함
@@ -1253,7 +1253,7 @@ class AIDataMaker:
                     suffix="_after_scaling"
                 )
 
-            # Update DataFrames (align excluded_df with cleaned scaled_df)
+            # DataFrame 업데이트 (excluded_df를 정제된 scaled_df에 맞춰 정렬)
             scaled_df = scaled_df_clean
             excluded_df = excluded_df.loc[scaled_df.index]
 
@@ -1353,7 +1353,7 @@ class AIDataMaker:
         fs_df.to_parquet(file_path, engine='pyarrow', compression='snappy', index=False)
 
         # Feature 진단 로그 (rnorm_fs_: 예측용)
-        # regressor.py의 feature_columns.pkl과 비교 시 참고용
+        # regressor.py의 feature_columns.pkl과 비교 시 참고
         meta_cols = {'symbol', 'industry', 'volume_mul_price', 'sector', 'rebalance_date'}
         fs_feature_cols = [c for c in fs_df.columns if c not in meta_cols]
         ts_features = [c for c in fs_feature_cols if '_ts_' in c]
@@ -1387,10 +1387,10 @@ class AIDataMaker:
             cur_table_for_ai.loc[sec_mask, 'sec_price_dev_subavg'] = cur_table_for_ai.loc[sec_mask, 'price_dev'] - sec_mean
 
         # ===================================================================
-        # IMPORTANT: Extreme mover filtering (TRAINING DATA ONLY)
-        # Philosophy: Remove news/event-driven extremes that fundamentals can't predict
-        # This filtering ONLY applies to training data generation (make_mldata.py)
-        # Prediction/backtesting (ml_backtest.py) uses ALL stocks
+        # 중요: 극단적 수익률 종목 필터링 (학습 데이터에만 적용)
+        # 철학: 펀더멘털로 예측 불가능한 뉴스/이벤트 주도 극단값을 제거합니다
+        # 이 필터링은 학습 데이터 생성(make_mldata.py)에만 적용됩니다
+        # 예측/백테스트(ml_backtest.py)에서는 모든 종목이 포함됩니다
         # ===================================================================
         self.logger.info(f"")
         self.logger.info(f"   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -1862,7 +1862,7 @@ class AIDataMaker:
         rows_with_inf = inf_mask.any(axis=1).sum()
         self.logger.warning(f"   Rows affected: {rows_with_inf}/{len(df)} ({rows_with_inf/len(df)*100:.2f}%)")
 
-        # Positive vs Negative infinity 구분
+        # 양의 무한대 vs 음의 무한대 구분
         pos_inf_count = np.isposinf(df.select_dtypes(include=[np.number])).sum().sum()
         neg_inf_count = np.isneginf(df.select_dtypes(include=[np.number])).sum().sum()
         self.logger.warning(f"   Positive infinity: {pos_inf_count}, Negative infinity: {neg_inf_count}")
@@ -2112,7 +2112,7 @@ class AIDataMaker:
             'description': '제거 비율 (%)'
         })
 
-        # Positive vs Negative infinity
+        # 양의 무한대 vs 음의 무한대
         numeric_cols = full_df.select_dtypes(include=[np.number]).columns
         # inf_mask에 실제로 있는 컬럼만 선택 (안전성)
         valid_numeric_cols = numeric_cols.intersection(inf_mask.columns)

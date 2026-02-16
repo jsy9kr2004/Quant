@@ -1,7 +1,7 @@
 """
-Feature Selection
+Feature 선택
 
-피처 선택 및 과적합 방지
+피처 선택 및 과적합 방지를 수행하는 모듈입니다.
 """
 
 import numpy as np
@@ -18,13 +18,13 @@ from typing import List, Optional, Union
 
 class FeatureSelector:
     """
-    피처 선택 및 과적합 방지
+    피처 선택 및 과적합 방지를 수행합니다.
 
     방법:
-    1. Univariate Selection (통계적 테스트)
-    2. Recursive Feature Elimination (RFE)
-    3. Feature Importance (Tree-based)
-    4. Correlation 기반 중복 제거
+    1. 단변량 선택 (통계적 테스트)
+    2. 재귀적 feature 제거 (RFE)
+    3. Tree 기반 Feature Importance
+    4. 상관관계 기반 중복 제거
     """
 
     def __init__(self,
@@ -35,13 +35,13 @@ class FeatureSelector:
         """
         Args:
             method: 피처 선택 방법
-                   - 'mutual_info': Mutual Information
-                   - 'f_test': F-test (ANOVA)
-                   - 'rfe': Recursive Feature Elimination
-                   - 'tree_importance': Tree-based Feature Importance
+                   - 'mutual_info': 상호 정보량
+                   - 'f_test': F-검정 (ANOVA)
+                   - 'rfe': 재귀적 feature 제거
+                   - 'tree_importance': Tree 기반 Feature Importance
             top_k: 선택할 피처 개수
             correlation_threshold: 상관관계 임계값 (이 값 이상이면 중복으로 간주)
-            task: 'classification' or 'regression'
+            task: 'classification' 또는 'regression'
         """
         self.method = method
         self.top_k = top_k
@@ -55,10 +55,10 @@ class FeatureSelector:
                        y: Union[np.ndarray, pd.Series],
                        feature_names: Optional[List[str]] = None) -> List[str]:
         """
-        피처 선택 수행
+        피처 선택을 수행합니다.
 
         Args:
-            X: 특징 데이터
+            X: feature 데이터
             y: 타겟 데이터
             feature_names: 피처 이름 리스트
 
@@ -113,10 +113,10 @@ class FeatureSelector:
 
     def _remove_correlated_features(self, df: pd.DataFrame) -> tuple:
         """
-        상관관계 높은 피처 제거
+        상관관계가 높은 피처를 제거합니다.
 
         Args:
-            df: 피처 데이터프레임
+            df: 피처 DataFrame
 
         Returns:
             (축소된 데이터, 남은 피처 이름)
@@ -148,10 +148,10 @@ class FeatureSelector:
                                y: np.ndarray,
                                feature_names: List[str]) -> List[str]:
         """
-        Mutual Information 기반 선택
+        상호 정보량(Mutual Information) 기반으로 피처를 선택합니다.
 
         Args:
-            X: 특징 데이터
+            X: feature 데이터
             y: 타겟 데이터
             feature_names: 피처 이름
 
@@ -187,10 +187,10 @@ class FeatureSelector:
                          y: np.ndarray,
                          feature_names: List[str]) -> List[str]:
         """
-        F-test 기반 선택
+        F-검정 기반으로 피처를 선택합니다.
 
         Args:
-            X: 특징 데이터
+            X: feature 데이터
             y: 타겟 데이터
             feature_names: 피처 이름
 
@@ -226,10 +226,10 @@ class FeatureSelector:
                       y: np.ndarray,
                       feature_names: List[str]) -> List[str]:
         """
-        Recursive Feature Elimination
+        재귀적 feature 제거(RFE) 방식으로 피처를 선택합니다.
 
         Args:
-            X: 특징 데이터
+            X: feature 데이터
             y: 타겟 데이터
             feature_names: 피처 이름
 
@@ -266,10 +266,10 @@ class FeatureSelector:
                                    y: np.ndarray,
                                    feature_names: List[str]) -> List[str]:
         """
-        Tree-based 중요도
+        Tree 기반 중요도로 피처를 선택합니다.
 
         Args:
-            X: 특징 데이터
+            X: feature 데이터
             y: 타겟 데이터
             feature_names: 피처 이름
 
@@ -305,10 +305,10 @@ class FeatureSelector:
                  X: Union[np.ndarray, pd.DataFrame],
                  feature_names: Optional[List[str]] = None) -> Union[np.ndarray, pd.DataFrame]:
         """
-        선택된 피처만 추출
+        선택된 피처만 추출합니다.
 
         Args:
-            X: 특징 데이터
+            X: feature 데이터
             feature_names: 피처 이름 리스트
 
         Returns:
@@ -333,10 +333,10 @@ class FeatureSelector:
                      y: Union[np.ndarray, pd.Series],
                      feature_names: Optional[List[str]] = None) -> Union[np.ndarray, pd.DataFrame]:
         """
-        피처 선택 + 변환을 한번에 수행
+        피처 선택과 변환을 한번에 수행합니다.
 
         Args:
-            X: 특징 데이터
+            X: feature 데이터
             y: 타겟 데이터
             feature_names: 피처 이름 리스트
 
@@ -347,13 +347,13 @@ class FeatureSelector:
         return self.transform(X, feature_names)
 
     def get_feature_scores(self) -> pd.DataFrame:
-        """피처 점수/순위 반환"""
+        """피처 점수/순위를 반환합니다."""
         if self.feature_scores is None:
             raise ValueError("먼저 select_features()를 호출하세요")
         return self.feature_scores
 
     def save_selected_features(self, path: str):
-        """선택된 피처 저장"""
+        """선택된 피처를 저장합니다."""
         if self.selected_features is None:
             raise ValueError("먼저 select_features()를 호출하세요")
 
@@ -362,7 +362,7 @@ class FeatureSelector:
         logging.info(f"💾 선택된 피처 저장: {path}")
 
     def load_selected_features(self, path: str):
-        """선택된 피처 로드"""
+        """선택된 피처를 로드합니다."""
         df = pd.read_csv(path)
         self.selected_features = df['feature'].tolist()
         logging.info(f"📂 선택된 피처 로드: {path} ({len(self.selected_features)}개)")

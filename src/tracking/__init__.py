@@ -1,26 +1,26 @@
-"""Experiment tracking module for ML experiment management.
+"""ML 실험 관리를 위한 실험 추적 모듈입니다.
 
-This package provides tools for:
-1. Tracking experiments via Google Sheets/Gist
-2. Monitoring model performance
-3. Generating integrated reports
+이 패키지는 다음 도구들을 제공합니다:
+1. Google Sheets/Gist를 통한 실험 추적
+2. 모델 성능 모니터링
+3. 통합 보고서 생성
 
-Main Components:
-    SheetsTracker: Google Sheets based experiment tracker
-    ConfigMasker: Configuration masking for safe sharing
-    PerformanceMonitor: Model performance monitoring
-    IntegratedReportWriter: Comprehensive Excel report generation
+주요 컴포넌트:
+    SheetsTracker: Google Sheets 기반 실험 추적기
+    ConfigMasker: 안전한 공유를 위한 설정 마스킹
+    PerformanceMonitor: 모델 성능 모니터링
+    IntegratedReportWriter: 종합 Excel 보고서 생성
 
-Example:
-    Tracking experiment results::
+사용 예시:
+    실험 결과 추적::
 
         from src.tracking import SheetsTracker, IntegratedReportWriter
 
-        # Upload experiment results
+        # 실험 결과 업로드
         tracker = SheetsTracker(config)
         tracker.upload_result(experiment_data)
 
-        # Generate integrated report
+        # 통합 보고서 생성
         writer = IntegratedReportWriter(output_path)
         writer.write_report(results)
 """
@@ -40,4 +40,4 @@ __all__ = [
 
 __version__ = '1.0.0'
 __author__ = 'Quant Trading Team'
-__description__ = 'Experiment tracking and reporting'
+__description__ = '실험 추적 및 보고서 생성'

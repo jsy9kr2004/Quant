@@ -1,5 +1,5 @@
 """
-MLflow experiment tracking for model management
+모델 관리를 위한 MLflow 실험 추적
 """
 
 import logging
@@ -17,19 +17,19 @@ class MLflowTracker:
     """
     MLflow를 사용한 실험 추적
 
-    Features:
-    - Automatic experiment tracking
-    - Parameter and metric logging
-    - Model versioning
-    - Artifact management
-    - Easy comparison between runs
+    기능:
+    - 자동 실험 추적
+    - 파라미터 및 메트릭 로깅
+    - 모델 버전 관리
+    - 아티팩트 관리
+    - Run 간 손쉬운 비교
     """
 
     def __init__(self,
                  experiment_name: str = "quant_trading",
                  tracking_uri: Optional[str] = None):
         """
-        Initialize MLflow tracker
+        MLflow 추적기를 초기화합니다.
 
         Args:
             experiment_name: 실험 이름
@@ -59,7 +59,7 @@ class MLflowTracker:
 
     def start_run(self, run_name: Optional[str] = None, tags: Optional[Dict] = None):
         """
-        새로운 실험 Run 시작
+        새로운 실험 Run을 시작합니다.
 
         Args:
             run_name: Run 이름
@@ -76,18 +76,18 @@ class MLflowTracker:
         return self.active_run
 
     def log_params(self, params: Dict[str, Any]):
-        """파라미터 로깅"""
+        """파라미터를 로깅합니다."""
         for key, value in params.items():
             mlflow.log_param(key, value)
 
     def log_metrics(self, metrics: Dict[str, float], step: Optional[int] = None):
-        """메트릭 로깅"""
+        """메트릭을 로깅합니다."""
         for key, value in metrics.items():
             mlflow.log_metric(key, value, step=step)
 
     def log_model(self, model, model_type: str, artifact_path: str = "model"):
         """
-        모델 로깅
+        모델을 로깅합니다.
 
         Args:
             model: 모델 객체
@@ -106,19 +106,19 @@ class MLflowTracker:
         logging.info(f"💾 Model logged to MLflow")
 
     def log_artifact(self, file_path: str):
-        """파일 아티팩트 로깅"""
+        """파일 아티팩트를 로깅합니다."""
         mlflow.log_artifact(file_path)
         logging.info(f"📎 Artifact logged: {file_path}")
 
     def log_dataframe(self, df: pd.DataFrame, name: str):
-        """DataFrame 로깅 (CSV로 저장)"""
+        """DataFrame을 로깅합니다 (CSV로 저장)."""
         temp_file = f"/tmp/{name}.csv"
         df.to_csv(temp_file, index=False)
         mlflow.log_artifact(temp_file)
         logging.info(f"📊 DataFrame logged: {name}")
 
     def end_run(self):
-        """Run 종료"""
+        """Run을 종료합니다."""
         mlflow.end_run()
         logging.info("✅ MLflow run ended")
 
@@ -132,7 +132,7 @@ class MLflowTracker:
                         feature_importance: Optional[pd.DataFrame] = None,
                         tags: Optional[Dict] = None):
         """
-        학습 Run 통합 로깅 (편의 함수)
+        학습 Run을 통합 로깅합니다 (편의 함수).
 
         Args:
             model_name: 모델 이름
@@ -141,7 +141,7 @@ class MLflowTracker:
             params: 파라미터
             train_metrics: 학습 메트릭
             test_metrics: 테스트 메트릭
-            feature_importance: 특징 중요도 DataFrame
+            feature_importance: feature 중요도 DataFrame
             tags: 태그
         """
         with mlflow.start_run(run_name=model_name) as run:
@@ -167,7 +167,7 @@ class MLflowTracker:
             # 모델
             self.log_model(model, model_type)
 
-            # 특징 중요도
+            # Feature 중요도
             if feature_importance is not None:
                 self.log_dataframe(feature_importance, "feature_importance")
 
@@ -177,7 +177,7 @@ class MLflowTracker:
 
     def load_best_model(self, metric: str = "test_accuracy", model_type: str = "sklearn"):
         """
-        최고 성능 모델 로드
+        최고 성능 모델을 로드합니다.
 
         Args:
             metric: 기준 메트릭
@@ -186,7 +186,7 @@ class MLflowTracker:
         Returns:
             로드된 모델
         """
-        # 실험의 모든 runs 가져오기
+        # 실험의 모든 Run 가져오기
         runs = mlflow.search_runs(
             experiment_ids=[self.experiment_id],
             order_by=[f"metrics.{metric} DESC"],
@@ -201,7 +201,7 @@ class MLflowTracker:
         logging.info(f"📂 Loading best model (run_id: {best_run_id})")
         logging.info(f"   Best {metric}: {runs.iloc[0][f'metrics.{metric}']:.4f}")
 
-        # 모델 로드
+        # 모델 로드하기
         model_uri = f"runs:/{best_run_id}/model"
 
         if model_type == 'xgboost':
@@ -217,7 +217,7 @@ class MLflowTracker:
 
     def compare_runs(self, metric: str = "test_accuracy", top_n: int = 10) -> pd.DataFrame:
         """
-        Run 비교
+        Run들을 비교합니다.
 
         Args:
             metric: 비교 메트릭
@@ -249,6 +249,6 @@ class MLflowTracker:
         return comparison_df
 
     def delete_experiment(self):
-        """실험 삭제 (주의!)"""
+        """실험을 삭제합니다 (주의!)."""
         mlflow.delete_experiment(self.experiment_id)
         logging.warning(f"🗑️  Experiment deleted: {self.experiment_name}")
