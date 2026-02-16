@@ -2638,17 +2638,17 @@ class Regressor:
         # exit()
 
         # ========================================================================
-        # Walk-Forward Mode: Train models for each period
+        # Walk-Forward 모드: 각 기간별 모델 학습
         # ========================================================================
         if self.use_walk_forward:
             logging.info("="*80)
             logging.info("🔄 WALK-FORWARD TRAINING")
             logging.info("="*80)
             self._train_walk_forward()
-            return  # Skip traditional training
+            return  # 기존 학습 스킵
 
         # ========================================================================
-        # Traditional Mode: Train models once on all training data
+        # 기존 모드: 전체 학습 데이터로 모델 한 번 학습
         # ========================================================================
         logging.info("="*80)
         logging.info("📊 TRADITIONAL TRAINING (single train/test split)")
@@ -2663,13 +2663,13 @@ class Regressor:
         ml_config = self.conf.get('ML', {})
         use_optuna = ml_config.get('USE_OPTUNA', False)
 
-        # Step 1: Optuna hyperparameter optimization (global)
+        # Step 1: Optuna 하이퍼파라미터 최적화 (전역)
         optuna_best_params = self._run_optuna_optimization(ml_config, use_optuna)
 
-        # Step 2: Sector-specific Optuna optimization
+        # Step 2: 섹터별 Optuna 최적화
         sector_optuna_params = self._run_sector_optuna_optimization(ml_config, use_optuna)
 
-        # Step 3: Define models with Optuna results
+        # Step 3: Optuna 결과로 모델 정의
         self.def_model(optuna_params=optuna_best_params, sector_optuna_params=sector_optuna_params)
 
         # LightGBM 호환성을 위해 특성 이름 정리 (Optuna를 사용하지 않은 경우에만)
@@ -3143,9 +3143,9 @@ class Regressor:
                 logging.getLogger()
             )
 
-        # ✅ Create binary target for classification after preprocessing
-        # (preprocessing may change indices, so recreate after)
-        # analyze=True: Show threshold analysis on first training
+        # ✅ 전처리 후 분류용 이진 타겟 생성
+        # (전처리가 인덱스를 변경할 수 있으므로 이후에 재생성)
+        # analyze=True: 첫 학습 시 임계값 분석 표시
         y_train_binary = DataProcessor.create_binary_target(
             self.y_train_cls,
             config=self.conf,
