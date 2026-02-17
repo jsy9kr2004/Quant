@@ -764,14 +764,16 @@ def _generate_predictions_for_period_standalone(
     """Ray 워커용 _generate_predictions_for_period의 독립 버전입니다."""
     from src.training.data_processor import DataProcessor
 
-    # 주의: 여기서 preprocess_training_data()를 호출하지 말 것.
-    # (X, y, y_cls, config, logger)를 기대하며 4-tuple을 반환함.
-    # 예측 데이터에는 feature 추출만 필요 (타겟 전처리 불필요).
-    # 특수 문자 처리를 위해 feature 이름 정규화 적용.
+    # 예측 데이터 전처리: feature 이름 정규화 + 학습과 동일한 log_transform 적용
+    # preprocess_training_data()는 (X, y, y_cls, config, logger)를 요구하므로
+    # 예측 시에는 normalize + log_transform만 직접 호출
     pred_df = DataProcessor.normalize_feature_names(pred_df)
 
     feature_cols = DataSchema.get_feature_cols(pred_df)
     X_pred = pred_df[feature_cols]
+
+    # 학습과 동일한 log 변환 적용 (preprocess_training_data Step 4)
+    X_pred = DataProcessor.log_transform_features(X_pred)
 
     pred_df[DataSchema.PRED_RETURN] = 0.0
     pred_df[DataSchema.PRED_PROBA] = 1.0
@@ -4128,14 +4130,16 @@ class Regressor:
         """
         from src.training.data_processor import DataProcessor
 
-        # Preprocess prediction data
-        # ⚠️ TODO: This call is incorrect - preprocess_training_data expects (X, y, y_cls, config, logger)
-        # For now, commenting out to avoid errors. Proper preprocessing happens later.
-        # pred_df = DataProcessor.preprocess_training_data(pred_df, None)
+        # 예측 데이터 전처리: 학습과 동일한 log_transform 적용
+        # preprocess_training_data()는 (X, y, y_cls, config, logger)를 요구하므로
+        # 예측 시에는 log_transform만 직접 호출 (학습 Step 4와 동일)
 
         # Get feature columns
         feature_cols = DataSchema.get_feature_cols(pred_df)
         X_pred = pred_df[feature_cols]
+
+        # 학습과 동일한 log 변환 적용 (preprocess_training_data Step 4)
+        X_pred = DataProcessor.log_transform_features(X_pred)
 
         # Initialize prediction columns
         pred_df[DataSchema.PRED_RETURN] = 0.0
@@ -6124,6 +6128,9 @@ class Regressor:
 
         input_data = input_data[train_feature_columns]
         logging.info(f"   Feature alignment complete: {len(input_data.columns)} features")
+
+        # 학습과 동일한 log 변환 적용 (preprocess_training_data Step 4)
+        input_data = DataProcessor.log_transform_features(input_data)
 
         # 윈저화(Winsorization)
         if self.use_winsorization:
