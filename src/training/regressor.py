@@ -775,13 +775,22 @@ def _generate_predictions_for_period_standalone(
     # 학습과 동일한 log 변환 적용 (preprocess_training_data Step 4)
     X_pred = DataProcessor.log_transform_features(X_pred)
 
+    # 진단 로깅: log_transform 후 feature 스케일 확인
+    try:
+        max_abs = X_pred.abs().max().max()
+        mean_abs = X_pred.abs().mean().mean()
+        print(f"[Worker] Feature scale after log_transform: max={max_abs:.2f}, mean={mean_abs:.4f}")
+    except Exception:
+        pass
+
     pred_df[DataSchema.PRED_RETURN] = 0.0
     pred_df[DataSchema.PRED_PROBA] = 1.0
 
     if models_info['use_sector']:
         for sector in pred_df['sector'].unique():
             sector_mask = pred_df['sector'] == sector
-            X_sector = pred_df.loc[sector_mask, feature_cols]
+            # 변환된 X_pred에서 섹터 데이터 추출 (pred_df는 변환 안 됨!)
+            X_sector = X_pred.loc[sector_mask]
 
             if sector not in models_info['sector_regressors']:
                 continue
@@ -796,6 +805,10 @@ def _generate_predictions_for_period_standalone(
             # 수익률 예측
             y_pred_return = np.mean([reg.predict(X_sector_aligned) for reg in sector_regs.values()], axis=0)
             pred_df.loc[sector_mask, DataSchema.PRED_RETURN] = y_pred_return
+
+            # 진단 로깅: 섹터별 예측값 범위 확인
+            print(f"[Worker] {sector}: pred range=[{y_pred_return.min():.4f}, {y_pred_return.max():.4f}], "
+                  f"mean={y_pred_return.mean():.4f}, n={len(y_pred_return)}")
 
             # 확률 예측
             if models_info['use_classifier'] and sector in models_info['sector_classifiers']:
@@ -4141,6 +4154,14 @@ class Regressor:
         # 학습과 동일한 log 변환 적용 (preprocess_training_data Step 4)
         X_pred = DataProcessor.log_transform_features(X_pred)
 
+        # 진단 로깅: log_transform 후 feature 스케일 확인
+        try:
+            max_abs = X_pred.abs().max().max()
+            mean_abs = X_pred.abs().mean().mean()
+            logging.info(f"   Feature scale after log_transform: max={max_abs:.2f}, mean={mean_abs:.4f}")
+        except Exception:
+            pass
+
         # Initialize prediction columns
         pred_df[DataSchema.PRED_RETURN] = 0.0
         pred_df[DataSchema.PRED_PROBA] = 1.0  # Default to 1.0 if no classifier
@@ -4150,7 +4171,8 @@ class Regressor:
             # 섹터별 예측
             for sector in pred_df['sector'].unique():
                 sector_mask = pred_df['sector'] == sector
-                X_sector = pred_df.loc[sector_mask, feature_cols]
+                # 변환된 X_pred에서 섹터 데이터 추출 (pred_df는 변환 안 됨!)
+                X_sector = X_pred.loc[sector_mask]
 
                 if sector not in models_info['sector_regressors']:
                     continue  # 해당 섹터의 모델이 없으면 스킵
@@ -4165,6 +4187,10 @@ class Regressor:
                 # 수익률 예측
                 y_pred_return = np.mean([reg.predict(X_sector_aligned) for reg in sector_regs.values()], axis=0)
                 pred_df.loc[sector_mask, DataSchema.PRED_RETURN] = y_pred_return
+
+                # 진단 로깅: 섹터별 예측값 범위 확인
+                logging.info(f"   {sector}: pred range=[{y_pred_return.min():.4f}, {y_pred_return.max():.4f}], "
+                             f"mean={y_pred_return.mean():.4f}, n={len(y_pred_return)}")
 
                 # 확률 예측 (분류기 활성화 시)
                 if models_info['use_classifier'] and sector in models_info['sector_classifiers']:
