@@ -1657,7 +1657,7 @@ class DataProcessor:
     @staticmethod
     def create_binary_target(
         y: Union[pd.Series, pd.DataFrame],
-        mode: str = "positive_screen",
+        mode: str = "negative_screen",
         threshold: float = 0.0,
         config: Optional[Dict] = None,
         logger: Optional[logging.Logger] = None,
@@ -1671,14 +1671,14 @@ class DataProcessor:
 
         Args:
             y: Regression target values (price_dev or price_dev_subavg)
-            mode: Classification mode
+            mode: Classification mode (supported: "negative_screen", "bottom_percentile")
                   - "negative_screen": Identify BAD stocks (extreme losses)
                     → 1 = BAD (should avoid), 0 = OK (safe to consider)
-                  - "positive_screen": Identify GOOD stocks (gains)
-                    → 1 = GOOD (likely gain), 0 = LOSS (likely loss)
+                  - "bottom_percentile": Identify BAD stocks by percentile cutoff (cutting)
+                    (label=1 => bottom p% => should avoid, label=0 => ok)
             threshold: Threshold value
                       - For negative_screen: loss threshold (e.g., -0.3 = -30% loss)
-                      - For positive_screen: gain threshold (e.g., 0.0 = breakeven)
+                      - For bottom_percentile: ignored (uses percentile cutoff from config)
             config: Optional config dict to read mode/threshold from
             logger: Optional logger for distribution analysis
             analyze: If True, print distribution analysis for multiple thresholds
@@ -1730,6 +1730,20 @@ class DataProcessor:
                     candidates = neg_config.get('THRESHOLD_CANDIDATES', [-0.2, -0.3, -0.4, -0.5])
                     DataProcessor._analyze_threshold_candidates(y_values, candidates, logger)
 
+            if mode == "bottom_percentile":
+                pct_raw = ml_config.get('BOTTOM_PERCENTILE', 20)
+                try:
+                    pct_val = float(pct_raw)
+                except (TypeError, ValueError):
+                    pct_val = 20.0
+
+                # Allow either 0.2 or 20 style inputs
+                if 0.0 < pct_val <= 1.0:
+                    pct_val = pct_val * 100.0
+
+                pct_val = max(min(pct_val, 99.0), 1.0)
+                ml_config['BOTTOM_PERCENTILE'] = pct_val
+
         # Create binary target based on mode
         if mode == "negative_screen":
             # 1 = BAD (extreme loss), 0 = OK
@@ -1753,15 +1767,40 @@ class DataProcessor:
             logger.info("="*80)
             logger.info("")
 
-        else:  # positive_screen
-            # 1 = GOOD (gain), 0 = LOSS
-            binary = (y_values > threshold).astype(int)
+        elif mode == "bottom_percentile":
+            # 1 = BAD (bottom p%), 0 = OK
+            if config is not None:
+                pct_val = float(config.get('ML', {}).get('BOTTOM_PERCENTILE', 20.0))
+            else:
+                pct_val = 20.0
 
-            good_count = binary.sum()
-            good_pct = good_count / len(binary) * 100
+            cutoff = float(y_values.quantile(pct_val / 100.0))
+            binary = (y_values <= cutoff).astype(int)
 
-            logger.info(f"   Positive screening: {good_count:,} GOOD ({good_pct:.1f}%), "
-                       f"{len(binary) - good_count:,} LOSS ({100-good_pct:.1f}%)")
+            bad_count = int(binary.sum())
+            bad_pct = bad_count / len(binary) * 100
+            avg_bad = y_values[binary == 1].mean() if bad_count > 0 else 0
+            avg_ok = y_values[binary == 0].mean() if len(binary) - bad_count > 0 else 0
+
+            logger.info("")
+            logger.info("="*80)
+            logger.info("📉 BOTTOM PERCENTILE SCREENING: Binary Target Distribution")
+            logger.info("="*80)
+            logger.info(f"   Mode: {mode}")
+            logger.info(f"   Bottom percentile: {pct_val:.1f}%")
+            logger.info(f"   Cutoff value: {cutoff:.6f}")
+            logger.info(f"   BAD stocks (label=1): {bad_count:,} ({bad_pct:.1f}%)")
+            logger.info(f"   OK stocks (label=0): {len(binary) - bad_count:,} ({100-bad_pct:.1f}%)")
+            logger.info(f"   Avg return of BAD stocks: {avg_bad:.4f} ({avg_bad*100:.1f}%)")
+            logger.info(f"   Avg return of OK stocks: {avg_ok:.4f} ({avg_ok*100:.1f}%)")
+            logger.info("="*80)
+            logger.info("")
+
+        else:
+            raise ValueError(
+                f"Unsupported CLASSIFIER_MODE='{mode}'. "
+                "positive_screen is removed. Use 'negative_screen' or 'bottom_percentile'."
+            )
 
         return binary
 

@@ -64,6 +64,9 @@ import logging
 import torch
 import os
 import re
+import subprocess
+import hashlib
+from pathlib import Path
 import seaborn as sns
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -258,6 +261,128 @@ def predict_proba_with_gpu_support(model, X, use_gpu: bool):
         return model.predict_proba(X)
 
 # ==============================================================================
+# Feature Importance Saving
+# ==============================================================================
+
+def _unwrap_estimator_for_importance(model: Any) -> Any:
+    """Best-effort unwrap for sklearn Pipelines/wrappers to get the final estimator."""
+    if hasattr(model, "named_steps"):
+        try:
+            steps = list(model.named_steps.values())
+            if steps:
+                return steps[-1]
+        except Exception:
+            return model
+    return model
+
+
+def _extract_feature_importance(model: Any, feature_names: List[str]) -> Optional[pd.Series]:
+    """Return per-feature importance as a Series indexed by feature name, or None if unsupported."""
+    if not feature_names:
+        return None
+
+    estimator = _unwrap_estimator_for_importance(model)
+    feature_to_idx = {name: idx for idx, name in enumerate(feature_names)}
+
+    # 1) sklearn-style tree importance
+    if hasattr(estimator, "feature_importances_"):
+        try:
+            values = np.asarray(estimator.feature_importances_, dtype=float)
+            if values.shape[0] == len(feature_names):
+                return pd.Series(values, index=feature_names)
+        except Exception:
+            pass
+
+    # 2) sklearn-style linear importance (abs(coef_))
+    if hasattr(estimator, "coef_"):
+        try:
+            coef = np.asarray(estimator.coef_, dtype=float)
+            coef = coef.ravel()
+            if coef.shape[0] == len(feature_names):
+                return pd.Series(np.abs(coef), index=feature_names)
+        except Exception:
+            pass
+
+    # 3) XGBoost: Booster gain score (handles f0.. mapping)
+    if hasattr(estimator, "get_booster"):
+        try:
+            booster = estimator.get_booster()
+            score = booster.get_score(importance_type="gain") or {}
+            if score:
+                values = np.zeros(len(feature_names), dtype=float)
+                for k, v in score.items():
+                    if k in feature_to_idx:
+                        values[feature_to_idx[k]] = float(v)
+                        continue
+                    if re.match(r"^f\d+$", str(k)):
+                        idx = int(str(k)[1:])
+                        if 0 <= idx < len(feature_names):
+                            values[idx] = float(v)
+                if np.any(values):
+                    return pd.Series(values, index=feature_names)
+        except Exception:
+            pass
+
+    # 4) LightGBM: Booster gain importance
+    if hasattr(estimator, "booster_"):
+        try:
+            booster = estimator.booster_
+            names = booster.feature_name()
+            gains = booster.feature_importance(importance_type="gain")
+            if names and len(names) == len(gains):
+                values = np.zeros(len(feature_names), dtype=float)
+                for name, gain in zip(names, gains):
+                    if name in feature_to_idx:
+                        values[feature_to_idx[name]] = float(gain)
+                if np.any(values):
+                    return pd.Series(values, index=feature_names)
+        except Exception:
+            pass
+
+    # 5) CatBoost: native importance
+    if getattr(estimator.__class__, "__module__", "").startswith("catboost") and hasattr(estimator, "get_feature_importance"):
+        try:
+            values = np.asarray(estimator.get_feature_importance(), dtype=float)
+            if values.shape[0] == len(feature_names):
+                return pd.Series(values, index=feature_names)
+        except Exception:
+            pass
+
+    return None
+
+
+def save_model_feature_importance(
+    model: Any,
+    feature_names: List[str],
+    model_file_path: str,
+    *,
+    model_label: str,
+    top_n: int = 30,
+) -> None:
+    """Save feature importance next to the saved model file and log top-N."""
+    try:
+        series = _extract_feature_importance(model, feature_names)
+        if series is None:
+            logging.warning(f"⚠️  Feature importance not available for {model_label} ({type(model)})")
+            return
+
+        df = (
+            series.sort_values(ascending=False)
+            .rename("importance")
+            .reset_index()
+            .rename(columns={"index": "feature"})
+        )
+        out_path = Path(model_file_path).with_suffix(".importance.csv")
+        df.to_csv(out_path, index=False)
+
+        logging.info(f"✅ Saved feature importance for {model_label} to {out_path}")
+        if len(df) > 0:
+            n = min(top_n, len(df))
+            logging.info(f"Top {n} features for {model_label}:\n{df.head(n).to_string(index=False)}")
+    except Exception as e:
+        logging.warning(f"⚠️  Failed to save feature importance for {model_label}: {e}")
+
+# ==============================================================================
 # Column Definitions (Unified with ml_backtest.py via DataSchema)
 # ==============================================================================
 # ✨ REFACTORED: Now using DataSchema for single source of truth
@@ -279,10 +404,87 @@ except ImportError:
     logging.warning("⚠️  Ray not installed. Parallel training will be disabled.")
 
 
+def _append_monitor_rows_csv(file_path: str, rows: List[Dict[str, Any]]) -> None:
+    if not rows:
+        return
+    out_path = Path(file_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame(rows)
+    df.to_csv(out_path, mode="a", header=not out_path.exists(), index=False, encoding="utf-8-sig")
+
+
+def _extract_model_learning_curve(model: Any) -> List[Dict[str, Any]]:
+    """
+    Best-effort extraction of per-iteration/per-epoch metrics for different model families.
+    Returns rows with keys: step, curve_name, value.
+    """
+    rows: List[Dict[str, Any]] = []
+
+    # XGBoost / LightGBM sklearn APIs
+    evals_result = getattr(model, "evals_result_", None)
+    if isinstance(evals_result, dict) and evals_result:
+        for dataset_name, metrics in evals_result.items():
+            if not isinstance(metrics, dict):
+                continue
+            for metric_name, values in metrics.items():
+                if not isinstance(values, (list, tuple)):
+                    continue
+                for step_idx, v in enumerate(values, start=1):
+                    rows.append(
+                        {
+                            "step": step_idx,
+                            "curve_name": f"{dataset_name}:{metric_name}",
+                            "value": float(v) if v is not None else np.nan,
+                        }
+                    )
+        return rows
+
+    # CatBoost
+    get_evals_result = getattr(model, "get_evals_result", None)
+    if callable(get_evals_result):
+        try:
+            cb = get_evals_result()
+            if isinstance(cb, dict):
+                for dataset_name, metrics in cb.items():
+                    if not isinstance(metrics, dict):
+                        continue
+                    for metric_name, values in metrics.items():
+                        if not isinstance(values, (list, tuple)):
+                            continue
+                        for step_idx, v in enumerate(values, start=1):
+                            rows.append(
+                                {
+                                    "step": step_idx,
+                                    "curve_name": f"{dataset_name}:{metric_name}",
+                                    "value": float(v) if v is not None else np.nan,
+                                }
+                            )
+                return rows
+        except Exception:
+            pass
+
+    # sklearn MLP via Pipeline
+    named_steps = getattr(model, "named_steps", None)
+    if isinstance(named_steps, dict) and "mlp" in named_steps:
+        mlp = named_steps.get("mlp")
+        loss_curve = getattr(mlp, "loss_curve_", None)
+        if isinstance(loss_curve, (list, tuple)) and loss_curve:
+            for step_idx, v in enumerate(loss_curve, start=1):
+                rows.append({"step": step_idx, "curve_name": "train:loss", "value": float(v)})
+
+        val_scores = getattr(mlp, "validation_scores_", None)
+        if isinstance(val_scores, (list, tuple)) and val_scores:
+            for step_idx, v in enumerate(val_scores, start=1):
+                rows.append({"step": step_idx, "curve_name": "val:score", "value": float(v)})
+
+    return rows
+
+
 @ray.remote
 def train_single_period_remote(
     period_info: dict,
     root_path: str,
+    ml_config: dict,
     use_classifier: bool,
     use_sector_model: bool,
     top_k: int,
@@ -337,6 +539,14 @@ def train_single_period_remote(
     train_start_year = period_info['train_start_year']
     period_name = period_info['period_name']
     cache_key = cutoff_date.strftime('%Y-%m-%d')
+    config = {'ML': ml_config or {}}
+
+    mode = (ml_config or {}).get('CLASSIFIER_MODE', 'negative_screen')
+    if mode == "positive_screen":
+        raise ValueError(
+            "ML.CLASSIFIER_MODE='positive_screen' is removed. "
+            "Use 'negative_screen' or 'bottom_percentile'."
+        )
 
     try:
         logging.info(f"📅 Processing period: {cache_key} ({period_name})")
@@ -354,7 +564,7 @@ def train_single_period_remote(
         # Step 2: Train models
         logging.info("🔧 Training models...")
         models_info = _train_models_for_period_standalone(
-            train_df, use_classifier, use_sector_model
+            train_df, use_classifier, use_sector_model, config
         )
 
         # Step 3: Load prediction data
@@ -370,7 +580,7 @@ def train_single_period_remote(
         # Step 4: Generate predictions
         logging.info("🔮 Generating predictions...")
         predictions_df = _generate_predictions_for_period_standalone(
-            pred_df, models_info
+            pred_df, models_info, config
         )
 
         # Step 5: Top-K selection
@@ -467,7 +677,8 @@ def _load_data_for_prediction_standalone(root_path: str, cutoff_date: datetime.d
 def _train_models_for_period_standalone(
     train_df: pd.DataFrame,
     use_classifier: bool,
-    use_sector_model: bool
+    use_sector_model: bool,
+    config: dict
 ) -> dict:
     """Standalone version of _train_models_for_period for Ray workers."""
     from src.training.data_processor import DataProcessor
@@ -493,6 +704,7 @@ def _train_models_for_period_standalone(
     feature_cols = DataSchema.get_feature_cols(train_df)
     X_train = train_df[feature_cols]
     y_train = train_df[target_col]
+    cls_target_col = DataSchema.CLASSIFICATION_TARGET if DataSchema.CLASSIFICATION_TARGET in train_df.columns else target_col
 
     if use_sector_model:
         for sector in train_df['sector'].unique():
@@ -505,7 +717,11 @@ def _train_models_for_period_standalone(
 
             # Train sector classifiers
             if use_classifier:
-                y_binary = (sector_data[target_col] > 0).astype(int)
+                y_binary = DataProcessor.create_binary_target(
+                    sector_data[[cls_target_col]],
+                    config=config,
+                    logger=logging.getLogger(),
+                )
                 sector_clfs = {
                     0: XGBClassifier(max_depth=8, n_estimators=100, random_state=42),
                     1: XGBClassifier(max_depth=9, n_estimators=100, random_state=42),
@@ -513,7 +729,7 @@ def _train_models_for_period_standalone(
                     3: LGBMClassifier(max_depth=8, n_estimators=100, random_state=42)
                 }
                 for clf in sector_clfs.values():
-                    clf.fit(X_sector, y_binary)
+                    clf.fit(X_sector, y_binary.values.ravel() if hasattr(y_binary, "values") else y_binary)
                 models_info['sector_classifiers'][sector] = sector_clfs
 
             # Train sector regressors
@@ -527,7 +743,11 @@ def _train_models_for_period_standalone(
     else:
         # Train global classifiers
         if use_classifier:
-            y_binary = (train_df[target_col] > 0).astype(int)
+            y_binary = DataProcessor.create_binary_target(
+                train_df[[cls_target_col]],
+                config=config,
+                logger=logging.getLogger(),
+            )
             global_clfs = {
                 0: XGBClassifier(max_depth=8, n_estimators=100, random_state=42),
                 1: XGBClassifier(max_depth=9, n_estimators=100, random_state=42),
@@ -535,7 +755,7 @@ def _train_models_for_period_standalone(
                 3: LGBMClassifier(max_depth=8, n_estimators=100, random_state=42)
             }
             for clf in global_clfs.values():
-                clf.fit(X_train, y_binary)
+                clf.fit(X_train, y_binary.values.ravel() if hasattr(y_binary, "values") else y_binary)
             models_info['classifiers'] = global_clfs
 
         # Train global regressors
@@ -552,7 +772,8 @@ def _train_models_for_period_standalone(
 
 def _generate_predictions_for_period_standalone(
     pred_df: pd.DataFrame,
-    models_info: dict
+    models_info: dict,
+    config: dict
 ) -> pd.DataFrame:
     """Standalone version of _generate_predictions_for_period for Ray workers."""
     from src.training.data_processor import DataProcessor
@@ -595,8 +816,16 @@ def _generate_predictions_for_period_standalone(
             y_pred_proba = np.mean([clf.predict_proba(X_pred)[:, 1] for clf in global_clfs.values()], axis=0)
             pred_df[DataSchema.PRED_PROBA] = y_pred_proba
 
-    # Calculate ML score
-    pred_df[DataSchema.ML_SCORE] = pred_df[DataSchema.PRED_PROBA] * pred_df[DataSchema.PRED_RETURN]
+    # Calculate ML score (negative screening only: higher BAD probability => lower score)
+    if models_info.get('use_classifier', False):
+        ml_cfg = (config or {}).get('ML', {})
+        remove_pct = int(ml_cfg.get('CLASSIFIER_REMOVE_PCT', 8))
+        remove_pct = max(min(remove_pct, 99), 1)
+        threshold = np.percentile(pred_df[DataSchema.PRED_PROBA].values, 100 - remove_pct)
+        pass_mask = pred_df[DataSchema.PRED_PROBA] < threshold
+        pred_df[DataSchema.ML_SCORE] = np.where(pass_mask, pred_df[DataSchema.PRED_RETURN], -np.inf)
+    else:
+        pred_df[DataSchema.ML_SCORE] = pred_df[DataSchema.PRED_RETURN]
 
     return pred_df
 
@@ -713,7 +942,17 @@ class Regressor:
         ml_config = conf.get('ML', {})
         features_config = conf.get('FEATURES', {})
         backtest_config = conf.get('BACKTEST', {})
+        evaluation_config = conf.get('EVALUATION', {})
         self.root_path: str = data_config.get('ROOT_PATH', '/home/user/Quant/data')
+
+        # Walk-forward evaluation/training mode (preferred: EVALUATION.USE_WALK_FORWARD, legacy fallback: ML.USE_WALK_FORWARD)
+        use_walk_forward_raw = evaluation_config.get('USE_WALK_FORWARD', ml_config.get('USE_WALK_FORWARD', 'N'))
+        self.use_walk_forward: bool = str(use_walk_forward_raw).strip().upper() == 'Y'
+        self.walk_forward_periods: List[Dict[str, Any]] = []
+
+        # Single file for this process run (training + evaluation monitoring)
+        self.monitor_run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.monitor_file = os.path.join(self.root_path, "MODELS", f"train_eval_monitor_{self.monitor_run_id}.csv")
 
         # Include sector as a numeric feature (one-hot encoded, e.g., sector__Technology).
         # NOTE: This changes feature_columns.pkl and requires retraining.
@@ -725,6 +964,18 @@ class Regressor:
 
         # Classifier 사용 여부 (ModelFactory와 동일한 방식)
         self.use_classifier = ml_config.get('USE_CLASSIFIER', 'Y') == 'Y'
+        self.classifier_mode = ml_config.get('CLASSIFIER_MODE', 'negative_screen')
+        if self.use_classifier:
+            if self.classifier_mode == "positive_screen":
+                raise ValueError(
+                    "ML.CLASSIFIER_MODE='positive_screen' is removed. "
+                    "Use 'negative_screen' or 'bottom_percentile'."
+                )
+            if self.classifier_mode not in ("negative_screen", "bottom_percentile"):
+                raise ValueError(
+                    f"Unsupported ML.CLASSIFIER_MODE='{self.classifier_mode}'. "
+                    "Use 'negative_screen' or 'bottom_percentile'."
+                )
 
         # Preprocessing 설정 (ml_backtest.py와 동일한 방식)
         self.use_winsorization = features_config.get('USE_WINSORIZATION', 'Y') == 'Y'
@@ -1034,6 +1285,351 @@ class Regressor:
         logging.warning(f"⚠️  Cannot parse date from filename: {filename}")
         return "unknown_period"
 
+    @staticmethod
+    def _parse_year_quarter(period: str) -> Optional[Tuple[int, int]]:
+        """Parse 'YYYY_Qn' -> (YYYY, n). Returns None if invalid."""
+        m = re.match(r'^(\d{4})_Q([1-4])$', str(period).strip())
+        if not m:
+            return None
+        return int(m.group(1)), int(m.group(2))
+
+    def _period_to_rebalance_date(self, period: str) -> Optional[datetime.datetime]:
+        """
+        Map 'YYYY_Qn' -> rebalance datetime for price-based backtest.
+
+        Mapping rule (config-driven):
+        - Uses global START_MONTH/START_DATE as the first rebalance anchor.
+        - Quarter increments are +3 months from START_MONTH.
+
+        Example:
+        - START_MONTH=1, START_DATE=23  ->  1/23, 4/23, 7/23, 10/23
+        """
+        parsed = self._parse_year_quarter(period)
+        if parsed is None:
+            return None
+        year, q = parsed
+
+        try:
+            start_month = int(self.conf.get('START_MONTH', 1))
+        except (TypeError, ValueError):
+            start_month = 1
+        try:
+            day = int(self.conf.get('START_DATE', 23))
+        except (TypeError, ValueError):
+            day = 23
+
+        # Q1..Q4 -> start_month + (q-1)*3
+        month = ((start_month - 1) + (q - 1) * 3) % 12 + 1
+        try:
+            return datetime.datetime(year, month, day)
+        except ValueError:
+            return datetime.datetime(year, month, min(day, 28))
+
+    @staticmethod
+    def _sort_files_by_period(files: List[str]) -> List[str]:
+        """Sort file paths by parsed YYYY_Qn in filename. Unparseable files go last (stable)."""
+        def key_fn(p: str):
+            base = os.path.basename(p)
+            m = re.search(r'(\d{4})_(Q[1-4])', base)
+            if not m:
+                return (9999, 9, base)
+            year = int(m.group(1))
+            q = int(m.group(2)[1:])
+            return (year, q, base)
+
+        return sorted(list(files), key=key_fn)
+
+    @staticmethod
+    def _get_repo_git_commit() -> Optional[str]:
+        """Best-effort current git commit hash for metadata. Returns None if unavailable."""
+        try:
+            repo_root = Path(__file__).resolve().parents[2]
+            out = subprocess.check_output(
+                ['git', 'rev-parse', 'HEAD'],
+                cwd=str(repo_root),
+                stderr=subprocess.DEVNULL,
+                text=True
+            ).strip()
+            return out if out else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _safe_json_dumps(obj: Any) -> str:
+        import json
+        return json.dumps(obj, ensure_ascii=False, indent=2, default=str)
+
+    @staticmethod
+    def _config_fingerprint(conf: Dict[str, Any]) -> str:
+        """Stable-ish fingerprint for config dict (best-effort)."""
+        payload = Regressor._safe_json_dumps(conf)
+        return hashlib.sha256(payload.encode('utf-8')).hexdigest()[:12]
+
+    def _calculate_period_return(
+        self,
+        selected_symbols: List[str],
+        buy_date: datetime.datetime,
+        sell_date: datetime.datetime,
+        price_table: pd.DataFrame
+    ) -> dict:
+        """
+        Price-based realized return for a list of symbols between buy_date and sell_date.
+        Uses DataProcessor.get_trade_date (same logic as ml_backtest.py).
+        """
+        actual_buy_date = DataProcessor.get_trade_date(pd.Timestamp(buy_date), price_table)
+        actual_sell_date = DataProcessor.get_trade_date(pd.Timestamp(sell_date), price_table)
+
+        if actual_buy_date is None or actual_sell_date is None:
+            logging.warning(
+                f"Trading date not found: buy={buy_date.date()}, sell={sell_date.date()}"
+            )
+            return {'avg_return': 0.0, 'details': [], 'actual_buy_date': None, 'actual_sell_date': None}
+
+        returns: List[float] = []
+        details: List[Dict[str, Any]] = []
+
+        for symbol in selected_symbols:
+            try:
+                symbol_prices = price_table[price_table['symbol'] == symbol]
+                if symbol_prices.empty:
+                    continue
+
+                buy_rows = symbol_prices[symbol_prices['date'] == actual_buy_date]
+                sell_rows = symbol_prices[symbol_prices['date'] == actual_sell_date]
+                if buy_rows.empty or sell_rows.empty:
+                    continue
+
+                buy_price = float(buy_rows.iloc[0]['close'])
+                sell_price = float(sell_rows.iloc[0]['close'])
+
+                ret = (sell_price - buy_price) / buy_price
+                returns.append(ret)
+                details.append({
+                    'symbol': symbol,
+                    'buy_price': buy_price,
+                    'sell_price': sell_price,
+                    'return': ret,
+                    'return_pct': ret * 100.0
+                })
+            except Exception as e:
+                logging.warning(f"Return calc failed for {symbol}: {e}")
+                continue
+
+        if not returns:
+            return {
+                'avg_return': 0.0,
+                'details': [],
+                'actual_buy_date': actual_buy_date,
+                'actual_sell_date': actual_sell_date
+            }
+
+        return {
+            'avg_return': float(np.mean(returns)),
+            'details': details,
+            'actual_buy_date': actual_buy_date,
+            'actual_sell_date': actual_sell_date
+        }
+
+    def _calculate_benchmark_returns(
+        self,
+        start_date: datetime.datetime,
+        end_date: datetime.datetime,
+        price_table: pd.DataFrame
+    ) -> pd.DataFrame:
+        """Benchmark buy-and-hold (same as ml_backtest.py; BENCHMARK config-driven)."""
+        benchmark_config = self.conf.get('BENCHMARK', {})
+
+        if not benchmark_config.get('ENABLED', 'N') == 'Y':
+            logging.info("Benchmark comparison disabled (BENCHMARK.ENABLED=N)")
+            return pd.DataFrame()
+
+        benchmark_symbols = benchmark_config.get('SYMBOLS', [])
+        if not benchmark_symbols:
+            logging.warning("No benchmark symbols configured")
+            return pd.DataFrame()
+
+        actual_start = DataProcessor.get_trade_date(pd.Timestamp(start_date), price_table)
+        actual_end = DataProcessor.get_trade_date(pd.Timestamp(end_date), price_table)
+        if actual_start is None or actual_end is None:
+            logging.error("Cannot find trading dates for benchmark period")
+            return pd.DataFrame()
+
+        results = []
+        for symbol in benchmark_symbols:
+            try:
+                symbol_prices = price_table[price_table['symbol'] == symbol]
+                if symbol_prices.empty:
+                    logging.warning(f"{symbol}: No price data found")
+                    continue
+
+                start_prices = symbol_prices[symbol_prices['date'] == actual_start]
+                end_prices = symbol_prices[symbol_prices['date'] == actual_end]
+                if start_prices.empty or end_prices.empty:
+                    logging.warning(f"{symbol}: Missing start/end price")
+                    continue
+
+                start_price = float(start_prices.iloc[0]['close'])
+                end_price = float(end_prices.iloc[0]['close'])
+                total_return = (end_price - start_price) / start_price
+
+                period_prices = symbol_prices[
+                    (symbol_prices['date'] >= actual_start) &
+                    (symbol_prices['date'] <= actual_end)
+                ].sort_values('date')
+                if len(period_prices) < 2:
+                    continue
+
+                period_prices = period_prices.copy()
+                period_prices['daily_return'] = period_prices['close'].pct_change()
+                daily_returns = period_prices['daily_return'].dropna()
+                sharpe = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252) if daily_returns.std() > 0 else 0.0
+
+                cumulative = (1 + period_prices['daily_return'].fillna(0)).cumprod()
+                running_max = cumulative.expanding().max()
+                drawdown = (cumulative - running_max) / running_max
+                max_drawdown = float(drawdown.min())
+
+                win_rate = (daily_returns > 0).sum() / len(daily_returns) if len(daily_returns) > 0 else 0.0
+
+                results.append({
+                    'strategy': symbol,
+                    'total_return': float(total_return),
+                    'total_return_pct': float(total_return * 100),
+                    'sharpe_ratio': float(sharpe),
+                    'max_drawdown': max_drawdown,
+                    'max_drawdown_pct': float(max_drawdown * 100),
+                    'win_rate': float(win_rate),
+                    'win_rate_pct': float(win_rate * 100),
+                    'start_price': start_price,
+                    'end_price': end_price,
+                    'num_days': int(len(period_prices))
+                })
+            except Exception as e:
+                logging.warning(f"Benchmark calc failed for {symbol}: {e}")
+                continue
+
+        return pd.DataFrame(results) if results else pd.DataFrame()
+
+    def _create_period_benchmark_comparison(
+        self,
+        strategy_df: pd.DataFrame,
+        price_table: pd.DataFrame
+    ) -> pd.DataFrame:
+        """
+        Create period-by-period comparison with benchmarks (similar to ml_backtest.py).
+
+        Uses realized buy/sell trading dates saved in strategy_df (actual_buy_date/actual_sell_date).
+        Falls back to period/next_period rebalance dates if actual dates are unavailable.
+        """
+        benchmark_config = self.conf.get('BENCHMARK', {})
+        if not benchmark_config.get('ENABLED', 'N') == 'Y':
+            return pd.DataFrame()
+
+        benchmark_symbols = benchmark_config.get('SYMBOLS', [])
+        if not benchmark_symbols or strategy_df is None or len(strategy_df) == 0:
+            return pd.DataFrame()
+
+        rows: List[Dict[str, Any]] = []
+
+        for i, row in strategy_df.reset_index(drop=True).iterrows():
+            try:
+                period = str(row.get('period'))
+                next_period = str(row.get('next_period'))
+
+                start_dt = row.get('actual_buy_date')
+                end_dt = row.get('actual_sell_date')
+
+                if pd.isna(start_dt) or pd.isna(end_dt):
+                    start_dt = self._period_to_rebalance_date(period)
+                    end_dt = self._period_to_rebalance_date(next_period)
+
+                if start_dt is None or end_dt is None:
+                    continue
+
+                start_ts = pd.to_datetime(start_dt)
+                end_ts = pd.to_datetime(end_dt)
+
+                period_row: Dict[str, Any] = {
+                    'period_idx': int(i + 1),
+                    'period': period,
+                    'next_period': next_period,
+                    'start_date': start_ts,
+                    'end_date': end_ts,
+                    'ml_model_return': float(row.get('avg_earning_per_stock', 0.0)),
+                    'ml_model_return_pct': float(row.get('avg_earning_per_stock', 0.0)) * 100.0,
+                }
+
+                for symbol in benchmark_symbols:
+                    symbol_prices = price_table[price_table['symbol'] == symbol]
+                    if symbol_prices.empty:
+                        period_row[f'{symbol}_return'] = np.nan
+                        period_row[f'{symbol}_return_pct'] = np.nan
+                        continue
+
+                    actual_start = DataProcessor.get_trade_date(start_ts, symbol_prices)
+                    actual_end = DataProcessor.get_trade_date(end_ts, symbol_prices)
+                    if actual_start is None or actual_end is None:
+                        period_row[f'{symbol}_return'] = np.nan
+                        period_row[f'{symbol}_return_pct'] = np.nan
+                        continue
+
+                    start_rows = symbol_prices[symbol_prices['date'] == actual_start]
+                    end_rows = symbol_prices[symbol_prices['date'] == actual_end]
+                    if start_rows.empty or end_rows.empty:
+                        period_row[f'{symbol}_return'] = np.nan
+                        period_row[f'{symbol}_return_pct'] = np.nan
+                        continue
+
+                    start_price = float(start_rows.iloc[0]['close'])
+                    end_price = float(end_rows.iloc[0]['close'])
+                    bench_return = (end_price - start_price) / start_price
+                    period_row[f'{symbol}_return'] = float(bench_return)
+                    period_row[f'{symbol}_return_pct'] = float(bench_return * 100.0)
+
+                rows.append(period_row)
+            except Exception as e:
+                logging.warning(f"Period benchmark comparison failed: {e}")
+                continue
+
+        return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+    @staticmethod
+    def _summarize_strategy_returns(
+        period_returns: pd.Series,
+        rebalance_period_months: int
+    ) -> Dict[str, float]:
+        """Summary metrics (total return, Sharpe, MDD, win rate) similar to ml_backtest.py."""
+        if period_returns is None or len(period_returns) == 0:
+            return {
+                'total_return': 0.0,
+                'avg_return': 0.0,
+                'std_return': 0.0,
+                'sharpe_ratio': 0.0,
+                'max_drawdown': 0.0,
+                'win_rate': 0.0
+            }
+
+        total_return = float((1 + period_returns).prod() - 1)
+        avg_return = float(period_returns.mean())
+        std_return = float(period_returns.std())
+        sharpe = (avg_return / std_return) * np.sqrt(12 / max(rebalance_period_months, 1)) if std_return > 0 else 0.0
+
+        cumulative = (1 + period_returns).cumprod()
+        running_max = cumulative.cummax()
+        drawdown = (cumulative - running_max) / running_max
+        mdd = float(drawdown.min())
+
+        win_rate = float((period_returns > 0).sum() / len(period_returns))
+
+        return {
+            'total_return': total_return,
+            'avg_return': avg_return,
+            'std_return': std_return,
+            'sharpe_ratio': float(sharpe),
+            'max_drawdown': mdd,
+            'win_rate': win_rate
+        }
+
     def _load_classifiers(self, model_save_path: str) -> None:
         """분류 모델들을 로드합니다.
 
@@ -1204,7 +1800,7 @@ class Regressor:
             col_name = regression_col_names[f'wbinary_{i}']
             clf_col = classifier_cols[i]
 
-            if classifier_mode == "negative_screen":
+            if classifier_mode in ("negative_screen", "bottom_percentile"):
                 # negative_screen: Class 1 = BAD → 제외 (위험한 종목)
                 df[col_name] = np.where(df[clf_col] == 1, -1, y_predict)
             else:  # positive_screen
@@ -1242,7 +1838,7 @@ class Regressor:
             앙상블 예측이 추가된 데이터프레임
         """
         # 제외할 클래스 결정
-        exclude_class = 1 if classifier_mode == "negative_screen" else 0
+        exclude_class = 1 if classifier_mode in ("negative_screen", "bottom_percentile") else 0
 
         # 앙상블 1: 분류기 1 AND 3
         df[regression_col_names['wbinary_ensemble']] = np.where(
@@ -1333,7 +1929,9 @@ class Regressor:
             logging.info("🔄 Walk-Forward mode: Generating evaluation periods...")
             self._generate_walk_forward_periods()
             logging.info(f"✅ Generated {len(self.walk_forward_periods)} walk-forward periods")
-            return  # Skip traditional data loading
+            if self.use_walk_forward and self.walk_forward_periods:
+                return  # Skip traditional data loading
+            logging.info("Walk-forward disabled (no valid periods). Continuing with traditional data loading.")
 
         # ========================================================================
         # Traditional Mode: Load all training/test files
@@ -1854,6 +2452,23 @@ class Regressor:
         Optional[Dict[str, Any]]
             Best parameters if found and valid, None otherwise
         """
+        # Optional: model-selection result saved by evaluation() backtest
+        selected_col = None
+        selected_top_k = None
+        selected_model_file = os.path.join(MODEL_SAVE_PATH, 'selected_prediction_column.json')
+        try:
+            import json
+            if os.path.exists(selected_model_file):
+                with open(selected_model_file, 'r', encoding='utf-8') as f:
+                    payload = json.load(f)
+                    selected_col = payload.get('selected_column')
+                    try:
+                        selected_top_k = int(payload.get('selected_top_k')) if payload.get('selected_top_k') is not None else None
+                    except (TypeError, ValueError):
+                        selected_top_k = None
+        except Exception as e:
+            logging.warning(f"Failed to load selected prediction column: {e}")
+
         import glob
         import json
         from pathlib import Path
@@ -2025,7 +2640,7 @@ class Regressor:
         results = {}
         for remove_pct in range(remove_pct_min, remove_pct_max + 1):
             # 모드별 percentile 및 mask 계산
-            if classifier_mode == "negative_screen":
+            if classifier_mode in ("negative_screen", "bottom_percentile"):
                 # Class 1 = BAD → 상위 N% 제거 (BAD 확률이 높은 것)
                 percentile = 100 - remove_pct
                 threshold = np.percentile(y_probs, percentile)
@@ -2069,7 +2684,7 @@ class Regressor:
             logging.warning("⚠️  No valid remove percentage found! Using default 8%")
             # Fallback to 8%
             remove_pct = 8
-            if classifier_mode == "negative_screen":
+            if classifier_mode in ("negative_screen", "bottom_percentile"):
                 percentile = 100 - remove_pct  # 92
                 threshold = np.percentile(y_probs, percentile)
                 mask = y_probs < threshold
@@ -2262,8 +2877,12 @@ class Regressor:
             logging.info("="*80)
             logging.info("🔄 WALK-FORWARD TRAINING")
             logging.info("="*80)
-            self._train_walk_forward()
-            return  # Skip traditional training
+            if not self.walk_forward_periods:
+                self._generate_walk_forward_periods()
+            if self.use_walk_forward and self.walk_forward_periods:
+                self._train_walk_forward()
+                return  # Skip traditional training
+            logging.info("Walk-forward disabled (no valid periods). Continuing with traditional training.")
 
         # ========================================================================
         # Traditional Mode: Train models once on all training data
@@ -2724,6 +3343,55 @@ class Regressor:
             analyze=True  # Analyze threshold candidates
         )
 
+        # ===== Training/Evaluation Monitoring (single CSV file) =====
+        ml_config = self.conf.get("ML", {})
+        mode = self.classifier_mode
+        bottom_pct = float(ml_config.get("BOTTOM_PERCENTILE", 20.0)) if mode == "bottom_percentile" else np.nan
+        y_cls_values = self.y_train_cls.iloc[:, 0] if isinstance(self.y_train_cls, pd.DataFrame) else self.y_train_cls
+        bottom_cutoff = (
+            float(y_cls_values.quantile(bottom_pct / 100.0)) if mode == "bottom_percentile" else np.nan
+        )
+        y_bin_arr = y_train_binary.values.ravel() if hasattr(y_train_binary, "values") else np.asarray(y_train_binary).ravel()
+        bad_ratio = float(np.mean(y_bin_arr == 1)) if len(y_bin_arr) > 0 else np.nan
+        logging.info(
+            f"📌 Classifier label definition: mode={mode}, bottom_percentile={bottom_pct}, "
+            f"cutoff={bottom_cutoff}, bad_ratio={bad_ratio:.3f}"
+        )
+
+        monitor_rows: List[Dict[str, Any]] = []
+        monitor_rows.append(
+            {
+                "timestamp": datetime.datetime.now().isoformat(),
+                "phase": "train",
+                "event": "binary_label_definition",
+                "model_family": "classifier",
+                "model_key": "",
+                "metric": "bad_ratio",
+                "step": "",
+                "value": bad_ratio,
+                "classifier_mode": mode,
+                "bottom_percentile": bottom_pct,
+                "bottom_cutoff": bottom_cutoff,
+                "threshold_percentile": "",
+                "threshold_value": "",
+                "remove_pct": "",
+            }
+        )
+
+        # Simple validation slice for learning-curve + sanity checks (does not affect training data used by fit)
+        try:
+            from sklearn.model_selection import train_test_split
+            _, x_val_cls, _, y_val_cls = train_test_split(
+                self.x_train,
+                y_bin_arr,
+                test_size=0.10,
+                random_state=42,
+                stratify=y_bin_arr if len(np.unique(y_bin_arr)) > 1 else None,
+            )
+        except Exception:
+            x_val_cls = None
+            y_val_cls = None
+
         # ===== Stage 1: Train Classifiers (모든 데이터) =====
         logging.info("="*80)
         logging.info("🎯 STAGE 1: CLASSIFIER TRAINING (All data)")
@@ -2731,11 +3399,127 @@ class Regressor:
 
         for i, model in self.clsmodels.items():
             logging.info(f"Training classifier {i}...")
-            model.fit(self.x_train, y_train_binary)
+            fit_kwargs = {}
+            try:
+                module_name = type(model).__module__.lower()
+                class_name = type(model).__name__.lower()
+                if "xgboost" in module_name:
+                    fit_kwargs = {
+                        "eval_set": [(self.x_train, y_bin_arr)] + ([(x_val_cls, y_val_cls)] if x_val_cls is not None else []),
+                        "verbose": False,
+                        "eval_metric": "logloss",
+                    }
+                elif "lightgbm" in module_name:
+                    fit_kwargs = {
+                        "eval_set": ([(x_val_cls, y_val_cls)] if x_val_cls is not None else None),
+                    }
+                elif "catboost" in module_name:
+                    fit_kwargs = {
+                        "eval_set": (x_val_cls, y_val_cls) if x_val_cls is not None else None,
+                        "verbose": False,
+                        "use_best_model": False,
+                    }
+            except Exception:
+                fit_kwargs = {}
+
+            # Remove None entries (some libraries don't accept eval_set=None)
+            fit_kwargs = {k: v for k, v in fit_kwargs.items() if v is not None}
+
+            try:
+                model.fit(self.x_train, y_bin_arr, **fit_kwargs)
+            except TypeError as e:
+                msg = str(e)
+                if (
+                    "unexpected keyword argument" in msg
+                    and "eval_metric" in msg
+                    and "eval_metric" in fit_kwargs
+                    and hasattr(model, "set_params")
+                ):
+                    eval_metric = fit_kwargs.pop("eval_metric")
+                    if isinstance(eval_metric, (list, tuple)):
+                        eval_metric = eval_metric[0] if eval_metric else None
+                    try:
+                        if eval_metric is not None:
+                            model.set_params(eval_metric=eval_metric)
+                    except Exception:
+                        pass
+                    model.fit(self.x_train, y_bin_arr, **fit_kwargs)
+                else:
+                    raise
             filename = MODEL_SAVE_PATH + 'clsmodel_{}.sav'.format(str(i))
             joblib.dump(model, filename)
-            score = model.score(self.x_train, y_train_binary)
+            save_model_feature_importance(
+                model,
+                self.x_train.columns.tolist(),
+                filename,
+                model_label=f"clsmodel_{i}",
+            )
+            score = model.score(self.x_train, y_bin_arr)
             logging.info(f"  Classifier {i} accuracy: {score:.4f}")
+
+            # Save monitoring rows (train/val + learning curve)
+            try:
+                val_score = model.score(x_val_cls, y_val_cls) if x_val_cls is not None else np.nan
+            except Exception:
+                val_score = np.nan
+
+            monitor_rows.extend(
+                [
+                    {
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "phase": "train",
+                        "event": "fit_summary",
+                        "model_family": "classifier",
+                        "model_key": f"clsmodel_{i}",
+                        "metric": "accuracy_train",
+                        "step": "",
+                        "value": float(score) if score is not None else np.nan,
+                        "classifier_mode": mode,
+                        "bottom_percentile": bottom_pct,
+                        "bottom_cutoff": bottom_cutoff,
+                        "threshold_percentile": "",
+                        "threshold_value": "",
+                        "remove_pct": "",
+                    },
+                    {
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "phase": "train",
+                        "event": "fit_summary",
+                        "model_family": "classifier",
+                        "model_key": f"clsmodel_{i}",
+                        "metric": "accuracy_val",
+                        "step": "",
+                        "value": float(val_score) if val_score is not None else np.nan,
+                        "classifier_mode": mode,
+                        "bottom_percentile": bottom_pct,
+                        "bottom_cutoff": bottom_cutoff,
+                        "threshold_percentile": "",
+                        "threshold_value": "",
+                        "remove_pct": "",
+                    },
+                ]
+            )
+
+            curve = _extract_model_learning_curve(model)
+            for row in curve:
+                monitor_rows.append(
+                    {
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "phase": "train",
+                        "event": "learning_curve",
+                        "model_family": "classifier",
+                        "model_key": f"clsmodel_{i}",
+                        "metric": row.get("curve_name", ""),
+                        "step": row.get("step", ""),
+                        "value": row.get("value", np.nan),
+                        "classifier_mode": mode,
+                        "bottom_percentile": bottom_pct,
+                        "bottom_cutoff": bottom_cutoff,
+                        "threshold_percentile": "",
+                        "threshold_value": "",
+                        "remove_pct": "",
+                    }
+                )
 
         # ===== Optimal Threshold Search (자동 탐색 or 고정값) =====
         ml_config = self.conf.get('ML', {})
@@ -2751,18 +3535,13 @@ class Regressor:
         else:
             # 고정값 사용
             fixed_remove_pct = int(ml_config.get('CLASSIFIER_REMOVE_PCT', 8))
-            classifier_mode = ml_config.get('CLASSIFIER_MODE', 'positive_screen')
+            classifier_mode = self.classifier_mode
             y_probs = predict_proba_with_gpu_support(self.clsmodels[0], self.x_train, self.use_gpu_prediction)[:, 1]
 
             # 모드별 percentile 및 mask 계산
-            if classifier_mode == "negative_screen":
-                percentile = 100 - fixed_remove_pct
-                threshold = np.percentile(y_probs, percentile)
-                mask = y_probs < threshold  # BAD 확률이 낮은 것만 선택
-            else:  # positive_screen
-                percentile = fixed_remove_pct
-                threshold = np.percentile(y_probs, percentile)
-                mask = y_probs > threshold  # GOOD 확률이 높은 것만 선택
+            percentile = 100 - fixed_remove_pct
+            threshold = np.percentile(y_probs, percentile)
+            mask = y_probs < threshold  # BAD 확률이 낮은 것만 선택
 
             n_selected = mask.sum()
 
@@ -2783,11 +3562,42 @@ class Regressor:
                 'auto_search': False
             }
 
+        # Record threshold config in monitoring file
+        try:
+            monitor_rows.append(
+                {
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "phase": "train",
+                    "event": "classifier_threshold",
+                    "model_family": "classifier",
+                    "model_key": "clsmodel_0",
+                    "metric": "threshold_value",
+                    "step": "",
+                    "value": float(threshold_config.get("threshold_value", np.nan)),
+                    "classifier_mode": mode,
+                    "bottom_percentile": bottom_pct,
+                    "bottom_cutoff": bottom_cutoff,
+                    "threshold_percentile": int(threshold_config.get("percentile", "")) if "percentile" in threshold_config else "",
+                    "threshold_value": float(threshold_config.get("threshold_value", np.nan)),
+                    "remove_pct": int(threshold_config.get("remove_pct", "")) if "remove_pct" in threshold_config else "",
+                }
+            )
+        except Exception:
+            pass
+
         # Threshold config 저장
         threshold_config_file = MODEL_SAVE_PATH + 'threshold_config.pkl'
         joblib.dump(threshold_config, threshold_config_file)
         logging.info(f"✅ Saved threshold config to {threshold_config_file}")
         logging.info("")
+
+        # Flush monitoring rows collected so far (classifiers + label definition + threshold)
+        try:
+            _append_monitor_rows_csv(self.monitor_file, monitor_rows)
+        except Exception as e:
+            logging.warning(f"⚠️  Failed to write monitor file: {e}")
+        finally:
+            monitor_rows = []
 
         # ===== Stage 2: Filter Data by Threshold =====
         logging.info("="*80)
@@ -2796,13 +3606,20 @@ class Regressor:
 
         y_probs = predict_proba_with_gpu_support(self.clsmodels[0], self.x_train, self.use_gpu_prediction)[:, 1]
         threshold = threshold_config['threshold_value']
-        classifier_mode = threshold_config.get('mode', 'positive_screen')
+        classifier_mode = threshold_config.get('mode', self.classifier_mode)
+        if classifier_mode == "positive_screen":
+            raise ValueError(
+                "threshold_config.pkl has mode='positive_screen' but positive_screen is removed. "
+                "Delete threshold_config.pkl and re-train."
+            )
+        if classifier_mode not in ("negative_screen", "bottom_percentile"):
+            raise ValueError(
+                f"Unsupported classifier mode in threshold_config: '{classifier_mode}'. "
+                "Use 'negative_screen' or 'bottom_percentile'."
+            )
 
-        # 모드별 mask 계산
-        if classifier_mode == "negative_screen":
-            safe_mask = y_probs < threshold  # BAD 확률이 낮은 것 선택
-        else:  # positive_screen
-            safe_mask = y_probs > threshold  # GOOD 확률이 높은 것 선택
+        # Negative screening only: keep low BAD-probability samples
+        safe_mask = y_probs < threshold
 
         x_train_filtered = self.x_train[safe_mask]
         y_train_filtered = self.y_train[safe_mask]
@@ -2818,18 +3635,151 @@ class Regressor:
         logging.info("🎯 STAGE 3: REGRESSOR TRAINING (Filtered data)")
         logging.info("="*80)
 
+        # Validation slice for regressor monitoring (does not affect training data used by fit)
+        try:
+            from sklearn.model_selection import train_test_split
+            y_reg_arr = y_train_filtered.values.ravel()
+            _, x_val_reg, _, y_val_reg = train_test_split(
+                x_train_filtered,
+                y_reg_arr,
+                test_size=0.10,
+                random_state=42,
+            )
+        except Exception:
+            y_reg_arr = y_train_filtered.values.ravel()
+            x_val_reg = None
+            y_val_reg = None
+
         for i, model in self.models.items():
             logging.info(f"Training regressor {i}...")
-            model.fit(x_train_filtered, y_train_filtered.values.ravel())
+            fit_kwargs = {}
+            try:
+                module_name = type(model).__module__.lower()
+                if "xgboost" in module_name:
+                    fit_kwargs = {
+                        "eval_set": [(x_train_filtered, y_reg_arr)] + ([(x_val_reg, y_val_reg)] if x_val_reg is not None else []),
+                        "verbose": False,
+                        "eval_metric": "rmse",
+                    }
+                elif "lightgbm" in module_name:
+                    fit_kwargs = {
+                        "eval_set": ([(x_val_reg, y_val_reg)] if x_val_reg is not None else None),
+                    }
+                elif "catboost" in module_name:
+                    fit_kwargs = {
+                        "eval_set": (x_val_reg, y_val_reg) if x_val_reg is not None else None,
+                        "verbose": False,
+                        "use_best_model": False,
+                    }
+            except Exception:
+                fit_kwargs = {}
+
+            fit_kwargs = {k: v for k, v in fit_kwargs.items() if v is not None}
+            try:
+                model.fit(x_train_filtered, y_reg_arr, **fit_kwargs)
+            except TypeError as e:
+                msg = str(e)
+                if (
+                    "unexpected keyword argument" in msg
+                    and "eval_metric" in msg
+                    and "eval_metric" in fit_kwargs
+                    and hasattr(model, "set_params")
+                ):
+                    eval_metric = fit_kwargs.pop("eval_metric")
+                    if isinstance(eval_metric, (list, tuple)):
+                        eval_metric = eval_metric[0] if eval_metric else None
+                    try:
+                        if eval_metric is not None:
+                            model.set_params(eval_metric=eval_metric)
+                    except Exception:
+                        pass
+                    model.fit(x_train_filtered, y_reg_arr, **fit_kwargs)
+                else:
+                    raise
             filename = MODEL_SAVE_PATH + 'model_{}.sav'.format(str(i))
             joblib.dump(model, filename)
-            score = model.score(x_train_filtered, y_train_filtered.values.ravel())
+            save_model_feature_importance(
+                model,
+                x_train_filtered.columns.tolist(),
+                filename,
+                model_label=f"model_{i}",
+            )
+            score = model.score(x_train_filtered, y_reg_arr)
             logging.info(f"  Regressor {i} R² score: {score:.4f}")
+
+            try:
+                val_score = model.score(x_val_reg, y_val_reg) if x_val_reg is not None else np.nan
+            except Exception:
+                val_score = np.nan
+
+            monitor_rows.extend(
+                [
+                    {
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "phase": "train",
+                        "event": "fit_summary",
+                        "model_family": "regressor",
+                        "model_key": f"model_{i}",
+                        "metric": "r2_train",
+                        "step": "",
+                        "value": float(score) if score is not None else np.nan,
+                        "classifier_mode": mode,
+                        "bottom_percentile": bottom_pct,
+                        "bottom_cutoff": bottom_cutoff,
+                        "threshold_percentile": int(threshold_config.get("percentile", "")) if "percentile" in threshold_config else "",
+                        "threshold_value": float(threshold_config.get("threshold_value", np.nan)),
+                        "remove_pct": int(threshold_config.get("remove_pct", "")) if "remove_pct" in threshold_config else "",
+                    },
+                    {
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "phase": "train",
+                        "event": "fit_summary",
+                        "model_family": "regressor",
+                        "model_key": f"model_{i}",
+                        "metric": "r2_val",
+                        "step": "",
+                        "value": float(val_score) if val_score is not None else np.nan,
+                        "classifier_mode": mode,
+                        "bottom_percentile": bottom_pct,
+                        "bottom_cutoff": bottom_cutoff,
+                        "threshold_percentile": int(threshold_config.get("percentile", "")) if "percentile" in threshold_config else "",
+                        "threshold_value": float(threshold_config.get("threshold_value", np.nan)),
+                        "remove_pct": int(threshold_config.get("remove_pct", "")) if "remove_pct" in threshold_config else "",
+                    },
+                ]
+            )
+
+            curve = _extract_model_learning_curve(model)
+            for row in curve:
+                monitor_rows.append(
+                    {
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "phase": "train",
+                        "event": "learning_curve",
+                        "model_family": "regressor",
+                        "model_key": f"model_{i}",
+                        "metric": row.get("curve_name", ""),
+                        "step": row.get("step", ""),
+                        "value": row.get("value", np.nan),
+                        "classifier_mode": mode,
+                        "bottom_percentile": bottom_pct,
+                        "bottom_cutoff": bottom_cutoff,
+                        "threshold_percentile": int(threshold_config.get("percentile", "")) if "percentile" in threshold_config else "",
+                        "threshold_value": float(threshold_config.get("threshold_value", np.nan)),
+                        "remove_pct": int(threshold_config.get("remove_pct", "")) if "remove_pct" in threshold_config else "",
+                    }
+                )
 
         logging.info("="*80)
         logging.info("✅ 2-STAGE TRAINING COMPLETE")
         logging.info("="*80)
         logging.info("")
+
+        # Flush regressor monitoring rows
+        try:
+            _append_monitor_rows_csv(self.monitor_file, monitor_rows)
+        except Exception as e:
+            logging.warning(f"⚠️  Failed to write monitor file: {e}")
 
         # ===== Feature columns 저장 (예측 시 피처 정렬용) =====
         # 필터링 전 전체 feature 저장 (예측 시에는 전체 데이터 사용)
@@ -2904,6 +3854,12 @@ class Regressor:
                         model.fit(X_train, y_train_binary)
                         filename = MODEL_SAVE_PATH + '{}_clsmodel_{}.sav'.format(sec, str(i))
                         joblib.dump(model, filename)
+                        save_model_feature_importance(
+                            model,
+                            self.sector_x_train[sec].columns.tolist(),
+                            filename,
+                            model_label=f"{sec}_clsmodel_{i}",
+                        )
 
                         # Score calculation (use values for consistency)
                         score = model.score(X_train, y_train_binary)
@@ -2951,7 +3907,7 @@ class Regressor:
                         )[:, 1]
 
                         # 모드별 percentile 및 mask 계산
-                        if classifier_mode == "negative_screen":
+                        if classifier_mode in ("negative_screen", "bottom_percentile"):
                             percentile = 100 - fixed_remove_pct
                             threshold_sector = np.percentile(y_probs_sector, percentile)
                             mask_sector = y_probs_sector < threshold_sector
@@ -2984,13 +3940,20 @@ class Regressor:
                         self.use_gpu_prediction
                     )[:, 1]
                     threshold_sector = sector_threshold_config['threshold_value']
-                    classifier_mode_sector = sector_threshold_config.get('mode', 'positive_screen')
+                    classifier_mode_sector = sector_threshold_config.get('mode', self.classifier_mode)
+                    if classifier_mode_sector == "positive_screen":
+                        raise ValueError(
+                            "sector_threshold_configs.pkl has mode='positive_screen' but positive_screen is removed. "
+                            "Delete sector_threshold_configs.pkl and re-train."
+                        )
+                    if classifier_mode_sector not in ("negative_screen", "bottom_percentile"):
+                        raise ValueError(
+                            f"Unsupported classifier mode in sector_threshold_config: '{classifier_mode_sector}'. "
+                            "Use 'negative_screen' or 'bottom_percentile'."
+                        )
 
-                    # 모드별 mask 계산
-                    if classifier_mode_sector == "negative_screen":
-                        safe_mask_sector = y_probs_sector < threshold_sector
-                    else:  # positive_screen
-                        safe_mask_sector = y_probs_sector > threshold_sector
+                    # Negative screening only: keep low BAD-probability samples
+                    safe_mask_sector = y_probs_sector < threshold_sector
 
                     x_train_sector_filtered = self.sector_x_train[sec][safe_mask_sector]
                     y_train_sector_filtered = self.sector_y_train[sec][safe_mask_sector]
@@ -3009,6 +3972,12 @@ class Regressor:
                     model.fit(x_train_sector_filtered, y_train_sector_filtered.values.ravel())
                     filename = MODEL_SAVE_PATH + '{}_model_{}.sav'.format(sec, str(i))
                     joblib.dump(model, filename)
+                    save_model_feature_importance(
+                        model,
+                        x_train_sector_filtered.columns.tolist(),
+                        filename,
+                        model_label=f"{sec}_model_{i}",
+                    )
 
                     score = model.score(x_train_sector_filtered, y_train_sector_filtered.values.ravel())
                     logging.info(f"  Regressor {i} R² score: {score:.4f}")
@@ -3290,6 +4259,7 @@ class Regressor:
                 future = train_single_period_remote.remote(
                     period_info=period_info,
                     root_path=self.root_path,
+                    ml_config=self.conf.get('ML', {}),
                     use_classifier=self.use_classifier,
                     use_sector_model=self.use_sector_model,
                     top_k=top_k,
@@ -3984,6 +4954,17 @@ class Regressor:
         try:
             threshold_config = joblib.load(threshold_config_file)
             THRESHOLD_PERCENTILE = threshold_config['percentile']
+            loaded_mode = threshold_config.get('mode', self.classifier_mode)
+            if loaded_mode == "positive_screen":
+                raise ValueError(
+                    "threshold_config.pkl has mode='positive_screen' but positive_screen is removed. "
+                    "Delete threshold_config.pkl and re-train."
+                )
+            if loaded_mode not in ("negative_screen", "bottom_percentile"):
+                raise ValueError(
+                    f"Unsupported classifier mode in threshold_config: '{loaded_mode}'. "
+                    "Use 'negative_screen' or 'bottom_percentile'."
+                )
             logging.info("="*80)
             logging.info("📂 LOADED THRESHOLD CONFIG")
             logging.info("="*80)
@@ -4015,8 +4996,87 @@ class Regressor:
         num_regressors = max(self.models.keys()) + 1 if self.models else 2
         pred_col_list = self._build_prediction_column_names(num_regressors)
 
+        # Optional: model-selection result saved by evaluation() backtest
+        selected_col = None
+        selected_top_k = None
+        selected_model_file = os.path.join(MODEL_SAVE_PATH, 'selected_prediction_column.json')
+        try:
+            import json
+            if os.path.exists(selected_model_file):
+                with open(selected_model_file, 'r', encoding='utf-8') as f:
+                    payload = json.load(f)
+                    selected_col = payload.get('selected_column')
+                    try:
+                        selected_top_k = int(payload.get('selected_top_k')) if payload.get('selected_top_k') is not None else None
+                    except (TypeError, ValueError):
+                        selected_top_k = None
+        except Exception as e:
+            logging.warning(f"Failed to load selected model selection file: {e}")
+
+        # Optional: model-selection result saved by evaluation() backtest
+        selected_col = None
+        selected_model_file = os.path.join(MODEL_SAVE_PATH, 'selected_prediction_column.json')
+        try:
+            import json
+            if os.path.exists(selected_model_file):
+                with open(selected_model_file, 'r', encoding='utf-8') as f:
+                    selected_col = json.load(f).get('selected_column')
+        except Exception as e:
+            logging.warning(f"Failed to load selected prediction column: {e}")
+
         model_eval_hist = []  # 모든 기간의 평가 결과 저장
         full_df = pd.DataFrame()  # 예측이 포함된 모든 테스트 데이터 누적
+
+        # ===== Price-based backtest setup (ml_backtest.py style) =====
+        price_table = None
+        try:
+            price_path = os.path.join(self.root_path, "processed", "views", "price.parquet")
+            price_table = pd.read_parquet(price_path)
+            price_table['date'] = pd.to_datetime(price_table['date'])
+        except Exception as e:
+            logging.warning(f"Price table load failed (price-based backtest disabled): {e}")
+
+        backtest_config = self.conf.get('BACKTEST', {})
+        try:
+            rebalance_period_months = int(backtest_config.get('REBALANCE_PERIOD', 3))
+        except (TypeError, ValueError):
+            rebalance_period_months = 3
+
+        # Candidate Top-K values for model selection (default: TOP_K_NUM only)
+        top_k_candidates_raw = backtest_config.get('TOP_K_CANDIDATES', None)
+        top_k_candidates: List[int] = []
+        if isinstance(top_k_candidates_raw, list):
+            for v in top_k_candidates_raw:
+                try:
+                    iv = int(v)
+                    if iv > 0:
+                        top_k_candidates.append(iv)
+                except (TypeError, ValueError):
+                    continue
+        elif isinstance(top_k_candidates_raw, str):
+            for part in top_k_candidates_raw.split(','):
+                part = part.strip()
+                if not part:
+                    continue
+                try:
+                    iv = int(part)
+                    if iv > 0:
+                        top_k_candidates.append(iv)
+                except (TypeError, ValueError):
+                    continue
+
+        if not top_k_candidates:
+            top_k_candidates = [int(self.top_k_num)]
+        else:
+            top_k_candidates = sorted(set(top_k_candidates))
+
+        ml_config = self.conf.get('ML', {})
+        walk_forward_eval = ml_config.get('WALK_FORWARD_IN_EVALUATION', 'Y') == 'Y'
+        walk_forward_scope = str(ml_config.get('WALK_FORWARD_SCOPE', 'previous')).strip().lower()  # 'previous'|'all'
+
+        # Collect realized backtest results per candidate prediction column
+        wf_backtest_rows: List[Dict[str, Any]] = []
+        wf_best_col: Optional[str] = None
 
         # 각 테스트 기간을 개별적으로 평가
         for test_idx, (testdate, df) in enumerate(self.test_df_list):
@@ -4025,9 +5085,27 @@ class Regressor:
             # 파일 경로에서 날짜 추출 (통합 유틸리티 메서드 사용)
             tdate = self._extract_date_from_filepath(testdate)
             filename = os.path.basename(testdate)
+            eval_rows: List[Dict[str, Any]] = []
 
             print(f"in test loop filename : {filename}")
             print(f"in test loop tdate : {tdate}")
+
+            # ===== Walk-forward fine-tune (evaluation only; does not touch train()) =====
+            # Use previous period labels only (no current-period leakage).
+            if walk_forward_eval and test_idx > 0:
+                if walk_forward_scope == 'all':
+                    prev_files = [p for (p, _df) in self.test_df_list[:test_idx]]
+                else:
+                    prev_files = [self.test_df_list[test_idx - 1][0]]
+
+                try:
+                    self._walk_forward_finetune_models_with_eval_files(
+                        model_save_path=MODEL_SAVE_PATH,
+                        files=prev_files,
+                        save_models=False
+                    )
+                except Exception as e:
+                    logging.warning(f"Walk-forward fine-tune failed at {tdate}: {e}")
 
             # 이 테스트 기간의 특성과 레이블 준비
             x_test = df[df.columns.difference(y_col_list)]
@@ -4035,6 +5113,32 @@ class Regressor:
             y_test_cls = df[['price_dev']]
             # ✅ REFACTORED: Use DataProcessor for binary target
             y_test_binary = DataProcessor.create_binary_target(y_test_cls, config=self.conf, logger=logging.getLogger())
+
+            try:
+                y_eval_cls_values = y_test_cls.iloc[:, 0]
+                mode = self.classifier_mode
+                bottom_pct = float(self.conf.get("ML", {}).get("BOTTOM_PERCENTILE", 20.0)) if mode == "bottom_percentile" else np.nan
+                bottom_cutoff = float(y_eval_cls_values.quantile(bottom_pct / 100.0)) if mode == "bottom_percentile" else np.nan
+                y_eval_bin_arr = y_test_binary.values.ravel() if hasattr(y_test_binary, "values") else np.asarray(y_test_binary).ravel()
+                bad_ratio = float(np.mean(y_eval_bin_arr == 1)) if len(y_eval_bin_arr) > 0 else np.nan
+                eval_rows.append(
+                    {
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "phase": "eval",
+                        "event": "binary_label_definition",
+                        "eval_period": str(tdate),
+                        "model_family": "classifier",
+                        "model_key": "",
+                        "metric": "bad_ratio",
+                        "step": "",
+                        "value": bad_ratio,
+                        "classifier_mode": mode,
+                        "bottom_percentile": bottom_pct,
+                        "bottom_cutoff": bottom_cutoff,
+                    }
+                )
+            except Exception:
+                pass
 
             df['label'] = y_test  # 실제 가격 변동
             df['label_binary'] = y_test_binary  # 실제 이진 레이블
@@ -4126,13 +5230,20 @@ class Regressor:
                 # 백분위수 임계값을 사용하여 확률을 이진 예측으로 변환
                 # 학습 시 자동 탐색된 threshold 사용
                 threshold = np.percentile(y_probs, THRESHOLD_PERCENTILE)
-                classifier_mode = threshold_config.get('mode', 'positive_screen')
+                classifier_mode = threshold_config.get('mode', self.classifier_mode)
+                if classifier_mode == "positive_screen":
+                    raise ValueError(
+                        "threshold_config.pkl has mode='positive_screen' but positive_screen is removed. "
+                        "Delete threshold_config.pkl and re-train."
+                    )
+                if classifier_mode not in ("negative_screen", "bottom_percentile"):
+                    raise ValueError(
+                        f"Unsupported classifier mode in threshold_config: '{classifier_mode}'. "
+                        "Use 'negative_screen' or 'bottom_percentile'."
+                    )
 
-                # 모드별 binary 예측
-                if classifier_mode == "negative_screen":
-                    y_predict_binary = (y_probs < threshold).astype(int)
-                else:  # positive_screen
-                    y_predict_binary = (y_probs > threshold).astype(int)
+                # 1 = BAD (bottom losses) for both negative_screen and bottom_percentile
+                y_predict_binary = (y_probs > threshold).astype(int)
 
                 logging.info(f"20% positive threshold == {threshold}")
                 logging.info(classification_report(y_test_binary, y_predict_binary))
@@ -4144,6 +5255,23 @@ class Regressor:
                 acc = accuracy_score(df['label_binary'], df[pred_col_name])
                 logging.info(f"Accuracy for {pred_col_name}: {acc:.4f}")
 
+                eval_rows.append(
+                    {
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "phase": "eval",
+                        "event": "classifier_accuracy",
+                        "eval_period": str(tdate),
+                        "model_family": "classifier",
+                        "model_key": pred_col_name,
+                        "metric": "accuracy",
+                        "step": "",
+                        "value": float(acc),
+                        "classifier_mode": classifier_mode,
+                        "threshold_percentile": int(THRESHOLD_PERCENTILE),
+                        "threshold_value": float(threshold),
+                    }
+                )
+
 
             # === 회귀 단계 ===
             # 2개의 모든 회귀 모델을 실행하고 앙상블 예측 생성
@@ -4151,7 +5279,17 @@ class Regressor:
             classifier_cols = self._get_classifier_column_names()
 
             # CLASSIFIER_MODE 가져오기 (threshold_config 또는 config에서)
-            classifier_mode = threshold_config.get('mode', self.conf.get('ML', {}).get('CLASSIFIER_MODE', 'positive_screen'))
+            classifier_mode = threshold_config.get('mode', self.classifier_mode)
+            if classifier_mode == "positive_screen":
+                raise ValueError(
+                    "threshold_config.pkl has mode='positive_screen' but positive_screen is removed. "
+                    "Delete threshold_config.pkl and re-train."
+                )
+            if classifier_mode not in ("negative_screen", "bottom_percentile"):
+                raise ValueError(
+                    f"Unsupported classifier mode in threshold_config: '{classifier_mode}'. "
+                    "Use 'negative_screen' or 'bottom_percentile'."
+                )
 
             for i, model in self.models.items():
                 # 통합 유틸리티 메서드로 컬럼 이름 가져오기
@@ -4183,6 +5321,24 @@ class Regressor:
                            f"loss_wbin_2 {df[reg_cols['loss_wbinary_2']].mean()} "
                            f"loss_wbin_3 {df[reg_cols['loss_wbinary_3']].mean()}")
 
+                try:
+                    eval_rows.append(
+                        {
+                            "timestamp": datetime.datetime.now().isoformat(),
+                            "phase": "eval",
+                            "event": "regressor_loss",
+                            "eval_period": str(tdate),
+                            "model_family": "regressor",
+                            "model_key": f"model_{i}",
+                            "metric": "loss_mean_abs",
+                            "step": "",
+                            "value": float(df[reg_cols['loss']].mean()),
+                            "classifier_mode": classifier_mode,
+                        }
+                    )
+                except Exception:
+                    pass
+
                 # 누적 메트릭 로깅 (지금까지의 모든 기간)
                 if test_idx != 0:
                     logging.info(f"accumulated eval : model i : {i} "
@@ -4199,6 +5355,56 @@ class Regressor:
             # 결과 누적
             full_df = pd.concat([full_df, df], ignore_index=True)
             df.to_csv(MODEL_SAVE_PATH + "prediction_ai_{}.csv".format(tdate))
+
+            # Flush per-period monitoring rows
+            try:
+                _append_monitor_rows_csv(self.monitor_file, eval_rows)
+            except Exception as e:
+                logging.warning(f"⚠️  Failed to write monitor file: {e}")
+
+            # ===== Price-based backtest (for model selection) =====
+            # Use prediction_wbinary_* columns: value -1 => "do not buy".
+            if price_table is not None and test_idx < len(self.test_df_list) - 1:
+                next_period = self._extract_date_from_filepath(self.test_df_list[test_idx + 1][0])
+                buy_date = self._period_to_rebalance_date(tdate)
+                sell_date = self._period_to_rebalance_date(next_period)
+
+                if buy_date is not None and sell_date is not None:
+                    candidate_cols = [
+                        c for c in pred_col_list
+                        if c.startswith('model_') and '_prediction_wbinary_' in c and c in df.columns
+                    ]
+
+                    for col in candidate_cols:
+                        try:
+                            tradable = df[(df[col].notna()) & (df[col] != -1)]
+                            tradable = tradable.sort_values(by=[col], ascending=False, na_position="last")
+
+                            for k in top_k_candidates:
+                                top_df = tradable.head(int(k))
+                                symbols = top_df['symbol'].astype(str).tolist() if 'symbol' in top_df.columns else []
+
+                                period_result = self._calculate_period_return(
+                                    selected_symbols=symbols,
+                                    buy_date=buy_date,
+                                    sell_date=sell_date,
+                                    price_table=price_table
+                                )
+
+                                wf_backtest_rows.append({
+                                    'period': tdate,
+                                    'next_period': next_period,
+                                    'model_col': col,
+                                    'top_k': int(k),
+                                    'n_bought': int(len(symbols)),
+                                    'avg_earning_per_stock': float(period_result['avg_return']),
+                                    'avg_pred': float(top_df[col].mean()) if len(top_df) > 0 else np.nan,
+                                    'avg_label_earning': float(top_df['price_dev'].mean()) if 'price_dev' in top_df.columns and len(top_df) > 0 else np.nan,
+                                    'actual_buy_date': period_result.get('actual_buy_date'),
+                                    'actual_sell_date': period_result.get('actual_sell_date')
+                                })
+                        except Exception as e:
+                            logging.warning(f"Backtest calc failed for {tdate} / {col}: {e}")
 
             # === 상위 K개 주식 선택 ===
             # 각 예측 방법에 대해 상위 K개 주식을 선택하고 평균 수익 계산
@@ -4277,6 +5483,158 @@ class Regressor:
         pred_df.to_csv(MODEL_SAVE_PATH+'pred_df_topk.csv', index=False)
         full_df.to_csv(MODEL_SAVE_PATH+'prediction_ai.csv', index=False)
 
+        # ===== Walk-forward model selection + price-based backtest report =====
+        if wf_backtest_rows and price_table is not None:
+            try:
+                import json
+
+                wf_df = pd.DataFrame(wf_backtest_rows)
+                wf_df.to_csv(MODEL_SAVE_PATH + 'wf_backtest_all_models.csv', index=False)
+
+                model_rank = (
+                    wf_df.groupby(['model_col', 'top_k'])['avg_earning_per_stock']
+                    .agg(mean='mean', std='std', count='count')
+                    .reset_index()
+                    .sort_values(by=['mean', 'count'], ascending=[False, False])
+                )
+
+                wf_best_col = None
+                wf_best_k = None
+                if len(model_rank) > 0:
+                    wf_best_col = str(model_rank.iloc[0]['model_col'])
+                    try:
+                        wf_best_k = int(model_rank.iloc[0]['top_k'])
+                    except (TypeError, ValueError):
+                        wf_best_k = None
+
+                if wf_best_col and wf_best_k is not None:
+                    logging.info("=" * 80)
+                    logging.info("WALK-FORWARD MODEL SELECTION (price-based)")
+                    logging.info("=" * 80)
+                    logging.info(f"Selected column: {wf_best_col}")
+                    logging.info(f"Selected top_k: {wf_best_k}")
+                    logging.info(f"Mean avg_earning_per_stock: {model_rank.iloc[0]['mean']:.6f}")
+                    logging.info(f"Periods: {int(model_rank.iloc[0]['count'])}")
+                    logging.info("=" * 80)
+
+                    selection_payload = {
+                        'selected_column': wf_best_col,
+                        'selected_top_k': int(wf_best_k),
+                        'top_k_candidates': list(top_k_candidates),
+                        'metric': 'avg_earning_per_stock',
+                        'mean_avg_earning_per_stock': float(model_rank.iloc[0]['mean']),
+                        'std_avg_earning_per_stock': float(model_rank.iloc[0]['std']) if pd.notna(model_rank.iloc[0]['std']) else None,
+                        'num_periods': int(model_rank.iloc[0]['count']),
+                        'rebalance_period_months': int(rebalance_period_months),
+                        'walk_forward_in_evaluation': bool(walk_forward_eval),
+                        'walk_forward_scope': walk_forward_scope,
+                        'git_commit': self._get_repo_git_commit(),
+                        'config_fingerprint': self._config_fingerprint(self.conf),
+                        'timestamp': datetime.datetime.now().isoformat(timespec='seconds')
+                    }
+                    with open(os.path.join(MODEL_SAVE_PATH, 'selected_prediction_column.json'), 'w', encoding='utf-8') as f:
+                        json.dump(selection_payload, f, ensure_ascii=False, indent=2, default=str)
+
+                    strategy_df = wf_df[(wf_df['model_col'] == wf_best_col) & (wf_df['top_k'] == int(wf_best_k))].copy()
+                    strategy_df = strategy_df.sort_values(by=['period'])
+                    try:
+                        period_returns = pd.to_numeric(strategy_df['avg_earning_per_stock'], errors='coerce')
+                        strategy_df['cumulative_return'] = (1 + period_returns.fillna(0)).cumprod()
+                        strategy_df['running_max'] = strategy_df['cumulative_return'].cummax()
+                        strategy_df['drawdown'] = (strategy_df['cumulative_return'] - strategy_df['running_max']) / strategy_df['running_max']
+                        strategy_df['drawdown_pct'] = strategy_df['drawdown'] * 100.0
+                        strategy_df = strategy_df.drop(columns=['running_max'])
+                    except Exception:
+                        pass
+
+                    period_returns = pd.to_numeric(strategy_df['avg_earning_per_stock'], errors='coerce').dropna()
+                    summary = self._summarize_strategy_returns(period_returns, rebalance_period_months)
+                    summary_df = pd.DataFrame([{
+                        'selected_column': wf_best_col,
+                        'selected_top_k': int(wf_best_k),
+                        'total_return': summary['total_return'],
+                        'total_return_pct': summary['total_return'] * 100,
+                        'avg_return': summary['avg_return'],
+                        'avg_return_pct': summary['avg_return'] * 100,
+                        'std_return': summary['std_return'],
+                        'std_return_pct': summary['std_return'] * 100,
+                        'sharpe_ratio': summary['sharpe_ratio'],
+                        'max_drawdown': summary['max_drawdown'],
+                        'max_drawdown_pct': summary['max_drawdown'] * 100,
+                        'win_rate': summary['win_rate'],
+                        'win_rate_pct': summary['win_rate'] * 100,
+                        'num_periods': int(len(period_returns))
+                    }])
+
+                    benchmark_df = pd.DataFrame()
+                    if len(strategy_df) > 0:
+                        start_dt = self._period_to_rebalance_date(str(strategy_df.iloc[0]['period']))
+                        end_dt = self._period_to_rebalance_date(str(strategy_df.iloc[-1]['next_period']))
+                        if start_dt is not None and end_dt is not None:
+                            benchmark_df = self._calculate_benchmark_returns(start_dt, end_dt, price_table)
+                    period_comparison_df = pd.DataFrame()
+                    if len(strategy_df) > 0:
+                        period_comparison_df = self._create_period_benchmark_comparison(strategy_df, price_table)
+
+                    # Align benchmark sheet to include the ML strategy row (same shape as ml_backtest.py)
+                    if not benchmark_df.empty and not summary_df.empty:
+                        try:
+                            ml_row = {
+                                'strategy': f"ML:{wf_best_col}_top{int(wf_best_k)}",
+                                'total_return': float(summary_df.iloc[0].get('total_return', 0.0)),
+                                'total_return_pct': float(summary_df.iloc[0].get('total_return_pct', 0.0)),
+                                'sharpe_ratio': float(summary_df.iloc[0].get('sharpe_ratio', 0.0)),
+                                'max_drawdown': float(summary_df.iloc[0].get('max_drawdown', 0.0)),
+                                'max_drawdown_pct': float(summary_df.iloc[0].get('max_drawdown_pct', 0.0)),
+                                'win_rate': float(summary_df.iloc[0].get('win_rate', 0.0)),
+                                'win_rate_pct': float(summary_df.iloc[0].get('win_rate_pct', 0.0)),
+                                'start_price': np.nan,
+                                'end_price': np.nan,
+                                'num_days': np.nan,
+                            }
+                            benchmark_df = pd.concat([pd.DataFrame([ml_row]), benchmark_df], ignore_index=True)
+                        except Exception:
+                            pass
+
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    report_dir = Path('outputs/reports')
+                    report_dir.mkdir(parents=True, exist_ok=True)
+                    excel_file = report_dir / f"regressor_backtest_report_{timestamp}.xlsx"
+                    meta_file = report_dir / f"regressor_backtest_meta_{timestamp}.json"
+
+                    metadata = {
+                        'selected_column': wf_best_col,
+                        'selected_top_k': int(wf_best_k),
+                        'git_commit': selection_payload.get('git_commit'),
+                        'config_fingerprint': selection_payload.get('config_fingerprint'),
+                        'config': self.conf,
+                        'created_at': selection_payload.get('timestamp')
+                    }
+                    with open(meta_file, 'w', encoding='utf-8') as f:
+                        json.dump(metadata, f, ensure_ascii=False, indent=2, default=str)
+
+                    try:
+                        with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
+                            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+                            model_rank.to_excel(writer, sheet_name='ModelSelection', index=False)
+                            strategy_df.to_excel(writer, sheet_name='StrategyPeriods', index=False)
+                            wf_df.to_excel(writer, sheet_name='AllModelPeriods', index=False)
+                            if not benchmark_df.empty:
+                                benchmark_df.to_excel(writer, sheet_name='Benchmark', index=False)
+                            if not period_comparison_df.empty:
+                                period_comparison_df.to_excel(writer, sheet_name='Benchmark_Periods', index=False)
+                        logging.info(f"Backtest Excel report saved: {excel_file}")
+                        logging.info(f"Backtest metadata saved: {meta_file}")
+                    except Exception as e:
+                        logging.warning(f"Excel report generation failed: {e}")
+
+            except Exception as e:
+                logging.warning(f"Walk-forward model selection/report failed: {e}")
+        elif price_table is None:
+            logging.warning("Price-based backtest skipped (price table not available)")
+        else:
+            logging.warning("Price-based backtest skipped (no wf_backtest_rows)")
+
         # === 섹터 기반 평가 (PER_SECTOR=True인 경우) ===
         if self.use_sector_model:
             testdates = set()
@@ -4345,13 +5703,21 @@ class Regressor:
                     sector_mode = sector_config.get('mode', 'positive_screen')
                 else:
                     threshold = np.percentile(y_probs, THRESHOLD_PERCENTILE)
-                    sector_mode = threshold_config.get('mode', 'positive_screen')
+                    sector_mode = threshold_config.get('mode', self.classifier_mode)
 
-                # 모드별 binary 예측
-                if sector_mode == "negative_screen":
-                    y_predict_binary = (y_probs < threshold).astype(int)
-                else:  # positive_screen
-                    y_predict_binary = (y_probs > threshold).astype(int)
+                if sector_mode == "positive_screen":
+                    raise ValueError(
+                        "threshold_config.pkl has mode='positive_screen' but positive_screen is removed. "
+                        "Delete threshold_config.pkl and re-train."
+                    )
+                if sector_mode not in ("negative_screen", "bottom_percentile"):
+                    raise ValueError(
+                        f"Unsupported classifier mode in threshold_config: '{sector_mode}'. "
+                        "Use 'negative_screen' or 'bottom_percentile'."
+                    )
+
+                # 1 = BAD (bottom losses) for both negative_screen and bottom_percentile
+                y_predict_binary = (y_probs > threshold).astype(int)
 
                 # 섹터별 모델 실행 (use sector-specific features!)
                 for i in range(2):
@@ -4363,7 +5729,7 @@ class Regressor:
                     y_predict = predict_with_gpu_support(model, x_test_sector, self.use_gpu_prediction)
                     df[pred_col_name] = y_predict
 
-                    df[pred_col_name_wbin] = np.where(y_predict_binary == 0, -1, y_predict)
+                    df[pred_col_name_wbin] = np.where(y_predict_binary == 1, -1, y_predict)
                     print(f"i{i} sec {sec}")
                     print(x_test_sector.shape)
                     print(sector_preds.shape)
@@ -4750,7 +6116,14 @@ class Regressor:
                     logging.info(
                         f"Fine-tune clsmodel_{i}: train_accuracy={acc_train:.4f}, eval_accuracy={acc_eval:.4f}, train+eval_accuracy={acc_all:.4f}, eval_logloss={loss_val:.4f}"
                     )
-            joblib.dump(updated_model, f"{finetuned_path}clsmodel_{i}.sav")
+            model_file = f"{finetuned_path}clsmodel_{i}.sav"
+            joblib.dump(updated_model, model_file)
+            save_model_feature_importance(
+                updated_model,
+                list(train_feature_columns),
+                model_file,
+                model_label=f"finetuned_clsmodel_{i}",
+            )
 
         for i, model in self.models.items():
             updated_model = self._finetune_model(
@@ -4780,7 +6153,14 @@ class Regressor:
                 logging.info(
                     f"Fine-tune model_{i}: train_mse={mse_train:.6f}, eval_mse={mse_eval:.6f}, train+eval_mse={mse_all:.6f}"
                 )
-            joblib.dump(updated_model, f"{finetuned_path}model_{i}.sav")
+            model_file = f"{finetuned_path}model_{i}.sav"
+            joblib.dump(updated_model, model_file)
+            save_model_feature_importance(
+                updated_model,
+                list(train_feature_columns),
+                model_file,
+                model_label=f"finetuned_model_{i}",
+            )
 
         if self.use_sector_model and 'sector' in eval_df.columns:
             sector_col = 'sector_category' if 'sector_category' in eval_df.columns else 'sector'
@@ -4826,7 +6206,14 @@ class Regressor:
                         if updated_model is None:
                             continue
                         self.sector_classifiers[k] = updated_model
-                        joblib.dump(updated_model, f"{finetuned_path}{sec}_clsmodel_{i}.sav")
+                        model_file = f"{finetuned_path}{sec}_clsmodel_{i}.sav"
+                        joblib.dump(updated_model, model_file)
+                        save_model_feature_importance(
+                            updated_model,
+                            list(train_feature_columns),
+                            model_file,
+                            model_label=f"finetuned_{sec}_clsmodel_{i}",
+                        )
 
                 for i in range(3):
                     k = (sec, i)
@@ -4840,7 +6227,14 @@ class Regressor:
                     if updated_model is None:
                         continue
                     self.sector_models[k] = updated_model
-                    joblib.dump(updated_model, f"{finetuned_path}{sec}_model_{i}.sav")
+                    model_file = f"{finetuned_path}{sec}_model_{i}.sav"
+                    joblib.dump(updated_model, model_file)
+                    save_model_feature_importance(
+                        updated_model,
+                        list(train_feature_columns),
+                        model_file,
+                        model_label=f"finetuned_{sec}_model_{i}",
+                    )
 
             # Report sector-model metrics after fine-tuning (aggregate across sectors)
             if train_df is not None and 'sector' in train_df.columns and sector_col in eval_df.columns:
@@ -4951,6 +6345,129 @@ class Regressor:
         self._finetuned_model_path = finetuned_path
         return finetuned_path
 
+    def _walk_forward_finetune_models_with_eval_files(
+        self,
+        model_save_path: str,
+        files: List[str],
+        save_models: bool = True
+    ) -> Optional[str]:
+        """
+        Walk-forward fine-tune: update models sequentially per eval file (chronological),
+        instead of one big batch update.
+
+        Intended usage:
+        - evaluation(): fine-tune on previous period(s) only (in-memory)
+        - latest_prediction(): fine-tune through all eval periods, then predict latest (optionally persisted)
+        """
+        if not files:
+            logging.info("Walk-forward fine-tune skipped (no files)")
+            return None
+
+        files_sorted = self._sort_files_by_period(files)
+
+        feature_columns_file = os.path.join(model_save_path, 'feature_columns.pkl')
+        if not os.path.exists(feature_columns_file):
+            fallback_path = os.path.join(self.root_path, 'MODELS')
+            fallback_file = os.path.join(fallback_path, 'feature_columns.pkl')
+            if os.path.exists(fallback_file):
+                model_save_path = fallback_path
+                feature_columns_file = fallback_file
+            else:
+                logging.warning("Walk-forward fine-tune skipped (feature_columns.pkl not found)")
+                return None
+
+        train_feature_columns = joblib.load(feature_columns_file)
+
+        resolved_model_path = model_save_path
+        finetuned_path = os.path.join(resolved_model_path, 'finetuned') + os.sep
+        if save_models:
+            os.makedirs(finetuned_path, exist_ok=True)
+
+        ml_config = self.conf.get('ML', {})
+        try:
+            lr_scale = float(ml_config.get('WALK_FORWARD_FINETUNE_LR_SCALE', 0.2))
+        except (TypeError, ValueError):
+            lr_scale = 0.2
+        try:
+            extra_estimators_frac = float(ml_config.get('WALK_FORWARD_FINETUNE_EXTRA_ESTIMATORS_FRAC', 0.2))
+        except (TypeError, ValueError):
+            extra_estimators_frac = 0.2
+        try:
+            extra_estimators_min = int(ml_config.get('WALK_FORWARD_FINETUNE_EXTRA_ESTIMATORS_MIN', 50))
+        except (TypeError, ValueError):
+            extra_estimators_min = 50
+        try:
+            mlp_max_iter = int(ml_config.get('WALK_FORWARD_FINETUNE_MLP_MAX_ITER', 30))
+        except (TypeError, ValueError):
+            mlp_max_iter = 30
+
+        for fpath in files_sorted:
+            step_period = self._extract_date_from_filepath(fpath)
+            logging.info(f"Walk-forward fine-tune step: {step_period} ({os.path.basename(fpath)})")
+
+            info = self._load_data_for_finetune(
+                model_save_path=resolved_model_path,
+                file_list=[fpath],
+                label=f'wf_{step_period}'
+            )
+            if info is None:
+                continue
+            step_df, _ = info
+
+            X_step = step_df[train_feature_columns]
+            y_step = step_df[[DataSchema.REGRESSION_TARGET]].values.ravel()
+            y_step_cls = step_df[[DataSchema.CLASSIFICATION_TARGET]]
+            y_step_binary = DataProcessor.create_binary_target(
+                y_step_cls,
+                config=self.conf,
+                logger=logging.getLogger()
+            ).values.ravel()
+
+            for i, model in self.clsmodels.items():
+                updated_model = self._finetune_model(
+                    model, X_step, y_step_binary, True,
+                    lr_scale, extra_estimators_frac, extra_estimators_min, mlp_max_iter
+                )
+                if updated_model is None:
+                    continue
+                self.clsmodels[i] = updated_model
+                if save_models:
+                    model_file = f"{finetuned_path}clsmodel_{i}.sav"
+                    joblib.dump(updated_model, model_file)
+                    try:
+                        save_model_feature_importance(
+                            updated_model,
+                            list(train_feature_columns),
+                            model_file,
+                            model_label=f"wf_finetuned_clsmodel_{i}",
+                        )
+                    except Exception as e:
+                        logging.warning(f"Walk-forward clsmodel_{i} importance save failed: {e}")
+
+            for i, model in self.models.items():
+                updated_model = self._finetune_model(
+                    model, X_step, y_step, False,
+                    lr_scale, extra_estimators_frac, extra_estimators_min, mlp_max_iter
+                )
+                if updated_model is None:
+                    continue
+                self.models[i] = updated_model
+                if save_models:
+                    model_file = f"{finetuned_path}model_{i}.sav"
+                    joblib.dump(updated_model, model_file)
+                    try:
+                        save_model_feature_importance(
+                            updated_model,
+                            list(train_feature_columns),
+                            model_file,
+                            model_label=f"wf_finetuned_model_{i}",
+                        )
+                    except Exception as e:
+                        logging.warning(f"Walk-forward model_{i} importance save failed: {e}")
+
+        self._finetuned_model_path = finetuned_path if save_models else None
+        return finetuned_path if save_models else None
+
     def latest_prediction(self) -> None:
         """주식 선택을 위해 가장 최근 데이터로 예측합니다.
 
@@ -4997,9 +6514,17 @@ class Regressor:
         # fine-tune them on evalset (self.test_files) before predicting latest data.
         ml_config = self.conf.get('ML', {})
         continual_learning = ml_config.get('CONTINUAL_LEARNING_IN_LATEST_PREDICTION', 'Y') == 'Y'
+        continual_mode = str(ml_config.get('CONTINUAL_LEARNING_MODE', 'walk_forward')).strip().lower()
         finetuned_path = None
         if continual_learning:
-            finetuned_path = self._finetune_models_with_eval_data(MODEL_SAVE_PATH)
+            if continual_mode == 'single':
+                finetuned_path = self._finetune_models_with_eval_data(MODEL_SAVE_PATH)
+            else:
+                finetuned_path = self._walk_forward_finetune_models_with_eval_files(
+                    MODEL_SAVE_PATH,
+                    files=self.test_files,
+                    save_models=True
+                )
             if finetuned_path:
                 logging.info(
                     f"Continual learning applied for latest prediction (saved under: {finetuned_path})"
@@ -5209,7 +6734,17 @@ class Regressor:
         classifier_cols = self._get_classifier_column_names()
 
         # CLASSIFIER_MODE 가져오기 (threshold_config 또는 config에서)
-        classifier_mode = threshold_config.get('mode', self.conf.get('ML', {}).get('CLASSIFIER_MODE', 'positive_screen'))
+        classifier_mode = threshold_config.get('mode', self.classifier_mode)
+        if classifier_mode == "positive_screen":
+            raise ValueError(
+                "threshold_config.pkl has mode='positive_screen' but positive_screen is removed. "
+                "Delete threshold_config.pkl and re-train."
+            )
+        if classifier_mode not in ("negative_screen", "bottom_percentile"):
+            raise ValueError(
+                f"Unsupported classifier mode in threshold_config: '{classifier_mode}'. "
+                "Use 'negative_screen' or 'bottom_percentile'."
+            )
 
         for i, model in self.models.items():
             # 통합 유틸리티 메서드로 컬럼 이름 가져오기
@@ -5241,6 +6776,35 @@ class Regressor:
             for col in pred_col_list:
                 top_k_df = ldf.sort_values(by=[col], ascending=False, na_position="last")[s:(e+1)]
                 top_k_df.to_csv(MODEL_SAVE_PATH+'latest_prediction_{}_top{}-{}.csv'.format(col, s, e))
+
+        # Final selection: use selected_col/selected_top_k if available (treat -1 as "do not buy")
+        selected_col = None
+        selected_top_k = None
+        selected_model_file = os.path.join(MODEL_SAVE_PATH, 'selected_prediction_column.json')
+        try:
+            import json
+            if os.path.exists(selected_model_file):
+                with open(selected_model_file, 'r', encoding='utf-8') as f:
+                    payload = json.load(f)
+                    selected_col = payload.get('selected_column')
+                    try:
+                        selected_top_k = int(payload.get('selected_top_k')) if payload.get('selected_top_k') is not None else None
+                    except (TypeError, ValueError):
+                        selected_top_k = None
+        except Exception as e:
+            logging.warning(f"Failed to load selected model selection file: {e}")
+
+        final_k = int(selected_top_k) if selected_top_k is not None else int(self.top_k_num)
+        if selected_col and selected_col in ldf.columns:
+            final_df = ldf[ldf[selected_col] != -1].sort_values(by=[selected_col], ascending=False, na_position="last")
+            final_top = final_df.head(final_k)
+            final_top.to_csv(
+                MODEL_SAVE_PATH + f'latest_prediction_FINAL_{selected_col}_top0-{final_k-1}.csv',
+                index=False
+            )
+            logging.info(f"✅ FINAL model selected: {selected_col} (top_k={final_k})")
+        elif selected_col:
+            logging.warning(f"Selected column '{selected_col}' not found in latest prediction dataframe")
 
         # === 섹터별 예측 (PER_SECTOR=True인 경우) ===
         if self.use_sector_model:
@@ -5400,12 +6964,22 @@ class Regressor:
         try:
             threshold_config = joblib.load(threshold_config_file)
             THRESHOLD_PERCENTILE = threshold_config['percentile']
-            classifier_mode = threshold_config.get('mode', 'positive_screen')
+            classifier_mode = threshold_config.get('mode', self.classifier_mode)
+            if classifier_mode == "positive_screen":
+                raise ValueError(
+                    "threshold_config.pkl has mode='positive_screen' but positive_screen is removed. "
+                    "Delete threshold_config.pkl and re-train."
+                )
+            if classifier_mode not in ("negative_screen", "bottom_percentile"):
+                raise ValueError(
+                    f"Unsupported classifier mode in threshold_config: '{classifier_mode}'. "
+                    "Use 'negative_screen' or 'bottom_percentile'."
+                )
             logging.info(f"✅ Threshold config loaded: Percentile {THRESHOLD_PERCENTILE}, Mode: {classifier_mode}")
         except FileNotFoundError:
             ml_config = self.conf.get('ML', {})
             THRESHOLD_PERCENTILE = int(ml_config.get('CLASSIFIER_THRESHOLD_PERCENTILE', 92))
-            classifier_mode = ml_config.get('CLASSIFIER_MODE', 'positive_screen')
+            classifier_mode = self.classifier_mode
             logging.warning(f"⚠️ Threshold config not found, using defaults")
 
         # Feature columns 로드
@@ -5551,7 +7125,7 @@ class Regressor:
         # ===== 7. ML Score 계산 (Hard Filtering) =====
         threshold = np.percentile(avg_proba, THRESHOLD_PERCENTILE)
 
-        if classifier_mode == "negative_screen":
+        if classifier_mode in ("negative_screen", "bottom_percentile"):
             # BAD 확률이 threshold 이상이면 제외
             pass_mask = avg_proba < threshold
         else:  # positive_screen

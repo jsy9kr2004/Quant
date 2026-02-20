@@ -430,3 +430,12 @@ class FMPAPI:
         else:
             # 시간 파라미터 없는 단순 심볼 기반 URL
             return self.__url_from_symbols('')
+
+
+# Public API alias (the package exports `FMPApi`)
+FMPApi = FMPAPI
+
+__all__ = [
+    'FMPAPI',
+    'FMPApi',
+]
