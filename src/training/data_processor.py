@@ -1083,6 +1083,14 @@ class DataProcessor:
             X, y, y_cls, rows_before, logger
         )
 
+        # 3.5단계: 타겟 변수 극단 이상치 제거 (Step 3.5)
+        # price_dev = price_diff / prev_close에서 prev_close ≈ 0인 경우
+        # 수억~수십억 수준의 비현실적인 수익률이 발생
+        # 분기별 수익률 |1000%| 이상은 데이터 오류로 간주하여 제거
+        X_clean, y_clean, y_cls_clean = DataProcessor._preprocess_remove_extreme_targets(
+            X_clean, y_clean, y_cls_clean, logger, threshold=10.0
+        )
+
         # 4단계: Feature 변환 및 NaN 필터링 (Steps 4-6)
         X_clean, y_clean, y_cls_clean = DataProcessor._preprocess_transform_and_filter(
             X_clean, y_clean, y_cls_clean, y.columns, logger
@@ -1278,6 +1286,72 @@ class DataProcessor:
             y_cls_clean = DataProcessor.create_clean_dataframe(
                 y_cls_series, y_cls.columns, X_clean.index
             )
+
+        return X_clean, y_clean, y_cls_clean
+
+    @staticmethod
+    def _preprocess_remove_extreme_targets(
+        X_clean: pd.DataFrame,
+        y_clean,
+        y_cls_clean: Optional[pd.DataFrame],
+        logger,
+        threshold: float = 10.0
+    ) -> Tuple[pd.DataFrame, 'pd.Series', Optional[pd.DataFrame]]:
+        """Step 3.5: 타겟 변수의 극단 이상치 제거.
+
+        price_dev = price_diff / prev_close 계산에서 prev_close ≈ 0 (페니스톡, 데이터 오류)인 경우
+        수억~수십억 수준의 비현실적인 수익률이 발생합니다.
+        이는 inf가 아닌 유한한 큰 값이므로 inf 제거(Step 1-3)를 통과합니다.
+
+        분기별 수익률 |threshold*100|% 이상은 데이터 오류로 간주하여 해당 행을 제거합니다.
+        기본 threshold=10.0 = |1000%| 이상 제거.
+
+        CLAUDE.md 원칙 준수:
+        - NaN ≠ 0: 이상치를 0으로 바꾸지 않고 행 자체를 제거
+        - inf ≠ too large: 이 값들은 "유효한 큰 값"이 아니라 0으로 나눈 계산 오류
+        """
+        if logger:
+            logger.info(f"Step 3.5/8: Removing extreme target outliers (|y| > {threshold})...")
+
+        # y_clean이 Series인지 DataFrame인지에 따라 처리
+        if isinstance(y_clean, pd.Series):
+            extreme_mask = y_clean.abs() > threshold
+        elif isinstance(y_clean, pd.DataFrame):
+            extreme_mask = y_clean.abs().max(axis=1) > threshold
+        else:
+            if logger:
+                logger.info(f"   Skipped (y_clean type: {type(y_clean).__name__})")
+            return X_clean, y_clean, y_cls_clean
+
+        n_extreme = extreme_mask.sum()
+        if n_extreme > 0:
+            if logger:
+                # 이상치 상세 정보 로그
+                if isinstance(y_clean, pd.Series):
+                    extreme_vals = y_clean[extreme_mask]
+                else:
+                    extreme_vals = y_clean[extreme_mask].iloc[:, 0]
+                logger.warning(f"   ⚠️  Found {n_extreme} rows with extreme target values (|y| > {threshold})")
+                logger.warning(f"      Min extreme: {extreme_vals.min():.2f}, Max extreme: {extreme_vals.max():.2f}")
+                logger.warning(f"      These are likely division-by-near-zero artifacts (penny stocks / data errors)")
+
+            # 극단 이상치 행 제거
+            keep_mask = ~extreme_mask
+            X_clean = X_clean.loc[keep_mask]
+
+            if isinstance(y_clean, pd.Series):
+                y_clean = y_clean.loc[keep_mask]
+            elif isinstance(y_clean, pd.DataFrame):
+                y_clean = y_clean.loc[keep_mask]
+
+            if y_cls_clean is not None:
+                y_cls_clean = y_cls_clean.loc[keep_mask]
+
+            if logger:
+                logger.info(f"   ✅ Removed {n_extreme} extreme rows. Remaining: {len(X_clean)}")
+        else:
+            if logger:
+                logger.info(f"   ✅ No extreme target values found")
 
         return X_clean, y_clean, y_cls_clean
 
