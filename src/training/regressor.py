@@ -406,13 +406,20 @@ def train_single_period_remote(
 
         # 캐시 항목 구성
         top_k_mask = predictions_df[DataSchema.SELECTED]
+
+        # 🔍 진단: predictions_df에 저장된 진단 정보 추출
+        train_diag = models_info.get('diagnostics', {})
+        pred_diag = predictions_df.attrs.get('pred_diagnostics', {})
+
         cache_entry = {
             'predictions_df': predictions_df,
             'top_k_selected': predictions_df[top_k_mask]['symbol'].tolist(),
             'top_k_details': predictions_df[top_k_mask].copy(),
             'models_used': models_info,
             'train_samples': len(train_df),
-            'predict_samples': len(pred_df)
+            'predict_samples': len(pred_df),
+            'train_diagnostics': train_diag,
+            'pred_diagnostics': pred_diag,
         }
 
         logging.info(f"✅ Top-{top_k}: {cache_entry['top_k_selected']}")
@@ -618,6 +625,18 @@ def _train_models_for_period_standalone(
 
     feature_cols = DataSchema.get_feature_cols(train_df)
 
+    # 🔍 진단: 학습 데이터 기본 정보 저장 (메인 프로세스에서 확인용)
+    models_info['diagnostics'] = {
+        'n_feature_cols': len(feature_cols),
+        'n_train_rows': len(train_df),
+        'target_col': target_col,
+        'target_range': [float(train_df[target_col].min()), float(train_df[target_col].max())],
+        'target_mean': float(train_df[target_col].mean()),
+        'feature_cols_sample': feature_cols[:10],  # 처음 10개 feature 이름
+        'train_df_cols_sample': list(train_df.columns[:20]),  # 처음 20개 열
+        'sector_diagnostics': {},
+    }
+
     if use_sector_model:
         for sector in train_df['sector'].unique():
             sector_data = train_df[train_df['sector'] == sector]
@@ -688,6 +707,26 @@ def _train_models_for_period_standalone(
             for reg in sector_regs.values():
                 reg.fit(X_sector_clean, y_sector_clean)
             models_info['sector_regressors'][sector] = sector_regs
+
+            # 🔍 진단: 학습 후 모델이 학습 데이터에서 예측하는 범위 확인
+            try:
+                train_pred = sector_regs[0].predict(X_sector_clean)
+                x_max = float(X_sector_clean.abs().max().max())
+                x_mean = float(X_sector_clean.abs().mean().mean())
+                models_info['diagnostics']['sector_diagnostics'][sector] = {
+                    'n_samples': len(X_sector_clean),
+                    'n_features': len(X_sector_clean.columns),
+                    'y_range': [float(y_sector_clean.min()), float(y_sector_clean.max())],
+                    'y_mean': float(y_sector_clean.mean()),
+                    'train_pred_range': [float(train_pred.min()), float(train_pred.max())],
+                    'train_pred_mean': float(train_pred.mean()),
+                    'x_max_abs': x_max,
+                    'x_mean_abs': x_mean,
+                    'model_n_features': len(sector_regs[0].get_booster().feature_names),
+                    'model_features_sample': sector_regs[0].get_booster().feature_names[:5],
+                }
+            except Exception as e:
+                models_info['diagnostics']['sector_diagnostics'][sector] = {'error': str(e)}
     else:
         X_train = train_df[feature_cols]
         y_train = train_df[target_col]
@@ -786,6 +825,15 @@ def _generate_predictions_for_period_standalone(
     pred_df[DataSchema.PRED_RETURN] = 0.0
     pred_df[DataSchema.PRED_PROBA] = 1.0
 
+    # 🔍 진단: 예측 데이터 정보 수집
+    pred_diagnostics = {
+        'n_pred_features': len(feature_cols),
+        'pred_features_sample': feature_cols[:10],
+        'x_pred_max_abs': float(X_pred.abs().max().max()) if len(X_pred) > 0 else 0,
+        'x_pred_mean_abs': float(X_pred.abs().mean().mean()) if len(X_pred) > 0 else 0,
+        'sector_pred_details': {},
+    }
+
     if models_info['use_sector']:
         for sector in pred_df['sector'].unique():
             sector_mask = pred_df['sector'] == sector
@@ -802,9 +850,34 @@ def _generate_predictions_for_period_standalone(
                 X_sector, first_reg, logging.getLogger()
             )
 
+            # 🔍 진단: feature 정렬 결과 확인
+            model_features = set(first_reg.get_booster().feature_names)
+            pred_features = set(X_sector.columns)
+            aligned_features = set(X_sector_aligned.columns)
+            matching = model_features & pred_features
+            missing_in_pred = model_features - pred_features
+            extra_in_pred = pred_features - model_features
+
             # 수익률 예측
             y_pred_return = np.mean([reg.predict(X_sector_aligned) for reg in sector_regs.values()], axis=0)
             pred_df.loc[sector_mask, DataSchema.PRED_RETURN] = y_pred_return
+
+            # 🔍 진단: 섹터별 예측 결과 기록
+            pred_diagnostics['sector_pred_details'][sector] = {
+                'n_stocks': int(sector_mask.sum()),
+                'n_model_features': len(model_features),
+                'n_pred_features': len(pred_features),
+                'n_matching': len(matching),
+                'n_missing_in_pred': len(missing_in_pred),
+                'n_extra_in_pred': len(extra_in_pred),
+                'missing_sample': list(missing_in_pred)[:5],
+                'extra_sample': list(extra_in_pred)[:5],
+                'x_aligned_max': float(X_sector_aligned.abs().max().max()),
+                'x_aligned_mean': float(X_sector_aligned.abs().mean().mean()),
+                'x_aligned_nan_pct': float(X_sector_aligned.isna().sum().sum() / max(X_sector_aligned.size, 1) * 100),
+                'pred_range': [float(y_pred_return.min()), float(y_pred_return.max())],
+                'pred_mean': float(y_pred_return.mean()),
+            }
 
             # 진단 로깅: 섹터별 예측값 범위 확인
             print(f"[Worker] {sector}: pred range=[{y_pred_return.min():.4f}, {y_pred_return.max():.4f}], "
@@ -840,6 +913,9 @@ def _generate_predictions_for_period_standalone(
 
     # ML 점수 계산
     pred_df[DataSchema.ML_SCORE] = pred_df[DataSchema.PRED_PROBA] * pred_df[DataSchema.PRED_RETURN]
+
+    # 🔍 진단 정보를 pred_df의 속성으로 저장 (cache_entry에서 접근)
+    pred_df.attrs['pred_diagnostics'] = pred_diagnostics
 
     return pred_df
 
@@ -3796,6 +3872,39 @@ class Regressor:
                 if cache_entry is not None:
                     self.predictions_cache[cache_key] = cache_entry
                     logging.info(f"✅ Period {cache_key}: {len(cache_entry['top_k_selected'])} stocks selected")
+
+                    # 🔍 진단: 워커 내부 정보를 메인 프로세스에서 로그
+                    train_diag = cache_entry.get('train_diagnostics', {})
+                    pred_diag = cache_entry.get('pred_diagnostics', {})
+                    if train_diag:
+                        logging.info(f"   🔬 [TRAIN DIAG] target_range={train_diag.get('target_range')}, "
+                                     f"target_mean={train_diag.get('target_mean', 'N/A')}, "
+                                     f"n_features={train_diag.get('n_feature_cols')}")
+                        logging.info(f"   🔬 [TRAIN DIAG] feature_cols_sample={train_diag.get('feature_cols_sample', [])[:5]}")
+                        logging.info(f"   🔬 [TRAIN DIAG] train_df_cols_sample={train_diag.get('train_df_cols_sample', [])[:10]}")
+                        for sec, sd in train_diag.get('sector_diagnostics', {}).items():
+                            if 'error' in sd:
+                                logging.warning(f"   🔬 [TRAIN DIAG] {sec}: ERROR={sd['error']}")
+                            else:
+                                logging.info(f"   🔬 [TRAIN DIAG] {sec}: y_range={sd.get('y_range')}, "
+                                            f"train_pred_range={sd.get('train_pred_range')}, "
+                                            f"x_max={sd.get('x_max_abs', 'N/A'):.2f}, "
+                                            f"n_model_features={sd.get('model_n_features')}, "
+                                            f"model_features[:3]={sd.get('model_features_sample', [])[:3]}")
+                    if pred_diag:
+                        logging.info(f"   🔬 [PRED DIAG] x_pred_max={pred_diag.get('x_pred_max_abs', 'N/A')}, "
+                                     f"x_pred_mean={pred_diag.get('x_pred_mean_abs', 'N/A')}, "
+                                     f"n_pred_features={pred_diag.get('n_pred_features')}")
+                        logging.info(f"   🔬 [PRED DIAG] pred_features_sample={pred_diag.get('pred_features_sample', [])[:5]}")
+                        for sec, spd in pred_diag.get('sector_pred_details', {}).items():
+                            logging.info(f"   🔬 [PRED DIAG] {sec}: "
+                                        f"pred_range={spd.get('pred_range')}, "
+                                        f"matching={spd.get('n_matching')}/{spd.get('n_model_features')}, "
+                                        f"missing={spd.get('n_missing_in_pred')}, "
+                                        f"nan_pct={spd.get('x_aligned_nan_pct', 0):.1f}%, "
+                                        f"x_max={spd.get('x_aligned_max', 'N/A')}")
+                            if spd.get('n_missing_in_pred', 0) > 0:
+                                logging.warning(f"   ⚠️  [PRED DIAG] {sec}: Missing features: {spd.get('missing_sample', [])}")
 
                     # Log binary target distribution from worker
                     bt_stats = cache_entry.get('models_used', {}).get('binary_target_stats', {})
