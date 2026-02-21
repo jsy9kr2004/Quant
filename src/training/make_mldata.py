@@ -1375,6 +1375,23 @@ class AIDataMaker:
         cur_table_for_ai = pd.merge(table_for_ai, scaled_df, how='inner', on=['symbol','rebalance_date'])
         cur_table_for_ai["sector"] = cur_table_for_ai["industry"].map(sector_map)
 
+        # 🔍 진단: price_dev 원본 분포 (섹터 조정 전)
+        pd_raw = cur_table_for_ai['price_dev']
+        pd_extreme = pd_raw[pd_raw.abs() > 10]
+        self.logger.info(f"   🔍 [TARGET DIAG] price_dev BEFORE sector adjustment:")
+        self.logger.info(f"      range=[{pd_raw.min():.4f}, {pd_raw.max():.4f}], "
+                         f"mean={pd_raw.mean():.4f}, median={pd_raw.median():.4f}")
+        self.logger.info(f"      |price_dev| > 10: {len(pd_extreme)} rows "
+                         f"({len(pd_extreme)/len(pd_raw)*100:.2f}%)")
+        if len(pd_extreme) > 0:
+            self.logger.warning(f"      ⚠️  Extreme price_dev samples (top 5):")
+            for _, row in pd_extreme.nlargest(5).items():
+                symbol = cur_table_for_ai.loc[_, 'symbol'] if _ in cur_table_for_ai.index else '?'
+                self.logger.warning(f"         {symbol}: price_dev={row:.4f}")
+            for _, row in pd_extreme.nsmallest(5).items():
+                symbol = cur_table_for_ai.loc[_, 'symbol'] if _ in cur_table_for_ai.index else '?'
+                self.logger.warning(f"         {symbol}: price_dev={row:.4f}")
+
         # 시장 조정 수익률 계산
         cur_table_for_ai['price_dev_subavg'] = cur_table_for_ai['price_dev'] - cur_table_for_ai['price_dev'].mean()
 
@@ -1384,7 +1401,20 @@ class AIDataMaker:
         for sec in sector_list:
             sec_mask = cur_table_for_ai['sector'] == sec
             sec_mean = cur_table_for_ai.loc[sec_mask, 'price_dev'].mean()
+            sec_median = cur_table_for_ai.loc[sec_mask, 'price_dev'].median()
+            sec_count = sec_mask.sum()
+            sec_extreme = cur_table_for_ai.loc[sec_mask, 'price_dev'].abs() > 10
             cur_table_for_ai.loc[sec_mask, 'sec_price_dev_subavg'] = cur_table_for_ai.loc[sec_mask, 'price_dev'] - sec_mean
+            # 섹터 mean이 median과 크게 다르면 극단값에 오염된 것
+            if abs(sec_mean - sec_median) > 1.0 or sec_extreme.sum() > 0:
+                self.logger.warning(f"      ⚠️  {sec}: mean={sec_mean:.4f}, median={sec_median:.4f}, "
+                                    f"n={sec_count}, extreme(|>10|)={sec_extreme.sum()}")
+
+        # 🔍 진단: 섹터 조정 후 타겟 분포
+        spd = cur_table_for_ai['sec_price_dev_subavg']
+        self.logger.info(f"   🔍 [TARGET DIAG] sec_price_dev_subavg AFTER sector adjustment:")
+        self.logger.info(f"      range=[{spd.min():.4f}, {spd.max():.4f}], "
+                         f"mean={spd.mean():.4f}, median={spd.median():.4f}")
 
         # ===================================================================
         # 중요: 극단적 수익률 종목 필터링 (학습 데이터에만 적용)
@@ -1428,6 +1458,26 @@ class AIDataMaker:
         ml_only = set(ml_feature_cols) - set(fs_feature_cols)
         if fs_only or ml_only:
             self.logger.warning(f"   ⚠️  Feature diff: fs_only={len(fs_only)}, ml_only={len(ml_only)}, common={len(common)}")
+            if ml_only:
+                self.logger.warning(f"      🔍 ml_only (in training but NOT in prediction): {sorted(ml_only)}")
+            if fs_only:
+                self.logger.warning(f"      🔍 fs_only (in prediction but NOT in training): {sorted(fs_only)}")
+            # 머지 키 진단: feature 불일치의 근본 원인 추적
+            self.logger.warning(f"      🔍 fs merge: symbol_industry({len(symbol_industry)} rows) x "
+                                f"scaled_df({len(scaled_df)} rows) → fs_df({len(fs_df)} rows) [on='symbol']")
+            self.logger.warning(f"      🔍 ml merge: table_for_ai({len(table_for_ai)} rows) x "
+                                f"scaled_df({len(scaled_df)} rows) → ml_df({len(cur_table_for_ai)} rows) [on='symbol,rebalance_date']")
+            # scaled_df에 해당 feature가 있는지 확인
+            if ml_only:
+                in_scaled = ml_only & set(scaled_df.columns)
+                not_in_scaled = ml_only - set(scaled_df.columns)
+                in_table = ml_only & set(table_for_ai.columns)
+                self.logger.warning(f"      🔍 ml_only features in scaled_df: {len(in_scaled)}/{len(ml_only)}")
+                if not_in_scaled:
+                    self.logger.warning(f"      🔍 ml_only features NOT in scaled_df (from table_for_ai): {sorted(not_in_scaled)}")
+                if in_scaled:
+                    self.logger.warning(f"      🔍 ml_only features IN scaled_df but missing from fs_df: {sorted(in_scaled)}")
+                    self.logger.warning(f"         → This means the fs merge (on='symbol') dropped these columns!")
         else:
             self.logger.info(f"   ✅ fs/ml feature sets identical ({len(common)} features)")
 
