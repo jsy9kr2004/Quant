@@ -408,7 +408,28 @@ class AIDataMaker:
 
         # 백분율 수익률 계산 (ML 모델의 타겟 변수)
         # 분모로 이전 종가 사용 (현재 종가 아님)
-        self.price_table['price_dev'] = self.price_table['price_diff'] / self.price_table.groupby('symbol')['close'].shift(1)
+        prev_close = self.price_table.groupby('symbol')['close'].shift(1)
+        self.price_table['price_dev'] = self.price_table['price_diff'] / prev_close
+
+        # 극단적 price_dev 캡핑 (근본적 데이터 정합성 보호)
+        # 원인: 주식분할 미조정 가격(prev_close ≈ 0)으로 인한 천문학적 수익률
+        # 예: BCTX prev_close ≈ 0.000001 → price_dev = 833,192,858,637
+        # 이 1개 극단값이 mean 기반 타겟(price_dev_subavg) 계산 시 전체 데이터셋 오염
+        # 캡 범위: [-10, 10] = [-1000%, +1000%] (분기 수익률 기준 충분히 넓음)
+        PRICE_DEV_CAP = 10.0
+        extreme_mask = self.price_table['price_dev'].abs() > PRICE_DEV_CAP
+        n_extreme = extreme_mask.sum()
+        if n_extreme > 0:
+            extreme_samples = self.price_table.loc[extreme_mask, ['symbol', 'price_dev']].copy()
+            extreme_samples = extreme_samples.reindex(
+                extreme_samples['price_dev'].abs().sort_values(ascending=False).index
+            )
+            self.logger.warning(f"   ⚠️  price_dev capping: {n_extreme} rows with |price_dev| > {PRICE_DEV_CAP}")
+            for _, row in extreme_samples.head(10).iterrows():
+                self.logger.warning(f"      {row['symbol']}: price_dev={row['price_dev']:.4f} → capped to {np.sign(row['price_dev']) * PRICE_DEV_CAP:.1f}")
+            self.price_table['price_dev'] = self.price_table['price_dev'].clip(
+                lower=-PRICE_DEV_CAP, upper=PRICE_DEV_CAP
+            )
 
         # 명확성을 위한 컬럼명 변경
         self.price_table.rename(columns={'close': 'price'}, inplace=True)
@@ -1375,22 +1396,15 @@ class AIDataMaker:
         cur_table_for_ai = pd.merge(table_for_ai, scaled_df, how='inner', on=['symbol','rebalance_date'])
         cur_table_for_ai["sector"] = cur_table_for_ai["industry"].map(sector_map)
 
-        # 🔍 진단: price_dev 원본 분포 (섹터 조정 전)
+        # 🔍 진단: price_dev 분포 (섹터 조정 전, 상류에서 ±10 캡핑 적용 후)
         pd_raw = cur_table_for_ai['price_dev']
-        pd_extreme = pd_raw[pd_raw.abs() > 10]
-        self.logger.info(f"   🔍 [TARGET DIAG] price_dev BEFORE sector adjustment:")
+        pd_at_cap = pd_raw[pd_raw.abs() >= 9.99]  # 캡핑된 값 확인 (±10에 근접)
+        self.logger.info(f"   🔍 [TARGET DIAG] price_dev (capped ±10) BEFORE sector adjustment:")
         self.logger.info(f"      range=[{pd_raw.min():.4f}, {pd_raw.max():.4f}], "
                          f"mean={pd_raw.mean():.4f}, median={pd_raw.median():.4f}")
-        self.logger.info(f"      |price_dev| > 10: {len(pd_extreme)} rows "
-                         f"({len(pd_extreme)/len(pd_raw)*100:.2f}%)")
-        if len(pd_extreme) > 0:
-            self.logger.warning(f"      ⚠️  Extreme price_dev samples (top 5):")
-            for _, row in pd_extreme.nlargest(5).items():
-                symbol = cur_table_for_ai.loc[_, 'symbol'] if _ in cur_table_for_ai.index else '?'
-                self.logger.warning(f"         {symbol}: price_dev={row:.4f}")
-            for _, row in pd_extreme.nsmallest(5).items():
-                symbol = cur_table_for_ai.loc[_, 'symbol'] if _ in cur_table_for_ai.index else '?'
-                self.logger.warning(f"         {symbol}: price_dev={row:.4f}")
+        if len(pd_at_cap) > 0:
+            self.logger.info(f"      capped values (|price_dev| >= 9.99): {len(pd_at_cap)} rows "
+                             f"({len(pd_at_cap)/len(pd_raw)*100:.2f}%)")
 
         # 시장 조정 수익률 계산
         cur_table_for_ai['price_dev_subavg'] = cur_table_for_ai['price_dev'] - cur_table_for_ai['price_dev'].mean()
