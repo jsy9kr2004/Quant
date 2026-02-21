@@ -639,14 +639,18 @@ def _train_models_for_period_standalone(
     feature_cols = DataSchema.get_feature_cols(train_df)
 
     # 🔍 진단: 학습 데이터 기본 정보 저장 (메인 프로세스에서 확인용)
+    target_series = train_df[target_col]
+    target_extreme_count = int((target_series.abs() > 10).sum())
     models_info['diagnostics'] = {
         'n_feature_cols': len(feature_cols),
         'n_train_rows': len(train_df),
         'target_col': target_col,
-        'target_range': [float(train_df[target_col].min()), float(train_df[target_col].max())],
-        'target_mean': float(train_df[target_col].mean()),
-        'feature_cols_sample': feature_cols[:10],  # 처음 10개 feature 이름
-        'train_df_cols_sample': list(train_df.columns[:20]),  # 처음 20개 열
+        'target_range_raw': [float(target_series.min()), float(target_series.max())],
+        'target_mean_raw': float(target_series.mean()),
+        'target_median_raw': float(target_series.median()),
+        'target_extreme_count': target_extreme_count,
+        'feature_cols_sample': feature_cols[:10],
+        'train_df_cols_sample': list(train_df.columns[:20]),
         'sector_diagnostics': {},
     }
 
@@ -658,6 +662,13 @@ def _train_models_for_period_standalone(
 
             X_sector = sector_data[feature_cols]
             y_sector = sector_data[target_col]
+
+            # 🔍 진단: 전처리 전 타겟 분포
+            y_pre_min, y_pre_max = float(y_sector.min()), float(y_sector.max())
+            y_pre_extreme = (y_sector.abs() > 10).sum()
+            if y_pre_extreme > 0 or abs(y_pre_min) > 100 or abs(y_pre_max) > 100:
+                logging.warning(f"   🔍 [PRE-PREPROCESS] {sector}: target range=[{y_pre_min:.2f}, {y_pre_max:.2f}], "
+                                f"extreme(|>10|)={y_pre_extreme}/{len(y_sector)}")
 
             # 학습 전 섹터 데이터 전처리
             try:
@@ -677,6 +688,15 @@ def _train_models_for_period_standalone(
                     continue
 
                 y_sector_clean = y_sector_clean.iloc[:, 0]
+
+                # 🔍 진단: 전처리 후 타겟 분포 비교
+                y_post_min, y_post_max = float(y_sector_clean.min()), float(y_sector_clean.max())
+                y_post_extreme = (y_sector_clean.abs() > 10).sum()
+                rows_removed = len(y_sector) - len(y_sector_clean)
+                if rows_removed > 0 or y_post_extreme > 0:
+                    logging.info(f"   🔍 [POST-PREPROCESS] {sector}: range=[{y_post_min:.4f}, {y_post_max:.4f}], "
+                                 f"rows: {len(y_sector)} → {len(y_sector_clean)} (-{rows_removed}), "
+                                 f"remaining extreme(|>10|)={y_post_extreme}")
             except Exception as e:
                 import traceback
                 logging.error(f"   ❌ {sector}: Preprocessing failed - {str(e)}")
@@ -744,6 +764,13 @@ def _train_models_for_period_standalone(
         X_train = train_df[feature_cols]
         y_train = train_df[target_col]
 
+        # 🔍 진단: 전처리 전 타겟 분포
+        y_pre_min, y_pre_max = float(y_train.min()), float(y_train.max())
+        y_pre_extreme = (y_train.abs() > 10).sum()
+        if y_pre_extreme > 0 or abs(y_pre_min) > 100 or abs(y_pre_max) > 100:
+            logging.warning(f"   🔍 [PRE-PREPROCESS] Global: target range=[{y_pre_min:.2f}, {y_pre_max:.2f}], "
+                            f"extreme(|>10|)={y_pre_extreme}/{len(y_train)}")
+
         # 학습 전 글로벌 데이터 전처리
         try:
             preprocess_result = DataProcessor.preprocess_training_data(
@@ -762,6 +789,14 @@ def _train_models_for_period_standalone(
                 return models_info
 
             y_train_clean = y_train_clean.iloc[:, 0]
+
+            # 🔍 진단: 전처리 후 타겟 분포 비교
+            y_post_min, y_post_max = float(y_train_clean.min()), float(y_train_clean.max())
+            y_post_extreme = (y_train_clean.abs() > 10).sum()
+            rows_removed = len(y_train) - len(y_train_clean)
+            logging.info(f"   🔍 [POST-PREPROCESS] Global: range=[{y_post_min:.4f}, {y_post_max:.4f}], "
+                         f"rows: {len(y_train)} → {len(y_train_clean)} (-{rows_removed}), "
+                         f"remaining extreme(|>10|)={y_post_extreme}")
         except Exception as e:
             import traceback
             logging.error(f"   ❌ Global model preprocessing failed - {str(e)}")
@@ -3903,9 +3938,17 @@ class Regressor:
                     train_diag = cache_entry.get('train_diagnostics', {})
                     pred_diag = cache_entry.get('pred_diagnostics', {})
                     if train_diag:
-                        logging.info(f"   🔬 [TRAIN DIAG] target_range={train_diag.get('target_range')}, "
-                                     f"target_mean={train_diag.get('target_mean', 'N/A')}, "
+                        target_extreme = train_diag.get('target_extreme_count', 'N/A')
+                        logging.info(f"   🔬 [TRAIN DIAG] target_range_raw={train_diag.get('target_range_raw')}, "
+                                     f"mean={train_diag.get('target_mean_raw', 'N/A')}, "
+                                     f"median={train_diag.get('target_median_raw', 'N/A')}, "
+                                     f"extreme(|>10|)={target_extreme}, "
                                      f"n_features={train_diag.get('n_feature_cols')}")
+                        if target_extreme and target_extreme != 'N/A' and target_extreme > 0:
+                            logging.warning(f"   ⚠️  [TRAIN DIAG] {target_extreme} extreme targets detected! "
+                                            f"mean={train_diag.get('target_mean_raw', 'N/A')}, "
+                                            f"median={train_diag.get('target_median_raw', 'N/A')} "
+                                            f"(if mean ≫ median, extreme values are contaminating the mean)")
                         logging.info(f"   🔬 [TRAIN DIAG] feature_cols_sample={train_diag.get('feature_cols_sample', [])[:5]}")
                         logging.info(f"   🔬 [TRAIN DIAG] train_df_cols_sample={train_diag.get('train_df_cols_sample', [])[:10]}")
                         for sec, sd in train_diag.get('sector_diagnostics', {}).items():
