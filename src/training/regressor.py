@@ -289,6 +289,24 @@ except ImportError:
     logging.warning("⚠️  Ray not installed. Parallel training will be disabled.")
 
 
+class _WorkerListHandler(logging.Handler):
+    """워커 프로세스의 로그를 리스트에 축적하는 핸들러.
+
+    Ray 워커는 메인 프로세스의 FileHandler에 접근할 수 없으므로,
+    로그를 리스트에 모았다가 결과와 함께 반환하여 메인에서 리플레이합니다.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.log_entries: list = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.log_entries.append({
+            'level': record.levelname,
+            'msg': self.format(record),
+        })
+
+
 @ray.remote
 def train_single_period_remote(
     period_info: dict,
@@ -298,7 +316,7 @@ def train_single_period_remote(
     top_k: int,
     logger_level: int = logging.INFO,
     classifier_config: Optional[dict] = None
-) -> Tuple[str, Optional[dict]]:
+) -> Tuple[str, Optional[dict], Optional[str], list]:
     """
     단일 Walk-Forward 기간에 대한 모델을 학습하는 Ray remote 함수입니다.
 
@@ -332,15 +350,19 @@ def train_single_period_remote(
 
     Returns:
     --------
-    Tuple[str, Optional[dict]]
+    Tuple[str, Optional[dict], Optional[str], list]
         - cache_key: str (날짜 문자열 'YYYY-MM-DD')
         - cache_entry: dict 또는 None (예측 결과 및 메타데이터)
+        - error_msg: str 또는 None
+        - log_entries: list[dict] (워커 내부 로그, 메인에서 리플레이용)
     """
-    # 워커의 로깅 설정
-    logging.basicConfig(
-        level=logger_level,
-        format='[Worker] %(levelname)s: %(message)s'
-    )
+    # 워커 로깅 설정: ListHandler로 로그를 축적하여 메인 프로세스에서 파일에 기록
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    list_handler = _WorkerListHandler()
+    list_handler.setFormatter(logging.Formatter('%(message)s'))
+    root_logger.addHandler(list_handler)
+    root_logger.setLevel(logger_level)
 
     import os
     from src.training.data_processor import DataProcessor
@@ -353,22 +375,17 @@ def train_single_period_remote(
     cache_key = cutoff_date.strftime('%Y-%m-%d')
 
     try:
-        # Ray 워커 진단용 print 사용 (log_to_driver가 캡처, logging보다 안정적)
-        print(f"[Worker:{cache_key}] Starting period {cache_key} ({period_name})")
-        logging.info(f"📅 Processing period: {cache_key} ({period_name})")
+        logging.info(f"📅 Starting period {cache_key} ({period_name})")
 
         # 1단계: 학습 데이터 로드
-        print(f"[Worker:{cache_key}] Loading training data: {train_start_year} ~ {cache_key}, root={root_path}, cwd={os.getcwd()}")
         logging.info(f"📂 Loading training data: {train_start_year} ~ {cache_key}")
         logging.info(f"   root_path={root_path}, cwd={os.getcwd()}")
         train_df = _load_data_until_cutoff_standalone(root_path, train_start_year, cutoff_date)
 
         if train_df.empty:
             logging.warning(f"⚠️  No training data for {cache_key}")
-            return cache_key, None, "No training data"
+            return cache_key, None, "No training data", list_handler.log_entries
 
-        print(f"[Worker:{cache_key}] Loaded {len(train_df)} samples, {len(train_df.columns)} cols, "
-              f"has_target={DataSchema.REGRESSION_TARGET in train_df.columns}, has_sector={'sector' in train_df.columns}")
         logging.info(f"✅ Loaded {len(train_df)} training samples, columns={len(train_df.columns)}")
         logging.info(f"   Has target '{DataSchema.REGRESSION_TARGET}': {DataSchema.REGRESSION_TARGET in train_df.columns}")
         logging.info(f"   Has 'sector': {'sector' in train_df.columns}, use_sector_model={use_sector_model}")
@@ -390,7 +407,7 @@ def train_single_period_remote(
 
         if pred_df.empty:
             logging.warning(f"⚠️  No prediction data for {cache_key}")
-            return cache_key, None, "No prediction data (rnorm_fs files missing or rebalance_date mismatch)"
+            return cache_key, None, "No prediction data (rnorm_fs files missing or rebalance_date mismatch)", list_handler.log_entries
 
         logging.info(f"✅ Loaded {len(pred_df)} stocks for prediction")
 
@@ -424,18 +441,14 @@ def train_single_period_remote(
 
         logging.info(f"✅ Top-{top_k}: {cache_entry['top_k_selected']}")
 
-        return cache_key, cache_entry, None
+        return cache_key, cache_entry, None, list_handler.log_entries
 
     except Exception as e:
         import traceback
         error_tb = traceback.format_exc()
-        # Ray log_to_driver 캡처를 위해 stdout으로 출력
-        print(f"[Worker:{cache_key}] ❌ FAILED: {e}")
-        print(f"[Worker:{cache_key}] Traceback:\n{error_tb}")
         logging.error(f"❌ Error processing period {cache_key}: {e}")
         logging.error(error_tb)
-        # 메인 프로세스에서 로깅할 수 있도록 전체 traceback을 에러 메시지에 포함
-        return cache_key, None, f"{str(e)}\n--- Worker Traceback ---\n{error_tb}"
+        return cache_key, None, f"{str(e)}\n--- Worker Traceback ---\n{error_tb}", list_handler.log_entries
 
 
 # ==============================================================================
@@ -818,7 +831,7 @@ def _generate_predictions_for_period_standalone(
     try:
         max_abs = X_pred.abs().max().max()
         mean_abs = X_pred.abs().mean().mean()
-        print(f"[Worker] Feature scale after log_transform: max={max_abs:.2f}, mean={mean_abs:.4f}")
+        logging.info(f"Feature scale after log_transform: max={max_abs:.2f}, mean={mean_abs:.4f}")
     except Exception:
         pass
 
@@ -880,8 +893,8 @@ def _generate_predictions_for_period_standalone(
             }
 
             # 진단 로깅: 섹터별 예측값 범위 확인
-            print(f"[Worker] {sector}: pred range=[{y_pred_return.min():.4f}, {y_pred_return.max():.4f}], "
-                  f"mean={y_pred_return.mean():.4f}, n={len(y_pred_return)}")
+            logging.info(f"{sector}: pred range=[{y_pred_return.min():.4f}, {y_pred_return.max():.4f}], "
+                         f"mean={y_pred_return.mean():.4f}, n={len(y_pred_return)}")
 
             # 확률 예측
             if models_info['use_classifier'] and sector in models_info['sector_classifiers']:
@@ -3864,11 +3877,24 @@ class Regressor:
             # Build predictions cache from results
             self.predictions_cache = {}
             for result in results:
-                if len(result) == 3:
+                if len(result) == 4:
+                    cache_key, cache_entry, error_msg, log_entries = result
+                elif len(result) == 3:
                     cache_key, cache_entry, error_msg = result
+                    log_entries = []
                 else:
                     cache_key, cache_entry = result[0], result[1]
                     error_msg = None
+                    log_entries = []
+
+                # 워커 내부 로그를 메인 프로세스 로거로 리플레이 (파일에 기록됨)
+                if log_entries:
+                    logging.info(f"--- [Worker:{cache_key}] log replay start ({len(log_entries)} entries) ---")
+                    for entry in log_entries:
+                        level = getattr(logging, entry['level'], logging.INFO)
+                        logging.log(level, f"[Worker:{cache_key}] {entry['msg']}")
+                    logging.info(f"--- [Worker:{cache_key}] log replay end ---")
+
                 if cache_entry is not None:
                     self.predictions_cache[cache_key] = cache_entry
                     logging.info(f"✅ Period {cache_key}: {len(cache_entry['top_k_selected'])} stocks selected")
