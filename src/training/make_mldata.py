@@ -400,22 +400,31 @@ class AIDataMaker:
         # 순차 계산을 위해 종목코드와 날짜로 정렬
         self.price_table = self.price_table.sort_values(by=['symbol', 'date'])
 
+        # 수익률 계산에 사용할 가격 컬럼 결정
+        # adjClose (분할/배당 조정가)가 있으면 우선 사용 → 주식분할 문제 근본 해결
+        # adjClose가 없으면 close (미조정가) 사용 (기존 데이터 하위호환)
+        if 'adjClose' in self.price_table.columns and self.price_table['adjClose'].notna().any():
+            return_price_col = 'adjClose'
+            self.logger.info(f"   ✅ Using adjClose (split/dividend-adjusted) for return calculation")
+        else:
+            return_price_col = 'close'
+            self.logger.warning(f"   ⚠️  adjClose not available, using unadjusted close for returns")
+
         # 이전 리밸런싱부터의 절대 가격 변동 계산
-        self.price_table['price_diff'] = self.price_table.groupby('symbol')['close'].diff()
+        self.price_table['price_diff'] = self.price_table.groupby('symbol')[return_price_col].diff()
 
         # 유동성 지표 계산 (저유동성 주식 필터링에 사용)
+        # close (미조정가) 사용: 실제 거래 가격 반영
         self.price_table['volume_mul_price'] = self.price_table['close'] * self.price_table['volume']
 
         # 백분율 수익률 계산 (ML 모델의 타겟 변수)
-        # 분모로 이전 종가 사용 (현재 종가 아님)
-        prev_close = self.price_table.groupby('symbol')['close'].shift(1)
+        # 분모로 이전 조정종가 사용: adjClose는 분할 보정이 반영되어
+        # prev_close ≈ 0 문제가 원천적으로 해결됨
+        prev_close = self.price_table.groupby('symbol')[return_price_col].shift(1)
         self.price_table['price_dev'] = self.price_table['price_diff'] / prev_close
 
-        # 극단적 price_dev 캡핑 (근본적 데이터 정합성 보호)
-        # 원인: 주식분할 미조정 가격(prev_close ≈ 0)으로 인한 천문학적 수익률
-        # 예: BCTX prev_close ≈ 0.000001 → price_dev = 833,192,858,637
-        # 이 1개 극단값이 mean 기반 타겟(price_dev_subavg) 계산 시 전체 데이터셋 오염
-        # 캡 범위: [-10, 10] = [-1000%, +1000%] (분기 수익률 기준 충분히 넓음)
+        # 안전장치: adjClose 사용 시에도 데이터 오류 대비 캡핑 유지
+        # (FMP 데이터 오류, 극단적 이벤트 등)
         PRICE_DEV_CAP = 10.0
         extreme_mask = self.price_table['price_dev'].abs() > PRICE_DEV_CAP
         n_extreme = extreme_mask.sum()

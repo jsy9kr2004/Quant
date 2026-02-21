@@ -235,9 +235,18 @@ class Parquet:
 
         # 2. Build Price Table
         # Combines historical prices with market capitalization
+        # adjClose: 분할/배당 조정 종가 (price_dev 수익률 계산에 사용)
+        # close: 미조정 종가 (참조용 보존)
+        price_usecols = ['date', 'symbol', 'close', 'volume']
+        # adjClose가 있으면 포함 (기존 데이터 하위호환)
+        csv_header = pd.read_csv(
+            self.rawpq_path + "historical_price_full.csv", nrows=0
+        ).columns.tolist()
+        if 'adjClose' in csv_header:
+            price_usecols.append('adjClose')
         price = pd.read_csv(
             self.rawpq_path + "historical_price_full.csv",
-            usecols=['date', 'symbol', 'close', 'volume']
+            usecols=price_usecols
         )
         marketcap = pd.read_csv(
             self.rawpq_path + "historical_market_capitalization.csv",
@@ -525,16 +534,21 @@ class Parquet:
             for filename in file_list:
                 try:
                     # Special handling for historical_price_full to reduce memory usage
+                    # adjClose: 분할/배당 조정 종가 (수익률 계산에 필수)
                     if directory == 'historical_price_full':
+                        price_cols = ['date', 'symbol', 'close', 'adjClose', 'volume']
                         if filename.endswith('.csv'):
                             df = pd.read_csv(
                                 filename,
-                                usecols=['date', 'symbol', 'close', 'volume']
+                                usecols=lambda c: c in price_cols
                             )
                         elif filename.endswith('.parquet'):
+                            # parquet 파일에서 존재하는 컬럼만 선택
+                            available = pd.read_parquet(filename, columns=None).columns
+                            use_cols = [c for c in price_cols if c in available]
                             df = pd.read_parquet(
                                 filename,
-                                columns=['date', 'symbol', 'close', 'volume']
+                                columns=use_cols
                             )
                     else:
                         # Load all columns for other categories
