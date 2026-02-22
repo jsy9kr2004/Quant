@@ -594,17 +594,9 @@ class MLBacktest:
         self.logger.info(f"Cache periods: {len(self.predictions_cache)}")
 
         # 가격 데이터 로드 (수익률 계산에 사용)
+        # Note: close는 parquet_converter에서 adjClose로 교체 완료 (분할/배당 조정 반영)
         price_table = pd.read_parquet(self.main_ctx.root_path + "/processed/views/price.parquet")
         price_table['date'] = pd.to_datetime(price_table['date'])
-
-        # adjClose(분할/배당 조정가)가 있으면 수익률 계산에 사용
-        # 주식분할 시 미조정 close는 가격 연속성이 깨져 수익률이 왜곡됨
-        # adjClose 사용 시 모델 학습(make_mldata.py)과 백테스트의 가격 기준 일치
-        if 'adjClose' in price_table.columns and price_table['adjClose'].notna().any():
-            price_table['close'] = price_table['adjClose']
-            self.logger.info(f"   ✅ Using adjClose for backtest (split/dividend-adjusted)")
-        else:
-            self.logger.warning(f"   ⚠️  adjClose not available, using unadjusted close")
 
         # 1단계: 리밸런싱 날짜 생성
         rebalance_dates = self._generate_rebalance_dates()

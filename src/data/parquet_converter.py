@@ -235,19 +235,29 @@ class Parquet:
 
         # 2. Build Price Table
         # Combines historical prices with market capitalization
-        # adjClose: 분할/배당 조정 종가 (price_dev 수익률 계산에 사용)
-        # close: 미조정 종가 (참조용 보존)
+        # adjClose(분할/배당 조정가)가 있으면 close를 대체하여 전체 파이프라인 통일
         price_usecols = ['date', 'symbol', 'close', 'volume']
-        # adjClose가 있으면 포함 (기존 데이터 하위호환)
         csv_header = pd.read_csv(
             self.rawpq_path + "historical_price_full.csv", nrows=0
         ).columns.tolist()
-        if 'adjClose' in csv_header:
+        has_adj_close = 'adjClose' in csv_header
+        if has_adj_close:
             price_usecols.append('adjClose')
         price = pd.read_csv(
             self.rawpq_path + "historical_price_full.csv",
             usecols=price_usecols
         )
+
+        # adjClose → close 교체 (파이프라인 전체가 조정가 기준으로 통일)
+        # - 주식분할/배당 보정이 반영된 가격으로 수익률 계산, 유동성 지표, 백테스트 모두 일관
+        # - 하류 코드에서 adjClose/close 혼용 문제 원천 차단
+        if has_adj_close and 'adjClose' in price.columns:
+            n_adj = price['adjClose'].notna().sum()
+            n_total = len(price)
+            if n_adj > 0:
+                price['close'] = price['adjClose']
+                logging.info(f"   ✅ adjClose → close replacement: {n_adj}/{n_total} rows adjusted")
+            price.drop(columns=['adjClose'], inplace=True)
         marketcap = pd.read_csv(
             self.rawpq_path + "historical_market_capitalization.csv",
             usecols=['date', 'symbol', 'marketCap']
@@ -568,6 +578,15 @@ class Parquet:
             if df_list:
                 # Concatenate all at once for efficiency
                 df_all_years = pd.concat(df_list, ignore_index=True)
+
+                # historical_price_full: adjClose → close 교체 (파이프라인 전체 조정가 통일)
+                if directory == 'historical_price_full' and 'adjClose' in df_all_years.columns:
+                    n_adj = df_all_years['adjClose'].notna().sum()
+                    if n_adj > 0:
+                        df_all_years['close'] = df_all_years['adjClose']
+                        logging.info(f"   ✅ adjClose → close replacement in {directory}: {n_adj} rows")
+                    df_all_years.drop(columns=['adjClose'], inplace=True)
+
                 df_all_years.to_csv(csv_save_path, index=False)
                 logging.info("create df in tables dict : {}".format(directory))
             else:
