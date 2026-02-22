@@ -235,10 +235,29 @@ class Parquet:
 
         # 2. Build Price Table
         # Combines historical prices with market capitalization
+        # adjClose(분할/배당 조정가)가 있으면 close를 대체하여 전체 파이프라인 통일
+        price_usecols = ['date', 'symbol', 'close', 'volume']
+        csv_header = pd.read_csv(
+            self.rawpq_path + "historical_price_full.csv", nrows=0
+        ).columns.tolist()
+        has_adj_close = 'adjClose' in csv_header
+        if has_adj_close:
+            price_usecols.append('adjClose')
         price = pd.read_csv(
             self.rawpq_path + "historical_price_full.csv",
-            usecols=['date', 'symbol', 'close', 'volume']
+            usecols=price_usecols
         )
+
+        # adjClose → close 교체 (파이프라인 전체가 조정가 기준으로 통일)
+        # - 주식분할/배당 보정이 반영된 가격으로 수익률 계산, 유동성 지표, 백테스트 모두 일관
+        # - 하류 코드에서 adjClose/close 혼용 문제 원천 차단
+        if has_adj_close and 'adjClose' in price.columns:
+            n_adj = price['adjClose'].notna().sum()
+            n_total = len(price)
+            if n_adj > 0:
+                price['close'] = price['adjClose']
+                logging.info(f"   ✅ adjClose → close replacement: {n_adj}/{n_total} rows adjusted")
+            price.drop(columns=['adjClose'], inplace=True)
         marketcap = pd.read_csv(
             self.rawpq_path + "historical_market_capitalization.csv",
             usecols=['date', 'symbol', 'marketCap']
@@ -525,16 +544,21 @@ class Parquet:
             for filename in file_list:
                 try:
                     # Special handling for historical_price_full to reduce memory usage
+                    # adjClose: 분할/배당 조정 종가 (수익률 계산에 필수)
                     if directory == 'historical_price_full':
+                        price_cols = ['date', 'symbol', 'close', 'adjClose', 'volume']
                         if filename.endswith('.csv'):
                             df = pd.read_csv(
                                 filename,
-                                usecols=['date', 'symbol', 'close', 'volume']
+                                usecols=lambda c: c in price_cols
                             )
                         elif filename.endswith('.parquet'):
+                            # parquet 파일에서 존재하는 컬럼만 선택
+                            available = pd.read_parquet(filename, columns=None).columns
+                            use_cols = [c for c in price_cols if c in available]
                             df = pd.read_parquet(
                                 filename,
-                                columns=['date', 'symbol', 'close', 'volume']
+                                columns=use_cols
                             )
                     else:
                         # Load all columns for other categories
@@ -554,6 +578,15 @@ class Parquet:
             if df_list:
                 # Concatenate all at once for efficiency
                 df_all_years = pd.concat(df_list, ignore_index=True)
+
+                # historical_price_full: adjClose → close 교체 (파이프라인 전체 조정가 통일)
+                if directory == 'historical_price_full' and 'adjClose' in df_all_years.columns:
+                    n_adj = df_all_years['adjClose'].notna().sum()
+                    if n_adj > 0:
+                        df_all_years['close'] = df_all_years['adjClose']
+                        logging.info(f"   ✅ adjClose → close replacement in {directory}: {n_adj} rows")
+                    df_all_years.drop(columns=['adjClose'], inplace=True)
+
                 df_all_years.to_csv(csv_save_path, index=False)
                 logging.info("create df in tables dict : {}".format(directory))
             else:

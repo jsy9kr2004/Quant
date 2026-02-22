@@ -594,6 +594,7 @@ class MLBacktest:
         self.logger.info(f"Cache periods: {len(self.predictions_cache)}")
 
         # 가격 데이터 로드 (수익률 계산에 사용)
+        # Note: close는 parquet_converter에서 adjClose로 교체 완료 (분할/배당 조정 반영)
         price_table = pd.read_parquet(self.main_ctx.root_path + "/processed/views/price.parquet")
         price_table['date'] = pd.to_datetime(price_table['date'])
 
