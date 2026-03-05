@@ -561,7 +561,7 @@ class FMP:
         # 티커 리스트를 가져오고 심볼 리스트 구축
         self.__fetch_ticker_list(api_list)
         self.__set_symbol()  # TODO: 심볼 리스트에 ETF 심볼 추가
-        print("after set_symbol : {}".format(self.symbol_list))
+        self.logger.debug(f"after set_symbol: {self.symbol_list}")
 
         # 두 번째 루프: 새 심볼 리스트를 기반으로 오래된 데이터 파일 제거
         if self.skip_remove_check() is False:
