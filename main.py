@@ -57,12 +57,12 @@ from src.backtest import MLBacktest
 
 def _is_enabled(value: Any) -> bool:
     """YAML config 값이 '활성화/true'를 나타내는지 확인합니다."""
-    return value in ('Y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True')
+    return value in ('Y', 'y', True, 'yes', 'YES', 'Yes', 'ON', 'On', 'on', 'TRUE', 'True', 'true', 1, '1')
 
 
 def _is_disabled(value: Any) -> bool:
     """YAML config 값이 '비활성화/false'를 나타내는지 확인합니다."""
-    return value in ('N', False, 'no', 'NO', 'No', 'OFF', 'Off', 'off', 'FALSE', 'False')
+    return value in ('N', 'n', False, 'no', 'NO', 'No', 'OFF', 'Off', 'off', 'FALSE', 'False', 'false', 0, '0')
 
 
 class RegressorIntegrated:
