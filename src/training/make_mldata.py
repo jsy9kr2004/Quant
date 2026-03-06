@@ -228,7 +228,6 @@ class AIDataMaker:
             fs_file = self.main_ctx.root_path + "/processed/views/financial_statement_" + str(year) + ".parquet"
             if not os.path.exists(fs_file):
                 self.logger.warning(f"Financial statement file not found, skipping: {fs_file}")
-                print(f"WARNING: Financial statement file not found for year {year}")
                 continue
             tmp_fs = pd.read_parquet(fs_file)
             self.fs_table = pd.concat([tmp_fs, self.fs_table])
@@ -254,7 +253,6 @@ class AIDataMaker:
             metrics_file = self.main_ctx.root_path + "/processed/views/metrics_" + str(year) + ".parquet"
             if not os.path.exists(metrics_file):
                 self.logger.warning(f"Metrics file not found, skipping: {metrics_file}")
-                print(f"WARNING: Metrics file not found for year {year}")
                 continue
             tmp_metrics = pd.read_parquet(metrics_file)
             self.metrics_table = pd.concat([tmp_metrics, self.metrics_table])
@@ -300,7 +298,7 @@ class AIDataMaker:
 
         # 과거 데이터를 위해 start_year보다 3년 전부터 시작
         date = datetime.datetime(int(self.main_ctx.start_year)-3, start_month, start_date)
-        print(date)
+        self.logger.debug(f"Trade date generation start: {date}")
 
         # 사용 가능한 가격 데이터를 초과하지 않도록 함
         recent_date = self.price_table["date"].max()
@@ -348,7 +346,6 @@ class AIDataMaker:
                 self.logger.warning(f"⚠️  Cannot find tradable date for {date.strftime('%Y-%m-%d')}")
                 self.logger.warning(f"   Price data range: {price_min_date.strftime('%Y-%m-%d')} to {price_max_date.strftime('%Y-%m-%d')}")
                 self.logger.warning(f"   Skipping dates before price data is available...")
-                print(f"⚠️  WARNING: Skipping {date.strftime('%Y-%m-%d')} - no price data available")
                 continue
             trade_date_list.append(tdate)
 
@@ -603,10 +600,10 @@ class AIDataMaker:
 
                 # 이미 존재하면 건너뛰기 (둘 다 체크)
                 if os.path.isfile(file_path) and os.path.isfile(file2_path):
-                    print(f"*** there is parquet file {cur_year}_{quarter_str}")
+                    self.logger.debug(f"Parquet file already exists: {cur_year}_{quarter_str}")
                     continue
 
-                print(base_year_period)
+                self.logger.debug(f"Processing year_period: {base_year_period}")
 
                 # Phase 2: 분기별 윈도우 데이터 준비
                 window_data = self._prepare_quarter_window(fs_metrics, base_year_period, quarter_str)
@@ -801,8 +798,7 @@ class AIDataMaker:
 
     def _save_debug_snapshot(self, fs_metrics: pd.DataFrame, cur_year: int) -> None:
         """디버깅용 fs_metrics 스냅샷을 저장합니다."""
-        print("*** fs_metrics w/ rebalance_date")
-        print(fs_metrics)
+        self.logger.debug(f"fs_metrics w/ rebalance_date: shape={fs_metrics.shape}")
         debug_dir = os.path.join(self.main_ctx.root_path, "debug")
         self.main_ctx.create_dir(debug_dir)
         fs_metrics.head(1000).to_parquet(os.path.join(debug_dir, f"fs_metric_wdate_{str(cur_year)}.parquet"), index=False)
@@ -832,12 +828,11 @@ class AIDataMaker:
             return group.tail(12)
 
         window_data = filtered_data.groupby('symbol', group_keys=False).apply(get_last_12_rows).reset_index(drop=True)
-        print(window_data)
+        self.logger.debug(f"Window data for {cur_year}_{quarter_str}: shape={window_data.shape}")
 
         # 데이터가 없으면 건너뛰기
         if window_data.empty:
             self.logger.warning(f"No data available for {cur_year}_{quarter_str}. Skipping...")
-            print(f"⚠️  WARNING: No data for {cur_year}_{quarter_str} - skipping file generation")
             return None
 
         # 12분기 미만의 데이터를 가진 종목 필터링
@@ -847,7 +842,6 @@ class AIDataMaker:
 
         if window_data.empty:
             self.logger.warning(f"No symbols with sufficient data (12+ rows) for {cur_year}_{quarter_str}. Skipping...")
-            print(f"⚠️  WARNING: No symbols with 12+ data points for {cur_year}_{quarter_str} - skipping")
             return None
 
         return window_data

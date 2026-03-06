@@ -404,9 +404,9 @@ def _initialize_pipeline() -> tuple:
         config_path = get_config_path()
         config = load_config(config_path)
     except FileNotFoundError as e:
-        print(f"\n❌ {e}")
-        print("\nPlease create config/conf.yaml with your settings.")
-        print("See config/conf.yaml.template for reference.")
+        print(f"\n❌ {e}", file=sys.stderr)
+        print("\nPlease create config/conf.yaml with your settings.", file=sys.stderr)
+        print("See config/conf.yaml.template for reference.", file=sys.stderr)
         sys.exit(1)
 
     main_ctx = MainContext(config)
